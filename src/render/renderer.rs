@@ -9,8 +9,8 @@ use crate::render::batch::{ItemBatch, item_batches};
 pub(crate) struct DrawReport {
     pub(crate) stats: DrawStats,
     pub(crate) batch_prepare: std::time::Duration,
-    pub(crate) acquire_outcome: render::AcquireOutcome,
-    pub(crate) present_timing: Option<render::PresentTiming>,
+    pub(crate) acquire_outcome: render::surface::AcquireOutcome,
+    pub(crate) present_timing: Option<render::surface::PresentTiming>,
 }
 
 pub struct Renderer {
@@ -115,7 +115,8 @@ struct SceneEncoderInput<'a> {
 }
 
 impl Renderer {
-    pub fn new(render_context: &render::Context, format: wgpu::TextureFormat) -> Self {
+    pub fn new(render_context: &render::Context, format: render::surface::Format) -> Self {
+        let format = format.into_wgpu();
         Self {
             format,
             quad_pipeline: render::quad::pipeline(render_context, format),
@@ -197,15 +198,12 @@ impl Renderer {
 
         let preserve_surface_alpha =
             canvas.composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
-        let surface_format = canvas.surface().config().format;
-        let pack_premultiplied_surface = render::supports_windows_premultiplied_popup_pack(
-            surface_format,
-            canvas.composite_alpha_mode(),
-        );
+        let surface_format = canvas.surface().format();
+        let pack_premultiplied_surface = canvas.surface().windows_popup_support().is_available();
         if pack_premultiplied_surface {
             debug_assert_eq!(
                 self.format,
-                render::scene_format_for_surface_format(surface_format),
+                canvas.surface().render_format().into_wgpu(),
                 "popup pack path must render its scene into an sRGB source format"
             );
             log::debug!(
@@ -263,7 +261,7 @@ impl Renderer {
                     encoder,
                     composition_view,
                     &view,
-                    surface_format,
+                    surface_format.into_wgpu(),
                 );
             })?
         } else if preserve_surface_alpha {
@@ -1540,7 +1538,7 @@ mod tests {
     }
 
     async fn read_direct_premultiplied_alpha_witness() -> Result<[f32; 4], String> {
-        let context = render::Context::new(render::ContextOptions {
+        let context = render::Context::new(render::context::Options {
             device_label: "wgpu_l3 alpha witness",
             backends: wgpu::Backends::PRIMARY,
             power_preference: wgpu::PowerPreference::default(),
@@ -1570,7 +1568,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut renderer = Renderer::new(&context, format);
+        let mut renderer = Renderer::new(&context, render::surface::Format::from_wgpu(format));
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_quad(paint::Quad::unchecked_for_test(
@@ -1700,7 +1698,7 @@ mod tests {
     }
 
     async fn read_popup_pack_witness() -> Result<[u8; 4], String> {
-        let context = render::Context::new(render::ContextOptions {
+        let context = render::Context::new(render::context::Options {
             device_label: "wgpu_l3 popup pack witness",
             backends: wgpu::Backends::PRIMARY,
             power_preference: wgpu::PowerPreference::default(),
@@ -1746,7 +1744,8 @@ mod tests {
         let scene_view = scene_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut renderer = Renderer::new(&context, scene_format);
+        let mut renderer =
+            Renderer::new(&context, render::surface::Format::from_wgpu(scene_format));
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_quad(paint::Quad::unchecked_for_test(
@@ -1898,7 +1897,7 @@ mod tests {
         width: u32,
         height: u32,
     ) -> Result<Vec<[f32; 4]>, String> {
-        let context = render::Context::new(render::ContextOptions {
+        let context = render::Context::new(render::context::Options {
             device_label: "wgpu_l3 foreground alpha witness",
             backends: wgpu::Backends::PRIMARY,
             power_preference: wgpu::PowerPreference::default(),
@@ -1926,7 +1925,7 @@ mod tests {
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut renderer = Renderer::new(&context, format);
+        let mut renderer = Renderer::new(&context, render::surface::Format::from_wgpu(format));
         let viewport =
             render::Viewport::from_logical_area(area::logical(width as f32, height as f32), 1.0);
         let item_batch_list = item_batches(scene.items());

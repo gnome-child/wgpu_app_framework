@@ -1,5 +1,4 @@
 use crate::geometry::area;
-use wgpu::{SurfaceTarget, SurfaceTargetUnsafe};
 
 use crate::render;
 
@@ -21,6 +20,22 @@ pub struct Surface {
     inner: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     reconfigure_after_present: bool,
+}
+
+pub(crate) trait WindowTarget: wgpu::DisplayAndWindowHandle + 'static {}
+
+impl<T> WindowTarget for T where T: wgpu::DisplayAndWindowHandle + 'static {}
+
+pub(crate) struct Target(wgpu::SurfaceTargetUnsafe);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Format(wgpu::TextureFormat);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WindowsPopupSupport {
+    Available,
+    NonSrgbFormatUnavailable,
+    PremultipliedAlphaUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +79,7 @@ impl Surface {
     pub fn new(
         area: area::Physical,
         render_context: &render::Context,
-        target: impl Into<SurfaceTarget<'static>>,
+        target: impl WindowTarget,
         alpha_preference: CompositeAlphaPreference,
     ) -> Result<Self> {
         log::debug!(
@@ -72,6 +87,7 @@ impl Surface {
             area.width(),
             area.height()
         );
+        let target = wgpu::SurfaceTarget::DisplayAndWindow(Box::new(target));
         let inner = render_context.instance().create_surface(target)?;
         Self::from_wgpu_surface(area, render_context, inner, alpha_preference)
     }
@@ -81,10 +97,10 @@ impl Surface {
     pub(crate) unsafe fn new_unsafe(
         area: area::Physical,
         render_context: &render::Context,
-        target: SurfaceTargetUnsafe,
+        target: Target,
         alpha_preference: CompositeAlphaPreference,
     ) -> Result<Self> {
-        let inner = unsafe { render_context.instance().create_surface_unsafe(target) }?;
+        let inner = unsafe { render_context.instance().create_surface_unsafe(target.0) }?;
         Self::from_wgpu_surface(area, render_context, inner, alpha_preference)
     }
 
@@ -151,12 +167,32 @@ impl Surface {
         })
     }
 
-    pub(crate) fn wgpu_surface(&self) -> &wgpu::Surface<'static> {
-        &self.inner
+    #[cfg(target_os = "windows")]
+    pub(crate) unsafe fn dx12(
+        &self,
+    ) -> Option<impl std::ops::Deref<Target = wgpu_hal::dx12::Surface> + '_> {
+        unsafe { self.inner.as_hal::<wgpu_hal::api::Dx12>() }
     }
 
-    pub fn config(&self) -> &wgpu::SurfaceConfiguration {
+    pub(in crate::render) fn config(&self) -> &wgpu::SurfaceConfiguration {
         &self.config
+    }
+
+    pub(crate) fn format(&self) -> Format {
+        Format(self.config.format)
+    }
+
+    pub(crate) fn render_format(&self) -> Format {
+        let format = self.config.format;
+        if supports_windows_premultiplied_popup_pack(format, self.config.alpha_mode) {
+            Format(scene_format_for_surface_format(format))
+        } else {
+            Format(format)
+        }
+    }
+
+    pub(crate) fn windows_popup_support(&self) -> WindowsPopupSupport {
+        windows_popup_support(self.config.format, self.config.alpha_mode)
     }
 
     pub fn resize(&mut self, render_context: &render::Context, area: area::Physical) {
@@ -179,12 +215,12 @@ impl Surface {
     pub fn acquire_frame(
         &mut self,
         render_context: &render::Context,
-    ) -> Result<(render::FrameOutcome, AcquireOutcome)> {
+    ) -> Result<(render::frame::Outcome, AcquireOutcome)> {
         use wgpu::CurrentSurfaceTexture::*;
 
         match self.inner.get_current_texture() {
             Success(surface_texture) => Ok((
-                render::FrameOutcome::Acquired(render::Frame::new(surface_texture)),
+                render::frame::Outcome::Acquired(render::Frame::new(surface_texture)),
                 AcquireOutcome::Success,
             )),
             Suboptimal(surface_texture) => {
@@ -193,7 +229,7 @@ impl Surface {
                 );
                 self.reconfigure_after_present = true;
                 Ok((
-                    render::FrameOutcome::Acquired(render::Frame::new(surface_texture)),
+                    render::frame::Outcome::Acquired(render::Frame::new(surface_texture)),
                     AcquireOutcome::Suboptimal,
                 ))
             }
@@ -202,26 +238,26 @@ impl Surface {
                     "surface texture is outdated; reconfiguring surface and skipping frame"
                 );
                 self.reconfigure(render_context);
-                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Outdated))
+                Ok((render::frame::Outcome::Skipped, AcquireOutcome::Outdated))
             }
             Timeout => {
                 log::debug!("surface texture acquisition timed out; skipping frame");
-                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Timeout))
+                Ok((render::frame::Outcome::Skipped, AcquireOutcome::Timeout))
             }
             Occluded => {
                 log::debug!("surface is occluded; skipping frame");
-                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Occluded))
+                Ok((render::frame::Outcome::Skipped, AcquireOutcome::Occluded))
             }
             Validation => {
                 log::warn!(
                     "surface texture acquisition returned validation status; skipping frame"
                 );
-                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Validation))
+                Ok((render::frame::Outcome::Skipped, AcquireOutcome::Validation))
             }
             Lost => {
                 log::warn!("surface was lost; reconfiguring surface and skipping frame");
                 self.reconfigure(render_context);
-                Ok((render::FrameOutcome::Skipped, AcquireOutcome::Lost))
+                Ok((render::frame::Outcome::Skipped, AcquireOutcome::Lost))
             }
         }
     }
@@ -235,7 +271,7 @@ impl Surface {
         let (outcome, acquire) = self.acquire_frame(render_context)?;
         let acquire_wait = acquire_started.elapsed();
 
-        use render::FrameOutcome::*;
+        use render::frame::Outcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
             Skipped => return Ok(SurfaceReport::new(acquire, None)),
@@ -276,6 +312,46 @@ impl Surface {
         );
         self.inner.configure(render_context.device(), &self.config);
         self.reconfigure_after_present = false;
+    }
+}
+
+impl Target {
+    /// Encodes a live `IDCompositionVisual` as a renderer surface target.
+    ///
+    /// # Safety
+    ///
+    /// `visual` must identify a valid composition visual. The native owner must
+    /// retain that visual for at least as long as the resulting surface.
+    #[cfg(target_os = "windows")]
+    pub(crate) unsafe fn composition_visual(visual: *mut core::ffi::c_void) -> Self {
+        Self(wgpu::SurfaceTargetUnsafe::CompositionVisual(visual))
+    }
+}
+
+impl Format {
+    #[cfg(test)]
+    pub(in crate::render) const fn from_wgpu(format: wgpu::TextureFormat) -> Self {
+        Self(format)
+    }
+
+    pub(in crate::render) fn into_wgpu(self) -> wgpu::TextureFormat {
+        self.0
+    }
+}
+
+impl WindowsPopupSupport {
+    pub(crate) fn is_available(self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    pub(crate) fn fallback_reason(self) -> Option<&'static str> {
+        match self {
+            Self::Available => None,
+            Self::NonSrgbFormatUnavailable => {
+                Some("non-sRGB premultiplied popup surface format unavailable")
+            }
+            Self::PremultipliedAlphaUnavailable => Some("premultiplied alpha surface unavailable"),
+        }
     }
 }
 
@@ -368,7 +444,7 @@ fn preferred_format(
     }
 }
 
-pub(crate) fn scene_format_for_surface_format(format: wgpu::TextureFormat) -> wgpu::TextureFormat {
+fn scene_format_for_surface_format(format: wgpu::TextureFormat) -> wgpu::TextureFormat {
     match format {
         wgpu::TextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8UnormSrgb,
         wgpu::TextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -376,7 +452,7 @@ pub(crate) fn scene_format_for_surface_format(format: wgpu::TextureFormat) -> wg
     }
 }
 
-pub(crate) fn supports_windows_premultiplied_popup_pack(
+fn supports_windows_premultiplied_popup_pack(
     format: wgpu::TextureFormat,
     alpha_mode: wgpu::CompositeAlphaMode,
 ) -> bool {
@@ -385,6 +461,22 @@ pub(crate) fn supports_windows_premultiplied_popup_pack(
             format,
             wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
         )
+}
+
+fn windows_popup_support(
+    format: wgpu::TextureFormat,
+    alpha_mode: wgpu::CompositeAlphaMode,
+) -> WindowsPopupSupport {
+    if alpha_mode != wgpu::CompositeAlphaMode::PreMultiplied {
+        WindowsPopupSupport::PremultipliedAlphaUnavailable
+    } else if matches!(
+        format,
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
+    ) {
+        WindowsPopupSupport::Available
+    } else {
+        WindowsPopupSupport::NonSrgbFormatUnavailable
+    }
 }
 
 fn non_srgb_variant(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
@@ -492,6 +584,31 @@ mod tests {
             wgpu::TextureFormat::Bgra8Unorm,
             wgpu::CompositeAlphaMode::Opaque
         ));
+    }
+
+    #[test]
+    fn popup_support_preserves_alpha_and_format_failure_reasons() {
+        assert_eq!(
+            windows_popup_support(
+                wgpu::TextureFormat::Bgra8Unorm,
+                wgpu::CompositeAlphaMode::PreMultiplied,
+            ),
+            WindowsPopupSupport::Available
+        );
+        assert_eq!(
+            windows_popup_support(
+                wgpu::TextureFormat::Bgra8UnormSrgb,
+                wgpu::CompositeAlphaMode::PreMultiplied,
+            ),
+            WindowsPopupSupport::NonSrgbFormatUnavailable
+        );
+        assert_eq!(
+            windows_popup_support(
+                wgpu::TextureFormat::Bgra8Unorm,
+                wgpu::CompositeAlphaMode::Opaque,
+            ),
+            WindowsPopupSupport::PremultipliedAlphaUnavailable
+        );
     }
 
     #[test]

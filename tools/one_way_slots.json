@@ -138,7 +138,7 @@
     "unicode_linebreak": ["text"],
     "unicode_segmentation": ["text", "runtime"],
     "wgpu": ["renderer"],
-    "wgpu_hal": ["platform"],
+    "wgpu_hal": ["renderer"],
     "windows": ["platform"],
     "windows_future": ["platform"],
     "windows_numerics": ["platform"],

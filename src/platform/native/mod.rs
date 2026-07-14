@@ -27,7 +27,7 @@ use settle::{ApplyDue, SysApplicator};
 
 pub struct Native {
     context: Option<render::Context>,
-    renderers: HashMap<wgpu::TextureFormat, render::Renderer>,
+    renderers: HashMap<render::surface::Format, render::Renderer>,
     windows: HashMap<app_window::Id, window::Window>,
     popups: HashMap<PopupKey, PopupWindow>,
     popup_pool: HashMap<app_window::Id, Vec<PopupHost>>,
@@ -429,17 +429,16 @@ impl PopupPresentationMode {
         matches!(self, Self::CompositionBacked)
     }
 
-    fn alpha_preference(self) -> render::CompositeAlphaPreference {
+    fn alpha_preference(self) -> render::surface::CompositeAlphaPreference {
         match self {
-            Self::CompositionBacked => render::CompositeAlphaPreference::PreMultiplied,
-            Self::RedirectedFallback => render::CompositeAlphaPreference::PreMultiplied,
+            Self::CompositionBacked => render::surface::CompositeAlphaPreference::PreMultiplied,
+            Self::RedirectedFallback => render::surface::CompositeAlphaPreference::PreMultiplied,
         }
     }
 
     fn realization_for(
         self,
-        format: wgpu::TextureFormat,
-        alpha_mode: wgpu::CompositeAlphaMode,
+        support: render::surface::WindowsPopupSupport,
         preference: overlay::PopupMaterialPreference,
     ) -> PopupMaterialRealization {
         match preference {
@@ -447,14 +446,14 @@ impl PopupPresentationMode {
                 PopupMaterialRealization::OpaqueFallback
             }
             overlay::PopupMaterialPreference::NoAccent => {
-                if render::supports_windows_premultiplied_popup_pack(format, alpha_mode) {
+                if support.is_available() {
                     PopupMaterialRealization::TransparentNoAccent
                 } else {
                     PopupMaterialRealization::OpaqueFallback
                 }
             }
             overlay::PopupMaterialPreference::System => {
-                if render::supports_windows_premultiplied_popup_pack(format, alpha_mode) {
+                if support.is_available() {
                     PopupMaterialRealization::WindowsAccentAcrylic
                 } else {
                     PopupMaterialRealization::OpaqueFallback
@@ -475,23 +474,11 @@ impl PopupMaterialRealization {
 
     fn fallback_reason(
         self,
-        mode: PopupPresentationMode,
-        format: wgpu::TextureFormat,
-        alpha_mode: wgpu::CompositeAlphaMode,
+        support: render::surface::WindowsPopupSupport,
     ) -> Option<&'static str> {
-        match (self, mode, format, alpha_mode) {
-            (Self::WindowsAccentAcrylic, _, _, _) => None,
-            (Self::TransparentNoAccent, _, _, _) => None,
-            (Self::OpaqueFallback, _, _, wgpu::CompositeAlphaMode::PreMultiplied)
-                if !matches!(
-                    format,
-                    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
-                ) =>
-            {
-                Some("non-sRGB premultiplied popup surface format unavailable")
-            }
-            (Self::OpaqueFallback, _, _, wgpu::CompositeAlphaMode::PreMultiplied) => None,
-            (Self::OpaqueFallback, _, _, _) => Some("premultiplied alpha surface unavailable"),
+        match self {
+            Self::WindowsAccentAcrylic | Self::TransparentNoAccent => None,
+            Self::OpaqueFallback => support.fallback_reason(),
         }
     }
 }
@@ -815,13 +802,13 @@ mod tests {
         assert!(PopupPresentationMode::CompositionBacked.no_redirection_bitmap());
         assert_eq!(
             PopupPresentationMode::CompositionBacked.alpha_preference(),
-            crate::render::CompositeAlphaPreference::PreMultiplied
+            crate::render::surface::CompositeAlphaPreference::PreMultiplied
         );
 
         assert!(!PopupPresentationMode::RedirectedFallback.no_redirection_bitmap());
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.alpha_preference(),
-            crate::render::CompositeAlphaPreference::PreMultiplied
+            crate::render::surface::CompositeAlphaPreference::PreMultiplied
         );
     }
 
@@ -829,32 +816,28 @@ mod tests {
     fn popup_material_realization_requires_premultiplied_alpha() {
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
-                wgpu::TextureFormat::Bgra8Unorm,
-                wgpu::CompositeAlphaMode::PreMultiplied,
+                crate::render::surface::WindowsPopupSupport::Available,
                 PopupMaterialPreference::System
             ),
             PopupMaterialRealization::WindowsAccentAcrylic
         );
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
-                wgpu::TextureFormat::Bgra8Unorm,
-                wgpu::CompositeAlphaMode::Opaque,
+                crate::render::surface::WindowsPopupSupport::PremultipliedAlphaUnavailable,
                 PopupMaterialPreference::System
             ),
             PopupMaterialRealization::OpaqueFallback
         );
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.realization_for(
-                wgpu::TextureFormat::Bgra8Unorm,
-                wgpu::CompositeAlphaMode::PreMultiplied,
+                crate::render::surface::WindowsPopupSupport::Available,
                 PopupMaterialPreference::System
             ),
             PopupMaterialRealization::WindowsAccentAcrylic
         );
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.realization_for(
-                wgpu::TextureFormat::Bgra8UnormSrgb,
-                wgpu::CompositeAlphaMode::PreMultiplied,
+                crate::render::surface::WindowsPopupSupport::NonSrgbFormatUnavailable,
                 PopupMaterialPreference::System
             ),
             PopupMaterialRealization::OpaqueFallback
@@ -865,24 +848,21 @@ mod tests {
     fn popup_material_diagnostics_can_force_realization() {
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
-                wgpu::TextureFormat::Bgra8Unorm,
-                wgpu::CompositeAlphaMode::PreMultiplied,
+                crate::render::surface::WindowsPopupSupport::Available,
                 PopupMaterialPreference::OpaqueFallback
             ),
             PopupMaterialRealization::OpaqueFallback
         );
         assert_eq!(
             PopupPresentationMode::CompositionBacked.realization_for(
-                wgpu::TextureFormat::Bgra8Unorm,
-                wgpu::CompositeAlphaMode::PreMultiplied,
+                crate::render::surface::WindowsPopupSupport::Available,
                 PopupMaterialPreference::NoAccent
             ),
             PopupMaterialRealization::TransparentNoAccent
         );
         assert_eq!(
             PopupPresentationMode::RedirectedFallback.realization_for(
-                wgpu::TextureFormat::Bgra8Unorm,
-                wgpu::CompositeAlphaMode::PreMultiplied,
+                crate::render::surface::WindowsPopupSupport::Available,
                 PopupMaterialPreference::NoAccent
             ),
             PopupMaterialRealization::TransparentNoAccent

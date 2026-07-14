@@ -16,16 +16,68 @@ pub struct Context {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
     queue: wgpu::Queue,
+    backend: Backend,
     windows_popup_composition_supported: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Backends(wgpu::Backends);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Backend(wgpu::Backend);
+
+#[derive(Debug, Clone)]
 pub struct Options {
-    pub device_label: &'static str,
-    pub backends: wgpu::Backends,
-    pub power_preference: wgpu::PowerPreference,
-    pub force_fallback_adapter: bool,
-    pub required_features: wgpu::Features,
-    pub required_limits: wgpu::Limits,
+    pub(in crate::render) device_label: &'static str,
+    pub(in crate::render) backends: wgpu::Backends,
+    pub(in crate::render) power_preference: wgpu::PowerPreference,
+    pub(in crate::render) force_fallback_adapter: bool,
+    pub(in crate::render) required_features: wgpu::Features,
+    pub(in crate::render) required_limits: wgpu::Limits,
+}
+
+impl Backends {
+    pub(crate) fn from_env() -> Option<Self> {
+        wgpu::Backends::from_env().map(Self)
+    }
+
+    pub(crate) const fn all() -> Self {
+        Self(wgpu::Backends::all())
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) const fn dx12() -> Self {
+        Self(wgpu::Backends::DX12)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn vulkan() -> Self {
+        Self(wgpu::Backends::VULKAN)
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn contains(self, other: Self) -> bool {
+        self.0.contains(other.0)
+    }
+}
+
+impl Backend {
+    pub(crate) fn is_dx12(self) -> bool {
+        self.0 == wgpu::Backend::Dx12
+    }
+}
+
+impl Options {
+    pub(crate) fn native(backends: Backends) -> Self {
+        Self {
+            device_label: "wgpu_l3 device",
+            backends: backends.0,
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+        }
+    }
 }
 
 impl Context {
@@ -108,27 +160,32 @@ impl Context {
             adapter,
             device,
             queue,
+            backend: Backend(adapter_backend),
             windows_popup_composition_supported,
         })
     }
 
-    pub fn device(&self) -> &wgpu::Device {
+    pub(in crate::render) fn device(&self) -> &wgpu::Device {
         &self.device
     }
 
-    pub fn instance(&self) -> &wgpu::Instance {
+    pub(in crate::render) fn instance(&self) -> &wgpu::Instance {
         &self.instance
     }
 
-    pub fn adapter(&self) -> &wgpu::Adapter {
+    pub(in crate::render) fn adapter(&self) -> &wgpu::Adapter {
         &self.adapter
+    }
+
+    pub(crate) fn backend(&self) -> Backend {
+        self.backend
     }
 
     pub(crate) fn windows_popup_composition_supported(&self) -> bool {
         self.windows_popup_composition_supported
     }
 
-    pub fn queue(&self) -> &wgpu::Queue {
+    pub(in crate::render) fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
 }

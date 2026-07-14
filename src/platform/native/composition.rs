@@ -249,8 +249,7 @@ impl Runtime {
         let swap_chain = unsafe {
             canvas
                 .surface()
-                .wgpu_surface()
-                .as_hal::<wgpu_hal::api::Dx12>()
+                .dx12()
                 .and_then(|surface| surface.swap_chain())
         }
         .ok_or_else(|| windows::core::Error::from(E_NOINTERFACE))?;
@@ -351,8 +350,8 @@ impl Runtime {
 }
 
 impl SurfaceSeed {
-    pub(super) fn target(&self) -> wgpu::SurfaceTargetUnsafe {
-        wgpu::SurfaceTargetUnsafe::CompositionVisual(self.visual.as_raw())
+    pub(super) fn target(&self) -> render::surface::Target {
+        unsafe { render::surface::Target::composition_visual(self.visual.as_raw()) }
     }
 }
 

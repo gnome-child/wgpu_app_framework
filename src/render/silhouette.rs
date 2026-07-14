@@ -383,7 +383,7 @@ mod tests {
     #[test]
     #[ignore = "requires a GPU adapter; run with the renderer smoke tier"]
     fn shared_silhouette_shaders_compile_in_wgpu_pipelines() {
-        let context = pollster::block_on(render::Context::new(render::ContextOptions {
+        let context = pollster::block_on(render::Context::new(render::context::Options {
             device_label: "wgpu_l3 silhouette shader smoke device",
             backends: wgpu::Backends::all(),
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -393,6 +393,9 @@ mod tests {
         }))
         .expect("render context should initialize");
 
-        let _renderer = render::Renderer::new(&context, wgpu::TextureFormat::Bgra8UnormSrgb);
+        let _renderer = render::Renderer::new(
+            &context,
+            render::surface::Format::from_wgpu(wgpu::TextureFormat::Bgra8UnormSrgb),
+        );
     }
 }

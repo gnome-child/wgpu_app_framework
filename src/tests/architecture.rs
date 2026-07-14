@@ -271,6 +271,71 @@ fn semantic_scene_lowering_belongs_to_renderer() {
 }
 
 #[test]
+fn native_platform_uses_first_party_renderer_surface_contracts() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let platform = src.join("platform");
+    let render_mod = std::fs::read_to_string(src.join("render").join("mod.rs"))
+        .expect("render module should read");
+    let render_context = std::fs::read_to_string(src.join("render").join("context.rs"))
+        .expect("render context should read");
+    let render_surface = std::fs::read_to_string(src.join("render").join("surface.rs"))
+        .expect("render surface should read");
+    let slots = std::fs::read_to_string(root.join("tools").join("one_way_slots.json"))
+        .expect("one-way slot map should read");
+
+    assert_source_patterns_absent(&platform, &["wgpu::".to_owned(), "wgpu_hal::".to_owned()]);
+    for contract in [
+        "pub(crate) struct Backends(wgpu::Backends)",
+        "pub(crate) struct Backend(wgpu::Backend)",
+        "pub(crate) fn backend(&self) -> Backend",
+    ] {
+        assert!(
+            render_context.contains(contract),
+            "renderer context boundary must contain {contract}"
+        );
+    }
+    for contract in [
+        "pub(crate) struct Format(wgpu::TextureFormat)",
+        "pub(crate) struct Target(wgpu::SurfaceTargetUnsafe)",
+        "pub(crate) enum WindowsPopupSupport",
+        "self.inner.as_hal::<wgpu_hal::api::Dx12>()",
+    ] {
+        assert!(
+            render_surface.contains(contract),
+            "renderer surface boundary must contain {contract}"
+        );
+    }
+    for module in ["canvas", "context", "surface"] {
+        assert!(
+            render_mod.contains(&format!("pub(crate) mod {module};")),
+            "supporting renderer concepts must remain namespaced under {module}"
+        );
+    }
+    for central in [
+        "pub(crate) use canvas::Canvas;",
+        "pub(crate) use context::Context;",
+        "pub(crate) use surface::Surface;",
+    ] {
+        assert!(
+            render_mod.contains(central),
+            "renderer parent must project only its same-named central type: {central}"
+        );
+    }
+    for retired_alias in ["CanvasOptions", "ContextOptions", "FrameOutcome"] {
+        assert!(
+            !render_mod.contains(retired_alias),
+            "renderer parent must not retain compound support alias {retired_alias}"
+        );
+    }
+    assert!(
+        slots.contains("\"wgpu\": [\"renderer\"]")
+            && slots.contains("\"wgpu_hal\": [\"renderer\"]"),
+        "wgpu and its HAL must have one renderer owner"
+    );
+}
+
+#[test]
 fn renderer_paint_vocabulary_stays_private() {
     let lib = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -3023,7 +3088,7 @@ fn windows_native_popup_material_prefers_dx12_without_overriding_explicit_choice
     );
     assert!(
         context.contains("options.backends.with_env()")
-            && native_surface.contains("wgpu::Backends::from_env()")
+            && native_surface.contains("context::Backends::from_env()")
             && native_surface.contains("native_backend_attempts(explicit)"),
         "WGPU_BACKEND must remain authoritative over the native preference ladder"
     );
@@ -3035,7 +3100,7 @@ fn windows_native_popup_material_prefers_dx12_without_overriding_explicit_choice
         "native backend selection must have one policy owner"
     );
     assert!(
-        native_surface.contains("vec![wgpu::Backends::DX12, wgpu::Backends::all()]"),
+        native_surface.contains("vec![context::Backends::dx12(), context::Backends::all()]"),
         "implicit Windows selection should try tenancy-capable DX12 then retain the ordinary fallback set"
     );
     assert!(
@@ -3058,7 +3123,7 @@ fn windows_native_popup_material_prefers_dx12_without_overriding_explicit_choice
     );
     assert!(
         native_mod.contains(
-            "Self::RedirectedFallback => render::CompositeAlphaPreference::PreMultiplied"
+            "Self::RedirectedFallback => render::surface::CompositeAlphaPreference::PreMultiplied"
         ) && native_mod.contains("PopupPresentationMode::RedirectedFallback.realization_for")
             && native_mod.contains("PopupMaterialRealization::WindowsAccentAcrylic"),
         "redirected Vulkan popups may realize OS material when the surface reports premultiplied alpha"
@@ -3625,6 +3690,8 @@ fn windows_tenancy_is_earned_by_dx12_wrap_and_keeps_legacy_fallback() {
         .expect("native popup source should read");
     let surface = std::fs::read_to_string(root.join("src/platform/native/surface.rs"))
         .expect("native surface source should read");
+    let render_surface = std::fs::read_to_string(root.join("src/render/surface.rs"))
+        .expect("render surface source should read");
 
     assert!(
         cargo.contains("wgpu-hal = { version = \"29.0.3\"")
@@ -3632,15 +3699,23 @@ fn windows_tenancy_is_earned_by_dx12_wrap_and_keeps_legacy_fallback() {
         "direct HAL and Windows bindings must match wgpu's pinned ABI family"
     );
     for receipt in [
-        "SurfaceTargetUnsafe::CompositionVisual",
-        ".as_hal::<wgpu_hal::api::Dx12>()",
         "CreateCompositionSurfaceForSwapChain",
         "CreateDesktopWindowTarget",
         "InsertAtTop(&content)",
+        ".dx12()",
     ] {
         assert!(
             composition.contains(receipt),
             "single-HWND tenancy route is missing {receipt}"
+        );
+    }
+    for receipt in [
+        "SurfaceTargetUnsafe::CompositionVisual",
+        "self.inner.as_hal::<wgpu_hal::api::Dx12>()",
+    ] {
+        assert!(
+            render_surface.contains(receipt),
+            "renderer-owned DX12 surface bridge is missing {receipt}"
         );
     }
     assert!(
@@ -3649,7 +3724,7 @@ fn windows_tenancy_is_earned_by_dx12_wrap_and_keeps_legacy_fallback() {
     );
     assert!(
         surface.contains("native_backend_attempts(explicit)")
-            && surface.contains("vec![wgpu::Backends::DX12, wgpu::Backends::all()]")
+            && surface.contains("vec![context::Backends::dx12(), context::Backends::all()]")
             && popup.contains("retaining legacy popup realization"),
         "DX12-first tenancy must preserve explicit overrides and a clean legacy fallback"
     );
@@ -3711,7 +3786,7 @@ fn premultiplied_popup_surfaces_pack_without_legacy_final_blit() {
     );
     assert!(
         renderer.contains("pack_premultiplied_surface")
-            && renderer.contains("supports_windows_premultiplied_popup_pack")
+            && renderer.contains("windows_popup_support()")
             && renderer.contains("popup_packer.pack_to_view"),
         "premultiplied non-sRGB popup surfaces should render through the Windows pack pass"
     );
@@ -3838,9 +3913,17 @@ fn native_renderer_cache_is_keyed_by_render_target_format() {
     )
     .expect("native surface source should read");
 
-    assert!(native_mod.contains("renderers: HashMap<wgpu::TextureFormat, render::Renderer>"));
-    assert!(surface.contains("render_format_for_canvas"));
-    assert!(surface.contains("render::scene_format_for_surface_format(format)"));
+    let render_surface = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("render")
+            .join("surface.rs"),
+    )
+    .expect("render surface source should read");
+
+    assert!(native_mod.contains("renderers: HashMap<render::surface::Format, render::Renderer>"));
+    assert!(surface.contains("canvas().surface().render_format()"));
+    assert!(render_surface.contains("scene_format_for_surface_format(format)"));
 }
 
 #[test]

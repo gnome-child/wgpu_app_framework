@@ -1,7 +1,5 @@
 use crate::geometry::area;
-use wgpu::{SurfaceTarget, SurfaceTargetUnsafe};
-
-use crate::render;
+use crate::{render, scene};
 
 pub struct Canvas {
     surface: render::Surface,
@@ -14,15 +12,15 @@ pub struct Canvas {
 pub struct Options {
     pub area: area::Physical,
     pub scale_factor: f32,
-    pub color: wgpu::Color,
-    pub composite_alpha: render::CompositeAlphaPreference,
+    pub color: scene::Color,
+    pub composite_alpha: render::surface::CompositeAlphaPreference,
 }
 
 impl Canvas {
     pub fn new(
         options: Options,
         render_context: &render::Context,
-        target: impl Into<SurfaceTarget<'static>>,
+        target: impl render::surface::WindowTarget,
     ) -> render::Result<Self> {
         let physical_area = options.area;
         let logical_area = physical_area.to_logical(options.scale_factor);
@@ -38,14 +36,14 @@ impl Canvas {
             physical_area,
             logical_area,
             scale_factor: options.scale_factor,
-            color: options.color,
+            color: render::surface_color(options.color),
         })
     }
 
     pub(crate) unsafe fn new_unsafe(
         options: Options,
         render_context: &render::Context,
-        target: SurfaceTargetUnsafe,
+        target: render::surface::Target,
     ) -> render::Result<Self> {
         let physical_area = options.area;
         let logical_area = physical_area.to_logical(options.scale_factor);
@@ -63,7 +61,7 @@ impl Canvas {
             physical_area,
             logical_area,
             scale_factor: options.scale_factor,
-            color: options.color,
+            color: render::surface_color(options.color),
         })
     }
 
@@ -71,7 +69,7 @@ impl Canvas {
         &self.surface
     }
 
-    pub fn composite_alpha_mode(&self) -> wgpu::CompositeAlphaMode {
+    pub(in crate::render) fn composite_alpha_mode(&self) -> wgpu::CompositeAlphaMode {
         self.surface.config().alpha_mode
     }
 
@@ -87,7 +85,7 @@ impl Canvas {
         self.scale_factor
     }
 
-    pub fn color(&self) -> wgpu::Color {
+    pub(in crate::render) fn color(&self) -> wgpu::Color {
         self.color
     }
 
@@ -107,7 +105,7 @@ impl Canvas {
         &mut self,
         render_context: &render::Context,
         encode: impl FnOnce(&mut wgpu::CommandEncoder, &render::Frame),
-    ) -> render::Result<render::SurfaceReport> {
+    ) -> render::Result<render::surface::SurfaceReport> {
         Ok(self.surface.render(render_context, encode)?)
     }
 }

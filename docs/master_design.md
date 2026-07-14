@@ -641,6 +641,16 @@ Native surface context creation owns the one cross-platform backend selection.
 Target-specific presentation policy belongs in render backend options, not
 identical cfg-specific default functions.
 
+The native adapter consumes first-party renderer contracts, never `wgpu` or
+`wgpu-hal` vocabulary directly. `render::context::Backends` carries explicit,
+DX12-first, and ordinary backend sets while platform retains attempt order and
+fallback lifecycle. `render::surface::Format` is the opaque renderer-cache
+identity; `render::surface::Target` encodes unsafe native target association;
+and `render::surface::WindowsPopupSupport` is the resolved format/alpha
+capability consumed by popup material policy. Renderer parents project only
+their same-named central types (`Context`, `Canvas`, and `Surface`); supporting
+contracts remain qualified through their modules.
+
 #### Windows Platform Map
 
 This is the single reference for Windows popup shell, compositor, color, and
@@ -745,6 +755,12 @@ swapchain through the hal escape hatch, and becomes a sprite tenant in that
 tree. `RedirectedFallback` keeps redirection, requests premultiplied alpha, and
 may use the legacy accent bridge. Failure before tenancy completion drops the
 partial tree and remains a truthful non-tenancy popup.
+
+The unsafe surface target encoding and scoped DX12 HAL surface borrow belong to
+`render::surface`; the native Windows composition owner supplies the live
+visual, consumes the cloned DXGI swapchain, and owns every COM tree operation.
+This keeps renderer dependency types out of platform without moving Win32 or
+WinRT realization policy into render.
 
 The normal renderer writes the scene to an sRGB offscreen target. A Windows
 premultiplied popup pack then samples associated linear RGB, unassociates it,

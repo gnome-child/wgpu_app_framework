@@ -2,23 +2,20 @@ use crate::geometry::area;
 use thiserror::Error;
 
 pub(crate) use crate::paint::Scene;
-pub(crate) use canvas::{Canvas, Options as CanvasOptions};
-pub(crate) use context::{Context, Options as ContextOptions};
-pub(crate) use frame::{Frame, Outcome as FrameOutcome};
+pub(crate) use canvas::Canvas;
+pub(crate) use context::Context;
+pub(crate) use frame::Frame;
 pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
 pub(crate) use report::DrawStats;
 pub use report::RenderReport;
-pub(crate) use surface::{
-    AcquireOutcome, CompositeAlphaPreference, PresentTiming, Surface, SurfaceReport,
-    scene_format_for_surface_format, supports_windows_premultiplied_popup_pack,
-};
+pub(crate) use surface::Surface;
 
 mod alpha;
 mod batch;
-mod canvas;
+pub(crate) mod canvas;
 mod color;
-mod context;
+pub(crate) mod context;
 mod filter;
 mod frame;
 mod material;
@@ -29,7 +26,7 @@ mod renderer;
 mod report;
 pub(crate) mod scene;
 mod silhouette;
-mod surface;
+pub(crate) mod surface;
 mod text_renderer;
 
 pub(crate) fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
@@ -41,7 +38,7 @@ pub(crate) fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
     }
 }
 
-pub(crate) fn surface_color(color: crate::scene::Color) -> wgpu::Color {
+fn surface_color(color: crate::scene::Color) -> wgpu::Color {
     color_to_wgpu(self::color::paint_color(color))
 }
 

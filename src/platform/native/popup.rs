@@ -25,7 +25,7 @@ impl Native {
         if self
             .context
             .as_ref()
-            .is_some_and(|context| context.adapter().get_info().backend == wgpu::Backend::Dx12)
+            .is_some_and(|context| context.backend().is_dx12())
         {
             overlay::Capabilities::with_native_popups()
         } else {
@@ -94,7 +94,7 @@ impl Native {
                 .get(&key)
                 .expect("popup should exist before selecting render format");
             (
-                super::surface::render_format_for_canvas(popup.host.window.canvas()),
+                popup.host.window.canvas().surface().render_format(),
                 popup.host.reused,
             )
         };
@@ -150,74 +150,74 @@ impl Native {
         let uses_composition = popup.host.composition.is_some();
         #[cfg(not(target_os = "windows"))]
         let uses_composition = false;
-        let (surface_format, alpha_mode, surface_width, surface_height) = {
-            let config = popup.host.window.canvas().surface().config();
+        let (surface_format, popup_support, surface_width, surface_height) = {
+            let canvas = popup.host.window.canvas();
+            let area = canvas.physical_area();
             (
-                config.format,
-                config.alpha_mode,
-                config.width,
-                config.height,
+                canvas.surface().format(),
+                canvas.surface().windows_popup_support(),
+                area.width(),
+                area.height(),
             )
         };
-        let realization = popup.host.presentation_mode.realization_for(
-            surface_format,
-            alpha_mode,
-            material.preference(),
-        );
+        let realization = popup
+            .host
+            .presentation_mode
+            .realization_for(popup_support, material.preference());
         let realization_changed = popup.material_realization != Some(realization);
         if realization_changed {
             if uses_composition {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} will resolve material from composition region reports: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
+                    "native popup {:?} will resolve material from composition region reports: mode={:?}, format={:?}, support={:?}, preference={:?}",
                     presentation.id(),
                     popup.host.presentation_mode,
                     surface_format,
-                    alpha_mode,
+                    popup_support,
                     material.preference()
                 );
             } else if realization.uses_os_material() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses Windows accent acrylic: mode={:?}, format={:?}, alpha={:?}, preference={:?}, tint={:?}",
+                    "native popup {:?} uses Windows accent acrylic: mode={:?}, format={:?}, support={:?}, preference={:?}, tint={:?}",
                     presentation.id(),
                     popup.host.presentation_mode,
                     surface_format,
-                    alpha_mode,
+                    popup_support,
                     material.preference(),
                     material.tint()
                 );
             } else if realization.uses_native_material_scene() {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses transparent native scene without accent: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
+                    "native popup {:?} uses transparent native scene without accent: mode={:?}, format={:?}, support={:?}, preference={:?}",
                     presentation.id(),
                     popup.host.presentation_mode,
                     surface_format,
-                    alpha_mode,
+                    popup_support,
                     material.preference()
                 );
             } else if material.preference() == overlay::PopupMaterialPreference::OpaqueFallback {
                 log::info!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} uses requested opaque fallback: mode={:?}, format={:?}, alpha={:?}, preference={:?}",
+                    "native popup {:?} uses requested opaque fallback: mode={:?}, format={:?}, support={:?}, preference={:?}",
                     presentation.id(),
                     popup.host.presentation_mode,
                     surface_format,
-                    alpha_mode,
+                    popup_support,
                     material.preference()
                 );
             } else {
                 log::warn!(
                     target: "wgpu_l3::native_popup",
-                    "native popup {:?} downgraded to opaque fallback: mode={:?}, format={:?}, alpha={:?}, preference={:?}, reason={}",
+                    "native popup {:?} downgraded to opaque fallback: mode={:?}, format={:?}, support={:?}, preference={:?}, reason={}",
                     presentation.id(),
                     popup.host.presentation_mode,
                     surface_format,
-                    alpha_mode,
+                    popup_support,
                     material.preference(),
                     realization
-                        .fallback_reason(popup.host.presentation_mode, surface_format, alpha_mode)
+                        .fallback_reason(popup_support)
                         .unwrap_or("unknown")
                 );
             }
@@ -670,9 +670,7 @@ impl Native {
             self.context
                 .as_ref()
                 .expect("render context should exist after creating popup")
-                .adapter()
-                .get_info()
-                .backend,
+                .backend(),
             presentation.scene().size(),
             popup.host.window.scale_factor()
         );
@@ -708,10 +706,10 @@ impl Native {
         };
         let handle = NativeWindow::open(native_options, context.event_loop())?;
         let inner_size = handle.inner_size();
-        let canvas_options = || render::CanvasOptions {
+        let canvas_options = || render::canvas::Options {
             area: area::physical(inner_size.width, inner_size.height).clamp_min(1),
             scale_factor: handle.scale_factor() as f32,
-            color: render::surface_color(clear),
+            color: clear,
             composite_alpha: presentation_mode.alpha_preference(),
         };
         #[cfg(target_os = "windows")]
@@ -893,7 +891,7 @@ impl Native {
             return Ok(None);
         }
 
-        let render_format = super::surface::render_format_for_canvas(host.window.canvas());
+        let render_format = host.window.canvas().surface().render_format();
         self.ensure_renderer(render_format);
         let render_context = self
             .context
@@ -1123,7 +1121,10 @@ impl Native {
         Ok(())
     }
 
-    fn sync_popup_surface(&mut self, key: PopupKey) -> Result<wgpu::TextureFormat, NativeError> {
+    fn sync_popup_surface(
+        &mut self,
+        key: PopupKey,
+    ) -> Result<render::surface::Format, NativeError> {
         self.ensure_context()?;
         let popup = self
             .popups
@@ -1154,7 +1155,7 @@ impl Native {
             popup.host.window.resize(context, area, scale_factor);
         }
 
-        Ok(popup.host.window.canvas().surface().config().format)
+        Ok(popup.host.window.canvas().surface().format())
     }
 
     fn close_stale_popups(
@@ -1753,7 +1754,7 @@ impl PopupFirstPresentTrace {
         &mut self,
         key: PopupKey,
         generation: crate::popup::Generation,
-        outcome: render::AcquireOutcome,
+        outcome: render::surface::AcquireOutcome,
     ) {
         if !self.accepts(generation) {
             log::debug!(
@@ -1789,7 +1790,7 @@ impl PopupFirstPresentTrace {
         &mut self,
         key: PopupKey,
         generation: crate::popup::Generation,
-        timing: render::PresentTiming,
+        timing: render::surface::PresentTiming,
     ) -> PopupFirstPresentAction {
         if !self.accepts(generation) {
             log::debug!(

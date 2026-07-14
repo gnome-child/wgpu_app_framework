@@ -1,7 +1,8 @@
 use crate::geometry::area;
 use std::time::Instant;
 
-use crate::{diagnostics, render};
+use crate::diagnostics;
+use crate::render::{self, Canvas, Context, Renderer, canvas, context, surface};
 
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
@@ -12,11 +13,11 @@ impl Native {
     pub(in crate::platform::native) fn ensure_context(&mut self) -> Result<(), NativeError> {
         if self.context.is_none() {
             log::debug!("initializing native render context");
-            let explicit = wgpu::Backends::from_env();
+            let explicit = context::Backends::from_env();
             let attempts = native_backend_attempts(explicit);
             let mut last_error = None;
             for (index, backends) in attempts.iter().copied().enumerate() {
-                match pollster::block_on(render::Context::new(render_context_options(backends))) {
+                match pollster::block_on(Context::new(context::Options::native(backends))) {
                     Ok(context) => {
                         if index > 0 {
                             log::warn!(
@@ -46,7 +47,7 @@ impl Native {
         Ok(())
     }
 
-    pub(in crate::platform::native) fn ensure_renderer(&mut self, format: wgpu::TextureFormat) {
+    pub(in crate::platform::native) fn ensure_renderer(&mut self, format: surface::Format) {
         if self.renderers.contains_key(&format) {
             return;
         }
@@ -57,7 +58,7 @@ impl Native {
             .as_ref()
             .expect("render context should exist before creating renderer");
         self.renderers
-            .insert(format, render::Renderer::new(context, format));
+            .insert(format, Renderer::new(context, format));
     }
 
     pub(in crate::platform::native) fn create_native_window(
@@ -86,12 +87,12 @@ impl Native {
             .as_ref()
             .expect("render context should exist before creating window canvas");
         let inner_size = handle.inner_size();
-        let canvas = render::Canvas::new(
-            render::CanvasOptions {
+        let canvas = Canvas::new(
+            canvas::Options {
                 area: area::physical(inner_size.width, inner_size.height).clamp_min(1),
                 scale_factor: handle.scale_factor() as f32,
-                color: render::surface_color(window.canvas_color()),
-                composite_alpha: render::CompositeAlphaPreference::Default,
+                color: window.canvas_color(),
+                composite_alpha: surface::CompositeAlphaPreference::Default,
             },
             render_context,
             handle.clone(),
@@ -112,7 +113,7 @@ impl Native {
         &mut self,
         native_window: &mut NativeWindow,
     ) -> Result<(), NativeError> {
-        let render_format = render_format_for_canvas(native_window.canvas());
+        let render_format = native_window.canvas().surface().render_format();
         self.ensure_renderer(render_format);
 
         let context = self
@@ -139,7 +140,7 @@ impl Native {
                 log::error!("cannot present missing native window: {window:?}");
                 NativeError::MissingWindow { window }
             })?;
-            render_format_for_canvas(native_window.canvas())
+            native_window.canvas().surface().render_format()
         };
         self.ensure_renderer(render_format);
 
@@ -165,11 +166,11 @@ impl Native {
         let draw = draw_started.elapsed();
         let acquire_wait = report
             .present_timing
-            .map(render::PresentTiming::acquire_wait)
+            .map(surface::PresentTiming::acquire_wait)
             .unwrap_or_default();
         let encode_submit_present = report
             .present_timing
-            .map(render::PresentTiming::encode_submit_present)
+            .map(surface::PresentTiming::encode_submit_present)
             .unwrap_or_default();
         let group_composites = report.stats.group_composites;
         let filter_layer_pool_entries = report.stats.filter_layer_pool_entries;
@@ -203,7 +204,7 @@ impl Native {
     pub(in crate::platform::native) fn sync_window_surface(
         &mut self,
         window: app_window::Id,
-    ) -> Result<wgpu::TextureFormat, NativeError> {
+    ) -> Result<surface::Format, NativeError> {
         self.ensure_context()?;
         let native_window = self.windows.get_mut(&window).ok_or_else(|| {
             log::error!("cannot sync surface for missing native window: {window:?}");
@@ -229,44 +230,22 @@ impl Native {
             native_window.resize(context, area, scale_factor);
         }
 
-        Ok(native_window.canvas().surface().config().format)
+        Ok(native_window.canvas().surface().format())
     }
 }
 
-pub(in crate::platform::native) fn render_format_for_canvas(
-    canvas: &render::Canvas,
-) -> wgpu::TextureFormat {
-    let format = canvas.surface().config().format;
-    if render::supports_windows_premultiplied_popup_pack(format, canvas.composite_alpha_mode()) {
-        render::scene_format_for_surface_format(format)
-    } else {
-        format
-    }
-}
-
-fn render_context_options(backends: wgpu::Backends) -> render::ContextOptions {
-    render::ContextOptions {
-        device_label: "wgpu_l3 device",
-        backends,
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::default(),
-    }
-}
-
-fn native_backend_attempts(explicit: Option<wgpu::Backends>) -> Vec<wgpu::Backends> {
+fn native_backend_attempts(explicit: Option<context::Backends>) -> Vec<context::Backends> {
     if let Some(explicit) = explicit {
         return vec![explicit];
     }
 
     #[cfg(target_os = "windows")]
     {
-        vec![wgpu::Backends::DX12, wgpu::Backends::all()]
+        vec![context::Backends::dx12(), context::Backends::all()]
     }
     #[cfg(not(target_os = "windows"))]
     {
-        vec![wgpu::Backends::all()]
+        vec![context::Backends::all()]
     }
 }
 
@@ -277,8 +256,8 @@ mod tests {
     #[test]
     fn explicit_backend_choice_is_the_only_attempt() {
         assert_eq!(
-            native_backend_attempts(Some(wgpu::Backends::VULKAN)),
-            vec![wgpu::Backends::VULKAN]
+            native_backend_attempts(Some(context::Backends::vulkan())),
+            vec![context::Backends::vulkan()]
         );
     }
 
@@ -286,7 +265,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     fn implicit_windows_policy_earns_tenancy_through_dx12_first() {
         let attempts = native_backend_attempts(None);
-        assert_eq!(attempts[0], wgpu::Backends::DX12);
-        assert!(attempts[1].contains(wgpu::Backends::VULKAN));
+        assert_eq!(attempts[0], context::Backends::dx12());
+        assert!(attempts[1].contains(context::Backends::vulkan()));
     }
 }
