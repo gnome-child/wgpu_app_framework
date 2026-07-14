@@ -5897,6 +5897,68 @@ Status: **complete; discarded nonempty proof removed**. Correction
    visibility, failure, intermediate, housing, and naming inventories. This
    cell does not close Rung 5.
 
+### R5-62 — total shadow reach versus optional item bounds
+
+Status: **complete; synthetic item round-trip and recovered totality removed**.
+Correction `3a8fbc2f` (`Centralize shadow visual bounds`).
+
+1. **Question and complete trace.** The production-assertion sweep traced
+   scene shadow recipes through scene-to-paint conversion, group bounds,
+   popup visual-envelope resolution, panel-local paint translation, HWND and
+   swapchain sizing, composition material-region translation, pointer
+   translation, and physical popup placement. It also traced every paint item
+   species through generic group bounds, including the legitimate absence of
+   bounds for clip push/pop commands.
+2. **Repeated decision and false optionality.** `item_bounds` already contained
+   the authoritative blur, spread, offset, and one-physical-pixel fringe
+   calculation for a shadow. The crate-visible `shadow_visual_bounds` path
+   wrapped the value in a synthetic `Item::Shadow`, invoked the generic
+   optional item query, and recovered totality with an expect. Optionality was
+   truthful for clip commands but impossible for the concrete `Shadow` input;
+   the round-trip obscured the lower semantic owner and made its only direct
+   consumer handle a state that could not occur.
+3. **Correction and deletion.** The existing `shadow_visual_bounds` function
+   now owns the calculation directly. Generic `item_bounds` delegates its
+   shadow arm to that function and wraps the total result in `Some` for the
+   heterogeneous collection protocol. The synthetic enum construction,
+   generic redispatch, duplicated ownership direction, and expect are deleted.
+   No new helper or representation replaces them.
+4. **Ownership and non-merge ruling.** Paint remains the sole owner of visual
+   reach because it owns physical-pixel snapping and the exact raster recipe.
+   Renderer scene projection consumes that fact for popup envelopes; platform
+   consumes the resolved geometry and never re-derives a margin. Generic item
+   bounds remain optional because clip commands alter the stream without
+   owning pixels. Total shadow reach and optional heterogeneous item reach are
+   therefore related projections, not one falsely optional concept.
+5. **Naming and visibility.** The already-established simple function name and
+   crate-visible crossing are retained. No declaration, public/parent
+   re-export, alias, call-site spelling, module housing, feature surface, or
+   public API changes, so the canonical naming laws require no unrelated
+   cleanup in this cell.
+6. **Behavior and economics.** Blur/spread clamping, offset order, fringe,
+   snapping, group union, popup surface area, panel offset, native physical
+   origin, material-region translation, and hit exclusion remain unchanged.
+   The direct path avoids one enum construction, match, optional branch, and
+   panic edge. Allocation, scene order, renderer topology, batching/pass
+   fusion, invalidation, and presentation clocks are unchanged.
+7. **Proof.** The paint owner witness now proves direct shadow reach equals the
+   shadow-only group bound. Both popup-projection witnesses passed across four
+   scales, including native material resolution that strips the painted shadow
+   only after retaining its authored envelope. The full library discovered
+   1,138 tests and passed 1,128 with ten standing ignores. All targets and all
+   five examples compiled without warnings; all ten census parser tests, the
+   full census, formatting, diff hygiene, and protected
+   `comparison_open: true` check passed.
+8. **Gauge and next frontier.** Production expects fall 45 -> 44. Every other
+   gauge remains unchanged: production/test edges 325/109, split
+   responsibilities 3, slot edges 54, forbidden/external/SCC counts 0/0/0,
+   production `pub(crate)` 1,825 in 192 files, cross-slot upper bound 1,778,
+   cross-slot test edges 90, source-root mentions 118, filesystem reads 363,
+   allowances 6, and panics 5. Shadow visual reach is at fixed point; the
+   reverse sweep continues through remaining layout/session/runtime
+   visibility, failure, intermediate, housing, and naming inventories. This
+   cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
