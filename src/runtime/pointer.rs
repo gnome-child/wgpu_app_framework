@@ -454,9 +454,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.session
                 .classify_click(window, &target, point, std::time::Instant::now());
         let text_click = match click_count {
-            interaction::ClickCount::Single => text::edit::PointerEditKind::Click,
-            interaction::ClickCount::Double => text::edit::PointerEditKind::DoubleClick,
-            interaction::ClickCount::Triple => text::edit::PointerEditKind::TripleClick,
+            interaction::ClickCount::Single => text::selection::PointerKind::Click,
+            interaction::ClickCount::Double => text::selection::PointerKind::DoubleClick,
+            interaction::ClickCount::Triple => text::selection::PointerKind::TripleClick,
         };
 
         let action = if target.kind() == interaction::Kind::TableDivider {

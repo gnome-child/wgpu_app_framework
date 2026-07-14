@@ -27,6 +27,15 @@ impl Outcome {
         }
     }
 
+    pub(in crate::document) fn from_selection_change(selection_changed: bool) -> Self {
+        Self {
+            text_changed: false,
+            selection_changed,
+            clipboard_changed: false,
+            unavailable: false,
+        }
+    }
+
     pub(in crate::document) fn from_command_result(result: text::edit::ActionResult) -> Self {
         Self {
             text_changed: result.text_changed,

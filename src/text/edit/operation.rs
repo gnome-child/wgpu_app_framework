@@ -1,69 +1,19 @@
 use super::super::buffer::{Position, Range};
-use super::super::selection::Motion;
-use super::super::surface::FieldMode;
-
-#[cfg(test)]
-use super::super::buffer::Cursor;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Edit {
     Insert(String),
     ImeCommit(String),
-    ReplaceRange {
-        range: Range,
-        text: String,
-    },
-    MoveRange {
-        range: Range,
-        to: Position,
-    },
+    ReplaceRange { range: Range, text: String },
+    MoveRange { range: Range, to: Position },
     Backspace,
     Delete,
     InsertLineBreak,
-    MovePosition(Motion),
-    ExtendPosition(Motion),
     DeleteWordBackward,
     DeleteWordForward,
-    SelectAll,
-    SetPosition(Position),
-    Pointer {
-        kind: PointerEditKind,
-        position: Position,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PointerEditKind {
-    Click,
-    DoubleClick,
-    TripleClick,
-    Drag,
 }
 
 impl Edit {
-    pub(crate) fn mutates_text(&self) -> bool {
-        matches!(
-            self,
-            Self::Insert(_)
-                | Self::ImeCommit(_)
-                | Self::ReplaceRange { .. }
-                | Self::MoveRange { .. }
-                | Self::Backspace
-                | Self::Delete
-                | Self::InsertLineBreak
-                | Self::DeleteWordBackward
-                | Self::DeleteWordForward
-        )
-    }
-
-    pub(crate) fn is_allowed_by(&self, mode: FieldMode) -> bool {
-        if self.mutates_text() {
-            mode.is_editable()
-        } else {
-            mode.is_selectable()
-        }
-    }
-
     pub fn insert(text: impl Into<String>) -> Self {
         Self::Insert(text.into())
     }
@@ -103,35 +53,11 @@ impl Edit {
         Self::InsertLineBreak
     }
 
-    pub fn move_position(motion: Motion) -> Self {
-        Self::MovePosition(motion)
-    }
-
-    pub fn extend_position(motion: Motion) -> Self {
-        Self::ExtendPosition(motion)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_cursor(cursor: Cursor) -> Self {
-        Self::SetPosition(cursor.into())
-    }
-
     pub fn delete_word_backward() -> Self {
         Self::DeleteWordBackward
     }
 
     pub fn delete_word_forward() -> Self {
         Self::DeleteWordForward
-    }
-
-    pub fn set_position(position: impl Into<Position>) -> Self {
-        Self::SetPosition(position.into())
-    }
-
-    pub fn pointer(kind: PointerEditKind, position: impl Into<Position>) -> Self {
-        Self::Pointer {
-            kind,
-            position: position.into(),
-        }
     }
 }

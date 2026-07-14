@@ -1,18 +1,14 @@
 use std::time::Instant;
 
 use super::super::{
-    buffer::{Buffer, Cursor, CursorSelection, Position, Range, normalize_for_buffer},
-    selection::{
-        CaretMap, Motion, State, collapsed_cursor_for_motion, selection_mark_from_state,
-        text_position_for_motion_in_document_for_state,
-    },
-    unicode::word_range_at,
+    buffer::{Buffer, CursorSelection, Range, normalize_for_buffer},
+    selection::{self, State},
 };
 use super::{
     action::{Action, ActionResult},
     clipboard::Clipboard,
     diagnostics::Diagnostics,
-    operation::{Edit, PointerEditKind},
+    operation::Edit,
     outcome::{self, Outcome},
     transaction::{Impact, Kind, Transaction},
 };
@@ -20,19 +16,6 @@ use super::{
 #[derive(Debug)]
 pub struct Editor {
     diagnostics: Diagnostics,
-}
-
-struct NoCaretMap;
-
-impl CaretMap for NoCaretMap {
-    fn position_for_motion(
-        &mut self,
-        _buffer: &Buffer,
-        _state: State,
-        _motion: Motion,
-    ) -> Option<Position> {
-        None
-    }
 }
 
 impl Editor {
@@ -43,17 +26,7 @@ impl Editor {
     }
 
     pub fn apply_edit(&mut self, buffer: &mut Buffer, state: &mut State, edit: Edit) -> Outcome {
-        self.apply_edit_with_caret_map(buffer, state, edit, &mut NoCaretMap)
-    }
-
-    pub(crate) fn apply_edit_with_caret_map(
-        &mut self,
-        buffer: &mut Buffer,
-        state: &mut State,
-        edit: Edit,
-        caret_map: &mut dyn CaretMap,
-    ) -> Outcome {
-        self.apply_edit_with_caret_map_for_state(buffer, state, edit, caret_map)
+        self.apply_edit_for_state(buffer, state, edit)
     }
 
     pub(crate) fn apply_action(
@@ -66,12 +39,11 @@ impl Editor {
         self.apply_action_for_state(buffer, state, action, clipboard)
     }
 
-    fn apply_edit_with_caret_map_for_state(
+    fn apply_edit_for_state(
         &mut self,
         buffer: &mut Buffer,
         state: &mut State,
         edit: Edit,
-        caret_map: &mut dyn CaretMap,
     ) -> Outcome {
         let edit_started = Instant::now();
         let before = buffer.marker_for_state(*state);
@@ -237,67 +209,6 @@ impl Editor {
                     );
                 }
             }
-            Edit::MovePosition(motion) => {
-                self.move_position(buffer, state, motion, false, caret_map)
-            }
-            Edit::ExtendPosition(motion) => {
-                self.move_position(buffer, state, motion, true, caret_map)
-            }
-            Edit::SelectAll => {
-                let end = buffer.len();
-                let cursor = buffer.cursor_for_text_index(end);
-                let selection = if end == 0 {
-                    CursorSelection::None
-                } else {
-                    CursorSelection::Normal(buffer.cursor_for_text_index(0))
-                };
-                buffer.set_cursor_and_selection_for_state(state, cursor, selection);
-            }
-            Edit::SetPosition(position) => {
-                buffer.set_cursor_and_selection_for_state(
-                    state,
-                    buffer.cursor_for_position(position),
-                    CursorSelection::None,
-                );
-            }
-            Edit::Pointer { kind, position } => {
-                let cursor = buffer.cursor_for_position(position);
-                match kind {
-                    PointerEditKind::Click => buffer.set_cursor_and_selection_for_state(
-                        state,
-                        cursor,
-                        CursorSelection::None,
-                    ),
-                    PointerEditKind::DoubleClick => {
-                        let line_text = buffer.text();
-                        let range = word_range_at(&line_text, position.index);
-                        buffer.set_cursor_and_selection_for_state(
-                            state,
-                            buffer.cursor_for_text_index(range.end),
-                            CursorSelection::Normal(buffer.cursor_for_text_index(range.start)),
-                        );
-                    }
-                    PointerEditKind::TripleClick => {
-                        let end = buffer.len();
-                        let cursor = buffer.cursor_for_text_index(end);
-                        let selection = if end == 0 {
-                            CursorSelection::None
-                        } else {
-                            CursorSelection::Normal(buffer.cursor_for_text_index(0))
-                        };
-                        buffer.set_cursor_and_selection_for_state(state, cursor, selection);
-                    }
-                    PointerEditKind::Drag => {
-                        let anchor = selection_mark_from_state(buffer, *state)
-                            .unwrap_or_else(|| buffer.cursor_for_state(*state));
-                        buffer.set_cursor_and_selection_for_state(
-                            state,
-                            cursor,
-                            CursorSelection::Normal(anchor),
-                        );
-                    }
-                }
-            }
         }
         if buffer.selected_range_for_state(*state).is_none() {
             let cursor = buffer.cursor_for_state(*state);
@@ -326,56 +237,6 @@ impl Editor {
                 .sum::<usize>();
         }
         result
-    }
-
-    fn move_position(
-        &mut self,
-        buffer: &mut Buffer,
-        state: &mut State,
-        motion: Motion,
-        extend: bool,
-        caret_map: &mut dyn CaretMap,
-    ) {
-        let anchor = if extend {
-            selection_mark_from_state(buffer, *state)
-                .unwrap_or_else(|| buffer.cursor_for_state(*state))
-        } else {
-            buffer.cursor_for_state(*state)
-        };
-        if !extend && let Some((start, end)) = buffer.selection_bounds_for_state(*state) {
-            buffer.set_cursor_and_selection_for_state(
-                state,
-                collapsed_cursor_for_motion(motion, start, end),
-                CursorSelection::None,
-            );
-            return;
-        }
-        let next = self
-            .motion_position(buffer, *state, motion, caret_map)
-            .unwrap_or_else(|| buffer.position_for_state(*state));
-        let cursor = buffer.cursor_for_text_index(next.index);
-        let cursor = Cursor::new_with_affinity(cursor.line, cursor.index, next.affinity);
-        let selection = if extend {
-            CursorSelection::Normal(anchor)
-        } else {
-            CursorSelection::None
-        };
-        buffer.set_cursor_and_selection_for_state(state, cursor, selection);
-    }
-
-    fn motion_position(
-        &mut self,
-        buffer: &Buffer,
-        state: State,
-        motion: Motion,
-        caret_map: &mut dyn CaretMap,
-    ) -> Option<Position> {
-        if let Some(position) =
-            text_position_for_motion_in_document_for_state(buffer, state, motion)
-        {
-            return Some(position);
-        }
-        caret_map.position_for_motion(buffer, state, motion)
     }
 
     fn apply_action_for_state(
@@ -424,8 +285,7 @@ impl Editor {
                 Err(_) => result.unavailable = true,
             },
             Action::SelectAll => {
-                let edit_result = self.apply_edit(buffer, state, Edit::SelectAll);
-                change = edit_result.change;
+                selection::apply(buffer, state, selection::Operation::SelectAll);
             }
             Action::Undo | Action::Redo => result.unavailable = true,
         }

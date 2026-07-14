@@ -50,7 +50,7 @@ impl Target<document::Cut> for FocusedDraft<'_> {
         };
 
         match put_clipboard_text(cx, selection) {
-            Ok(()) => self.edit_response(text::edit::Edit::Delete, true),
+            Ok(()) => self.edit_response(text::Edit::Delete, true),
             Err(_) => Response::output(document::Outcome::unavailable_result()),
         }
     }
@@ -71,7 +71,7 @@ impl Target<document::Paste> for FocusedDraft<'_> {
         };
 
         match clipboard.text() {
-            Ok(Some(text)) => self.edit_response(text::edit::Edit::insert(text), false),
+            Ok(Some(text)) => self.edit_response(text::Edit::insert(text), false),
             Ok(None) => Response::output(document::Outcome::from_text_change(false, false, false)),
             Err(_) => Response::output(document::Outcome::unavailable_result()),
         }

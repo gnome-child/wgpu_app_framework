@@ -4,10 +4,10 @@ use std::{
 };
 
 use super::{
-    Buffer,
+    Buffer, Edit,
     buffer::{Position, Range},
-    edit::{Edit, Editor, History},
-    unicode,
+    edit::{Editor, History},
+    selection, unicode,
 };
 
 #[test]
@@ -25,10 +25,10 @@ fn editing_one_line_preserves_every_other_line_layout_identity() {
     let mut editor = Editor::new();
     let mut state = buffer.initial_state();
 
-    editor.apply_edit(
-        &mut buffer,
+    selection::apply(
+        &buffer,
         &mut state,
-        Edit::set_position(Position::new(edit_position)),
+        selection::Operation::set_position(Position::new(edit_position)),
     );
     editor.apply_edit(&mut buffer, &mut state, Edit::insert("!"));
 

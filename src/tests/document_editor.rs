@@ -140,7 +140,7 @@ fn document_wraps_production_text_buffer_and_tracks_document_dirty() {
     assert_eq!(document.text(), "");
     assert!(!document.is_dirty());
 
-    let outcome = document.apply_edit(text::edit::Edit::insert("alpha"));
+    let outcome = document.apply_edit(text::Edit::insert("alpha"));
 
     assert!(outcome.text_changed());
     assert!(outcome.selection_changed());
@@ -171,7 +171,7 @@ fn document_edit_command_targets_text_document_and_bumps_app_revision() {
         .started(|cx| {
             cx.open_window(window::Options::new("Editor"));
         });
-    let trigger = app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("alpha"));
+    let trigger = app.trigger::<document::ApplyEdit>(text::Edit::insert("alpha"));
     app.start();
     let window = app.session().windows()[0].id();
     assert!(app.focus(window, session::Focus::text("document")));
@@ -214,7 +214,7 @@ fn typing_history_does_not_coalesce_across_focused_documents() {
     assert!(app.focus(window, session::Focus::text("first")));
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("a")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert("a")),
     )
     .output
     .expect("first document edit should succeed");
@@ -222,7 +222,7 @@ fn typing_history_does_not_coalesce_across_focused_documents() {
     assert!(app.focus(window, session::Focus::text("second")));
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("b")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert("b")),
     )
     .output
     .expect("second document edit should succeed");
@@ -237,25 +237,25 @@ fn typing_history_does_not_coalesce_across_focused_documents() {
 }
 
 #[test]
-fn selection_only_document_edit_bumps_app_revision_without_document_dirty() {
+fn document_selection_bumps_app_revision_without_document_dirty() {
     let mut app = Runtime::new(text_editor::State {
         document: TextDocument::from_text("alpha"),
         ..text_editor::State::default()
     })
     .commands(|commands| {
-        commands.register::<document::ApplyEdit>(command::Spec::new("Edit"));
+        commands.register::<document::ApplySelection>(command::Spec::new("Select Text"));
     })
     .responders(|responders| {
         responders
             .object("document", |state: &mut text_editor::State| {
                 &mut state.document
             })
-            .target::<document::ApplyEdit>();
+            .target::<document::ApplySelection>();
     })
     .started(|cx| {
         cx.open_window(window::Options::new("Editor"));
     });
-    let trigger = app.trigger::<document::ApplyEdit>(text::edit::Edit::SelectAll);
+    let trigger = app.trigger::<document::ApplySelection>(text::selection::Operation::SelectAll);
     app.start();
     let window = app.session().windows()[0].id();
     assert!(app.focus(window, session::Focus::text("document")));
@@ -276,7 +276,7 @@ fn document_text_command_outcome_is_framework_owned() {
     let mut document = TextDocument::from_text("alpha");
     let mut clipboard = Clipboard::default();
 
-    let selected = document.apply_edit(text::edit::Edit::SelectAll);
+    let selected = document.apply_selection(text::selection::Operation::SelectAll);
     assert!(!selected.text_changed());
     assert!(selected.selection_changed());
 
@@ -300,7 +300,7 @@ fn document_text_command_outcome_is_framework_owned() {
 #[test]
 fn clipboard_failures_preserve_cut_text_and_differ_from_empty_paste() {
     let mut document = TextDocument::from_text("alpha");
-    document.apply_edit(text::edit::Edit::SelectAll);
+    document.apply_selection(text::selection::Operation::SelectAll);
     let mut unavailable = Clipboard::unavailable_system();
 
     let cut = document.apply_action(text::edit::Action::Cut, &mut unavailable);
@@ -350,16 +350,16 @@ fn document_owns_text_state_separately_from_text_storage() {
     let mut document = TextDocument::from_multiline_text("alpha beta");
     let initial = document.text_state();
 
-    let moved = document.apply_edit(text::edit::Edit::set_position(text::buffer::Position::new(
-        0,
-    )));
+    let moved = document.apply_selection(text::selection::Operation::set_position(
+        text::buffer::Position::new(0),
+    ));
 
     assert!(moved.selection_changed());
     assert_ne!(document.text_state(), initial);
     assert_eq!(document.buffer().initial_state(), initial);
 
-    let selected = document.apply_edit(text::edit::Edit::pointer(
-        text::edit::PointerEditKind::Drag,
+    let selected = document.apply_selection(text::selection::Operation::pointer(
+        text::selection::PointerKind::Drag,
         text::buffer::Position::new("alpha".len()),
     ));
 
@@ -367,9 +367,9 @@ fn document_owns_text_state_separately_from_text_storage() {
     assert_eq!(document.selected_text().as_deref(), Some("alpha"));
 
     let snapshot = document.clone();
-    document.apply_edit(text::edit::Edit::set_position(text::buffer::Position::new(
-        0,
-    )));
+    document.apply_selection(text::selection::Operation::set_position(
+        text::buffer::Position::new(0),
+    ));
 
     assert_eq!(snapshot.text(), document.text());
     assert_ne!(snapshot.text_state(), document.text_state());
@@ -382,7 +382,7 @@ fn document_new_file_resets_text_path_and_dirty_state() {
     let path = temp_text_path("document_reset.txt");
     let mut document = TextDocument::from_multiline_text("alpha\nbeta");
     document.save_to(path.clone()).expect("save should succeed");
-    document.apply_edit(text::edit::Edit::insert("gamma"));
+    document.apply_edit(text::Edit::insert("gamma"));
 
     assert!(document.path().is_some());
     assert!(document.is_dirty());
@@ -402,7 +402,7 @@ fn document_new_file_resets_text_path_and_dirty_state() {
 fn document_save_to_and_open_path_keep_document_clean() {
     let path = temp_text_path("document_roundtrip.txt");
     let mut document = TextDocument::new_multiline();
-    document.apply_edit(text::edit::Edit::insert("alpha\nbeta"));
+    document.apply_edit(text::Edit::insert("alpha\nbeta"));
 
     assert!(document.is_dirty());
 
@@ -432,7 +432,7 @@ fn open_crlf_document_edits_and_atomically_saves_while_open() {
         .expect("CRLF file should open");
 
     assert_eq!(document.text(), "one\r\ntwo\r\nthree\n");
-    document.apply_edit(text::edit::Edit::insert_line_break());
+    document.apply_edit(text::Edit::insert_line_break());
     document
         .save_to(path.clone())
         .expect("an owned open document should atomically replace its source file");
@@ -458,7 +458,7 @@ fn document_save_snapshot_keeps_identity_and_captured_revision_together() {
     assert_eq!(version.revision(), document.buffer_revision());
     assert_eq!(document.clone().identity(), identity);
 
-    document.apply_edit(text::edit::Edit::insert("!"));
+    document.apply_edit(text::Edit::insert("!"));
     snapshot
         .write_to(&path)
         .expect("snapshot save should succeed");
@@ -555,7 +555,7 @@ fn text_editor_file_commands_flow_through_runtime_responders() {
     );
     assert_eq!(app.revision().get(), 1);
 
-    let edit = app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("!"));
+    let edit = app.trigger::<document::ApplyEdit>(text::Edit::insert("!"));
     let edit_response = app.invoke_focused(window, edit);
 
     assert!(
@@ -624,7 +624,7 @@ fn text_editor_save_completion_keeps_newer_edits_dirty() {
     assert!(app.focus(window, session::Focus::text("document")));
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("alpha")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert("alpha")),
     )
     .output
     .expect("initial edit should succeed");
@@ -636,7 +636,7 @@ fn text_editor_save_completion_keeps_newer_edits_dirty() {
         .expect("save should schedule");
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("!")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert("!")),
     )
     .output
     .expect("newer edit should succeed");
@@ -675,7 +675,7 @@ fn text_editor_save_completion_cannot_mark_a_replacement_document_saved() {
     assert!(app.focus(window, session::Focus::text("document")));
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("old document")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert("old document")),
     )
     .output
     .expect("edit should succeed");
@@ -717,7 +717,7 @@ fn text_editor_latest_save_generation_owns_completion() {
     assert!(app.focus(window, session::Focus::text("document")));
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("first")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert("first")),
     )
     .output
     .expect("first edit should succeed");
@@ -729,7 +729,7 @@ fn text_editor_latest_save_generation_owns_completion() {
 
     app.invoke_focused(
         window,
-        app.trigger::<document::ApplyEdit>(text::edit::Edit::insert(" second")),
+        app.trigger::<document::ApplyEdit>(text::Edit::insert(" second")),
     )
     .output
     .expect("second edit should succeed");
@@ -793,11 +793,8 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(
-        window,
-        Input::text_edit(text::edit::Edit::insert("restored")),
-    )
-    .expect("text edit input should be handled");
+    app.handle_input(window, Input::text_edit(text::Edit::insert("restored")))
+        .expect("text edit input should be handled");
 
     let snapshot = app.snapshot();
 
@@ -1040,11 +1037,8 @@ fn text_editor_save_menu_for_untitled_dirty_document_requests_save_dialog() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(
-        window,
-        Input::text_edit(text::edit::Edit::insert("unsaved")),
-    )
-    .expect("text edit input should be handled");
+    app.handle_input(window, Input::text_edit(text::Edit::insert("unsaved")))
+        .expect("text edit input should be handled");
 
     let projected = app
         .present(window)
@@ -1127,11 +1121,8 @@ fn text_editor_save_dialog_cancel_updates_status_without_saving() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(
-        window,
-        Input::text_edit(text::edit::Edit::insert("unsaved")),
-    )
-    .expect("text edit input should be handled");
+    app.handle_input(window, Input::text_edit(text::Edit::insert("unsaved")))
+        .expect("text edit input should be handled");
 
     let projected = app
         .present(window)
@@ -1256,7 +1247,7 @@ fn text_editor_view_resolves_command_bindings_from_runtime() {
         .expect("text area should declare a focus target");
     assert!(app.focus(window, focus));
 
-    let edit = app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("alpha"));
+    let edit = app.trigger::<document::ApplyEdit>(text::Edit::insert("alpha"));
     app.invoke_focused(window, edit)
         .output
         .expect("edit should resolve through document target");
@@ -1486,10 +1477,7 @@ fn text_editor_view_actions_are_owned_host_events() {
     assert!(app.clear_redraw_request(window));
 
     let edit_outcome = app
-        .handle_view(
-            window,
-            view::Action::text_edit(text::edit::Edit::insert("host action")),
-        )
+        .handle_input(window, Input::text_edit(text::Edit::insert("host action")))
         .expect("text edit view action should be handled");
 
     assert!(edit_outcome.is_handled());

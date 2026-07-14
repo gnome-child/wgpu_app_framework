@@ -53,7 +53,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         focus: session::Focus,
-        edit: text::edit::Edit,
+        edit: text::Edit,
     ) -> std::result::Result<input::Outcome, Error> {
         let Some((_, outcome)) = self.handle_text_box_edit_with_change(window, focus, edit)? else {
             return Ok(input::Outcome::ignored());
@@ -66,7 +66,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         focus: session::Focus,
-        edit: text::edit::Edit,
+        edit: text::Edit,
     ) -> std::result::Result<Option<(draft::Change, input::Outcome)>, Error> {
         let Some(base) = self.text_draft_base(window, focus) else {
             return Ok(None);
@@ -74,7 +74,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mode = self
             .text_surface_mode(window, focus)
             .unwrap_or(text::surface::FieldMode::Editable);
-        if !edit.is_allowed_by(mode) {
+        if !mode.is_editable() {
             return Ok(None);
         }
         let input = self
@@ -98,6 +98,32 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let outcome =
             self.finish_text_box_change(window, focus, change.clone(), had_input_feedback)?;
         Ok(Some((change, outcome)))
+    }
+
+    pub(super) fn handle_text_box_selection(
+        &mut self,
+        window: window::Id,
+        focus: session::Focus,
+        operation: text::selection::Operation,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let Some(base) = self.text_draft_base(window, focus) else {
+            return Ok(input::Outcome::ignored());
+        };
+        let mode = self
+            .text_surface_mode(window, focus)
+            .unwrap_or(text::surface::FieldMode::Editable);
+        if !mode.is_selectable() {
+            return Ok(input::Outcome::ignored());
+        }
+        let had_input_feedback = self.session.text_input_feedback(window, focus).is_some();
+        let Some(change) = self
+            .session
+            .select_text_draft(window, focus, base, operation)
+        else {
+            return Ok(input::Outcome::ignored());
+        };
+
+        self.finish_text_box_change(window, focus, change, had_input_feedback)
     }
 
     fn finish_text_box_change(
@@ -170,10 +196,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             self.focus(window, focus);
         }
 
-        let outcome = self.handle_text_box_edit(
+        let outcome = self.handle_text_box_selection(
             window,
             focus,
-            text::edit::Edit::MovePosition(text::selection::Motion::VisualRight),
+            text::selection::Operation::MovePosition(text::selection::Motion::VisualRight),
         )?;
 
         Ok(Some(outcome))

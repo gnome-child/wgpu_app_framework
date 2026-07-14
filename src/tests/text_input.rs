@@ -16,7 +16,7 @@ fn text_editor_text_area_focus_routes_edits_through_runtime() {
     assert!(app.focus(window, focus));
     assert_eq!(app.session().focused(window), Some(focus));
 
-    let edit = app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("alpha"));
+    let edit = app.trigger::<document::ApplyEdit>(text::Edit::insert("alpha"));
     let response = app.invoke_focused(window, edit);
 
     assert!(
@@ -61,7 +61,7 @@ fn text_editor_input_flow_is_framework_owned() {
     assert!(focus_outcome.effect().contains_invalidation());
 
     let edit_outcome = app
-        .handle_input(window, Input::text_edit(text::edit::Edit::insert("alpha")))
+        .handle_input(window, Input::text_edit(text::Edit::insert("alpha")))
         .expect("text edit input should be handled");
 
     assert!(edit_outcome.is_handled());
@@ -626,11 +626,8 @@ fn text_editor_save_shortcut_dispatches_by_registered_command_type() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(
-        window,
-        Input::text_edit(text::edit::Edit::insert("unsaved")),
-    )
-    .expect("text edit input should be handled");
+    app.handle_input(window, Input::text_edit(text::Edit::insert("unsaved")))
+        .expect("text edit input should be handled");
 
     let outcome = app
         .handle_input(window, Input::shortcut("Ctrl+S"))
@@ -684,7 +681,7 @@ fn text_editor_edit_and_timeline_shortcuts_use_focus_and_history() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::insert("alpha")))
+    app.handle_input(window, Input::text_edit(text::Edit::insert("alpha")))
         .expect("text edit input should be handled");
 
     app.handle_input(window, Input::shortcut("Ctrl+A"))
@@ -747,8 +744,8 @@ fn text_editor_text_drop_input_groups_drop_and_source_cleanup() {
         .handle_input(
             window,
             Input::text_drop_with_source_cleanup(
-                text::edit::Edit::insert_at(4, "bc"),
-                text::edit::Edit::replace_range(1..3, ""),
+                text::Edit::insert_at(4, "bc"),
+                text::Edit::replace_range(1..3, ""),
             ),
         )
         .expect("drop input should be handled");
@@ -783,7 +780,7 @@ fn text_editor_input_edits_can_be_undone_and_redone() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::insert("alpha")))
+    app.handle_input(window, Input::text_edit(text::Edit::insert("alpha")))
         .expect("text edit input should be handled");
 
     assert_eq!(app.state().document.text(), "alpha");
@@ -890,7 +887,7 @@ fn text_editor_edit_menu_undo_redo_commands_use_runtime_timeline() {
         .expect("text area should declare a focus target");
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::insert("alpha")))
+    app.handle_input(window, Input::text_edit(text::Edit::insert("alpha")))
         .expect("text edit input should be handled");
 
     let projected = app
@@ -946,7 +943,7 @@ fn text_editor_edit_menu_clipboard_commands_use_focused_document() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::insert("alpha")))
+    app.handle_input(window, Input::text_edit(text::Edit::insert("alpha")))
         .expect("text edit input should be handled");
 
     let projected = app

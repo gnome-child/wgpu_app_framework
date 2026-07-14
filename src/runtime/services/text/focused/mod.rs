@@ -85,10 +85,10 @@ impl<'a> FocusedDraft<'a> {
 
     fn edit_response(
         &mut self,
-        edit: text::edit::Edit,
+        edit: text::Edit,
         clipboard_changed: bool,
     ) -> Response<document::Outcome> {
-        if !edit.is_allowed_by(self.mode()) {
+        if !self.is_editable() {
             return Response::output(document::Outcome::from_text_change(
                 false,
                 false,
@@ -119,6 +119,48 @@ impl<'a> FocusedDraft<'a> {
         };
         let output = document::Outcome::from_text_change(
             change.text_changed(),
+            change.selection_changed(),
+            clipboard_changed,
+        );
+
+        Response::output(output).with_effect(effect_for_change(&change, had_input_feedback))
+    }
+
+    fn selection_response(
+        &mut self,
+        operation: text::selection::Operation,
+        clipboard_changed: bool,
+    ) -> Response<document::Outcome> {
+        if !self.is_selectable() {
+            return Response::output(document::Outcome::from_text_change(
+                false,
+                false,
+                clipboard_changed,
+            ));
+        }
+        let Some(base) = self.base_text() else {
+            return Response::output(document::Outcome::from_text_change(
+                false,
+                false,
+                clipboard_changed,
+            ));
+        };
+        let had_input_feedback = self
+            .session
+            .text_input_feedback(self.window, self.focus)
+            .is_some();
+        let Some(change) = self
+            .session
+            .select_text_draft(self.window, self.focus, base, operation)
+        else {
+            return Response::output(document::Outcome::from_text_change(
+                false,
+                false,
+                clipboard_changed,
+            ));
+        };
+        let output = document::Outcome::from_text_change(
+            false,
             change.selection_changed(),
             clipboard_changed,
         );

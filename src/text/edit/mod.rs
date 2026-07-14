@@ -15,7 +15,7 @@ pub use diagnostics::Diagnostics;
 pub use editor::Editor;
 pub use history::{History, HistoryKind, TYPING_UNDO_COALESCE_WINDOW};
 pub(crate) use marker::Marker;
-pub use operation::{Edit, PointerEditKind};
+pub use operation::Edit;
 pub use outcome::Outcome;
 #[cfg(test)]
 pub(crate) use transaction::Kind as TransactionKind;

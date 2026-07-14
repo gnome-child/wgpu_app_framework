@@ -1,5 +1,7 @@
 use super::super::Runtime;
-use crate::{command::Error, context as command_context, input, session, state, view, window};
+use crate::{
+    command::Error, context as command_context, input, keymap, session, state, view, window,
+};
 
 fn text_for_key(
     key: input::Key,
@@ -92,11 +94,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_text_commit(window, text);
         }
 
-        let Some(edit) = self.keymap.edit_for_key(key, modifiers) else {
+        let Some(operation) = self.keymap.text_operation_for_key(key, modifiers) else {
             return Ok(input::Outcome::ignored());
         };
 
-        self.handle_text_edit(window, edit, command_context::Source::Keyboard)
+        match operation {
+            keymap::TextOperation::Selection(operation) => {
+                self.handle_text_selection(window, operation, command_context::Source::Keyboard)
+            }
+            keymap::TextOperation::Edit(edit) => {
+                self.handle_text_edit(window, edit, command_context::Source::Keyboard)
+            }
+        }
     }
 
     pub(in crate::runtime::input) fn handle_tab_focus(

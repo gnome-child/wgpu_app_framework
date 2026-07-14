@@ -963,7 +963,7 @@ impl Frame {
     pub(crate) fn text_action_at_with_engine(
         &self,
         point: Point,
-        kind: crate::text::edit::PointerEditKind,
+        kind: crate::text::selection::PointerKind,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
         if self.role() == view::Role::TextArea {

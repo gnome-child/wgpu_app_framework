@@ -148,12 +148,12 @@ impl TextArea {
     }
 
     pub(crate) fn click_action(&self, position: text::buffer::Position) -> Option<Action> {
-        self.pointer_action(text::edit::PointerEditKind::Click, position)
+        self.pointer_action(text::selection::PointerKind::Click, position)
     }
 
     pub(crate) fn pointer_action(
         &self,
-        kind: text::edit::PointerEditKind,
+        kind: text::selection::PointerKind,
         position: text::buffer::Position,
     ) -> Option<Action> {
         Action::text_pointer(self.focus, kind, position)

@@ -13,7 +13,7 @@ impl Target<document::SelectAll> for FocusedDraft<'_> {
     }
 
     fn invoke(&mut self, _: (), _: &mut command_context::Context) -> Response<document::Outcome> {
-        self.edit_response(text::edit::Edit::SelectAll, false)
+        self.selection_response(text::selection::Operation::SelectAll, false)
     }
 }
 
@@ -27,6 +27,6 @@ impl Target<document::Delete> for FocusedDraft<'_> {
     }
 
     fn invoke(&mut self, _: (), _: &mut command_context::Context) -> Response<document::Outcome> {
-        self.edit_response(text::edit::Edit::Delete, false)
+        self.edit_response(text::Edit::Delete, false)
     }
 }

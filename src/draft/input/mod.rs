@@ -114,10 +114,75 @@ impl Input {
         &mut self,
         target: Target,
         base: impl Into<String>,
-        edit: text::edit::Edit,
+        edit: text::Edit,
         input: text::Input,
     ) -> Change {
-        let base = base.into();
+        let (target_changed, text_changed, cursor_changed, selection_changed, submit) = {
+            let (target_changed, entry) = self.prepare_draft(target.clone(), base.into());
+            let draft = entry.draft_mut();
+            let before_text = draft.text().to_owned();
+            let before_cursor = draft.cursor();
+            let before_selection = draft.selection();
+            let submit = draft.apply(edit, input);
+            let text_changed = before_text != draft.text();
+            let cursor_changed = before_cursor != draft.cursor();
+            let selection_changed = before_selection != draft.selection();
+
+            if text_changed {
+                entry.feedback_mut().clear(feedback::Severity::Error);
+            }
+
+            (
+                target_changed,
+                text_changed,
+                cursor_changed,
+                selection_changed,
+                submit,
+            )
+        };
+
+        self.finish_change(
+            target,
+            target_changed,
+            text_changed,
+            cursor_changed,
+            selection_changed,
+            false,
+            submit,
+        )
+    }
+
+    pub(crate) fn select(
+        &mut self,
+        target: Target,
+        base: impl Into<String>,
+        operation: text::selection::Operation,
+    ) -> Change {
+        let (target_changed, cursor_changed, selection_changed) = {
+            let (target_changed, entry) = self.prepare_draft(target.clone(), base.into());
+            let draft = entry.draft_mut();
+            let before_cursor = draft.cursor();
+            let before_selection = draft.selection();
+            draft.select(operation);
+            (
+                target_changed,
+                before_cursor != draft.cursor(),
+                before_selection != draft.selection(),
+            )
+        };
+
+        self.finish_change(
+            target,
+            target_changed,
+            false,
+            cursor_changed,
+            selection_changed,
+            false,
+            false,
+        )
+    }
+
+    fn prepare_draft(&mut self, target: Target, base: String) -> (bool, &mut store::Entry) {
         let target_changed = self.target.as_ref() != Some(&target);
         self.target = Some(target.clone());
         self.drafts.touch(&target, self.target.as_ref());
@@ -131,28 +196,22 @@ impl Input {
             self.drafts.insert(target.clone(), State::new(base.clone()));
         }
 
-        let entry = self
-            .drafts
-            .get_or_insert_with(target.clone(), || State::new(base));
-        let draft = entry.draft_mut();
-        let before_text = draft.text().to_owned();
-        let before_cursor = draft.cursor();
-        let before_selection = draft.selection();
-        let submit = draft.apply(edit, input);
-        let text = draft.text().to_owned();
-        let cursor = draft.cursor();
-        let selection = draft.selection();
-        let text_changed = before_text != text;
-        let cursor_changed = before_cursor != cursor;
-        let selection_changed = before_selection != selection;
-        let preedit_cleared = self.preedit.is_some();
+        let entry = self.drafts.get_or_insert_with(target, || State::new(base));
+        (target_changed, entry)
+    }
 
-        if text_changed {
-            entry.feedback_mut().clear(feedback::Severity::Error);
-        }
-
-        self.preedit = None;
-        let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
+    fn finish_change(
+        &mut self,
+        target: Target,
+        target_changed: bool,
+        text_changed: bool,
+        cursor_changed: bool,
+        selection_changed: bool,
+        operation_changed: bool,
+        submit: bool,
+    ) -> Change {
+        let preedit_cleared = self.preedit.take().is_some();
+        let blink_changed = self.reset_caret_blink(target, Instant::now());
 
         Change::new(
             text_changed,
@@ -161,6 +220,7 @@ impl Input {
                 || text_changed
                 || cursor_changed
                 || selection_changed
+                || operation_changed
                 || preedit_cleared
                 || blink_changed,
             submit,
@@ -198,37 +258,36 @@ impl Input {
         self.target = Some(target.clone());
         self.drafts.touch(target, self.target.as_ref());
 
-        let entry = self.drafts.get_mut(target)?;
-        let draft = entry.draft_mut();
-        let before_text = draft.text().to_owned();
-        let before_cursor = draft.cursor();
-        let before_selection = draft.selection();
-        let changed_by_operation = change(draft);
-        let text = draft.text().to_owned();
-        let cursor = draft.cursor();
-        let selection = draft.selection();
-        let text_changed = before_text != text;
-        let cursor_changed = before_cursor != cursor;
-        let selection_changed = before_selection != selection;
-        let preedit_cleared = self.preedit.is_some();
+        let (text_changed, cursor_changed, selection_changed, changed_by_operation) = {
+            let entry = self.drafts.get_mut(target)?;
+            let draft = entry.draft_mut();
+            let before_text = draft.text().to_owned();
+            let before_cursor = draft.cursor();
+            let before_selection = draft.selection();
+            let changed_by_operation = change(draft);
+            let text_changed = before_text != draft.text();
+            let cursor_changed = before_cursor != draft.cursor();
+            let selection_changed = before_selection != draft.selection();
 
-        if text_changed {
-            entry.feedback_mut().clear(feedback::Severity::Error);
-        }
+            if text_changed {
+                entry.feedback_mut().clear(feedback::Severity::Error);
+            }
 
-        self.preedit = None;
-        let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
+            (
+                text_changed,
+                cursor_changed,
+                selection_changed,
+                changed_by_operation,
+            )
+        };
 
-        Some(Change::new(
+        Some(self.finish_change(
+            target.clone(),
+            target_changed,
             text_changed,
+            cursor_changed,
             selection_changed,
-            target_changed
-                || changed_by_operation
-                || text_changed
-                || cursor_changed
-                || selection_changed
-                || preedit_cleared
-                || blink_changed,
+            changed_by_operation,
             false,
         ))
     }
@@ -330,6 +389,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn selection_clears_preedit_without_entering_mutation_history() {
+        let target = Target::text_area_id("selection-draft");
+        let mut input = Input::default();
+
+        input.activate(target.clone(), "alpha");
+        input.set_preedit(
+            target.clone(),
+            text::view::Preedit::new("compose", Some((0, 7))),
+        );
+
+        let change = input.select(
+            target.clone(),
+            "alpha",
+            text::selection::Operation::SelectAll,
+        );
+        let draft = input.draft_for(&target).expect("selection keeps the draft");
+
+        assert!(!change.text_changed());
+        assert!(change.selection_changed());
+        assert!(change.changed());
+        assert_eq!(input.preedit(), None);
+        assert_eq!(draft.text(), "alpha");
+        assert_eq!(draft.selection(), Some(0..5));
+        assert!(!draft.can_undo(), "selection is not mutation history");
+    }
+
+    #[test]
     fn rejection_cannot_outlive_its_draft() {
         let first = Target::text_area_id("first-draft");
         let second = Target::text_area_id("second-draft");
@@ -356,7 +442,7 @@ mod tests {
         input.edit(
             first.clone(),
             "old",
-            text::edit::Edit::replace_range(0..3, "new"),
+            text::Edit::replace_range(0..3, "new"),
             text::Input::unrestricted(),
         );
         assert_eq!(

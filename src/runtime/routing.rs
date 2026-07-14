@@ -186,8 +186,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::ToggleMenu(menu) => {
                 self.handle_input(window, input::Input::toggle_menu(menu))
             }
-            view::Action::TextEdit(edit) => {
-                self.handle_input(window, input::Input::text_edit(edit))
+            view::Action::TextSelection(operation) => {
+                self.handle_input(window, input::Input::text_selection(operation))
             }
         }
     }

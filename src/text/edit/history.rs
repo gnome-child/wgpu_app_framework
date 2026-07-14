@@ -43,12 +43,7 @@ impl HistoryKind {
             | Edit::Delete
             | Edit::InsertLineBreak
             | Edit::DeleteWordBackward
-            | Edit::DeleteWordForward
-            | Edit::MovePosition(_)
-            | Edit::ExtendPosition(_)
-            | Edit::SelectAll
-            | Edit::SetPosition(_)
-            | Edit::Pointer { .. } => Self::Boundary,
+            | Edit::DeleteWordForward => Self::Boundary,
         }
     }
 

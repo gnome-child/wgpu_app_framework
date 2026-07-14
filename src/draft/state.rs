@@ -5,7 +5,7 @@ use crate::text;
 #[derive(Debug, Clone)]
 pub(crate) struct State {
     buffer: text::Buffer,
-    edit_state: text::selection::State,
+    selection_state: text::selection::State,
     history: text::edit::History,
     base_text: String,
     text: String,
@@ -14,16 +14,16 @@ pub(crate) struct State {
 impl State {
     pub(crate) fn new(text: impl Into<String>) -> Self {
         let mut state = Self::from_buffer(text::Buffer::from_text(text.into()));
-        state.history.sync(&state.buffer, state.edit_state);
+        state.history.sync(&state.buffer, state.selection_state);
         state
     }
 
     fn from_buffer(buffer: text::Buffer) -> Self {
-        let edit_state = buffer.initial_state();
+        let selection_state = buffer.initial_state();
         let text = buffer.text();
         Self {
             buffer,
-            edit_state,
+            selection_state,
             history: text::edit::History::default(),
             base_text: text.clone(),
             text,
@@ -39,17 +39,17 @@ impl State {
     }
 
     pub fn cursor(&self) -> usize {
-        self.buffer.position_for_state(self.edit_state).index
+        self.buffer.position_for_state(self.selection_state).index
     }
 
     pub fn selection(&self) -> Option<Range<usize>> {
         self.buffer
-            .selected_range_for_state(self.edit_state)
+            .selected_range_for_state(self.selection_state)
             .map(text::buffer::Range::as_range)
     }
 
     pub fn selected_text(&self) -> Option<String> {
-        self.buffer.selected_text_for_state(self.edit_state)
+        self.buffer.selected_text_for_state(self.selection_state)
     }
 
     pub fn can_undo(&self) -> bool {
@@ -60,9 +60,9 @@ impl State {
         self.history.can_redo()
     }
 
-    pub(super) fn apply(&mut self, edit: text::edit::Edit, input: text::Input) -> bool {
+    pub(super) fn apply(&mut self, edit: text::Edit, input: text::Input) -> bool {
         let edit = normalize_single_line_edit(edit);
-        if edit == text::edit::Edit::InsertLineBreak {
+        if edit == text::Edit::InsertLineBreak {
             return true;
         }
 
@@ -71,7 +71,7 @@ impl State {
         match input.evaluate(candidate.text()) {
             text::InputDecision::Accept => self.apply_normalized(edit),
             text::InputDecision::Normalize(text) => {
-                self.apply_normalized(text::edit::Edit::replace_range(0..self.text.len(), text));
+                self.apply_normalized(text::Edit::replace_range(0..self.text.len(), text));
             }
             text::InputDecision::Reject => {}
         }
@@ -79,21 +79,33 @@ impl State {
         false
     }
 
-    fn apply_normalized(&mut self, edit: text::edit::Edit) {
+    fn apply_normalized(&mut self, edit: text::Edit) {
         let mut editor = text::edit::Editor::new();
-        self.history
-            .apply_edit(&mut editor, &mut self.buffer, &mut self.edit_state, edit);
+        self.history.apply_edit(
+            &mut editor,
+            &mut self.buffer,
+            &mut self.selection_state,
+            edit,
+        );
         self.refresh_text();
     }
 
+    pub(super) fn select(&mut self, operation: text::selection::Operation) {
+        text::selection::apply(&self.buffer, &mut self.selection_state, operation);
+    }
+
     pub(super) fn undo(&mut self) -> bool {
-        let result = self.history.undo(&mut self.buffer, &mut self.edit_state);
+        let result = self
+            .history
+            .undo(&mut self.buffer, &mut self.selection_state);
         self.refresh_text();
         result.buffer_changed()
     }
 
     pub(super) fn redo(&mut self) -> bool {
-        let result = self.history.redo(&mut self.buffer, &mut self.edit_state);
+        let result = self
+            .history
+            .redo(&mut self.buffer, &mut self.selection_state);
         self.refresh_text();
         result.buffer_changed()
     }
@@ -122,11 +134,11 @@ impl PartialEq for State {
 
 impl Eq for State {}
 
-fn normalize_single_line_edit(edit: text::edit::Edit) -> text::edit::Edit {
+fn normalize_single_line_edit(edit: text::Edit) -> text::Edit {
     match edit {
-        text::edit::Edit::Insert(text) => text::edit::Edit::Insert(first_line(text)),
-        text::edit::Edit::ImeCommit(text) => text::edit::Edit::ImeCommit(first_line(text)),
-        text::edit::Edit::ReplaceRange { range, text } => text::edit::Edit::ReplaceRange {
+        text::Edit::Insert(text) => text::Edit::Insert(first_line(text)),
+        text::Edit::ImeCommit(text) => text::Edit::ImeCommit(first_line(text)),
+        text::Edit::ReplaceRange { range, text } => text::Edit::ReplaceRange {
             range,
             text: first_line(text),
         },
@@ -148,19 +160,19 @@ mod tests {
         let mut state = State::new("");
         let input = text::Input::signed_integer();
 
-        assert!(!state.apply(text::edit::Edit::insert("-"), input));
+        assert!(!state.apply(text::Edit::insert("-"), input));
         assert_eq!(state.text(), "-");
-        assert!(!state.apply(text::edit::Edit::insert("4"), input));
+        assert!(!state.apply(text::Edit::insert("4"), input));
         assert_eq!(state.text(), "-4");
-        assert!(!state.apply(text::edit::Edit::insert("-"), input));
+        assert!(!state.apply(text::Edit::insert("-"), input));
         assert_eq!(
             state.text(),
             "-4",
             "a second minus rejects the whole candidate"
         );
-        assert!(!state.apply(text::edit::Edit::Backspace, input));
+        assert!(!state.apply(text::Edit::Backspace, input));
         assert_eq!(state.text(), "-");
-        assert!(!state.apply(text::edit::Edit::Backspace, input));
+        assert!(!state.apply(text::Edit::Backspace, input));
         assert_eq!(state.text(), "");
     }
 
@@ -169,8 +181,8 @@ mod tests {
         let mut state = State::new("123");
         let input = text::Input::signed_integer();
 
-        state.apply(text::edit::Edit::SelectAll, input);
-        state.apply(text::edit::Edit::insert(" -9 "), input);
+        state.select(text::selection::Operation::SelectAll);
+        state.apply(text::Edit::insert(" -9 "), input);
         assert_eq!(state.text(), "-9");
         assert_eq!(state.selection(), None);
         assert!(state.undo());
@@ -184,10 +196,10 @@ mod tests {
         let mut state = State::new("12");
         let input = text::Input::unsigned_integer();
 
-        state.apply(text::edit::Edit::insert("-"), input);
+        state.apply(text::Edit::insert("-"), input);
         assert_eq!(state.text(), "12");
-        state.apply(text::edit::Edit::SelectAll, input);
-        state.apply(text::edit::Edit::ime_commit("x"), input);
+        state.select(text::selection::Operation::SelectAll);
+        state.apply(text::Edit::ime_commit("x"), input);
         assert_eq!(state.text(), "12");
     }
 }

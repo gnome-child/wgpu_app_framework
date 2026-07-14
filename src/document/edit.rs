@@ -1,18 +1,37 @@
 use crate::text;
 
-use super::{ApplyEdit, Copy, Cut, Delete, Document, Outcome, Paste, SelectAll};
+use super::{ApplyEdit, ApplySelection, Copy, Cut, Delete, Document, Outcome, Paste, SelectAll};
 use crate::{command, context::Context, response::Response, target::Target};
 
 impl Target<ApplyEdit> for Document {
-    fn state(&self, _: &text::edit::Edit, _: &Context) -> command::State {
+    fn state(&self, _: &text::Edit, _: &Context) -> command::State {
         command::State::enabled()
     }
 
-    fn invoke(&mut self, edit: text::edit::Edit, cx: &mut Context) -> Response<Outcome> {
-        let outcome = if let Some(mut text) = cx.text_service() {
-            self.apply_edit_with_caret_map(edit, &mut text)
+    fn invoke(&mut self, edit: text::Edit, _: &mut Context) -> Response<Outcome> {
+        let outcome = self.apply_edit(edit);
+        if outcome.buffer_changed() {
+            Response::changed(outcome)
         } else {
-            self.apply_edit(edit)
+            Response::output(outcome)
+        }
+    }
+}
+
+impl Target<ApplySelection> for Document {
+    fn state(&self, _: &text::selection::Operation, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(
+        &mut self,
+        operation: text::selection::Operation,
+        cx: &mut Context,
+    ) -> Response<Outcome> {
+        let outcome = if let Some(mut text) = cx.text_service() {
+            self.apply_selection_with_caret_map(operation, &mut text)
+        } else {
+            self.apply_selection(operation)
         };
         if outcome.buffer_changed() {
             Response::changed(outcome)

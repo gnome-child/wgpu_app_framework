@@ -13,8 +13,8 @@ mod outcome;
 mod save;
 
 pub use command::{
-    ApplyEdit, Copy, Cut, Delete, Editing, NewFile, OpenFile, OpenPath, Paste, SaveAsFile,
-    SaveFile, SaveToPath, SelectAll,
+    ApplyEdit, ApplySelection, Copy, Cut, Delete, Editing, NewFile, OpenFile, OpenPath, Paste,
+    SaveAsFile, SaveFile, SaveToPath, SelectAll,
 };
 pub use notification::{OpenDialogCanceled, SaveDialogCanceled};
 pub use outcome::Outcome;
@@ -183,25 +183,29 @@ impl Document {
         true
     }
 
-    pub fn apply_edit(&mut self, edit: text::edit::Edit) -> Outcome {
+    pub fn apply_edit(&mut self, edit: text::Edit) -> Outcome {
         let mut editor = text::edit::Editor::new();
         let result = editor.apply_edit(&mut self.buffer, &mut self.text_state, edit);
         self.outcome_from_edit_result(result)
     }
 
-    fn apply_edit_with_caret_map(
+    pub fn apply_selection(&mut self, operation: text::selection::Operation) -> Outcome {
+        let changed = text::selection::apply(&self.buffer, &mut self.text_state, operation);
+        Outcome::from_selection_change(changed)
+    }
+
+    fn apply_selection_with_caret_map(
         &mut self,
-        edit: text::edit::Edit,
+        operation: text::selection::Operation,
         caret_map: &mut dyn text::selection::CaretMap,
     ) -> Outcome {
-        let mut editor = text::edit::Editor::new();
-        let result = editor.apply_edit_with_caret_map(
-            &mut self.buffer,
+        let changed = text::selection::apply_with_caret_map(
+            &self.buffer,
             &mut self.text_state,
-            edit,
+            operation,
             caret_map,
         );
-        self.outcome_from_edit_result(result)
+        Outcome::from_selection_change(changed)
     }
 
     fn outcome_from_edit_result(&mut self, result: text::edit::Outcome) -> Outcome {

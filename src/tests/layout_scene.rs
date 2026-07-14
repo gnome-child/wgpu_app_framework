@@ -3000,8 +3000,11 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         Input::key_down(input::Key::F2, input::Modifiers::default()),
     )
     .expect("F2 should re-enter the committed numeric cell");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
-        .expect("numeric draft should select for replacement");
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("numeric draft should select for replacement");
     app.handle_input(window, Input::text_commit("-"))
         .expect("invalid numeric draft should remain editable");
     let rejected_outcome = app
@@ -3104,8 +3107,11 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         Input::key_down(input::Key::F2, input::Modifiers::default()),
     )
     .expect("F2 should re-enter the corrected numeric cell");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
-        .expect("numeric draft should select for replacement");
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("numeric draft should select for replacement");
     app.handle_input(window, Input::text_commit("-"))
         .expect("invalid numeric draft should remain editable");
     app.handle_input(
@@ -3175,8 +3181,11 @@ fn rejected_count_input_app() -> (
         Input::key_down(input::Key::F2, input::Modifiers::default()),
     )
     .expect("count cell should enter text participation");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
-        .expect("count draft should select for replacement");
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("count draft should select for replacement");
     app.handle_input(window, Input::text_commit(LONG_REJECTED_COUNT))
         .expect("long integer syntax remains a lawful draft");
     app.handle_input(
@@ -3266,8 +3275,11 @@ fn rejection_projects_inline_without_opening_a_panel() {
     }
     drop(rejected);
 
-    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
-        .expect("rejected draft selection remains editable");
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("rejected draft selection remains editable");
     let selected = app
         .show_scene(window, size)
         .expect("selected rejected draft should render");
@@ -3490,8 +3502,11 @@ fn rejected_departure_blocks_other_cell_activation_selection_and_click_chain() {
         Input::key_down(input::Key::F2, input::Modifiers::default()),
     )
     .expect("source cell should enter its text task");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
-        .expect("numeric draft should select for replacement");
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("numeric draft should select for replacement");
     app.handle_input(window, Input::text_commit("-"))
         .expect("invalid syntax should remain a lawful draft");
     app.handle_input(
@@ -3632,8 +3647,11 @@ fn rejected_task_transition_blocks_controls_shortcuts_and_tab() {
         Input::key_down(input::Key::F2, input::Modifiers::default()),
     )
     .expect("source cell should enter its text task");
-    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
-        .expect("numeric draft should select for replacement");
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("numeric draft should select for replacement");
     app.handle_input(window, Input::text_commit("-"))
         .expect("invalid syntax should remain a draft");
     app.handle_input(
@@ -4389,7 +4407,7 @@ fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing
     let display_input = app
         .handle_input(
             window,
-            Input::text_edit(text::edit::Edit::insert("late display input")),
+            Input::text_edit(text::Edit::insert("late display input")),
         )
         .expect("table-owned input without a draft should be inert");
     assert!(!display_input.is_handled());
@@ -4409,7 +4427,7 @@ fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing
         .expect("late table input should be inert instead of fatal");
     assert!(!stale_input.is_handled());
 
-    let trigger = app.trigger::<document::ApplyEdit>(text::edit::Edit::insert("programmatic"));
+    let trigger = app.trigger::<document::ApplyEdit>(text::Edit::insert("programmatic"));
     let error = app
         .invoke_focused(window, trigger)
         .output
@@ -8821,9 +8839,9 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
     let moved = app
         .handle_input(
             window,
-            Input::text_edit(text::edit::Edit::set_position(text::buffer::Position::new(
-                0,
-            ))),
+            Input::text_selection(text::selection::Operation::set_position(
+                text::buffer::Position::new(0),
+            )),
         )
         .expect("caret move should be handled");
 

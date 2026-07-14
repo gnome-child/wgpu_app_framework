@@ -25,7 +25,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             if self.text_surface_mode(window, focus) != Some(text::surface::FieldMode::Editable) {
                 return Ok(input::Outcome::ignored());
             }
-            return self.handle_text_box_edit(window, focus, text::edit::Edit::ime_commit(text));
+            return self.handle_text_box_edit(window, focus, text::Edit::ime_commit(text));
         }
 
         if text.is_empty() {
@@ -38,7 +38,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         self.handle_text_edit(
             window,
-            text::edit::Edit::ime_commit(text),
+            text::Edit::ime_commit(text),
             command_context::Source::Input,
         )
     }
@@ -57,7 +57,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime::input) fn handle_text_edit(
         &mut self,
         window: window::Id,
-        edit: text::edit::Edit,
+        edit: text::Edit,
         source: command_context::Source,
     ) -> std::result::Result<input::Outcome, Error> {
         let Some(focus) = self.session.focused(window) else {
@@ -82,6 +82,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             command::Trigger::<document::ApplyEdit>::command(edit),
             source,
         );
+        self.finish_text_operation_response(window, reveal_target, cleared_preedit, response)
+    }
+
+    fn finish_text_operation_response(
+        &mut self,
+        window: window::Id,
+        reveal_target: interaction::Target,
+        cleared_preedit: bool,
+        response: response::Response<document::Outcome>,
+    ) -> std::result::Result<input::Outcome, Error> {
         let changed = response.changed_state();
         let reveal = response
             .output_ref()
@@ -106,6 +116,37 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         response
             .output
             .map(|_| input::Outcome::handled(changed, effect))
+    }
+
+    pub(in crate::runtime::input) fn handle_text_selection(
+        &mut self,
+        window: window::Id,
+        operation: text::selection::Operation,
+        source: command_context::Source,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let Some(focus) = self.session.focused(window) else {
+            return Ok(input::Outcome::ignored());
+        };
+
+        if self.text_draft_base(window, focus).is_some() {
+            return self.handle_text_box_selection(window, focus, operation);
+        }
+
+        if focus.table_cell_identity().is_some() {
+            log::debug!(
+                "ignoring text selection for a table cell without a current local draft in window {window:?}"
+            );
+            return Ok(input::Outcome::ignored());
+        }
+
+        let reveal_target = self.text_input_target(window, focus);
+        let cleared_preedit = self.session.clear_text_input(window);
+        let response = self.invoke_focused_with_source(
+            window,
+            command::Trigger::<document::ApplySelection>::command(operation),
+            source,
+        );
+        self.finish_text_operation_response(window, reveal_target, cleared_preedit, response)
     }
 
     pub(in crate::runtime::input) fn handle_shortcut(

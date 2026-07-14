@@ -37,7 +37,8 @@ pub enum Input {
         text: Option<String>,
     },
     ToggleMenu(interaction::Menu),
-    TextEdit(text::edit::Edit),
+    TextSelection(text::selection::Operation),
+    TextEdit(text::Edit),
     TextCommit(String),
     TextPreedit(text::view::Preedit),
     TextDrop(TextDrop),
@@ -52,7 +53,11 @@ impl Input {
         Self::Focus(focus)
     }
 
-    pub fn text_edit(edit: text::edit::Edit) -> Self {
+    pub fn text_selection(operation: text::selection::Operation) -> Self {
+        Self::TextSelection(operation)
+    }
+
+    pub fn text_edit(edit: text::Edit) -> Self {
         Self::TextEdit(edit)
     }
 
@@ -64,14 +69,11 @@ impl Input {
         Self::TextPreedit(preedit)
     }
 
-    pub fn text_drop(edit: text::edit::Edit) -> Self {
+    pub fn text_drop(edit: text::Edit) -> Self {
         Self::TextDrop(TextDrop::new(edit))
     }
 
-    pub fn text_drop_with_source_cleanup(
-        edit: text::edit::Edit,
-        source_cleanup: text::edit::Edit,
-    ) -> Self {
+    pub fn text_drop_with_source_cleanup(edit: text::Edit, source_cleanup: text::Edit) -> Self {
         Self::TextDrop(TextDrop::new(edit).with_source_cleanup(source_cleanup))
     }
 

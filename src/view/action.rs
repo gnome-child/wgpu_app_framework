@@ -33,7 +33,7 @@ pub(crate) enum Action {
         offset: interaction::ScrollOffset,
     },
     ToggleMenu(interaction::Menu),
-    TextEdit(text::edit::Edit),
+    TextSelection(text::selection::Operation),
     ResizeTableColumn {
         column: crate::table::HeaderCell,
         width: i32,
@@ -122,8 +122,8 @@ impl Action {
         Self::ToggleMenu(menu)
     }
 
-    pub(crate) fn text_edit(edit: text::edit::Edit) -> Self {
-        Self::TextEdit(edit)
+    pub(crate) fn text_selection(operation: text::selection::Operation) -> Self {
+        Self::TextSelection(operation)
     }
 
     pub(crate) fn resize_table_column(column: crate::table::HeaderCell, width: i32) -> Self {
@@ -140,18 +140,18 @@ impl Action {
 
     pub(crate) fn text_pointer(
         focus: Option<session::Focus>,
-        kind: text::edit::PointerEditKind,
+        kind: text::selection::PointerKind,
         position: text::buffer::Position,
     ) -> Option<Self> {
         Some(Self::sequence([
             Self::text_pointer_focus(focus)?,
-            Self::text_edit(text::edit::Edit::pointer(kind, position)),
+            Self::text_selection(text::selection::Operation::pointer(kind, position)),
         ]))
     }
 
     pub(crate) fn text_drag(position: text::buffer::Position) -> Self {
-        Self::text_edit(text::edit::Edit::pointer(
-            text::edit::PointerEditKind::Drag,
+        Self::text_selection(text::selection::Operation::pointer(
+            text::selection::PointerKind::Drag,
             position,
         ))
     }

@@ -420,6 +420,86 @@ fn read_only_text_vocabulary_does_not_depend_on_mutation() {
 }
 
 #[test]
+fn selection_operations_are_structurally_distinct_from_text_mutation() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text_dir = src_dir.join("text");
+    let selection_mod = std::fs::read_to_string(text_dir.join("selection/mod.rs"))
+        .expect("text selection module should read");
+    let selection_operation = std::fs::read_to_string(text_dir.join("selection/operation.rs"))
+        .expect("text selection operation should read");
+    let edit_operation = std::fs::read_to_string(text_dir.join("edit/operation.rs"))
+        .expect("text edit operation should read");
+    let history = std::fs::read_to_string(text_dir.join("edit/history.rs"))
+        .expect("text edit history should read");
+    let input =
+        std::fs::read_to_string(src_dir.join("input/mod.rs")).expect("input module should read");
+    let view_action = std::fs::read_to_string(src_dir.join("view/action.rs"))
+        .expect("view action module should read");
+    let keymap =
+        std::fs::read_to_string(src_dir.join("keymap.rs")).expect("keymap module should read");
+    let document_command = std::fs::read_to_string(src_dir.join("document/command.rs"))
+        .expect("document command module should read");
+
+    assert!(
+        selection_mod.contains("pub use operation::{Operation, PointerKind, apply};")
+            && selection_operation.contains("pub enum Operation")
+            && selection_operation.contains("pub fn apply("),
+        "selection should own its operation vocabulary and application path"
+    );
+    for mutation in [
+        "Insert(String)",
+        "ImeCommit(String)",
+        "ReplaceRange",
+        "Backspace",
+        "DeleteWordForward",
+    ] {
+        assert!(
+            !selection_operation.contains(mutation),
+            "selection operation must not absorb text mutation: {mutation}"
+        );
+    }
+    for selection in [
+        "MovePosition",
+        "ExtendPosition",
+        "SelectAll",
+        "SetPosition",
+        "Pointer",
+        "PointerEditKind",
+    ] {
+        assert!(
+            !edit_operation.contains(selection),
+            "text mutation must not preserve selection vocabulary: {selection}"
+        );
+        assert!(
+            !history.contains(selection),
+            "mutation history must not classify selection operations: {selection}"
+        );
+    }
+    assert!(
+        input.contains("TextSelection(text::selection::Operation)")
+            && input.contains("TextEdit(text::Edit)"),
+        "the public input boundary should distinguish selection from mutation"
+    );
+    assert!(
+        view_action.contains("TextSelection(text::selection::Operation)")
+            && !view_action.contains("TextEdit("),
+        "pointer view actions should carry selection without a spare mutation route"
+    );
+    assert!(
+        keymap.contains("pub(crate) enum TextOperation")
+            && keymap.contains("Selection(text::selection::Operation)")
+            && keymap.contains("Edit(text::Edit)"),
+        "key routing should resolve to a private typed selection-or-mutation sum"
+    );
+    assert!(
+        document_command.contains("pub struct ApplySelection;")
+            && document_command.contains("type Args = text::selection::Operation;")
+            && document_command.contains("type Args = text::Edit;"),
+        "document routing should expose distinct selection and mutation commands"
+    );
+}
+
+#[test]
 fn old_paint_space_root_module_is_extinct() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
@@ -671,8 +751,8 @@ fn caret_affinity_has_one_position_to_cursor_owner() {
         .expect("text document source should read");
     let buffer = std::fs::read_to_string(text.join("buffer").join("mod.rs"))
         .expect("text buffer source should read");
-    let editor = std::fs::read_to_string(text.join("edit").join("editor.rs"))
-        .expect("text editor source should read");
+    let selection = std::fs::read_to_string(text.join("selection").join("operation.rs"))
+        .expect("text selection operation source should read");
     let glyph = std::fs::read_to_string(text.join("layout").join("glyph.rs"))
         .expect("text glyph source should read");
     let projection = std::fs::read_to_string(text.join("surface").join("projection.rs"))
@@ -691,12 +771,12 @@ fn caret_affinity_has_one_position_to_cursor_owner() {
         "Buffer must own the affinity-preserving Position-to-Cursor conversion"
     );
     assert!(
-        editor
+        selection
             .matches("buffer.cursor_for_position(position)")
             .count()
             == 2
-            && !editor.contains("buffer.cursor_for_text_index(position.index)"),
-        "set-position and pointer mutations must consume the buffer-owned conversion"
+            && !selection.contains("buffer.cursor_for_text_index(position.index)"),
+        "set-position and pointer selection must consume the buffer-owned conversion"
     );
     assert!(
         glyph.contains("floor_grapheme_boundary(line_text, cursor.index)")
@@ -923,7 +1003,7 @@ fn palette_query_does_not_reimplement_text_input() {
         "document::Copy",
         "document::Cut",
         "document::Paste",
-        "text::edit::Edit",
+        "text::Edit",
     ] {
         assert!(
             !palette.contains(forbidden),
@@ -1727,7 +1807,7 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
     assert!(
         document.contains("Ok(()) =>")
             && document.contains("Err(_) => result.unavailable = true")
-            && focused.contains("Ok(()) => self.edit_response(text::edit::Edit::Delete, true)")
+            && focused.contains("Ok(()) => self.edit_response(text::Edit::Delete, true)")
             && focused
                 .contains("Err(_) => Response::output(document::Outcome::unavailable_result())"),
         "Cut must mutate text only after a confirmed clipboard write"

@@ -321,10 +321,19 @@ impl Interaction {
         &mut self,
         target: Target,
         base: impl Into<String>,
-        edit: text::edit::Edit,
+        edit: text::Edit,
         input: text::Input,
     ) -> draft::Change {
         self.text_input.edit(target, base, edit, input)
+    }
+
+    pub(super) fn select_text_draft(
+        &mut self,
+        target: Target,
+        base: impl Into<String>,
+        operation: text::selection::Operation,
+    ) -> draft::Change {
+        self.text_input.select(target, base, operation)
     }
 
     pub(super) fn activate_text_draft(&mut self, target: Target, base: impl Into<String>) -> bool {

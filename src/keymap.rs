@@ -33,6 +33,12 @@ pub enum TextBoxShortcut {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TextOperation {
+    Selection(text::selection::Operation),
+    Edit(text::Edit),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ShortcutDisplay {
     runs: Vec<ShortcutRun>,
 }
@@ -144,14 +150,14 @@ impl Profile {
         }
     }
 
-    pub fn edit_for_key(
+    pub(crate) fn text_operation_for_key(
         self,
         key: input::Key,
         modifiers: input::Modifiers,
-    ) -> Option<text::edit::Edit> {
+    ) -> Option<TextOperation> {
         match self.platform {
-            Platform::Mac => mac_edit_for_key(key, modifiers),
-            Platform::Windows | Platform::Linux => windows_edit_for_key(key, modifiers),
+            Platform::Mac => mac_text_operation_for_key(key, modifiers),
+            Platform::Windows | Platform::Linux => windows_text_operation_for_key(key, modifiers),
         }
     }
 
@@ -459,7 +465,10 @@ fn key_text(key: input::Key, glyph_keys: bool) -> String {
     }
 }
 
-fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text::edit::Edit> {
+fn windows_text_operation_for_key(
+    key: input::Key,
+    modifiers: input::Modifiers,
+) -> Option<TextOperation> {
     if modifiers.alt() || modifiers.super_key() {
         return None;
     }
@@ -469,12 +478,16 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
     let extend = modifiers.shift();
 
     match key {
-        input::Key::Backspace if control => Some(text::edit::Edit::delete_word_backward()),
-        input::Key::Backspace => Some(text::edit::Edit::backspace()),
-        input::Key::Delete if control => Some(text::edit::Edit::delete_word_forward()),
-        input::Key::Delete => Some(text::edit::Edit::delete()),
-        input::Key::Enter if !control => Some(text::edit::Edit::insert_line_break()),
-        input::Key::ArrowLeft => Some(motion_edit(
+        input::Key::Backspace if control => {
+            Some(TextOperation::Edit(text::Edit::delete_word_backward()))
+        }
+        input::Key::Backspace => Some(TextOperation::Edit(text::Edit::backspace())),
+        input::Key::Delete if control => {
+            Some(TextOperation::Edit(text::Edit::delete_word_forward()))
+        }
+        input::Key::Delete => Some(TextOperation::Edit(text::Edit::delete())),
+        input::Key::Enter if !control => Some(TextOperation::Edit(text::Edit::insert_line_break())),
+        input::Key::ArrowLeft => Some(motion_operation(
             if control {
                 text::selection::Motion::WordPrevious
             } else {
@@ -482,7 +495,7 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
             },
             extend,
         )),
-        input::Key::ArrowRight => Some(motion_edit(
+        input::Key::ArrowRight => Some(motion_operation(
             if control {
                 text::selection::Motion::WordNext
             } else {
@@ -491,12 +504,13 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
             extend,
         )),
         input::Key::ArrowUp if !control => {
-            Some(motion_edit(text::selection::Motion::VisualUp, extend))
+            Some(motion_operation(text::selection::Motion::VisualUp, extend))
         }
-        input::Key::ArrowDown if !control => {
-            Some(motion_edit(text::selection::Motion::VisualDown, extend))
-        }
-        input::Key::Home => Some(motion_edit(
+        input::Key::ArrowDown if !control => Some(motion_operation(
+            text::selection::Motion::VisualDown,
+            extend,
+        )),
+        input::Key::Home => Some(motion_operation(
             if control {
                 text::selection::Motion::DocumentStart
             } else {
@@ -504,7 +518,7 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
             },
             extend,
         )),
-        input::Key::End => Some(motion_edit(
+        input::Key::End => Some(motion_operation(
             if control {
                 text::selection::Motion::DocumentEnd
             } else {
@@ -513,10 +527,10 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
             extend,
         )),
         input::Key::PageUp if !control => {
-            Some(motion_edit(text::selection::Motion::PageUp, extend))
+            Some(motion_operation(text::selection::Motion::PageUp, extend))
         }
         input::Key::PageDown if !control => {
-            Some(motion_edit(text::selection::Motion::PageDown, extend))
+            Some(motion_operation(text::selection::Motion::PageDown, extend))
         }
         input::Key::Tab
         | input::Key::Space
@@ -535,7 +549,10 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
     }
 }
 
-fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text::edit::Edit> {
+fn mac_text_operation_for_key(
+    key: input::Key,
+    modifiers: input::Modifiers,
+) -> Option<TextOperation> {
     if modifiers.control() || (modifiers.alt() && modifiers.super_key()) {
         return None;
     }
@@ -546,12 +563,18 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
     let extend = modifiers.shift();
 
     match key {
-        input::Key::Backspace if option => Some(text::edit::Edit::delete_word_backward()),
-        input::Key::Backspace => Some(text::edit::Edit::backspace()),
-        input::Key::Delete if option => Some(text::edit::Edit::delete_word_forward()),
-        input::Key::Delete => Some(text::edit::Edit::delete()),
-        input::Key::Enter if !option && !command => Some(text::edit::Edit::insert_line_break()),
-        input::Key::ArrowLeft => Some(motion_edit(
+        input::Key::Backspace if option => {
+            Some(TextOperation::Edit(text::Edit::delete_word_backward()))
+        }
+        input::Key::Backspace => Some(TextOperation::Edit(text::Edit::backspace())),
+        input::Key::Delete if option => {
+            Some(TextOperation::Edit(text::Edit::delete_word_forward()))
+        }
+        input::Key::Delete => Some(TextOperation::Edit(text::Edit::delete())),
+        input::Key::Enter if !option && !command => {
+            Some(TextOperation::Edit(text::Edit::insert_line_break()))
+        }
+        input::Key::ArrowLeft => Some(motion_operation(
             if command {
                 text::selection::Motion::LineStart
             } else if option {
@@ -561,7 +584,7 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
             },
             extend,
         )),
-        input::Key::ArrowRight => Some(motion_edit(
+        input::Key::ArrowRight => Some(motion_operation(
             if command {
                 text::selection::Motion::LineEnd
             } else if option {
@@ -571,24 +594,27 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
             },
             extend,
         )),
-        input::Key::ArrowUp if command => {
-            Some(motion_edit(text::selection::Motion::DocumentStart, extend))
-        }
-        input::Key::ArrowDown if command => {
-            Some(motion_edit(text::selection::Motion::DocumentEnd, extend))
-        }
+        input::Key::ArrowUp if command => Some(motion_operation(
+            text::selection::Motion::DocumentStart,
+            extend,
+        )),
+        input::Key::ArrowDown if command => Some(motion_operation(
+            text::selection::Motion::DocumentEnd,
+            extend,
+        )),
         input::Key::ArrowUp if !option => {
-            Some(motion_edit(text::selection::Motion::VisualUp, extend))
+            Some(motion_operation(text::selection::Motion::VisualUp, extend))
         }
-        input::Key::ArrowDown if !option => {
-            Some(motion_edit(text::selection::Motion::VisualDown, extend))
-        }
+        input::Key::ArrowDown if !option => Some(motion_operation(
+            text::selection::Motion::VisualDown,
+            extend,
+        )),
         input::Key::Home | input::Key::End => None,
         input::Key::PageUp if !option && !command => {
-            Some(motion_edit(text::selection::Motion::PageUp, extend))
+            Some(motion_operation(text::selection::Motion::PageUp, extend))
         }
         input::Key::PageDown if !option && !command => {
-            Some(motion_edit(text::selection::Motion::PageDown, extend))
+            Some(motion_operation(text::selection::Motion::PageDown, extend))
         }
         input::Key::Tab
         | input::Key::Space
@@ -607,12 +633,12 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
     }
 }
 
-fn motion_edit(motion: text::selection::Motion, extend: bool) -> text::edit::Edit {
-    if extend {
-        text::edit::Edit::extend_position(motion)
+fn motion_operation(motion: text::selection::Motion, extend: bool) -> TextOperation {
+    TextOperation::Selection(if extend {
+        text::selection::Operation::extend_position(motion)
     } else {
-        text::edit::Edit::move_position(motion)
-    }
+        text::selection::Operation::move_position(motion)
+    })
 }
 
 #[cfg(test)]
@@ -756,34 +782,34 @@ mod tests {
     #[test]
     fn text_edit_motion_mapping_is_profile_owned() {
         assert_eq!(
-            Profile::windows().edit_for_key(
+            Profile::windows().text_operation_for_key(
                 input::Key::ArrowLeft,
                 input::Modifiers::new(false, true, false, false),
             ),
-            Some(text::edit::Edit::move_position(
-                text::selection::Motion::WordPrevious
+            Some(TextOperation::Selection(
+                text::selection::Operation::move_position(text::selection::Motion::WordPrevious)
             ))
         );
         assert_eq!(
-            Profile::mac().edit_for_key(
+            Profile::mac().text_operation_for_key(
                 input::Key::ArrowLeft,
                 input::Modifiers::new(false, false, true, false),
             ),
-            Some(text::edit::Edit::move_position(
-                text::selection::Motion::WordPrevious
+            Some(TextOperation::Selection(
+                text::selection::Operation::move_position(text::selection::Motion::WordPrevious)
             ))
         );
         assert_eq!(
-            Profile::mac().edit_for_key(
+            Profile::mac().text_operation_for_key(
                 input::Key::ArrowLeft,
                 input::Modifiers::new(false, false, false, true),
             ),
-            Some(text::edit::Edit::move_position(
-                text::selection::Motion::LineStart
+            Some(TextOperation::Selection(
+                text::selection::Operation::move_position(text::selection::Motion::LineStart)
             ))
         );
         assert_eq!(
-            Profile::mac().edit_for_key(input::Key::Home, input::Modifiers::default()),
+            Profile::mac().text_operation_for_key(input::Key::Home, input::Modifiers::default()),
             None
         );
     }

@@ -22,6 +22,7 @@ fn standard_editing_is_an_enumerable_declinable_set() {
         members,
         vec![
             ("document.apply_edit", "Edit", None, None),
+            ("document.apply_selection", "Select Text", None, None),
             (
                 "edit.cut",
                 "Cut",
@@ -414,7 +415,7 @@ fn mixed_standard_bar_keeps_dynamic_authorship_typed_and_explicit() {
 #[test]
 fn typing_history_group_carries_the_text_owned_coalesce_window() {
     let typing =
-        <document::ApplyEdit as Command>::history_group(&text::edit::Edit::Insert("a".to_owned()))
+        <document::ApplyEdit as Command>::history_group(&text::Edit::Insert("a".to_owned()))
             .expect("typing edit should declare a history group");
     let generic = command::HistoryGroup::new("generic");
 

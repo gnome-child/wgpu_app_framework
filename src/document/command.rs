@@ -9,7 +9,7 @@ use crate::command::{self, Command};
 pub struct ApplyEdit;
 
 impl Command for ApplyEdit {
-    type Args = text::edit::Edit;
+    type Args = text::Edit;
     type Output = Outcome;
 
     const NAME: &'static str = "document.apply_edit";
@@ -20,6 +20,15 @@ impl Command for ApplyEdit {
                 .with_coalesce_window(text::edit::TYPING_UNDO_COALESCE_WINDOW),
         )
     }
+}
+
+pub struct ApplySelection;
+
+impl Command for ApplySelection {
+    type Args = text::selection::Operation;
+    type Output = Outcome;
+
+    const NAME: &'static str = "document.apply_selection";
 }
 
 pub struct SelectAll;
@@ -86,6 +95,7 @@ impl Editing {
     pub fn standard() -> command::Set {
         command::Set::new()
             .include::<ApplyEdit>(command::Spec::new("Edit"))
+            .include::<ApplySelection>(command::Spec::new("Select Text"))
             .include::<Cut>(command::Spec::standard(command::Standard::Cut))
             .include::<Copy>(command::Spec::standard(command::Standard::Copy))
             .include::<Paste>(command::Spec::standard(command::Standard::Paste))
@@ -148,9 +158,9 @@ impl Command for SaveToPath {
     const NAME: &'static str = "document.save_to_path";
 }
 
-fn is_typing_edit(edit: &text::edit::Edit) -> bool {
+fn is_typing_edit(edit: &text::Edit) -> bool {
     let text = match edit {
-        text::edit::Edit::Insert(text) | text::edit::Edit::ImeCommit(text) => text,
+        text::Edit::Insert(text) | text::Edit::ImeCommit(text) => text,
         _ => return false,
     };
     let mut graphemes = text.graphemes(true);

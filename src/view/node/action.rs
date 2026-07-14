@@ -157,8 +157,8 @@ impl Node {
         Some(Action::sequence([
             Action::pointer_down(target),
             Action::text_pointer_focus(text_area.focus())?,
-            Action::text_edit(text::edit::Edit::pointer(
-                text::edit::PointerEditKind::Click,
+            Action::text_selection(text::selection::Operation::pointer(
+                text::selection::PointerKind::Click,
                 position,
             )),
         ]))
@@ -178,8 +178,8 @@ impl Node {
         Some(Action::pointer_drag(
             Some(target.clone()),
             target,
-            Some(Action::text_edit(text::edit::Edit::pointer(
-                text::edit::PointerEditKind::Drag,
+            Some(Action::text_selection(text::selection::Operation::pointer(
+                text::selection::PointerKind::Drag,
                 position,
             ))),
         ))

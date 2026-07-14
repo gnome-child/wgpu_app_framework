@@ -53,6 +53,7 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
             responders
                 .object("document", |state: &mut State| &mut state.document)
                 .target::<document::ApplyEdit>()
+                .target::<document::ApplySelection>()
                 .target::<document::Cut>()
                 .target::<document::Copy>()
                 .target::<document::Paste>()
@@ -60,6 +61,7 @@ pub fn runtime(state: State) -> Runtime<State, Event> {
                 .target::<document::SelectAll>();
         })
         .observe::<document::ApplyEdit>(target::record_apply_edit_status)
+        .observe::<document::ApplySelection>(target::record_apply_edit_status)
         .observe::<document::SelectAll>(|state, result, observation| {
             target::record_text_command_status(state, result, "select all", observation);
         })

@@ -71,7 +71,7 @@ impl Session {
         id: app_window::Id,
         focus: Focus,
         base: impl Into<String>,
-        edit: text::edit::Edit,
+        edit: text::Edit,
         input: text::Input,
     ) -> Option<draft::Change> {
         let window = self.window_mut(id)?;
@@ -88,6 +88,29 @@ impl Session {
             base,
             edit,
             input,
+        ))
+    }
+
+    pub(crate) fn select_text_draft(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+        base: impl Into<String>,
+        operation: text::selection::Operation,
+    ) -> Option<draft::Change> {
+        let window = self.window_mut(id)?;
+        if !window
+            .focus
+            .as_ref()
+            .is_some_and(|current| current.same_target(&focus))
+        {
+            return None;
+        }
+
+        Some(window.interaction.select_text_draft(
+            interaction::Target::text_area(focus),
+            base,
+            operation,
         ))
     }
 

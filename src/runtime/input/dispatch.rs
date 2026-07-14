@@ -150,6 +150,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 modifiers,
                 text,
             } => self.handle_key_down(window, key, modifiers, text),
+            input::Input::TextSelection(operation) => {
+                self.handle_text_selection(window, operation, command_context::Source::Keyboard)
+            }
             input::Input::TextEdit(edit) => {
                 self.handle_text_edit(window, edit, command_context::Source::Keyboard)
             }
