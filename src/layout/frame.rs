@@ -81,9 +81,17 @@ enum TextContent {
     SectionHeader,
     Area {
         model: view::TextArea,
-        input: Option<view::TextBox>,
         display_model: view::TextArea,
-        projection: Option<text::Selectable>,
+        layout: text::Area,
+        text_rect: Rect,
+        world_overflow: Option<text_model::Overflow>,
+        world_wrap: Option<view::Wrap>,
+        world_align: Option<view::Align>,
+    },
+    InactiveField {
+        input: TextBoxContent,
+        model: view::TextArea,
+        display_model: view::TextArea,
         layout: text::Area,
         text_rect: Rect,
         world_overflow: Option<text_model::Overflow>,
@@ -91,11 +99,17 @@ enum TextContent {
         world_align: Option<view::Align>,
     },
     Field {
-        model: view::TextBox,
+        input: TextBoxContent,
         layout: text::Field,
         text_rect: Rect,
         display_text: Option<String>,
     },
+}
+
+#[derive(Clone)]
+struct TextBoxContent {
+    model: view::TextBox,
+    parts: control::InputParts,
 }
 
 #[derive(Clone, Copy)]
@@ -111,9 +125,16 @@ struct SliderContent {
     track_rect: Rect,
 }
 
-#[derive(Clone, Copy)]
-struct ScrollContent {
-    viewport: Option<Viewport>,
+#[derive(Clone)]
+enum ScrollContent {
+    Ordinary { viewport: Option<Viewport> },
+    Table { resolved: Option<TableScroll> },
+}
+
+#[derive(Clone)]
+struct TableScroll {
+    viewport: Viewport,
+    projection: table::Projection,
 }
 
 #[derive(Clone)]
@@ -145,6 +166,13 @@ struct BoundContent {
     shortcut_display: Option<Vec<ShortcutPart>>,
 }
 
+#[derive(Clone)]
+struct LabelContent {
+    text: String,
+    width: i32,
+    overflow_projection: Option<text::Selectable>,
+}
+
 #[derive(Clone, Copy)]
 struct SeparatorContent {
     shortcut_width: Option<i32>,
@@ -158,8 +186,7 @@ pub(crate) struct Frame {
     content: FrameContent,
     rect: Rect,
     active_rect: Rect,
-    label: Option<String>,
-    label_width: i32,
+    label: Option<LabelContent>,
     focused: bool,
     focus_visible: bool,
     selected: bool,
@@ -169,10 +196,7 @@ pub(crate) struct Frame {
     table_cell: Option<crate::table::Cell>,
     table_header_cell: Option<crate::table::HeaderCell>,
     table_header_presentation: Option<crate::table::HeaderPresentation>,
-    table_projection: Option<table::Projection>,
-    input_parts: Option<control::InputParts>,
     participation: Option<view::Participation>,
-    overflow_projection: Option<text::Selectable>,
     floating_layer: bool,
     background: Option<scene::Brush>,
     clip: Option<Clip>,
@@ -208,18 +232,18 @@ impl Frame {
             .as_ref()
             .is_some_and(view::TextBox::projects_inactive_display);
         let text_area = node.text_area_model().cloned().or_else(|| {
-            inactive_text_box.then(|| {
-                let text_box = text_box
-                    .as_ref()
-                    .expect("inactive table input carries TextBox content");
-                let mut text_area = view::TextArea::new(text_box.display_text().to_owned())
-                    .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
-                    .read_only();
-                if let Some(focus) = text_box.focus() {
-                    text_area = text_area.with_focus(focus);
-                }
-                text_area
-            })
+            text_box
+                .as_ref()
+                .filter(|_| inactive_text_box)
+                .map(|text_box| {
+                    let mut text_area = view::TextArea::new(text_box.display_text().to_owned())
+                        .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
+                        .read_only();
+                    if let Some(focus) = text_box.focus() {
+                        text_area = text_area.with_focus(focus);
+                    }
+                    text_area
+                })
         });
         let now = animation_frame.now();
         let inactive_input_text_rect = inactive_text_box
@@ -300,20 +324,20 @@ impl Frame {
         let text_area_layout = text_area_display.as_ref().map(|text_area| {
             engine.text_area_layout(text_area, text_area_text_rect, theme, text_area_color, now)
         });
-        let label =
-            if let Some(projection) = text_area_projection.as_ref().or(label_projection.as_ref()) {
-                Some(projection.visible().to_owned())
-            } else {
-                label_for(node).map(|label| match world_text_overflow {
-                    Some(overflow) => engine.resolve_label_overflow(
-                        label,
-                        world_text_rect.width(),
-                        label_style,
-                        overflow,
-                    ),
-                    None => label.to_owned(),
-                })
-            };
+        let overflow_projection = text_area_projection.or(label_projection);
+        let label = if let Some(projection) = overflow_projection.as_ref() {
+            Some(projection.visible().to_owned())
+        } else {
+            label_for(node).map(|label| match world_text_overflow {
+                Some(overflow) => engine.resolve_label_overflow(
+                    label,
+                    world_text_rect.width(),
+                    label_style,
+                    overflow,
+                ),
+                None => label.to_owned(),
+            })
+        };
         let label_width = label
             .as_deref()
             .map(|label| {
@@ -371,11 +395,13 @@ impl Frame {
             .as_ref()
             .map(|_| control::slider_track_rect(rect, label_width, theme));
         let active_rect = active_rect_for(node, rect, slider.as_ref(), label_width, theme);
+        let text_box = text_box
+            .zip(input_parts)
+            .map(|(model, parts)| TextBoxContent { model, parts });
         let content = FrameContent::for_node(
             node,
             text_area,
             text_area_display,
-            text_area_projection.clone(),
             text_area_layout,
             text_area_text_rect,
             text_box,
@@ -392,6 +418,11 @@ impl Frame {
             shortcut_content_width,
             shortcut_display,
         });
+        let label = label.map(|text| LabelContent {
+            text,
+            width: label_width,
+            overflow_projection,
+        });
         Self {
             path,
             node_id,
@@ -400,7 +431,6 @@ impl Frame {
             rect,
             active_rect,
             label,
-            label_width,
             focused: node.is_focused(),
             focus_visible: node.focus_visible(),
             selected: node.is_selected(),
@@ -410,10 +440,7 @@ impl Frame {
             table_cell: node.table_cell(),
             table_header_cell: node.table_header_cell(),
             table_header_presentation: node.table_header_presentation(),
-            table_projection: None,
-            input_parts,
             participation: node.participation(),
-            overflow_projection: text_area_projection.or(label_projection),
             floating_layer,
             background: node.style().background(),
             clip,
@@ -425,8 +452,10 @@ impl Frame {
 
     pub(super) fn with_viewport(mut self, viewport: Viewport) -> Self {
         match &mut self.content {
-            FrameContent::Scroll(content) => content.viewport = Some(viewport),
-            _ => panic!("only Scroll frame content accepts a viewport"),
+            FrameContent::Scroll(ScrollContent::Ordinary { viewport: current }) => {
+                *current = Some(viewport);
+            }
+            _ => panic!("only ordinary Scroll frame content accepts a viewport"),
         }
         self
     }
@@ -445,9 +474,21 @@ impl Frame {
         }
     }
 
-    pub(super) fn with_table_projection(mut self, projection: table::Projection) -> Self {
-        assert!(matches!(self.content, FrameContent::Scroll(_)));
-        self.table_projection = Some(projection);
+    pub(super) fn with_table_scroll(
+        mut self,
+        viewport: Viewport,
+        projection: table::Projection,
+    ) -> Self {
+        assert!(matches!(
+            self.content,
+            FrameContent::Scroll(ScrollContent::Table { .. })
+        ));
+        if let FrameContent::Scroll(ScrollContent::Table { resolved }) = &mut self.content {
+            *resolved = Some(TableScroll {
+                viewport,
+                projection,
+            });
+        }
         self
     }
 
@@ -506,11 +547,11 @@ impl Frame {
     }
 
     pub(crate) fn label_text(&self) -> Option<&str> {
-        self.label.as_deref()
+        self.label.as_ref().map(|label| label.text.as_str())
     }
 
     pub(crate) fn label_width(&self) -> i32 {
-        self.label_width
+        self.label.as_ref().map_or(0, |label| label.width)
     }
 
     pub(crate) fn overflow_tip(&self) -> Option<&str> {
@@ -519,8 +560,9 @@ impl Frame {
         {
             return Some(text_box.text());
         }
-        self.overflow_projection
+        self.label
             .as_ref()
+            .and_then(|label| label.overflow_projection.as_ref())
             .filter(|projection| projection.overflowed())
             .map(text::Selectable::source)
     }
@@ -529,7 +571,8 @@ impl Frame {
         match &self.content {
             FrameContent::Text(
                 TextContent::Label { world_overflow, .. }
-                | TextContent::Area { world_overflow, .. },
+                | TextContent::Area { world_overflow, .. }
+                | TextContent::InactiveField { world_overflow, .. },
             ) => *world_overflow,
             FrameContent::Button(world) => world.overflow,
             _ => None,
@@ -539,7 +582,9 @@ impl Frame {
     pub(crate) fn world_text_wrap(&self) -> Option<view::Wrap> {
         match &self.content {
             FrameContent::Text(
-                TextContent::Label { world_wrap, .. } | TextContent::Area { world_wrap, .. },
+                TextContent::Label { world_wrap, .. }
+                | TextContent::Area { world_wrap, .. }
+                | TextContent::InactiveField { world_wrap, .. },
             ) => *world_wrap,
             FrameContent::Button(world) => world.wrap,
             _ => None,
@@ -549,7 +594,9 @@ impl Frame {
     pub(crate) fn world_text_align(&self) -> Option<view::Align> {
         match &self.content {
             FrameContent::Text(
-                TextContent::Label { world_align, .. } | TextContent::Area { world_align, .. },
+                TextContent::Label { world_align, .. }
+                | TextContent::Area { world_align, .. }
+                | TextContent::InactiveField { world_align, .. },
             ) => *world_align,
             FrameContent::Button(world) => world.align,
             _ => None,
@@ -565,7 +612,9 @@ impl Frame {
 
     pub(crate) fn text_wrap(&self) -> Option<view::Wrap> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { model, .. }) => Some(model.wrap()),
+            FrameContent::Text(
+                TextContent::Area { model, .. } | TextContent::InactiveField { model, .. },
+            ) => Some(model.wrap()),
             FrameContent::Text(TextContent::Field { .. }) => Some(view::Wrap::None),
             _ => None,
         }
@@ -577,23 +626,22 @@ impl Frame {
 
     pub(crate) fn text_task_focus(&self) -> Option<crate::session::Focus> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { model, input, .. }) => input
-                .as_ref()
-                .and_then(view::TextBox::focus)
-                .or_else(|| model.focus()),
-            FrameContent::Text(TextContent::Field { model, .. }) => model.focus(),
+            FrameContent::Text(TextContent::Area { model, .. }) => model.focus(),
+            FrameContent::Text(TextContent::InactiveField { input, model, .. }) => {
+                input.model.focus().or_else(|| model.focus())
+            }
+            FrameContent::Text(TextContent::Field { input, .. }) => input.model.focus(),
             _ => None,
         }
     }
 
     pub(crate) fn text_is_selectable(&self) -> bool {
         match &self.content {
-            FrameContent::Text(TextContent::Area { model, input, .. }) => input
-                .as_ref()
-                .map(view::TextBox::mode)
-                .unwrap_or_else(|| model.mode())
-                .is_selectable(),
-            FrameContent::Text(TextContent::Field { model, .. }) => model.mode().is_selectable(),
+            FrameContent::Text(TextContent::Area { model, .. }) => model.mode().is_selectable(),
+            FrameContent::Text(TextContent::InactiveField { input, .. })
+            | FrameContent::Text(TextContent::Field { input, .. }) => {
+                input.model.mode().is_selectable()
+            }
             _ => false,
         }
     }
@@ -631,16 +679,21 @@ impl Frame {
     }
 
     pub(crate) fn table_projection(&self) -> Option<&table::Projection> {
-        self.table_projection.as_ref()
+        match &self.content {
+            FrameContent::Scroll(ScrollContent::Table {
+                resolved: Some(resolved),
+            }) => Some(&resolved.projection),
+            _ => None,
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn input_parts(&self) -> Option<control::InputParts> {
-        self.input_parts
+        self.text_box_content().map(|input| input.parts)
     }
 
     pub(crate) fn input_indicator_rect(&self) -> Option<Rect> {
-        self.input_parts?.indicator()
+        self.text_box_content()?.parts.indicator()
     }
 
     pub(crate) fn input_indicator_hint(&self) -> Option<&view::Hint> {
@@ -713,8 +766,13 @@ impl Frame {
 
     pub(crate) fn viewport(&self) -> Option<Viewport> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout.viewport()),
-            FrameContent::Scroll(content) => content.viewport,
+            FrameContent::Text(
+                TextContent::Area { layout, .. } | TextContent::InactiveField { layout, .. },
+            ) => Some(layout.viewport()),
+            FrameContent::Scroll(ScrollContent::Ordinary { viewport }) => *viewport,
+            FrameContent::Scroll(ScrollContent::Table { resolved }) => {
+                resolved.as_ref().map(|resolved| resolved.viewport)
+            }
             FrameContent::VirtualList(content) => {
                 content.geometry.as_ref().map(|geometry| geometry.viewport)
             }
@@ -807,24 +865,33 @@ impl Frame {
         }
     }
 
-    pub(crate) fn text_box(&self) -> Option<&view::TextBox> {
+    fn text_box_content(&self) -> Option<&TextBoxContent> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { input, .. }) => input.as_ref(),
-            FrameContent::Text(TextContent::Field { model, .. }) => Some(model),
+            FrameContent::Text(TextContent::InactiveField { input, .. })
+            | FrameContent::Text(TextContent::Field { input, .. }) => Some(input),
             _ => None,
         }
     }
 
+    pub(crate) fn text_box(&self) -> Option<&view::TextBox> {
+        self.text_box_content().map(|input| &input.model)
+    }
+
     pub(crate) fn text_area(&self) -> Option<&view::TextArea> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { model, .. }) => Some(model),
+            FrameContent::Text(
+                TextContent::Area { model, .. } | TextContent::InactiveField { model, .. },
+            ) => Some(model),
             _ => None,
         }
     }
 
     fn text_area_display(&self) -> Option<&view::TextArea> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { display_model, .. }) => Some(display_model),
+            FrameContent::Text(
+                TextContent::Area { display_model, .. }
+                | TextContent::InactiveField { display_model, .. },
+            ) => Some(display_model),
             _ => None,
         }
     }
@@ -833,25 +900,26 @@ impl Frame {
         &self,
         position: text_model::buffer::Position,
     ) -> text_model::buffer::Position {
-        match &self.content {
-            FrameContent::Text(TextContent::Area {
-                projection: Some(projection),
-                ..
-            }) => projection.source_position(position),
-            _ => position,
-        }
+        self.label
+            .as_ref()
+            .and_then(|label| label.overflow_projection.as_ref())
+            .map_or(position, |projection| projection.source_position(position))
     }
 
     pub(crate) fn text_area_layout(&self) -> Option<&text::Area> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout),
+            FrameContent::Text(
+                TextContent::Area { layout, .. } | TextContent::InactiveField { layout, .. },
+            ) => Some(layout),
             _ => None,
         }
     }
 
     pub(crate) fn text_area_text_rect(&self) -> Rect {
         match &self.content {
-            FrameContent::Text(TextContent::Area { text_rect, .. }) => *text_rect,
+            FrameContent::Text(
+                TextContent::Area { text_rect, .. } | TextContent::InactiveField { text_rect, .. },
+            ) => *text_rect,
             _ => self.rect,
         }
     }
@@ -865,11 +933,7 @@ impl Frame {
 
     pub(crate) fn text_box_text_rect(&self) -> Rect {
         match &self.content {
-            FrameContent::Text(TextContent::Area {
-                input: Some(_),
-                text_rect,
-                ..
-            }) => *text_rect,
+            FrameContent::Text(TextContent::InactiveField { text_rect, .. }) => *text_rect,
             FrameContent::Text(TextContent::Field { text_rect, .. }) => *text_rect,
             _ => self.rect,
         }
@@ -1079,10 +1143,9 @@ impl FrameContent {
         node: &view::Node,
         text_area: Option<view::TextArea>,
         text_area_display: Option<view::TextArea>,
-        text_area_projection: Option<text::Selectable>,
         text_area_layout: Option<text::Area>,
         text_area_text_rect: Rect,
-        text_box: Option<view::TextBox>,
+        text_box: Option<TextBoxContent>,
         text_box_layout: Option<text::Field>,
         text_box_text_rect: Rect,
         world_text_overflow: Option<text_model::Overflow>,
@@ -1102,10 +1165,8 @@ impl FrameContent {
             }),
             view::Role::TextArea => Self::Text(TextContent::Area {
                 model: text_area.expect("TextArea role must carry TextArea content"),
-                input: None,
                 display_model: text_area_display
                     .expect("TextArea frame must carry a display model"),
-                projection: text_area_projection,
                 layout: text_area_layout.expect("TextArea frame must carry layout content"),
                 text_rect: text_area_text_rect,
                 world_overflow: world_text_overflow,
@@ -1134,30 +1195,35 @@ impl FrameContent {
                     .expect("Slider role must carry Slider content"),
                 track_rect: slider_track_rect.expect("Slider frame must carry track geometry"),
             }),
-            view::Role::TextBox if text_box_layout.is_none() => Self::Text(TextContent::Area {
-                model: text_area.expect("inactive TextBox must carry display content"),
-                input: text_box,
-                display_model: text_area_display
-                    .expect("inactive TextBox frame must carry a display model"),
-                projection: text_area_projection,
-                layout: text_area_layout.expect("inactive TextBox frame must carry layout content"),
-                text_rect: text_area_text_rect,
-                world_overflow: world_text_overflow,
-                world_wrap: world_text_wrap,
-                world_align: world_text_align,
-            }),
+            view::Role::TextBox if text_box_layout.is_none() => {
+                Self::Text(TextContent::InactiveField {
+                    input: text_box.expect("inactive TextBox must carry TextBox content"),
+                    model: text_area.expect("inactive TextBox must carry display content"),
+                    display_model: text_area_display
+                        .expect("inactive TextBox frame must carry a display model"),
+                    layout: text_area_layout
+                        .expect("inactive TextBox frame must carry layout content"),
+                    text_rect: text_area_text_rect,
+                    world_overflow: world_text_overflow,
+                    world_wrap: world_text_wrap,
+                    world_align: world_text_align,
+                })
+            }
             view::Role::TextBox => Self::Text(TextContent::Field {
                 display_text: node
                     .label_text()
                     .is_none()
-                    .then(|| text_box.as_ref().map(view::TextBox::display_text))
+                    .then(|| text_box.as_ref().map(|input| input.model.display_text()))
                     .flatten()
                     .map(str::to_owned),
-                model: text_box.expect("TextBox role must carry TextBox content"),
+                input: text_box.expect("TextBox role must carry TextBox content"),
                 layout: text_box_layout.expect("TextBox frame must carry layout content"),
                 text_rect: text_box_text_rect,
             }),
-            view::Role::Scroll => Self::Scroll(ScrollContent { viewport: None }),
+            view::Role::Scroll if node.table_model().is_some() => {
+                Self::Scroll(ScrollContent::Table { resolved: None })
+            }
+            view::Role::Scroll => Self::Scroll(ScrollContent::Ordinary { viewport: None }),
             view::Role::VirtualList => Self::VirtualList(VirtualListContent {
                 geometry: None,
                 model: node
@@ -1192,8 +1258,8 @@ impl FrameContent {
             Self::Menu => view::Role::Menu,
             Self::Binding => view::Role::Binding,
             Self::Separator(_) => view::Role::Separator,
-            Self::Text(TextContent::Area { input: Some(_), .. }) => view::Role::TextBox,
-            Self::Text(TextContent::Area { input: None, .. }) => view::Role::TextArea,
+            Self::Text(TextContent::Area { .. }) => view::Role::TextArea,
+            Self::Text(TextContent::InactiveField { .. }) => view::Role::TextBox,
             Self::Button(_) => view::Role::Button,
             Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,
             Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,

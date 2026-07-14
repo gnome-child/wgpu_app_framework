@@ -1699,6 +1699,10 @@ fn floating_panel_state_is_structural_through_view_and_layout() {
         "popup_context:",
         "panel_policy:",
         "auxiliary_hint:",
+        "label_width: i32",
+        "table_projection: Option<table::Projection>",
+        "input_parts: Option<control::InputParts>",
+        "overflow_projection: Option<text::Selectable>",
     ] {
         assert!(
             !frame_fields.contains(displaced),
@@ -2322,6 +2326,24 @@ fn frame_content_is_the_single_role_payload_representation() {
             "legacy Frame payload field must stay absent: {displaced}"
         );
     }
+
+    for required in [
+        "InactiveField {",
+        "struct TextBoxContent {",
+        "parts: control::InputParts",
+        "enum ScrollContent {",
+        "Table { resolved: Option<TableScroll> }",
+        "struct TableScroll {",
+        "struct LabelContent {",
+        "overflow_projection: Option<text::Selectable>",
+        "fn with_table_scroll(",
+    ] {
+        assert!(
+            frame.contains(required),
+            "layout role-local content must retain structural species: {required}"
+        );
+    }
+    assert!(!frame.contains("fn with_table_projection("));
 }
 
 #[test]

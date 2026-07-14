@@ -323,8 +323,7 @@ fn layout_table_scroll(
             floating_layer,
             clip,
         )
-        .with_viewport(viewport)
-        .with_table_projection(projection.clone());
+        .with_table_scroll(viewport, projection.clone());
     ctx.frames.push(frame);
 
     let previous = ctx.table_projection.replace(projection);

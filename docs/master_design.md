@@ -464,6 +464,17 @@ there is no independent copied role or parallel optional leaf-payload cluster.
 Its floating-panel payload owns popup placement and context, material and group
 preferences, and the same structural panel policy; those facts do not occupy
 ordinary frames.
+Scroll content distinguishes ordinary and table owners. Once resolved, one
+table-scroll unit owns its viewport and table projection together; neither fact
+can occupy an ordinary scroll frame or outlive the other. Text content likewise
+distinguishes a text area, an inactive TextBox display, and an active TextBox
+field. Both TextBox species own their input-part geometry beside the TextBox
+model, so non-input frames cannot carry indicator geometry. The common resolved
+label payload is retained because labels cross text, button, and bound-control
+roles; it atomically owns the visible text, measured width, and optional
+selectable-overflow projection. Text source mapping and hover explanation
+consume that same projection rather than retaining a second copy on text
+content or the common frame.
 Bound presentation remains a common typed optional because ordinary Elements,
 controls, menu bindings, and palette Labels can all truthfully carry commands.
 Its measurement contract is constraints down and size hints up: hints are
