@@ -3287,6 +3287,49 @@ Correction `a9fceac9` (`Make virtual frame geometry atomic`).
    frame shortcut/popup facts, view nodes, widgets, and remaining UI state
    shapes; this cell does not close Rung 5.
 
+### R5-18 — valid view-binding trigger species
+
+Status: **complete; current slider trigger and factory made inseparable**.
+Correction `b299aeaa` (`Make view binding trigger species valid`).
+
+1. **Question and complete trace.** The reverse binding sweep traced typed and
+   erased command bindings, resolved menu/bar actions, ordinary controls,
+   fixed-command sliders, value-mapped sliders, state resolution, activation,
+   history grouping, drag updates, command invocation, and binding/slider
+   witnesses.
+2. **Invalid state.** `view::Binding` carried one current `AnyTrigger` plus an
+   optional slider value-trigger factory. Constructors kept them aligned, but
+   the representation admitted a slider factory paired with an unrelated
+   current trigger and made fixed-versus-slider meaning indirect.
+3. **Correction.** A private `Trigger::{Fixed, Slider { current, factory }}` sum
+   now owns the species. All trigger metadata, resolution, and invocation read
+   the current member; slider updates can only derive a successor from the
+   factory nested beside that member. Existing `Binding` queries and actions are
+   unchanged.
+4. **Boundary and naming ruling.** The public namesake `view::Binding` remains
+   the sole projected type; private `Trigger` stays inside the private binding
+   module and is not re-exported. No compound/simple alias or visibility change
+   was introduced.
+5. **Behavior and economics.** Command identity, state, route, source,
+   description, history grouping, menu visibility, slider mapping, gesture
+   coalescing, allocation, cloning, and presentation work are unchanged. One
+   enum discriminant replaces the optional factory discriminant without a heap
+   object or traversal.
+6. **Doctrine and witnesses.** Master design now names fixed and slider trigger
+   species and requires current/factory atomicity. The architecture witness pins
+   the private sum and tombstones the optional factory field.
+7. **Proof and gauge delta from R5-17.** The architecture witness, all six
+   slider tests, and all five binding tests passed; the full library discovered
+   1,100 tests and passed 1,090 with 10 ignored; all targets compiled without
+   warnings. All nine census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains
+   unchanged.
+8. **Fixed point and next frontier.** View bindings now carry one valid trigger
+   species from widget construction through command invocation. The reverse
+   sweep continues across view-node roles, remaining layout payloads, session,
+   theme, and scene inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
