@@ -111,6 +111,27 @@ fn pointer_press_state_is_one_lifecycle_species() {
 }
 
 #[test]
+fn pointer_release_action_has_valid_species() {
+    let action = include_str!("../view/action.rs");
+    let node_action = include_str!("../view/node/action.rs");
+    let runtime_pointer = include_str!("../runtime/pointer.rs");
+    let routing = include_str!("../runtime/routing.rs");
+
+    assert!(
+        action.contains("PointerUp {\n        target: interaction::Target,")
+            && action.contains("PointerUpOutside,")
+            && action.contains("pub(crate) fn pointer_up_outside() -> Self")
+    );
+    assert!(!action.contains("PointerUp {\n        target: Option<interaction::Target>"));
+    assert!(node_action.contains("self.pointer_target()?,"));
+    assert!(
+        runtime_pointer.contains("Some(target) => view::Action::pointer_up(target, action)")
+            && runtime_pointer.contains("None => view::Action::pointer_up_outside()")
+    );
+    assert!(routing.contains("view::Action::PointerUpOutside =>"));
+}
+
+#[test]
 fn pointer_position_and_surface_share_one_location() {
     let pointer = include_str!("../interaction/pointer.rs");
 

@@ -141,8 +141,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     .session
                     .interaction(window)
                     .and_then(|interaction| interaction.pointer().pressed())
-                    == target.as_ref();
-                let pointer = self.handle_pointer_up_input(window, target.clone(), false)?;
+                    == Some(&target);
+                let pointer = self.handle_pointer_up_input(window, Some(target.clone()), false)?;
 
                 if !activate {
                     self.finish_pointer_gesture();
@@ -163,6 +163,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     pointer.changed_state() || activated.changed_state(),
                     effect,
                 ))
+            }
+            view::Action::PointerUpOutside => {
+                let pointer = self.handle_pointer_up_input(window, None, false)?;
+                self.finish_pointer_gesture();
+                Ok(pointer)
             }
             view::Action::PointerLeft => self.handle_input(window, input::Input::pointer_left()),
             view::Action::ResizeTableColumn { column, width } => {

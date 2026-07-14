@@ -1087,6 +1087,11 @@ captured press additionally owns the resolved cursor beside that same target.
 Pointer release, cancellation, and target removal retire the unit atomically;
 pointer leave retains a captured press and retires an uncaptured one.
 
+A resolved pointer-release action has exactly two species. A targeted release
+owns its target and may carry that target's activation action; an outside
+release owns neither. An activation action cannot exist without the target
+whose hit produced it.
+
 Pointer presence is one location fact: logical point and owning parent or popup
 surface are stored and consumed together. Absence carries neither coordinate
 nor stale surface identity; pointer leave retires the complete location.

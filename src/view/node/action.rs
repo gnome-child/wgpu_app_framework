@@ -132,7 +132,7 @@ impl Node {
     #[cfg(test)]
     pub(crate) fn pointer_up_action(&self) -> Option<Action> {
         Some(Action::pointer_up(
-            Some(self.pointer_target()?),
+            self.pointer_target()?,
             self.pointer_activation_action(),
         ))
     }

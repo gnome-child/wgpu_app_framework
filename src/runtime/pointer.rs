@@ -585,7 +585,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .flatten()
         });
 
-        self.handle_view(window, view::Action::pointer_up(target, action))
+        let release = match target {
+            Some(target) => view::Action::pointer_up(target, action),
+            None => view::Action::pointer_up_outside(),
+        };
+        self.handle_view(window, release)
     }
 
     pub fn pointer_drag_at(

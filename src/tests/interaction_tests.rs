@@ -2254,7 +2254,7 @@ fn pointer_left_preserves_captured_text_area_until_release() {
     );
 
     let released = app
-        .handle_view(window, view::Action::pointer_up(None, None))
+        .handle_view(window, view::Action::pointer_up_outside())
         .expect("pointer up should be handled");
 
     assert!(released.is_handled());
@@ -2515,7 +2515,7 @@ fn pointer_release_away_from_pressed_command_does_not_invoke() {
     app.pointer_down_at(window, size, wrap_point)
         .expect("pointer down should be handled");
     let released = app
-        .handle_view(window, view::Action::pointer_up(None, None))
+        .handle_view(window, view::Action::pointer_up_outside())
         .expect("pointer up should be handled");
 
     assert!(released.is_handled());

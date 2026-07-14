@@ -20,9 +20,10 @@ pub(crate) enum Action {
         action: Option<Box<Action>>,
     },
     PointerUp {
-        target: Option<interaction::Target>,
+        target: interaction::Target,
         action: Option<Box<Action>>,
     },
+    PointerUpOutside,
     PointerLeft,
     Scroll {
         target: interaction::Target,
@@ -96,11 +97,15 @@ impl Action {
         }
     }
 
-    pub(crate) fn pointer_up(target: Option<interaction::Target>, action: Option<Action>) -> Self {
+    pub(crate) fn pointer_up(target: interaction::Target, action: Option<Action>) -> Self {
         Self::PointerUp {
             target,
             action: action.map(Box::new),
         }
+    }
+
+    pub(crate) fn pointer_up_outside() -> Self {
+        Self::PointerUpOutside
     }
 
     pub(crate) fn pointer_left() -> Self {
