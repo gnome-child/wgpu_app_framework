@@ -13,11 +13,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let reveal_target = focus.map(|focus| self.text_input_target(window, focus));
         let (edit, source_cleanup) = text_drop.into_edits();
         let task_sink = self.tasks.sink();
-        let mut cx = command_context::Context::with_services_source(
+        let mut cx = command_context::Context::with_clipboard_source(
             &mut self.clipboard,
-            task_sink,
             command_context::Source::Input,
         )
+        .with_tasks(task_sink)
         .with_caret_map(self.layout.text_caret_map());
         let mut chain = self.responders.chain_for(&mut self.store, focus);
 

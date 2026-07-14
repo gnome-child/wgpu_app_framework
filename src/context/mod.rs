@@ -38,17 +38,9 @@ impl Context {
         }
     }
 
-    pub(super) fn with_services_source(
-        clipboard: &mut Clipboard,
-        tasks: task::Sink,
-        source: Source,
-    ) -> Self {
-        Self {
-            source,
-            clipboard: Some(clipboard.clone()),
-            caret_map: None,
-            tasks: Some(tasks),
-        }
+    pub(super) fn with_tasks(mut self, tasks: task::Sink) -> Self {
+        self.tasks = Some(tasks);
+        self
     }
 
     pub(super) fn with_caret_map(
@@ -80,10 +72,6 @@ impl Context {
 
     pub(super) fn clipboard(&self) -> Option<&Clipboard> {
         self.clipboard.as_ref()
-    }
-
-    pub(super) fn clipboard_mut(&mut self) -> Option<Clipboard> {
-        self.clipboard.clone()
     }
 
     pub(super) fn caret_map(&self) -> Option<Rc<RefCell<dyn text::selection::CaretMap>>> {

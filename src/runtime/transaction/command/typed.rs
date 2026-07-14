@@ -33,9 +33,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let scope = window
             .map(|window| self.session.command_scope(window, focus))
             .unwrap_or_else(|| responder::Scope::focused(focus));
-        let mut cx =
-            command_context::Context::with_services_source(&mut self.clipboard, task_sink, source)
-                .with_caret_map(self.layout.text_caret_map());
+        let mut cx = command_context::Context::with_clipboard_source(&mut self.clipboard, source)
+            .with_tasks(task_sink)
+            .with_caret_map(self.layout.text_caret_map());
         let services = Services::new(
             &mut self.timeline,
             &mut self.session,

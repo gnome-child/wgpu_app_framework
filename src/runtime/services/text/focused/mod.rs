@@ -187,8 +187,8 @@ impl<'a> FocusedDraft<'a> {
     }
 }
 
-fn put_clipboard_text(cx: &mut command_context::Context, text: String) -> clipboard::Result<()> {
-    let Some(clipboard) = cx.clipboard_mut() else {
+fn put_clipboard_text(cx: &command_context::Context, text: String) -> clipboard::Result<()> {
+    let Some(clipboard) = cx.clipboard() else {
         return Err(clipboard::Error::Unavailable);
     };
 

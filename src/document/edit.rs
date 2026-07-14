@@ -42,7 +42,7 @@ impl Target<SelectAll> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        let Some(_clipboard) = cx.clipboard_mut() else {
+        let Some(_clipboard) = cx.clipboard() else {
             return unavailable();
         };
 
@@ -60,7 +60,7 @@ impl Target<Copy> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        let Some(clipboard) = cx.clipboard_mut() else {
+        let Some(clipboard) = cx.clipboard() else {
             return unavailable();
         };
         let Some(selection) = self.selected_text() else {
@@ -84,7 +84,7 @@ impl Target<Cut> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        let Some(clipboard) = cx.clipboard_mut() else {
+        let Some(clipboard) = cx.clipboard() else {
             return unavailable();
         };
         let Some(selection) = self.selected_text() else {
@@ -115,7 +115,7 @@ impl Target<Delete> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        let Some(_clipboard) = cx.clipboard_mut() else {
+        let Some(_clipboard) = cx.clipboard() else {
             return unavailable();
         };
 
@@ -129,7 +129,7 @@ impl Target<Paste> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        let Some(clipboard) = cx.clipboard_mut() else {
+        let Some(clipboard) = cx.clipboard() else {
             return unavailable();
         };
 

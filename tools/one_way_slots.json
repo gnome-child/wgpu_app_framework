@@ -18,6 +18,10 @@
       "modules": ["feedback"],
       "may_depend_on": []
     },
+    "clipboard": {
+      "modules": ["clipboard"],
+      "may_depend_on": []
+    },
     "tasks": {
       "modules": ["task"],
       "may_depend_on": []
@@ -42,7 +46,7 @@
         "target",
         "timeline"
       ],
-      "may_depend_on": ["foundation", "state", "tasks", "text"]
+      "may_depend_on": ["foundation", "clipboard", "state", "tasks", "text"]
     },
     "ui": {
       "modules": [
@@ -70,7 +74,6 @@
     },
     "runtime": {
       "modules": [
-        "clipboard",
         "diagnostics",
         "document",
         "host",
@@ -78,13 +81,14 @@
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "icons", "feedback", "state", "tasks", "text", "command", "ui"]
+      "may_depend_on": ["foundation", "icons", "feedback", "clipboard", "state", "tasks", "text", "command", "ui"]
     },
     "platform": {
       "modules": ["platform"],
       "may_depend_on": [
         "foundation",
         "icons",
+        "clipboard",
         "state",
         "tasks",
         "text",
@@ -100,6 +104,7 @@
         "foundation",
         "icons",
         "feedback",
+        "clipboard",
         "state",
         "tasks",
         "text",
@@ -112,7 +117,7 @@
     }
   },
   "external_boundaries": {
-    "arboard": ["runtime"],
+    "arboard": ["clipboard"],
     "bytemuck": ["renderer"],
     "cosmic_text": ["text"],
     "glyphon": ["text", "renderer"],

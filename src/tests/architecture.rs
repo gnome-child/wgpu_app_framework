@@ -1860,6 +1860,8 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
         .expect("document command source should read");
     let document_target = std::fs::read_to_string(src.join("document").join("edit.rs"))
         .expect("document edit target source should read");
+    let context = std::fs::read_to_string(src.join("context").join("mod.rs"))
+        .expect("command context source should read");
     let text_editor = std::fs::read_to_string(src.join("text").join("edit").join("editor.rs"))
         .expect("text editor source should read");
     let focused = std::fs::read_to_string(
@@ -1911,6 +1913,13 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
             && !text_editor.contains("Action"),
         "text mutation must not retain the retired command/clipboard intermediate"
     );
+    assert!(
+        context.contains("clipboard: Option<Clipboard>")
+            && context.contains("fn clipboard(&self) -> Option<&Clipboard>")
+            && !context.contains(&format!("{}{}", "clipboard_", "mut")),
+        "command context must transport one clipboard capability without per-operation clones"
+    );
+    assert_source_patterns_absent(&src.join("clipboard"), &["crate::".to_owned()]);
     assert!(
         command.matches("unwrap_or(true)").count() == 1
             && document_target.contains("Paste::availability(cx)")
@@ -3992,6 +4001,8 @@ fn deferred_tasks_have_one_worker_execution_path() {
         .expect("task executor source should read");
     let task =
         std::fs::read_to_string(root.join("src/task/mod.rs")).expect("task source should read");
+    let context = std::fs::read_to_string(root.join("src/context/mod.rs"))
+        .expect("command context source should read");
     let native = std::fs::read_to_string(root.join("src/platform/runner/native.rs"))
         .expect("native runner source should read");
     let handler = std::fs::read_to_string(root.join("src/platform/runner/handler.rs"))
@@ -4022,6 +4033,17 @@ fn deferred_tasks_have_one_worker_execution_path() {
             && !task.contains("windows")
             && !task.contains("wgpu"),
         "task must own future realization without importing UI, renderer, or platform machinery"
+    );
+    assert!(
+        context.contains("tasks: Option<task::Sink>")
+            && context.contains("fn with_tasks(")
+            && context.contains("pub fn spawn<")
+            && !context.contains(&format!("{}{}", "with_services_", "source")),
+        "command context must carry the tasks-owned sink explicitly rather than an aggregate service bag"
+    );
+    assert_source_patterns_absent(
+        &root.join("src"),
+        &[format!("{}{}", "with_services_", "source")],
     );
     assert!(
         native.contains("executor.spawn(move ||")

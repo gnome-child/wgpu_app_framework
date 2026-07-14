@@ -66,7 +66,7 @@ impl Target<document::Paste> for FocusedDraft<'_> {
     }
 
     fn invoke(&mut self, _: (), cx: &mut command_context::Context) -> Response<document::Outcome> {
-        let Some(clipboard) = cx.clipboard_mut() else {
+        let Some(clipboard) = cx.clipboard() else {
             return Response::output(document::Outcome::unavailable_result());
         };
 

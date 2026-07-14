@@ -1224,6 +1224,12 @@ confirmed. Copy reports that result, Cut deletes only after `Ok(())`, and Paste
 keeps empty distinct from failed. No adapter may log an OS failure and then
 report success to its caller.
 
+Clipboard is an independent capability owner. Runtime configures one shared
+handle and command context transports access to it; neither layer rewraps its
+result model or clones a second handle for an individual operation. The
+optional system adapter is clipboard realization, not evidence that clipboard
+belongs to runtime orchestration.
+
 The `Paste` command also owns its availability policy. No configured clipboard
 or a confirmed empty clipboard disables it; confirmed text enables it. A probe
 failure keeps it enabled so invocation can report the unavailable outcome

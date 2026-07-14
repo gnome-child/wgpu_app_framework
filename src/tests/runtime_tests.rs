@@ -966,6 +966,16 @@ fn completed_tasks_are_dispatched_as_framework_owned_events() {
 }
 
 #[test]
+fn default_command_context_preserves_capability_absence() {
+    let mut cx = Context::default();
+
+    assert_eq!(cx.source(), context::Source::Programmatic);
+    assert!(cx.clipboard().is_none());
+    assert!(cx.caret_map().is_none());
+    assert!(cx.spawn(Task::ready(())).is_none());
+}
+
+#[test]
 fn completed_task_outcome_reports_unchanged_events() {
     let mut app = Runtime::new(EditorState::default()).started(|cx| {
         assert!(cx.spawn(Task::ready(())).is_some());
