@@ -5694,6 +5694,76 @@ Correction `78b2a5e7` (`Lend admitted table service models`).
    remaining layout/session visibility, failure, intermediate, housing, and
    naming inventories. This cell does not close Rung 5.
 
+### R5-59 — claimed responder-service identity through broad invocation
+
+Status: **complete; discarded claimant and replayed service precedence
+removed**. Correction `78e9cc49` (`Carry responder service claimant identity`).
+
+1. **Question and complete trace.** The responder-service protocol sweep traced
+   broad and exact state resolution and invocation through ordinary responders,
+   active focused text, table selection, inactive focused text, system
+   undo/redo and window commands, palette query versus captured document,
+   context-menu routes, typed provider targets, focus handoff, disabled and
+   missing outcomes, and every `responder::Service` implementation and
+   construction site.
+2. **Discarded identity and repeated policy.** Broad `Chain::invoke_any`
+   resolved one service `Claim` and then discarded it. The sole runtime service
+   implementation replayed the complete active-text -> table -> text -> system
+   ladder to rediscover the claimant, after which the selected typed service
+   re-claimed its target a third time before invocation. The middle replay
+   duplicated precedence, repeated composition/session work, and contained two
+   `.ok().flatten()` paths that could discard a repeated claim error. It
+   preserved no identity, lifecycle, or freshness beyond the immediately
+   adjacent claim.
+3. **Correction and displaced paths.** `Service::invoke` now receives the
+   adjacent responder `Claim`, and the chain passes the exact value it just
+   resolved. Runtime dispatches focused text, table selection, or system work
+   from that claim's provenance name. One private contextual invocation helper
+   is shared by broad and exact table/text routes. The replayed ladder,
+   `text::state`, the generic typed-service state-only adapter, repeated claim
+   error handling, and all associated optional recovery are deleted.
+4. **Revalidation and exact-route ruling.** The claim receipt chooses only the
+   subservice; it is not an availability lease and carries no cached typed
+   target. `service_target::invoke` still calls `claim_target` and checks live
+   hidden/disabled/ambiguous state immediately before invoking. Focused text
+   still resolves its live base text, performs the established focus handoff,
+   and only then revalidates the typed target. `Route::Service` still performs
+   its separate exact re-claim before exact invocation, so a departed contextual
+   owner remains missing rather than falling through to a broader service.
+5. **Boundary and naming ruling.** Responder continues to own claim provenance
+   and the one chain transaction; runtime services continue to own text/table/
+   system realization and typed target adapters. Provenance exposes its existing
+   simple `name` fact to the service consumer; no public API, parent projection,
+   supporting re-export, compound declaration, alias, or call-site spelling was
+   introduced. The touched seams therefore satisfy the canonical naming law
+   without unrelated cleanup.
+6. **Behavior and economics.** Ordinary responder priority, active text over
+   table, table over inactive text, system fallback, disabled stopping, exact
+   route identity, palette query ownership, table Select All, draft history,
+   focus timing, command effects, allocation, layout, scene order, renderer
+   topology, batching/pass fusion, invalidation, and presentation clocks are
+   unchanged. A broad service invocation now performs one claimant resolution
+   plus the required typed-target revalidation instead of replaying the whole
+   semantic ladder between them.
+7. **Doctrine and proof.** Master design now distinguishes adjacent claimant
+   identity from live typed-target availability. A responder-owner witness
+   proves the chain invokes from one exact claim; the architecture witness pins
+   claimant dispatch, extinction of the middle replay and state-only adapters,
+   focus-before-revalidation, typed availability checks, and retained exact
+   route re-claiming. Focused active-text, exact text, table-only, palette, and
+   system branches passed. The full library discovered 1,137 tests and passed
+   1,127 with ten standing ignores. All targets and all five examples compiled
+   without warnings; all ten census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed.
+8. **Gauge and next frontier.** Every gauge remains unchanged: production/test
+   edges 325/109, split responsibilities 3, slot edges 54, forbidden/external/
+   SCC counts 0/0/0, production `pub(crate)` 1,825 in 192 files, cross-slot
+   upper bound 1,778, cross-slot test edges 90, source-root mentions 118,
+   filesystem reads 363, allowances 6, panics 5, and expects 46. Broad service
+   invocation is at fixed point; the reverse sweep continues through the
+   remaining layout/session visibility, failure, intermediate, housing, and
+   naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
