@@ -123,6 +123,28 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             })
             .unwrap_or_else(|| section_header_height(theme))
             .max(section_header_height(theme)),
+        view::Role::TextBox
+            if node
+                .text_box_model()
+                .is_some_and(view::TextBox::projects_inactive_display) =>
+        {
+            let measured = node
+                .text_box_model()
+                .map(|text_box| {
+                    let text_area = view::TextArea::new(text_box.display_text().to_owned())
+                        .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
+                        .read_only();
+                    engine
+                        .text_area_size_for_width(&text_area, content_width, theme)
+                        .height()
+                })
+                .unwrap_or(control_height);
+            if node.world_text_wrap().is_some() {
+                measured
+            } else {
+                measured.max(control_height)
+            }
+        }
         view::Role::TextArea => {
             let measured = node
                 .text_area_model()

@@ -975,6 +975,14 @@ where
         .expect("text box should have a draft")
 }
 
+fn active_text_table_cell(session: &Session, window: window::Id) -> Option<crate::table::Cell> {
+    session
+        .interaction(window)?
+        .text_input()
+        .target()?
+        .table_cell()
+}
+
 fn non_text_focus(id: &'static str) -> session::Focus {
     let target = interaction::Target::label(interaction::Id::new(id), id);
     session::Focus::control(&target)

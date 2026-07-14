@@ -1170,7 +1170,7 @@ impl widget::Widget for TextEditor {
             self.align,
             self.overflow,
         )
-        .node(false)
+        .node()
     }
 }
 
@@ -1195,7 +1195,7 @@ impl widget::Widget for NumberEditor {
             view::Align::End,
             text::Overflow::EllipsisEnd,
         )
-        .node(false)
+        .node()
     }
 }
 
@@ -1233,25 +1233,19 @@ impl Edit {
         (self.validation)(text)
     }
 
-    pub(crate) fn node(&self, editing: bool) -> view::Node {
+    pub(crate) fn node(&self) -> view::Node {
         let focus = session::Focus::table_cell(self.cell);
-        let mut node = if editing {
-            let mut model = view::TextBox::new(self.text.clone())
-                .with_focus(focus)
-                .with_input(self.input);
-            if let Some(placeholder) = self.placeholder.as_ref() {
-                model = model.with_placeholder(placeholder.clone());
-            }
-            view::Node::text_box_state(model)
-        } else {
-            display_value_node(
-                self.cell,
-                self.text.clone(),
-                self.align,
-                self.overflow,
-                self.presentation,
-            )
-        };
+        let mut model = view::TextBox::new(self.text.clone())
+            .with_focus(focus)
+            .with_input(self.input)
+            .with_inactive_display();
+        if let Some(placeholder) = self.placeholder.as_ref() {
+            model = model.with_placeholder(placeholder.clone());
+        }
+        let (wrap, overflow) = self.presentation.text_policy(self.overflow);
+        let mut node = view::Node::text_box_state(model)
+            .with_world_text_policy(self.text.clone(), wrap, overflow)
+            .with_world_text_alignment(self.align);
         if let Some(trigger) = self.trigger.clone() {
             node = node.bind_text_trigger(self.text.clone(), context::Source::Input, trigger);
         }

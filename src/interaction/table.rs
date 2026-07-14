@@ -6,7 +6,6 @@ use crate::{feedback, table};
 pub(crate) struct Tables {
     widths: HashMap<table::HeaderCell, i32>,
     active_columns: HashMap<crate::interaction::Id, crate::interaction::Id>,
-    editing: Option<table::Cell>,
     feedback: HashMap<table::Cell, feedback::Stack>,
 }
 
@@ -40,27 +39,6 @@ impl Tables {
             return false;
         }
         self.active_columns.insert(table, column);
-        true
-    }
-
-    pub(crate) fn editing(&self) -> Option<table::Cell> {
-        self.editing
-    }
-
-    pub(crate) fn begin_edit(&mut self, cell: table::Cell) -> bool {
-        if self.editing == Some(cell) {
-            return false;
-        }
-        self.editing = Some(cell);
-        true
-    }
-
-    pub(crate) fn finish_edit(&mut self, cell: table::Cell) -> bool {
-        if self.editing != Some(cell) {
-            return false;
-        }
-        self.editing = None;
-        self.clear_rejection(cell);
         true
     }
 
@@ -104,11 +82,7 @@ impl Tables {
     pub(crate) fn prune_removed(&mut self, cells: &[table::Cell]) -> bool {
         let before = self.feedback.len();
         self.feedback.retain(|cell, _| !cells.contains(cell));
-        let edit_removed = self.editing.is_some_and(|cell| cells.contains(&cell));
-        if edit_removed {
-            self.editing = None;
-        }
-        before != self.feedback.len() || edit_removed
+        before != self.feedback.len()
     }
 
     pub(crate) fn snapshot(
@@ -153,25 +127,22 @@ mod tests {
     }
 
     #[test]
-    fn rejection_dies_when_editing_finishes() {
+    fn rejection_clears_explicitly() {
         let mut tables = Tables::default();
         let cell = cell(1);
-        assert!(tables.begin_edit(cell));
         assert!(tables.reject(cell, "invalid"));
 
-        assert!(tables.finish_edit(cell));
+        assert!(tables.clear_rejection(cell));
         assert_eq!(tables.rejection(cell), None);
     }
 
     #[test]
-    fn removed_cells_prune_feedback_and_active_editing() {
+    fn removed_cells_prune_feedback() {
         let mut tables = Tables::default();
         let removed = cell(1);
-        assert!(tables.begin_edit(removed));
         assert!(tables.reject(removed, "invalid"));
 
         assert!(tables.prune_removed(&[removed]));
-        assert_eq!(tables.editing(), None);
         assert_eq!(tables.feedback(removed), None);
     }
 }

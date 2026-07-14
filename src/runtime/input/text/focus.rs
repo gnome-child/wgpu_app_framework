@@ -175,15 +175,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 input::Outcome::handled(false, response::Effect::Layout),
             );
         }
-        if let Some(cell) = current.table_cell_identity()
-            && self.session.finish_table_edit(window, cell)
-        {
-            outcome = merge_outcomes(
-                outcome,
-                input::Outcome::handled(false, response::Effect::Rebuild),
-            );
-        }
-
         self.apply_window_update(window, outcome.changed_state(), outcome.effect());
         Ok(Some(TaskTransition::accepted(outcome)))
     }

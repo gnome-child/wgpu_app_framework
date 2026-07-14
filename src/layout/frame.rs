@@ -81,6 +81,7 @@ enum TextContent {
     SectionHeader,
     Area {
         model: view::TextArea,
+        input: Option<view::TextBox>,
         display_model: view::TextArea,
         projection: Option<text::Selectable>,
         layout: text::Area,
@@ -156,7 +157,6 @@ pub(crate) struct Frame {
     table_header_presentation: Option<crate::table::HeaderPresentation>,
     table_projection: Option<table::Projection>,
     table_edit_error: Option<String>,
-    table_editable: bool,
     participation: Option<view::Participation>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
@@ -187,14 +187,31 @@ impl Frame {
         } = input;
         let target = target_for(node, node_id);
         let binding = node.binding().cloned();
-        let text_area = node.text_area_model().cloned();
+        let text_box = node.text_box_model().cloned();
+        let inactive_text_box = text_box
+            .as_ref()
+            .is_some_and(view::TextBox::projects_inactive_display);
+        let text_area = node.text_area_model().cloned().or_else(|| {
+            inactive_text_box.then(|| {
+                let text_box = text_box
+                    .as_ref()
+                    .expect("inactive table input carries TextBox content");
+                let mut text_area = view::TextArea::new(text_box.display_text().to_owned())
+                    .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
+                    .read_only();
+                if let Some(focus) = text_box.focus() {
+                    text_area = text_area.with_focus(focus);
+                }
+                text_area
+            })
+        });
         let now = animation_frame.now();
         let text_area_text_rect =
             table_cell_text_rect_for(node, rect, text_area.as_ref(), engine, theme);
-        let text_box = node.text_box_model().cloned();
         let text_box_text_rect = text_box_text_rect_for(node, rect, theme);
-        let text_box_layout = text_box
-            .as_ref()
+        let text_box_layout = (!inactive_text_box)
+            .then_some(text_box.as_ref())
+            .flatten()
             .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect, theme, now));
         let label_style = typography::label_style(node, theme);
         let world_text_overflow = node.world_text_overflow();
@@ -336,6 +353,7 @@ impl Frame {
             text_area_projection.clone(),
             text_area_layout,
             text_area_text_rect,
+            text_box,
             text_box_layout,
             text_box_text_rect,
             world_text_overflow,
@@ -369,7 +387,6 @@ impl Frame {
             table_header_presentation: node.table_header_presentation(),
             table_projection: None,
             table_edit_error: node.table_edit_error().map(str::to_owned),
-            table_editable: node.table_edit().is_some(),
             participation: node.participation(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
@@ -530,7 +547,10 @@ impl Frame {
 
     pub(crate) fn text_task_focus(&self) -> Option<crate::session::Focus> {
         match &self.content {
-            FrameContent::Text(TextContent::Area { model, .. }) => model.focus(),
+            FrameContent::Text(TextContent::Area { model, input, .. }) => input
+                .as_ref()
+                .and_then(view::TextBox::focus)
+                .or_else(|| model.focus()),
             FrameContent::Text(TextContent::Field { model, .. }) => model.focus(),
             _ => None,
         }
@@ -574,10 +594,6 @@ impl Frame {
 
     pub(crate) fn table_edit_error(&self) -> Option<&str> {
         self.table_edit_error.as_deref()
-    }
-
-    pub(crate) fn is_table_editable(&self) -> bool {
-        self.table_editable
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
@@ -710,6 +726,7 @@ impl Frame {
 
     pub(crate) fn text_box(&self) -> Option<&view::TextBox> {
         match &self.content {
+            FrameContent::Text(TextContent::Area { input, .. }) => input.as_ref(),
             FrameContent::Text(TextContent::Field { model, .. }) => Some(model),
             _ => None,
         }
@@ -765,6 +782,11 @@ impl Frame {
 
     pub(crate) fn text_box_text_rect(&self) -> Rect {
         match &self.content {
+            FrameContent::Text(TextContent::Area {
+                input: Some(_),
+                text_rect,
+                ..
+            }) => *text_rect,
             FrameContent::Text(TextContent::Field { text_rect, .. }) => *text_rect,
             _ => self.rect,
         }
@@ -860,6 +882,17 @@ impl Frame {
 
         if self.role() == view::Role::TextBox {
             let text_box = self.text_box()?;
+            if let (Some(display), Some(layout)) =
+                (self.text_area_display(), self.text_area_layout())
+            {
+                let position = engine.text_area_position_at(
+                    display,
+                    layout,
+                    self.text_area_text_rect(),
+                    point,
+                )?;
+                return text_box.click_action(self.text_area_source_position(position));
+            }
             let layout = self.text_box_layout()?;
             let text_rect = self.text_box_text_rect();
             let position = engine.text_field_position_at(text_box, layout, text_rect, point)?;
@@ -886,6 +919,17 @@ impl Frame {
         }
         if self.role() == view::Role::TextBox {
             let text_box = self.text_box()?;
+            if let (Some(display), Some(layout)) =
+                (self.text_area_display(), self.text_area_layout())
+            {
+                let position = engine.text_area_position_at(
+                    display,
+                    layout,
+                    self.text_area_text_rect(),
+                    point,
+                )?;
+                return text_box.pointer_action(kind, self.text_area_source_position(position));
+            }
             let layout = self.text_box_layout()?;
             let position = engine.text_field_position_at(
                 text_box,
@@ -915,6 +959,17 @@ impl Frame {
 
         if self.role() == view::Role::TextBox {
             let text_box = self.text_box()?;
+            if let (Some(display), Some(layout)) =
+                (self.text_area_display(), self.text_area_layout())
+            {
+                let position = engine.text_area_position_at(
+                    display,
+                    layout,
+                    self.text_area_text_rect(),
+                    point,
+                )?;
+                return Some(text_box.drag_action(self.text_area_source_position(position)));
+            }
             let layout = self.text_box_layout()?;
             let text_rect = self.text_box_text_rect();
             let position = engine.text_field_position_at(text_box, layout, text_rect, point)?;
@@ -944,6 +999,7 @@ impl FrameContent {
         text_area_projection: Option<text::Selectable>,
         text_area_layout: Option<text::Area>,
         text_area_text_rect: Rect,
+        text_box: Option<view::TextBox>,
         text_box_layout: Option<text::Field>,
         text_box_text_rect: Rect,
         world_text_overflow: Option<text_model::Overflow>,
@@ -963,6 +1019,7 @@ impl FrameContent {
             }),
             view::Role::TextArea => Self::Text(TextContent::Area {
                 model: text_area.expect("TextArea role must carry TextArea content"),
+                input: None,
                 display_model: text_area_display
                     .expect("TextArea frame must carry a display model"),
                 projection: text_area_projection,
@@ -994,19 +1051,28 @@ impl FrameContent {
                     .expect("Slider role must carry Slider content"),
                 track_rect: slider_track_rect.expect("Slider frame must carry track geometry"),
             }),
+            view::Role::TextBox if text_box_layout.is_none() => Self::Text(TextContent::Area {
+                model: text_area.expect("inactive TextBox must carry display content"),
+                input: text_box,
+                display_model: text_area_display
+                    .expect("inactive TextBox frame must carry a display model"),
+                projection: text_area_projection,
+                layout: text_area_layout.expect("inactive TextBox frame must carry layout content"),
+                text_rect: text_area_text_rect,
+                world_overflow: world_text_overflow,
+                world_wrap: world_text_wrap,
+                world_align: world_text_align,
+            }),
             view::Role::TextBox => Self::Text(TextContent::Field {
-                model: node
-                    .text_box_model()
-                    .cloned()
-                    .expect("TextBox role must carry TextBox content"),
-                layout: text_box_layout.expect("TextBox frame must carry layout content"),
-                text_rect: text_box_text_rect,
                 display_text: node
                     .label_text()
                     .is_none()
-                    .then(|| node.text_box_model().map(view::TextBox::display_text))
+                    .then(|| text_box.as_ref().map(view::TextBox::display_text))
                     .flatten()
                     .map(str::to_owned),
+                model: text_box.expect("TextBox role must carry TextBox content"),
+                layout: text_box_layout.expect("TextBox frame must carry layout content"),
+                text_rect: text_box_text_rect,
             }),
             view::Role::Scroll => Self::Scroll(ScrollContent { viewport: None }),
             view::Role::VirtualList => Self::VirtualList(VirtualListContent {
@@ -1038,7 +1104,8 @@ impl FrameContent {
             Self::Menu => view::Role::Menu,
             Self::Binding => view::Role::Binding,
             Self::Separator(_) => view::Role::Separator,
-            Self::Text(TextContent::Area { .. }) => view::Role::TextArea,
+            Self::Text(TextContent::Area { input: Some(_), .. }) => view::Role::TextBox,
+            Self::Text(TextContent::Area { input: None, .. }) => view::Role::TextArea,
             Self::Button(_) => view::Role::Button,
             Self::Choice(ChoiceContent::Checkbox(_)) => view::Role::Checkbox,
             Self::Choice(ChoiceContent::Radio(_)) => view::Role::Radio,
@@ -1079,12 +1146,14 @@ impl Clip {
 }
 
 fn text_box_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect {
-    let padding_x =
-        if node.participation() == Some(view::Participation::Table(view::TablePart::Editor)) {
-            theme.table().cell_padding
-        } else {
-            theme.text_input().padding_x
-        };
+    let padding_x = if node.participation()
+        == Some(view::Participation::Table(view::TablePart::Cell))
+        && node.role() == view::Role::TextBox
+    {
+        theme.table().cell_padding
+    } else {
+        theme.text_input().padding_x
+    };
     Rect::new(
         rect.x().saturating_add(padding_x),
         rect.y(),

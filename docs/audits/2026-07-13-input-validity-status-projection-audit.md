@@ -19,7 +19,7 @@ are both present. Checkpoint 7 is the severable status tail.
 |---|---|---|
 | 0 — reductions and absence pins | Complete | Named reductions, current source census, baseline ritual, roadmap ignition |
 | 1 — accepted task transitions | Complete | Rejected departure admits no dependent action or click-chain contribution |
-| 2 — one TextBox and row participation | Pending | Pre-gesture focal row gates every member; table edit identity is deleted |
+| 2 — one TextBox and row participation | Complete | Pre-gesture focal row gates every member; table edit identity is deleted |
 | 3 — one responder path | Pending | Semantic table/row/cell/member layers replace editing-scope suppression |
 | 4 — one current commit recipe | Pending | One current draft produces one trigger or one formatted rejection |
 | 5 — draft-owned validity | Pending | Rejection lifetime is structurally bounded by its draft entry |
@@ -119,6 +119,42 @@ draft-owned validity, one TextBox surface, and the one panel path.
 - Formatting, diff hygiene, all-target compilation, 1,045 library tests with
   10 intentional deep-tier ignores, all 4 doctests, and all three application
   smokes passed. `comparison_open: true` remains protected.
+
+### Checkpoint 2 — one TextBox and deliberate row participation
+
+- Editable table cells now retain one `TextBox`, focus target, node identity,
+  input policy, and commit binding across rest and participation. The active
+  input target selects the ordinary single-line field viewport; inactivity
+  selects the column-owned alignment, wrap, and overflow projection without a
+  `TextArea`/`TextBox` node-species exchange.
+- Pointer, Enter, and F2 enter the same ordinary draft target. Enter and Tab
+  retain table navigation only after successful ordinary TextBox commit and
+  deactivation. Numeric cells continue to use the signed-integer lexical
+  policy; the lawful intermediate `-` reaches commit-time parse rejection.
+- Each selectable-row pointer gesture snapshots pre-gesture focality. A
+  non-focal or selected-but-not-focal row changes selection/focality only;
+  Shift, Ctrl, and platform-primary selection gestures never participate.
+  The same gate covers text, checkbox, button, and future cell members.
+- Selection-only and rejected gestures cancel the general repeated-click
+  chain. The pinned rapid journey is row selection, caret placement, then
+  word/chunk selection—never an accidental select-all.
+- Row departure runs ordinary text commit/deactivation before selection,
+  including context-selection. A rejected draft blocks the focal-row change
+  and menu opening. A successful departure retains draft storage but not the
+  active input target; returning to that row is selection-only until a later
+  participation gesture. Focus no longer promotes a retained draft into an
+  active text task.
+- `BeginTableEdit`, table editing ownership, begin/finish session helpers,
+  `project_table_edit`, `TablePart::Editor`, forced table text modes, and the
+  display/editor constructor switch are absent from production Rust sources.
+  Table validation metadata remains temporarily for Checkpoints 4–5.
+- `selectable_rows_gate_members_by_pre_gesture_focality_and_modifiers`,
+  `table_text_selects_row_before_participation_and_keeps_one_text_box_identity`,
+  `text_task_deactivates_when_focal_row_changes_and_reentry_is_selection_only`,
+  and the expanded rejected-departure/cross-gate witness pin the correction.
+- Formatting, diff hygiene, all-target compilation, 1,047 passing library
+  tests with 10 intentional deep-tier ignores, all 4 doctests, and all three
+  application smokes passed. `comparison_open: true` remains protected.
 
 ## Mission
 

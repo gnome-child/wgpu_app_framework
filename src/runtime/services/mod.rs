@@ -39,8 +39,17 @@ impl<'a, M: state::State> Services<'a, M> {
         }
     }
 
-    fn editing_table_scope(&self) -> bool {
-        editing_table_scope(self.session, self.window, self.scope.table())
+    fn active_text_scope(&self) -> bool {
+        let (Some(window), Some(focus)) = (self.window, self.scope.focus()) else {
+            return false;
+        };
+        let Some(target) = focus.text_target() else {
+            return false;
+        };
+        self.session
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().target())
+            == Some(&target)
     }
 }
 
@@ -66,12 +75,12 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: &dyn Any,
         cx: &context::Context,
     ) -> result::Result<Option<responder::Claim>, Error> {
-        if !self.editing_table_scope()
-            && let Some(claim) = table::claim(
+        if self.active_text_scope()
+            && let Some(claim) = text::claim(
                 self.session,
                 self.composition,
                 self.window,
-                self.scope.table(),
+                self.scope.focus(),
                 self.scope.kind(),
                 command_type,
                 command_name,
@@ -79,6 +88,19 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
                 cx,
             )?
         {
+            return Ok(Some(claim));
+        }
+        if let Some(claim) = table::claim(
+            self.session,
+            self.composition,
+            self.window,
+            self.scope.table(),
+            self.scope.kind(),
+            command_type,
+            command_name,
+            args,
+            cx,
+        )? {
             return Ok(Some(claim));
         }
 
@@ -111,12 +133,12 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
-        if !self.editing_table_scope()
-            && table::claim(
+        if self.active_text_scope()
+            && text::claim(
                 self.session,
                 self.composition,
                 self.window,
-                self.scope.table(),
+                self.scope.focus(),
                 self.scope.kind(),
                 command_type,
                 command_name,
@@ -126,6 +148,32 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
             .ok()
             .flatten()
             .is_some()
+        {
+            return text::invoke(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.focus(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            );
+        }
+        if table::claim(
+            self.session,
+            self.composition,
+            self.window,
+            self.scope.table(),
+            self.scope.kind(),
+            command_type,
+            command_name,
+            args.as_ref(),
+            cx,
+        )
+        .ok()
+        .flatten()
+        .is_some()
         {
             return table::invoke(
                 self.session,
@@ -180,9 +228,6 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         cx: &context::Context,
     ) -> result::Result<Option<responder::Claim>, Error> {
         if service == table::RESPONDER_NAME {
-            if self.editing_table_scope() {
-                return Ok(None);
-            }
             return table::claim(
                 self.session,
                 self.composition,
@@ -221,9 +266,6 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
         if service == table::RESPONDER_NAME {
-            if self.editing_table_scope() {
-                return None;
-            }
             return table::invoke(
                 self.session,
                 self.composition,
@@ -258,9 +300,15 @@ pub(super) fn contextual_targets(
     focus: Option<session::Focus>,
     table_id: Option<interaction::Id>,
 ) -> Vec<(TypeId, responder::Route)> {
-    let mut targets = if editing_table_scope(session, Some(window), table_id) {
-        Vec::new()
-    } else {
+    let active_text = focus
+        .and_then(session::Focus::text_target)
+        .is_some_and(|target| {
+            session
+                .interaction(window)
+                .and_then(|interaction| interaction.text_input().target())
+                == Some(&target)
+        });
+    let table_targets = || {
         table::contextual_target_types(composition, Some(window), table_id)
             .into_iter()
             .map(|command_type| {
@@ -271,7 +319,7 @@ pub(super) fn contextual_targets(
             })
             .collect::<Vec<_>>()
     };
-    targets.extend(
+    let text_targets = || {
         text::contextual_target_types(composition, Some(window), focus)
             .into_iter()
             .map(|command_type| {
@@ -279,19 +327,18 @@ pub(super) fn contextual_targets(
                     command_type,
                     responder::Route::Service(text::RESPONDER_NAME),
                 )
-            }),
-    );
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut targets = if active_text {
+        let mut targets = text_targets();
+        targets.extend(table_targets());
+        targets
+    } else {
+        let mut targets = table_targets();
+        targets.extend(text_targets());
+        targets
+    };
+    targets.dedup();
     targets
-}
-
-fn editing_table_scope(
-    session: &session::Session,
-    window: Option<window::Id>,
-    table: Option<interaction::Id>,
-) -> bool {
-    window.is_some_and(|window| {
-        session
-            .editing_table_cell(window)
-            .is_some_and(|cell| Some(cell.table()) == table)
-    })
 }

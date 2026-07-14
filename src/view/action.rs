@@ -33,7 +33,6 @@ pub(crate) enum Action {
     },
     ToggleMenu(interaction::Menu),
     TextEdit(text::edit::Edit),
-    BeginTableEdit(crate::table::Cell),
     ResizeTableColumn {
         column: crate::table::HeaderCell,
         width: i32,
@@ -147,9 +146,5 @@ impl Action {
             text::edit::PointerEditKind::Drag,
             position,
         ))
-    }
-
-    pub(crate) fn begin_table_edit(cell: crate::table::Cell) -> Self {
-        Self::BeginTableEdit(cell)
     }
 }

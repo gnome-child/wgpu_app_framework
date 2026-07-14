@@ -193,20 +193,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::TextEdit(edit) => {
                 self.handle_input(window, input::Input::text_edit(edit))
             }
-            view::Action::BeginTableEdit(cell) => {
-                let changed = self.session.begin_table_edit(window, cell);
-                if changed {
-                    self.session
-                        .request_invalidation(window, response::Invalidation::Rebuild);
-                }
-                Ok(self.window_outcome(
-                    window,
-                    false,
-                    changed
-                        .then_some(response::Effect::Rebuild)
-                        .unwrap_or_default(),
-                ))
-            }
         }
     }
 }

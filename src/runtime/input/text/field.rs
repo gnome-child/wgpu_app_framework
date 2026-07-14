@@ -70,15 +70,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(base) = self.text_draft_base(window, focus) else {
             return Ok(None);
         };
-        let mut mode = self
+        let mode = self
             .text_surface_mode(window, focus)
             .unwrap_or(text::edit::FieldMode::Editable);
-        let editing = focus
-            .table_cell_identity()
-            .is_some_and(|cell| self.session.editing_table_cell(window) == Some(cell));
-        if editing {
-            mode = text::edit::FieldMode::Editable;
-        }
         if !mode.allows_edit(&edit) {
             return Ok(None);
         }

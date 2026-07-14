@@ -47,13 +47,6 @@ impl<'a> FocusedDraft<'a> {
     }
 
     fn mode(&self) -> text::edit::FieldMode {
-        if self
-            .focus
-            .table_cell_identity()
-            .is_some_and(|cell| self.session.editing_table_cell(self.window) == Some(cell))
-        {
-            return text::edit::FieldMode::Editable;
-        }
         self.composition
             .get(self.window)
             .and_then(|composition| composition.view().text_surface_mode(self.focus))

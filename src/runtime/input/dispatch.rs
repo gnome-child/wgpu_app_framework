@@ -23,11 +23,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 
-                if let Some(cell) = self.session.editing_table_cell(window) {
+                let active_table_cell = self
+                    .session
+                    .interaction(window)
+                    .and_then(|interaction| interaction.text_input().target())
+                    .and_then(interaction::Target::table_cell);
+                if let Some(cell) = active_table_cell {
                     self.session
                         .clear_text_draft(window, session::Focus::table_cell(cell));
                     self.session.clear_table_edit_error(window, cell);
-                    self.session.finish_table_edit(window, cell);
                     self.session
                         .request_invalidation(window, response::Invalidation::Rebuild);
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));

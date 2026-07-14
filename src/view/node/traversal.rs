@@ -345,9 +345,6 @@ impl Node {
         selections: &[(interaction::Id, crate::selection::Selection)],
     ) {
         if let Some(cell) = self.table_cell() {
-            if self.table_edit().is_some() {
-                self.project_table_edit(tables.editing() == Some(cell));
-            }
             let active_row = selections
                 .iter()
                 .find(|(table, _)| *table == cell.table())

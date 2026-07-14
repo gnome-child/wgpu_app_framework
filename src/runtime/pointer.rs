@@ -9,6 +9,13 @@ struct VirtualRowGesture {
     key: virtual_list::Key,
     index: usize,
     cell: Option<crate::table::Cell>,
+    was_focal: bool,
+}
+
+impl VirtualRowGesture {
+    fn permits_participation(&self, modifiers: input::Modifiers) -> bool {
+        self.was_focal && !modifiers.shift() && !modifiers.control() && !modifiers.super_key()
+    }
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
@@ -89,7 +96,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
-        let table_cell = hit.table_cell();
         let selection = self.virtual_row_gesture_for_hit(window, &hit, point);
         let selection_row = selection.is_some();
         self.set_cursor_for_hit(window, Some(&hit));
@@ -100,6 +106,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 return Ok(transition.into_outcome());
             }
             let selection_changed = selection
+                .as_ref()
                 .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
                 .unwrap_or(false);
             if selection_changed {
@@ -141,9 +148,26 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         let selection_changed = selection
+            .as_ref()
             .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
             .unwrap_or(false);
+        let participates = selection
+            .as_ref()
+            .is_none_or(|selection| selection.permits_participation(modifiers));
         let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
+        if !participates {
+            self.session.cancel_click_sequence(window);
+            let mut outcome = transition
+                .map(|transition| transition.into_outcome())
+                .unwrap_or_else(input::Outcome::ignored);
+            if selection_changed {
+                self.session
+                    .request_invalidation(window, response::Invalidation::Layout);
+            }
+            let effect = outcome.effect().clone().then(response::Effect::Layout);
+            outcome = input::Outcome::handled(outcome.changed_state(), effect);
+            return Ok(self.with_overlay_dismissal(window, outcome, dismissed_overlays));
+        }
 
         let click_count =
             self.session
@@ -164,16 +188,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         ) {
             let pointer_down = text_pointer_down_action(hit.frame(), target.clone());
             hit.text_action_at_with_engine(point, text_click, &mut self.layout)
-                .map(|action| {
-                    let mut actions = vec![pointer_down.clone(), action];
-                    if click_count == interaction::ClickCount::Double
-                        && hit.frame().is_table_editable()
-                        && let Some(cell) = table_cell
-                    {
-                        actions.push(view::Action::begin_table_edit(cell));
-                    }
-                    view::Action::sequence(actions)
-                })
+                .map(|action| view::Action::sequence([pointer_down.clone(), action]))
                 .unwrap_or(pointer_down)
         } else if hit.frame().role() == view::Role::Slider {
             hit.action_at_with_engine(point, &mut self.layout)
@@ -241,18 +256,23 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if !model.is_selectable() {
             return None;
         }
+        let was_focal = self
+            .session
+            .selection(window, model.id())
+            .is_some_and(|selection| selection.active() == Some(key));
         Some(VirtualRowGesture {
             model,
             key,
             index,
             cell: table_cell,
+            was_focal,
         })
     }
 
     fn apply_virtual_row_gesture(
         &mut self,
         window: window::Id,
-        gesture: VirtualRowGesture,
+        gesture: &VirtualRowGesture,
         modifiers: input::Modifiers,
     ) -> bool {
         let toggle = modifiers.control() || modifiers.super_key();

@@ -348,7 +348,11 @@ fn paint_frame(
             }
         }
         view::Role::TextBox => {
-            text_box::paint_selection(frame, scene, theme);
+            if let Some(text_area) = frame.text_area_layout() {
+                text_area::paint(frame, text_area, scene, theme, visuals);
+            } else {
+                text_box::paint_selection(frame, scene, theme);
+            }
         }
         _ => {}
     }
@@ -360,6 +364,8 @@ fn paint_frame(
         || is_floating_panel_role(frame.role())
     {
         // Floating panes and menu rows paint their own content.
+    } else if frame.role() == view::Role::TextBox && frame.text_area_layout().is_some() {
+        // Inactive table TextBoxes use their column display projection above.
     } else if frame.role() == view::Role::TextBox && text_box::paint_text(frame, scene) {
         // TextBox contents use the shaped field viewport so glyphs, selection,
         // caret, and horizontal scroll share one coordinate system.
@@ -425,10 +431,9 @@ fn role_fill(frame: &layout::Frame, theme: &Theme) -> Option<super::Color> {
             view::TablePart::HeaderBand
             | view::TablePart::Header
             | view::TablePart::HeaderControl => visible_fill(theme.table().header_background),
-            view::TablePart::Cell
-            | view::TablePart::Editor
-            | view::TablePart::PassiveToggle
-            | view::TablePart::Toggle => visible_fill(theme.table().cell_background),
+            view::TablePart::Cell | view::TablePart::PassiveToggle | view::TablePart::Toggle => {
+                visible_fill(theme.table().cell_background)
+            }
             view::TablePart::Action => unreachable!("table actions retain control chrome"),
         };
     }
@@ -846,7 +851,6 @@ fn visual_tint_for(
             view::TablePart::HeaderBand
             | view::TablePart::Header
             | view::TablePart::Cell
-            | view::TablePart::Editor
             | view::TablePart::PassiveToggle
             | view::TablePart::Toggle,
         ) => return None,
@@ -965,7 +969,6 @@ fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
             view::TablePart::PassiveToggle | view::TablePart::Toggle => {
                 layout::table_choice_label_rect(frame.rect(), theme)
             }
-            view::TablePart::Editor => frame.text_box_text_rect(),
             view::TablePart::Action => frame.rect(),
             view::TablePart::Header | view::TablePart::HeaderControl => {
                 layout::table_header_label_rect(
@@ -976,7 +979,16 @@ fn text_rect_for(frame: &layout::Frame, theme: &Theme) -> geometry::Rect {
                     theme,
                 )
             }
-            view::TablePart::Cell => layout::table_content_rect(frame.rect(), theme),
+            view::TablePart::Cell => {
+                if frame
+                    .text_box()
+                    .is_some_and(crate::view::TextBox::is_active)
+                {
+                    frame.text_box_text_rect()
+                } else {
+                    layout::table_content_rect(frame.rect(), theme)
+                }
+            }
         };
     }
 
@@ -1090,7 +1102,11 @@ fn focus_outline_color_for(frame: &layout::Frame, theme: &Theme) -> Option<super
 }
 
 fn focus_outline_rect_for(frame: &layout::Frame) -> geometry::Rect {
-    if frame.table_part() == Some(view::TablePart::Editor) {
+    if frame.table_part() == Some(view::TablePart::Cell)
+        && frame
+            .text_box()
+            .is_some_and(crate::view::TextBox::is_active)
+    {
         let rect = frame.rect();
         return geometry::Rect::new(
             rect.x().saturating_add(1),

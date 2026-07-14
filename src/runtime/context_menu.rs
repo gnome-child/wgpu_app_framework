@@ -18,7 +18,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .context_owner()?;
         let path = self.composition.get(window)?.context_path_for_node(owner);
         (!path.is_empty()).then(|| {
-            let traversal = context_traversal(&path, self.session.editing_table_cell(window));
+            let traversal = context_traversal(&path, active_table_text_cell(&self.session, window));
             (path, traversal)
         })
     }
@@ -73,7 +73,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if path.is_empty() {
             return Ok(crate::input::Outcome::ignored());
         }
-        let traversal = context_traversal(&path, self.session.editing_table_cell(window));
+        let traversal = context_traversal(&path, active_table_text_cell(&self.session, window));
         if self.context_sections(window, &path, traversal).is_empty() {
             return Ok(crate::input::Outcome::ignored());
         }
@@ -168,6 +168,17 @@ fn context_traversal(
         .unwrap_or(responder::Traversal::Inspection)
 }
 
+fn active_table_text_cell(
+    session: &crate::session::Session,
+    window: window::Id,
+) -> Option<crate::table::Cell> {
+    session
+        .interaction(window)?
+        .text_input()
+        .target()?
+        .table_cell()
+}
+
 fn scope_for(owner: &view::ContextOwner) -> responder::Scope {
     let responder = if owner.is_application() {
         None
@@ -209,6 +220,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return Ok(crate::input::Outcome::ignored());
         }
 
+        let mut departure = None;
         let mut selection_changed = false;
         if let Some(row) = path.iter().find_map(view::ContextOwner::row) {
             let model = self
@@ -222,6 +234,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     .selection(window, row.table())
                     .is_some_and(|selection| selection.contains(row.key()))
             {
+                let transition = self.commit_and_deactivate_focused_text_box(window)?;
+                if transition
+                    .as_ref()
+                    .is_some_and(|transition| !transition.is_accepted())
+                {
+                    return Ok(transition
+                        .expect("rejected context departure is present")
+                        .into_outcome());
+                }
+                departure = transition;
                 selection_changed |= self.session.select_virtual_row(
                     window,
                     &model,
@@ -233,12 +255,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             }
         }
 
-        let traversal = context_traversal(&path, self.session.editing_table_cell(window));
+        let traversal = context_traversal(&path, active_table_text_cell(&self.session, window));
         if self.context_sections(window, &path, traversal).is_empty() {
-            if selection_changed {
-                return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
-            }
-            return Ok(crate::input::Outcome::ignored());
+            let outcome = if selection_changed {
+                self.window_outcome(window, false, response::Effect::Rebuild)
+            } else {
+                crate::input::Outcome::ignored()
+            };
+            return Ok(match departure {
+                Some(transition) => transition.then(outcome),
+                None => outcome,
+            });
         }
 
         let changed = self
@@ -249,6 +276,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else {
             response::Effect::None
         };
-        Ok(self.window_outcome(window, false, effect))
+        let outcome = self.window_outcome(window, false, effect);
+        Ok(match departure {
+            Some(transition) => transition.then(outcome),
+            None => outcome,
+        })
     }
 }

@@ -723,7 +723,7 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
         .layout()
         .frames()
         .iter()
-        .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextArea)
+        .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextBox)
         .expect("text cell should be laid out");
 
     app.open_context_menu_at(window, size, frame_point(name_frame))
@@ -827,7 +827,7 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
         .layout()
         .frames()
         .iter()
-        .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextArea)
+        .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextBox)
         .expect("text cell should still be laid out");
     app.open_context_menu_at(window, size, frame_point(name_frame))
         .expect("row context should reopen");
@@ -856,8 +856,13 @@ fn active_table_editor_uses_task_order_and_owns_select_all() {
         "name".into(),
     );
     app.show_scene(window, size).expect("table should render");
-    app.handle_view(window, view::Action::begin_table_edit(cell))
-        .expect("the editable text cell should enter its task session");
+    app.handle_input(window, Input::focus(session::Focus::table_cell(cell)))
+        .expect("the editable text cell should take focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("the editable text cell should enter its task session");
     let editing = app
         .show_scene(window, size)
         .expect("active editor should render");

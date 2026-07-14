@@ -18,7 +18,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         key: input::Key,
         modifiers: input::Modifiers,
     ) -> std::result::Result<Option<input::Outcome>, Error> {
-        let Some(cell) = self.session.editing_table_cell(window) else {
+        let Some(cell) = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().target())
+            .and_then(interaction::Target::table_cell)
+        else {
             return Ok(None);
         };
         if !matches!(key, input::Key::Enter | input::Key::Tab) {
@@ -70,9 +75,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         modifiers: input::Modifiers,
     ) -> Option<input::Outcome> {
         let focus = self.session.focused(window)?;
-        if focus
-            .table_cell_identity()
-            .is_some_and(|cell| self.session.editing_table_cell(window) == Some(cell))
+        if self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.text_input().target())
+            .and_then(interaction::Target::table_cell)
+            .is_some()
         {
             return None;
         }
@@ -104,17 +112,20 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
             self.session
                 .set_active_table_column(window, cell.table(), cell.column());
-            let changed = self.session.begin_table_edit(window, cell);
             let focused = self
                 .session
                 .focus(window, session::Focus::table_cell(cell).keyboard());
-            if changed || focused {
+            let focus = session::Focus::table_cell(cell);
+            let activated = self
+                .text_draft_base(window, focus)
+                .is_some_and(|base| self.session.activate_text_draft(window, focus, base));
+            if activated || focused {
                 self.session
                     .request_invalidation(window, response::Invalidation::Rebuild);
             }
             return Some(input::Outcome::handled(
                 false,
-                (changed || focused)
+                (activated || focused)
                     .then_some(response::Effect::Rebuild)
                     .unwrap_or_default(),
             ));

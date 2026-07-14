@@ -52,7 +52,6 @@ pub(crate) enum TablePart {
     Header,
     HeaderControl,
     Cell,
-    Editor,
     PassiveToggle,
     Toggle,
     Action,

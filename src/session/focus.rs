@@ -165,7 +165,7 @@ impl Session {
         };
         let changed = window.focus.as_ref() != Some(&focus);
         let input_changed = if let Some(target) = focus.text_target() {
-            let input_changed = window.interaction.clear_text_input_unless(&target);
+            let input_changed = window.interaction.deactivate_text_input_unless(&target);
             let blink_changed = window
                 .interaction
                 .reset_text_caret_blink(target, Instant::now());

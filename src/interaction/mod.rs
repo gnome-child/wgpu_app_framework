@@ -313,6 +313,10 @@ impl Interaction {
         self.text_input.edit(target, base, edit, input)
     }
 
+    pub(super) fn activate_text_draft(&mut self, target: Target, base: impl Into<String>) -> bool {
+        self.text_input.activate(target, base)
+    }
+
     pub(super) fn undo_text_draft(&mut self, target: &Target) -> Option<draft::Change> {
         self.text_input.undo(target)
     }
@@ -341,8 +345,8 @@ impl Interaction {
         self.text_input.clear_preedit()
     }
 
-    pub(super) fn clear_text_input_unless(&mut self, target: &Target) -> bool {
-        self.text_input.clear_unless(target)
+    pub(super) fn deactivate_text_input_unless(&mut self, target: &Target) -> bool {
+        self.text_input.deactivate_unless(target)
     }
 
     pub(super) fn set_text_draft_limit(&mut self, limit: usize) {

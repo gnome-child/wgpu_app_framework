@@ -28,6 +28,24 @@ impl Input {
         self.drafts.get(target)
     }
 
+    pub(crate) fn activate(&mut self, target: Target, base: impl Into<String>) -> bool {
+        let base = base.into();
+        let target_changed = self.target.as_ref() != Some(&target);
+        self.target = Some(target.clone());
+        self.drafts.touch(&target, self.target.as_ref());
+
+        let draft_changed = if !self.drafts.contains(&target) {
+            self.drafts.insert(target.clone(), State::new(base));
+            true
+        } else {
+            false
+        };
+        let preedit_changed = self.preedit.take().is_some();
+        let blink_changed = self.reset_caret_blink(target, Instant::now());
+
+        target_changed || draft_changed || preedit_changed || blink_changed
+    }
+
     #[cfg(test)]
     pub fn preedit(&self) -> Option<&text::edit::Preedit> {
         self.preedit.as_ref()
@@ -238,23 +256,13 @@ impl Input {
         true
     }
 
-    pub(crate) fn clear_unless(&mut self, target: &Target) -> bool {
+    pub(crate) fn deactivate_unless(&mut self, target: &Target) -> bool {
         if self.target.as_ref() == Some(target) {
             return false;
         }
 
         let preedit_changed = self.preedit.take().is_some();
-        if self.drafts.contains(target) {
-            self.target = Some(target.clone());
-            return true;
-        }
-
-        if self
-            .target
-            .as_ref()
-            .is_some_and(|target| !self.drafts.contains(target))
-        {
-            self.target = None;
+        if self.target.take().is_some() {
             return true;
         }
 

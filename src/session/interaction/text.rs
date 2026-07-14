@@ -7,6 +7,28 @@ use crate::{draft, interaction, window as app_window};
 use super::super::{Focus, Session};
 
 impl Session {
+    pub(crate) fn activate_text_draft(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+        base: impl Into<String>,
+    ) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        if !window
+            .focus
+            .as_ref()
+            .is_some_and(|current| current.same_target(&focus))
+        {
+            return false;
+        }
+
+        window
+            .interaction
+            .activate_text_draft(interaction::Target::text_area(focus), base)
+    }
+
     pub fn set_text_preedit(
         &mut self,
         id: app_window::Id,

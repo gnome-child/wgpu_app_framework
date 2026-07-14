@@ -240,14 +240,6 @@ impl Node {
     pub(crate) fn with_table_cell(mut self, cell: crate::table::Cell) -> Self {
         self.table_cell = Some(cell);
         self.participation = Some(Participation::Table(match self.role {
-            Role::TextBox
-                if self.table_edit.is_some()
-                    && self.text_box_model().is_some_and(|text_box| {
-                        text_box.mode() == crate::text::edit::FieldMode::Editable
-                    }) =>
-            {
-                TablePart::Editor
-            }
             Role::Checkbox if self.binding.is_some() => TablePart::Toggle,
             Role::Checkbox => TablePart::PassiveToggle,
             Role::Button => TablePart::Action,
@@ -291,27 +283,7 @@ impl Node {
 
     pub(crate) fn with_table_edit(mut self, edit: crate::table::Edit) -> Self {
         self.table_edit = Some(edit);
-        if self.table_cell.is_some() {
-            self.participation = Some(Participation::Table(TablePart::Editor));
-        }
         self
-    }
-
-    pub(in crate::view) fn project_table_edit(&mut self, editing: bool) {
-        let Some(edit) = self.table_edit.clone() else {
-            return;
-        };
-        let projected = edit.node(editing);
-        self.role = projected.role;
-        self.control = projected.control;
-        self.binding = projected.binding;
-        self.label = projected.label;
-        self.text_kind = projected.text_kind;
-        self.participation = Some(Participation::Table(if editing {
-            TablePart::Editor
-        } else {
-            TablePart::Cell
-        }));
     }
 
     pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {

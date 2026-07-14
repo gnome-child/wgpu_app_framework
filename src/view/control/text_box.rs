@@ -12,6 +12,8 @@ pub struct TextBox {
     input: text::Input,
     mode: text::edit::FieldMode,
     focus: Option<session::Focus>,
+    active: bool,
+    inactive_display: bool,
     focused: bool,
     focus_visible: bool,
     cursor: Option<usize>,
@@ -28,6 +30,8 @@ impl TextBox {
             input: text::Input::unrestricted(),
             mode: text::edit::FieldMode::Editable,
             focus: None,
+            active: false,
+            inactive_display: false,
             focused: false,
             focus_visible: false,
             cursor: None,
@@ -49,6 +53,11 @@ impl TextBox {
 
     pub fn with_input(mut self, input: text::Input) -> Self {
         self.input = input;
+        self
+    }
+
+    pub(crate) fn with_inactive_display(mut self) -> Self {
+        self.inactive_display = true;
         self
     }
 
@@ -82,6 +91,14 @@ impl TextBox {
 
     pub fn is_focused(&self) -> bool {
         self.focused
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub(crate) fn projects_inactive_display(&self) -> bool {
+        self.inactive_display && !self.active
     }
 
     pub fn focus_visible(&self) -> bool {
@@ -130,6 +147,7 @@ impl TextBox {
         bound: bool,
     ) {
         let Some(focus) = self.focus else {
+            self.active = false;
             self.preedit = None;
             self.caret_epoch = None;
             return;
@@ -137,6 +155,7 @@ impl TextBox {
 
         let target = interaction::Target::text_area(focus);
         let active = interaction.text_input().target() == Some(&target);
+        self.active = active;
         if let Some(draft) = interaction.text_input().draft_for(&target)
             && (active || !bound || draft.text() == self.text)
         {
@@ -157,7 +176,10 @@ impl TextBox {
             .as_ref()
             .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
         self.focus_visible = self.focused
-            && focus.is_some_and(|focus| focus.shows_focus_indicator() || self.mode.is_editable());
+            && focus.is_some_and(|focus| {
+                focus.shows_focus_indicator()
+                    || (self.mode.is_editable() && (!self.inactive_display || self.active))
+            });
         if self.focused && self.cursor.is_none() {
             self.cursor = Some(self.text.len());
         }
