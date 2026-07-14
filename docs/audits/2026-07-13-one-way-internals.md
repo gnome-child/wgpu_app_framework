@@ -3029,6 +3029,50 @@ Status: **complete; contradictory support booleans collapsed**. Correction
    reverse sweep continues across hit, interaction-receipt, and remaining UI
    state shapes; this cell does not close Rung 5.
 
+### R5-12 — exclusive resolved-hit action source
+
+Status: **complete; parallel optional hit claims collapsed**. Correction
+`82205a6f` (`Make layout hit source exclusive`).
+
+1. **Question and complete trace.** The reverse hit-state sweep traced initial
+   acquisition for ordinary frames, late scrollbar chrome, table dividers, and
+   input indicators through target projection, cursor admission, gesture
+   intent, frame action lookup, text selection, release handling, row/cell
+   provenance, and the clipped-chrome witnesses.
+2. **Invalid state and repeated policy.** `layout::Hit` carried optional
+   `chrome` and `target` fields alongside its frame. Constructors happened to
+   populate neither or exactly one, but the representation admitted both, and
+   every action lookup repeated the rule that either override suppresses the
+   frame action.
+3. **Correction.** A private `Kind::{Frame, Chrome, Target}` sum now owns the
+   exclusive action source. Target projection and action lookup each match that
+   fact once. Table-cell provenance remains an independent optional annotation
+   because chrome, synthetic-target, and frame hits may all originate over a
+   table cell.
+4. **Boundary and naming ruling.** `Kind` is private to `layout::hit`; `Hit`'s
+   crate surface and all constructors/queries are unchanged. No parent
+   projection, compound/simple alias, or namesake-module export is introduced.
+5. **Behavior and economics.** Reverse paint-order acquisition, ancestor clips,
+   chrome priority, divider and indicator targeting, pointer cursor and intent,
+   text hit mapping, action sequencing, cell gestures, allocation, cloning, and
+   presentation work are unchanged. One enum discriminant replaces the two
+   option discriminants and introduces no traversal or heap object.
+6. **Doctrine and witnesses.** Master design now states that a hit has exactly
+   one frame, chrome, or synthetic-target action source. The architecture
+   witness pins the private sum and tombstones both optional claim fields;
+   existing functional witnesses continue to pin chrome target/cursor behavior.
+7. **Proof and gauge delta from R5-11.** The architecture witness and three
+   focused scrollbar-chrome tests passed; the full library discovered 1,094
+   tests and passed 1,084 with 10 ignored; all targets compiled without
+   warnings. All nine census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains
+   unchanged.
+8. **Fixed point and next frontier.** Resolved hit ownership is now exclusive at
+   construction and consumption. The reverse sweep continues through
+   interaction receipts and the remaining UI inventories; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
