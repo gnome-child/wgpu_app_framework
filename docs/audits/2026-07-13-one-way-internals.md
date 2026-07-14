@@ -5083,6 +5083,73 @@ Status: **complete resistance ruling; no production correction admitted**.
    remaining layout lifecycles and the full visibility, failure, intermediate,
    housing, and naming inventories. This cell does not close Rung 5.
 
+### R5-49 — retained tree species and namespaced support surface
+
+Status: **complete; false retained-identity absence removed and the touched
+namesake seam normalized**. Correction `93a16d52` (`Make retained tree identity
+structural`).
+
+1. **Question and complete trace.** The retained-tree admission sweep traced
+   retained construction, reconciliation, subtree removal, ancestry, view-only
+   layout construction, layout frame identity, retained view traversal, hit
+   targets, collision isolation, and both child-order admission helpers. It
+   followed every `NodeId`, `Node`, `Changes`, and `Tree` crossing and every
+   call site affected by the composition parent projection.
+2. **False absence and structural boundary.** `Space::Layout`, layout-id minting,
+   and `Tree::layout` existed only under `cfg(test)`, yet attaching that
+   constructor to the same `Tree` type made production retained operations
+   recover identity through `Option` and one `expect`. Subtree removal and
+   ancestry also filtered identity despite being reachable only through
+   retained construction or reconciliation. The alternate namespace is real;
+   its apparent presence inside retained production is not.
+3. **Correction and displaced paths.** `composition::Tree` now has only retained
+   construction and reconciliation entrances. Test-only view layout uses the
+   distinct `composition::tree::Layout` species while sharing the private node
+   grammar and preserving layout-namespace ids. Retained subtree removal,
+   ancestry, and view traversal consume `NodeId` directly. The retained-id
+   conversion methods, filtering protocol, `Tree::layout`, and traversal
+   assertion are deleted.
+4. **Namesake projection ruling.** Because the cell touched the `tree` module's
+   boundary, it applied the canonical law rather than preserving a flattened
+   support surface. `composition` projects only the central `Tree`; supporting
+   `NodeId`, `Node`, `Changes`, and test-only `Layout` remain beneath
+   crate-visible `composition::tree`, and all affected call sites use that
+   namespace. No compound declaration, aliased re-export, flattened supporting
+   export, or compatibility path survives.
+5. **Child-admission resistance.** Declarative view children and composition
+   children remain parallel by construction and reconciliation. The two local
+   child-order assertions are retained: truncating `zip`, optional propagation,
+   or defaults would conceal drift. Making the pairing structural today would
+   require a second common node envelope, a recursive wrapper, or generic tree
+   species spread through view and layout, adding machinery without deleting an
+   owner or evidenced defect. Reopen when a paired traversal can replace that
+   envelope rather than duplicate it.
+6. **Behavior and economics.** Retained id stability, sibling reconciliation,
+   removal receipts, ancestry, view-only collision isolation, hit identity,
+   layout geometry, focus and interaction projection, scene order, renderer
+   topology, batching/pass fusion, invalidation, allocation, and presentation
+   clocks are unchanged. The test-only layout tree retains the same node values;
+   retained paths remove one option recovery and identity filtering.
+7. **Doctrine and proof.** Master design now names the distinct tree species,
+   total retained entrance, namespaced support surface, and child-admission
+   resistance. The architecture witness failed against the shared constructor
+   and flattened projection before correction, then pinned the new boundary and
+   tombstones. All fourteen composition tests and the 221-test layout slice
+   passed. The full library discovered 1,128 tests and passed 1,118 with ten
+   ignored; all targets and all five examples compiled without warnings. All ten
+   census parser witnesses, the full census, formatting, diff, and protected-
+   state checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, cross-slot test
+   edges, source-root mentions, allowances, and panics remain 325/109, 3, 54,
+   0/0/0, 90, 118, 6, and 6. Removing the flattened/false crossings lowers
+   production `pub(crate)` declarations 1,827 -> 1,825 and the cross-slot upper
+   bound 1,780 -> 1,778; the strengthened architecture witness raises filesystem
+   reads 362 -> 363. Production expects fall 62 -> 61. Retained-tree identity is
+   at fixed point; the reverse sweep continues through remaining layout
+   lifecycles and the complete visibility, failure, intermediate, housing, and
+   naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
