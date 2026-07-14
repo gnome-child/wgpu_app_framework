@@ -1006,6 +1006,81 @@ Status: **complete; remaining window projections routed**. Correction
    scene. The theme-default and departure-notification projections remain
    visible, named questions at their proper later rungs. Cell closed.
 
+## Rung 1 closure — lowest vocabulary
+
+Status: **complete**. Production boundary `ef0d9363`; doctrine/ledger boundary
+`f01a3f72`. The repository was clean at the boundary, remained 24 commits ahead
+of `origin/master` and not behind, and preserved
+`comparison_open: true`.
+
+Rung 1 exercised the complete loop across ten cells. It moved winit schedule
+projection and OS click metrics to platform adapters; recorded document atomic
+replacement as an explicit persistence-owned external exception; admitted
+independent icons, tasks, state, and feedback owners; removed redundant
+feedback storage; moved command failure to command while preserving facade
+paths; corrected worker startup failure through the existing rejection and
+cancellation contract; and unified the semantic color datum with its existing
+lower owner. No physical crate or feature gate was introduced.
+
+### Boundary gauge
+
+| Metric | Rung 0 | Rung 1 |
+|---|---:|---:|
+| Top-level production modules | 45 | 45 |
+| Unique production module edges | 325 | 323 |
+| Unique test-only module edges | 95 | 97 |
+| Provisional cross-slot edges | 30 | 43 |
+| Provisional forbidden internal edges | 15 | 14 |
+| Provisional heavy external-boundary violations | 8 | 2 |
+| Provisional slot SCCs | 1 | 1 |
+| Production `pub(crate)` declarations | 1,738 | 1,737 |
+| Cross-slot test-only edges | 75 | 77 |
+| `CARGO_MANIFEST_DIR` mentions | 100 | 104 |
+| Filesystem read calls | 288 | 298 |
+| `#[allow(...)]` attributes | 10 | 10 |
+| Production `panic!` calls | 9 | 9 |
+| Production `.expect(...)` calls | 103 | 102 |
+
+The increase in slot edges is truthful map resolution, not added coupling:
+icons, tasks, state, and feedback left the false foundation bucket and now show
+their actual independent consumers. Those four owners remain outside the
+provisional SCC. The source-root and filesystem-read increases are narrow
+architecture receipts already assigned to the Rung 6 workspace witness seam;
+none is production I/O.
+
+### Updated frontier
+
+- `text -> paint` and the scene `glyphon` use enter Rung 2's complete
+  text/geometry/paint trace; neither is pre-judged as a move or exception.
+- notification/responder placement, including `window::Departed`, enters Rung
+  3 with the whole command/service chain.
+- renderer diagnostics and platform `wgpu` ownership enter Rung 4 with
+  presentation realization and observation.
+- the theme-owned window default, layout/view diagnostics, and widget/document
+  projection remain named Rung 5 UI questions.
+- all ten allowances, nine remaining production panics, retained invariant
+  expects, and concrete crossing visibility have named rung dispositions; Rung
+  6 still owes the final symbol-level and workspace-ready audit.
+
+The accepted provisional map now contains foundation plus independent icons,
+feedback, tasks, and state owners beneath the still-disputed text, command, UI,
+renderer, runtime, platform, and facade territories. The map remains a gauge:
+Rungs 2–5 may admit more owners or merge provisional territories according to
+their complete traces.
+
+### Boundary proof
+
+- full library: 1,066 passed, 10 ignored, 0 failed;
+- all targets and all five examples compiled without warnings;
+- 24 focused color and 44 focused window witnesses passed at the final cell;
+- all six census parser witnesses passed;
+- `cargo fmt --check` and `git diff --check` passed;
+- the final census reproduced every metric above.
+
+Rung 2 begins with the direct `text -> paint` edge, tracing each imported type
+by coordinate space, clock, shaping authority, renderer consumer, and public
+surface before moving anything.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
