@@ -386,7 +386,7 @@ impl Session {
     pub(crate) fn prune_removed_interaction(
         &mut self,
         id: app_window::Id,
-        removed_nodes: &[super::super::composition::NodeId],
+        removed_nodes: &[super::super::composition::tree::NodeId],
         removed_elements: &[interaction::Id],
         removed_table_cells: &[crate::table::Cell],
     ) -> interaction::Pruned {

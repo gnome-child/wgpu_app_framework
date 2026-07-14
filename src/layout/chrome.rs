@@ -3,7 +3,7 @@ use super::{Frame, Viewport, frame::Clip};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Chrome {
-    owner: composition::NodeId,
+    owner: composition::tree::NodeId,
     target: interaction::Target,
     scroll_target: interaction::Target,
     scope: ViewportScope,
@@ -42,7 +42,7 @@ pub(crate) fn project(frames: &[Frame], theme: &theme::Theme) -> Vec<Chrome> {
 }
 
 impl Chrome {
-    pub(crate) fn owner(&self) -> composition::NodeId {
+    pub(crate) fn owner(&self) -> composition::tree::NodeId {
         self.owner
     }
 

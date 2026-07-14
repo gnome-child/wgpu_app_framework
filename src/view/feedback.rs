@@ -1,5 +1,5 @@
 use super::{Hint, Node, PanelPolicy, View, Wrap};
-use crate::{feedback, geometry, interaction};
+use crate::{composition::Tree, feedback, geometry, interaction};
 
 const WINDOW_FEEDBACK_PANEL: &str = "feedback.window";
 const HOVER_TIP_PANEL: &str = "feedback.hover";
@@ -12,7 +12,7 @@ enum Auxiliary {
 impl View {
     pub(crate) fn hover_tip_eligible(
         &self,
-        retained: &crate::composition::Tree,
+        retained: &Tree,
         target: &interaction::Target,
         overflowed: bool,
     ) -> bool {
@@ -43,7 +43,7 @@ impl View {
 
     pub(crate) fn project_hover_tip(
         &mut self,
-        retained: &crate::composition::Tree,
+        retained: &Tree,
         target: &interaction::Target,
         pointer_anchor: geometry::Point,
         overflow: Option<String>,

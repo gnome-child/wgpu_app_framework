@@ -44,7 +44,7 @@ pub(crate) struct NativePopupRequest {
 pub(crate) struct MaterialResolution {
     scene: Scene,
     fidelity: MaterialFidelity,
-    region_fidelity: Vec<(composition::NodeId, MaterialFidelity)>,
+    region_fidelity: Vec<(composition::tree::NodeId, MaterialFidelity)>,
 }
 
 impl Scene {
@@ -356,7 +356,7 @@ impl Scene {
 
     pub(super) fn push_material_pane(
         &mut self,
-        id: composition::NodeId,
+        id: composition::tree::NodeId,
         pane: Pane,
         clip: Option<Clip>,
     ) {
@@ -404,7 +404,7 @@ impl MaterialResolution {
         self.fidelity
     }
 
-    pub(crate) fn region_fidelity(&self) -> &[(composition::NodeId, MaterialFidelity)] {
+    pub(crate) fn region_fidelity(&self) -> &[(composition::tree::NodeId, MaterialFidelity)] {
         &self.region_fidelity
     }
 }
@@ -413,7 +413,7 @@ fn resolve_material_primitive(
     primitive: &Primitive,
     renderer: MaterialRenderer,
     reports: &[MaterialRealizationReport],
-    fidelity: &mut Vec<(composition::NodeId, MaterialFidelity)>,
+    fidelity: &mut Vec<(composition::tree::NodeId, MaterialFidelity)>,
 ) -> Option<Primitive> {
     match primitive {
         Primitive::Pane(pane) => resolve_material_pane(pane, renderer, reports, fidelity),
@@ -436,7 +436,7 @@ fn resolve_material_pane(
     pane: &Pane,
     renderer: MaterialRenderer,
     reports: &[MaterialRealizationReport],
-    fidelity: &mut Vec<(composition::NodeId, MaterialFidelity)>,
+    fidelity: &mut Vec<(composition::tree::NodeId, MaterialFidelity)>,
 ) -> Option<Primitive> {
     let Material::Glass(glass) = pane.material() else {
         return Some(Primitive::Pane(pane.clone()));
@@ -475,7 +475,7 @@ fn resolve_material_pane(
 }
 
 fn unique_report_parts(
-    id: composition::NodeId,
+    id: composition::tree::NodeId,
     reports: &[MaterialRealizationReport],
 ) -> RealizedMaterialParts {
     let mut matching = reports.iter().filter(|report| report.id() == id);
@@ -634,14 +634,16 @@ mod tests {
     use super::*;
     use crate::view;
 
-    fn retained_material_region_ids(view: view::View) -> Vec<composition::NodeId> {
+    fn retained_material_region_ids(view: view::View) -> Vec<composition::tree::NodeId> {
         retained_material_region_ids_by_entry(view)
             .into_iter()
             .flatten()
             .collect()
     }
 
-    fn retained_material_region_ids_by_entry(view: view::View) -> Vec<Vec<composition::NodeId>> {
+    fn retained_material_region_ids_by_entry(
+        view: view::View,
+    ) -> Vec<Vec<composition::tree::NodeId>> {
         let window = crate::window::Id::new(1);
         let mut store = composition::Store::default();
         let composition = store.install(window, view);
@@ -679,7 +681,10 @@ mod tests {
     fn retained_material_region_ids_across(
         first: view::View,
         second: view::View,
-    ) -> (Vec<composition::NodeId>, Vec<composition::NodeId>) {
+    ) -> (
+        Vec<composition::tree::NodeId>,
+        Vec<composition::tree::NodeId>,
+    ) {
         let window = crate::window::Id::new(1);
         let mut store = composition::Store::default();
         let theme = Theme::default();

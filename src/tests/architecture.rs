@@ -2041,6 +2041,52 @@ fn composition_tree_owns_identity_not_behavior() {
             && composition_tree.contains("parent: Option<NodeId>,"),
         "composition nodes and parent links must store the namespaced NodeId directly"
     );
+    assert!(
+        composition_mod.contains("pub(crate) mod tree;")
+            && composition_mod.contains("pub(crate) use tree::Tree;"),
+        "the composition parent must expose the tree module and project only its central Tree"
+    );
+    for pattern in [
+        "pub(crate) use tree::NodeId",
+        "pub(crate) use tree::{Changes",
+        "pub(crate) use tree::{Node",
+    ] {
+        assert!(
+            !composition_mod.contains(pattern),
+            "supporting tree declarations must remain namespaced below composition::tree: {pattern}"
+        );
+    }
+    assert!(
+        composition_tree.contains("pub(crate) struct Layout {")
+            && composition_tree.contains("impl Layout {")
+            && composition_tree.contains("let root = Node::build_layout("),
+        "view-only layout identity must be admitted by a distinct test-only tree species"
+    );
+    assert!(
+        !composition_tree.contains("pub(crate) fn layout(view: &view::View) -> Self"),
+        "the retained Tree must not have a test-only constructor that admits layout identity"
+    );
+    for pattern in ["fn retained_id(", ".retained_id()", "require_retained_id"] {
+        assert!(
+            !composition_tree.contains(pattern),
+            "retained Tree operations must consume their total identity directly: {pattern}"
+        );
+    }
+    assert!(
+        composition_tree.contains("self.removed.push(node.id);")
+            && composition_tree
+                .contains("pub(in crate::composition) fn parent(&self) -> Option<NodeId> {")
+            && !composition_tree.contains("self.parent.and_then"),
+        "retained removal and ancestry must consume total Tree-owned identity without filtering"
+    );
+    let view_traversal =
+        std::fs::read_to_string(src_dir.join("view").join("node").join("traversal.rs"))
+            .expect("view node traversal should read");
+    assert!(
+        !view_traversal.contains("require_retained_id")
+            && view_traversal.contains("retained.node_id()"),
+        "retained view traversal must consume identity made total by its Tree entrance"
+    );
     for pattern in ["enum Identity", "Identity::Retained", "Identity::Layout"] {
         assert!(
             !composition_tree.contains(pattern),
@@ -2119,7 +2165,7 @@ fn composition_tree_owns_identity_not_behavior() {
     assert_source_patterns_absent(
         &widget_dir,
         &[
-            "composition::NodeId".to_owned(),
+            "composition::tree::NodeId".to_owned(),
             "crate::composition".to_owned(),
             "fn mount".to_owned(),
             "fn unmount".to_owned(),
@@ -4433,7 +4479,7 @@ fn material_regions_derive_identity_and_provenance_at_pane_emission() {
         "material request identity and inherited clip must derive where the retained frame emits its pane"
     );
     assert!(
-        region.contains("id: composition::NodeId")
+        region.contains("id: composition::tree::NodeId")
             && region.contains("clips: Vec<Clip>")
             && region.contains("opacity: f32")
             && scene.contains("material_regions: Vec<MaterialRegion>"),
@@ -4987,7 +5033,7 @@ fn windows_material_regions_are_keyed_projections_with_report_after_success() {
     .expect("Windows composition source should read");
 
     assert!(
-        composition.contains("HashMap<composition::NodeId, RegionVisual>")
+        composition.contains("HashMap<composition::tree::NodeId, RegionVisual>")
             && composition.contains("self.material_regions.insert(id, region)")
             && composition.contains(".get_mut(&id)")
             && composition.contains("self.material_regions.remove(&id)"),

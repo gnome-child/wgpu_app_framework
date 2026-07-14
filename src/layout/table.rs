@@ -33,13 +33,13 @@ pub(crate) struct Track {
     rule_rect: Rect,
     clip: Option<Clip>,
     floating_layer: bool,
-    table_node: composition::NodeId,
+    table_node: composition::tree::NodeId,
 }
 
 #[derive(Clone)]
 struct Column {
     identity: crate::table::HeaderCell,
-    header_node: composition::NodeId,
+    header_node: composition::tree::NodeId,
     header_rect: Rect,
     table_rect: Rect,
 }
@@ -124,11 +124,11 @@ impl Track {
         self.floating_layer
     }
 
-    pub(crate) fn table_node(&self) -> composition::NodeId {
+    pub(crate) fn table_node(&self) -> composition::tree::NodeId {
         self.table_node
     }
 
-    pub(crate) fn header_node(&self) -> Option<composition::NodeId> {
+    pub(crate) fn header_node(&self) -> Option<composition::tree::NodeId> {
         self.column_facts().map(|column| column.header_node)
     }
 

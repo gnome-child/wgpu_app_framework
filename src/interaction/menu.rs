@@ -5,7 +5,7 @@ use crate::{composition, geometry};
 enum Origin {
     Authored,
     Context {
-        owner: composition::NodeId,
+        owner: composition::tree::NodeId,
         anchor: geometry::Point,
     },
 }
@@ -26,7 +26,7 @@ impl Menu {
         }
     }
 
-    pub(crate) fn context(owner: composition::NodeId, anchor: geometry::Point) -> Self {
+    pub(crate) fn context(owner: composition::tree::NodeId, anchor: geometry::Point) -> Self {
         Self {
             id: Self::context_id(),
             label: "Context menu".to_owned(),
@@ -46,7 +46,7 @@ impl Menu {
         &self.label
     }
 
-    pub(crate) fn context_owner(&self) -> Option<composition::NodeId> {
+    pub(crate) fn context_owner(&self) -> Option<composition::tree::NodeId> {
         match self.origin {
             Origin::Authored => None,
             Origin::Context { owner, .. } => Some(owner),

@@ -607,8 +607,8 @@ mod tests {
         let parent = crate::window::Id::new(42);
         let id = crate::interaction::Id::new("context_menu");
         let mut next = 1;
-        let first_owner = crate::composition::NodeId::layout(&mut next);
-        let second_owner = crate::composition::NodeId::layout(&mut next);
+        let first_owner = crate::composition::tree::NodeId::layout(&mut next);
+        let second_owner = crate::composition::tree::NodeId::layout(&mut next);
         let first = PopupKey {
             parent,
             id,

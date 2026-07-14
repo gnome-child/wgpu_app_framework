@@ -417,7 +417,7 @@ impl Interaction {
 
     pub(crate) fn prune_removed(
         &mut self,
-        removed_nodes: &[super::composition::NodeId],
+        removed_nodes: &[super::composition::tree::NodeId],
         removed_elements: &[Id],
         removed_table_cells: &[crate::table::Cell],
     ) -> Pruned {

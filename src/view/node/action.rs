@@ -15,7 +15,7 @@ impl Node {
 
     pub(crate) fn node_pointer_target(
         &self,
-        node_id: composition::NodeId,
+        node_id: composition::tree::NodeId,
     ) -> Option<interaction::Target> {
         if self.role() == Role::FloatingPanel && !self.panel_policy().accepts_input() {
             return None;

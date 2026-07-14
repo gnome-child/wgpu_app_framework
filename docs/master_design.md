@@ -372,9 +372,22 @@ add until a later keyed reparenting design exists. View-only layout helpers use
 layout-namespace composition identities, so their node-backed hit targets cannot
 collide with retained composition identity. `NodeId` itself owns that namespace;
 composition nodes and parent links store it directly rather than repeating the
-same retained/layout distinction in a second identity wrapper. Subject segment
-names are strings for grouping, display/debug output, and future serialization,
-not routing identity.
+same retained/layout distinction in a second identity wrapper. The retained
+`composition::Tree` has only retained construction and reconciliation entrances;
+test-only view layout uses the distinct `composition::tree::Layout` species.
+Tree-backed view traversal therefore consumes node identity directly rather than
+recovering retained identity through an optional assertion. The composition
+parent projects only the central `Tree`; `NodeId`, `Node`, `Changes`, and the
+test-only layout species remain qualified beneath `composition::tree`.
+
+Declarative view children and composition children remain parallel by retained
+tree construction and reconciliation. Their two local child-admission assertions
+are construction-invariant witnesses: replacing them with truncating `zip`,
+optional propagation, or defaults would hide drift. A future correction must
+make paired traversal structural without duplicating the common node envelope or
+spreading a generic tree species through recursive layout and view traversal.
+Subject segment names are strings for grouping, display/debug output, and future
+serialization, not routing identity.
 
 Within a parent, one structural reconciliation key is ordinary, a provided row,
 a table cell, or a table header cell. Role and axis participate inside each

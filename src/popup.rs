@@ -19,7 +19,7 @@ pub(crate) struct Generation(u64);
 /// contextual popup. The retained owner changes when that path is retargeted;
 /// it is never inferred from pixels or parent-window presentation clocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ContextFingerprint(composition::NodeId);
+pub(crate) struct ContextFingerprint(composition::tree::NodeId);
 
 /// The selected host's resolved popup geometry.
 ///
@@ -61,7 +61,7 @@ impl Generation {
 }
 
 impl ContextFingerprint {
-    pub(crate) const fn from_owner(owner: composition::NodeId) -> Self {
+    pub(crate) const fn from_owner(owner: composition::tree::NodeId) -> Self {
         Self(owner)
     }
 }

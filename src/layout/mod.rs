@@ -1,5 +1,5 @@
 use super::{
-    composition,
+    composition::{self, tree},
     geometry::{Point, Rect, Size},
     interaction, keymap, session,
     theme::Theme,
@@ -87,10 +87,10 @@ impl Layout {
         frame: animation::Frame,
         keymap: keymap::Profile,
     ) -> Self {
-        let tree = composition::Tree::layout(view);
+        let tree = tree::Layout::new(view);
         Self::compose_view_tree_with_theme_at(
             view,
-            &tree,
+            tree.root(),
             size,
             engine,
             theme,
@@ -111,7 +111,7 @@ impl Layout {
     ) -> Self {
         Self::compose_view_tree_with_theme_at(
             composition.view(),
-            composition.tree(),
+            composition.tree().root(),
             size,
             engine,
             theme,
@@ -123,7 +123,7 @@ impl Layout {
 
     fn compose_view_tree_with_theme_at(
         view: &view::View,
-        tree: &composition::Tree,
+        root: &tree::Node,
         size: Size,
         engine: &mut Engine,
         theme: &Theme,
@@ -133,7 +133,7 @@ impl Layout {
     ) -> Self {
         let size = size.sanitized();
         let frames =
-            algorithm::compose_frames(view.root(), tree.root(), size, engine, theme, frame, keymap);
+            algorithm::compose_frames(view.root(), root, size, engine, theme, frame, keymap);
         let chrome = chrome::project(&frames, theme);
         let table_tracks = table::project(&frames);
         let virtual_list_requests = frames
@@ -173,7 +173,7 @@ impl Layout {
             .and_then(Frame::overflow_tip)
     }
 
-    pub(crate) fn frame_for_node(&self, node: composition::NodeId) -> Option<&Frame> {
+    pub(crate) fn frame_for_node(&self, node: composition::tree::NodeId) -> Option<&Frame> {
         self.frames.iter().find(|frame| frame.node_id() == node)
     }
 
@@ -321,7 +321,7 @@ impl Layout {
     /// Returns the deepest laid-out node under a point, including inert
     /// display nodes that ordinary activation hit testing intentionally skips.
     #[cfg(test)]
-    pub(crate) fn context_node_at(&self, point: Point) -> Option<composition::NodeId> {
+    pub(crate) fn context_node_at(&self, point: Point) -> Option<composition::tree::NodeId> {
         self.context_node_at_surface(point, crate::popup::Surface::Parent)
     }
 
@@ -329,7 +329,7 @@ impl Layout {
         &self,
         point: Point,
         surface: crate::popup::Surface,
-    ) -> Option<composition::NodeId> {
+    ) -> Option<composition::tree::NodeId> {
         self.frames
             .iter()
             .rev()
@@ -341,7 +341,10 @@ impl Layout {
             .map(Frame::node_id)
     }
 
-    pub(crate) fn context_available_for_node(&self, node: composition::NodeId) -> Option<Rect> {
+    pub(crate) fn context_available_for_node(
+        &self,
+        node: composition::tree::NodeId,
+    ) -> Option<Rect> {
         let frame = self.frame_for_node(node)?;
         Some(
             frame

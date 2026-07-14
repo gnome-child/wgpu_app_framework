@@ -1016,7 +1016,7 @@ mod tests {
         draft(id).prefer(Preference::NativePopup)
     }
 
-    fn context_popup_draft(owner: crate::composition::NodeId) -> Draft {
+    fn context_popup_draft(owner: crate::composition::tree::NodeId) -> Draft {
         popup_draft("context_menu")
             .context_fingerprint(Some(crate::popup::ContextFingerprint::from_owner(owner)))
     }
@@ -1435,8 +1435,8 @@ mod tests {
         let now = Instant::now();
         let theme = overlay_theme(100, 120);
         let mut next = 1;
-        let first_owner = crate::composition::NodeId::layout(&mut next);
-        let second_owner = crate::composition::NodeId::layout(&mut next);
+        let first_owner = crate::composition::tree::NodeId::layout(&mut next);
+        let second_owner = crate::composition::tree::NodeId::layout(&mut next);
 
         store.update_window(
             window,

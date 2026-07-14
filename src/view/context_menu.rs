@@ -10,7 +10,7 @@ pub(crate) struct ContextMenu {
 
 impl ContextMenu {
     pub(crate) fn new(
-        owner: crate::composition::NodeId,
+        owner: crate::composition::tree::NodeId,
         anchor: geometry::Point,
         available: geometry::Rect,
         sections: Vec<Vec<command::ResolvedAction>>,

@@ -22,7 +22,7 @@ const SCROLL_AXIS_LIMIT: i32 = i32::MAX / 4;
 
 pub(super) fn compose_frames(
     root: &view::Node,
-    retained_root: &composition::Node,
+    retained_root: &composition::tree::Node,
     size: Size,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
@@ -75,7 +75,7 @@ impl<'a> LayoutContext<'a> {
     fn frame(
         &mut self,
         node: &view::Node,
-        node_id: composition::NodeId,
+        node_id: composition::tree::NodeId,
         path: path::Path,
         rect: Rect,
         floating_layer: bool,
@@ -100,7 +100,7 @@ impl<'a> LayoutContext<'a> {
 
 fn layout_node(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -169,7 +169,7 @@ fn is_floating_panel_role(role: view::Role) -> bool {
 
 fn layout_scroll(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -224,7 +224,7 @@ fn layout_scroll(
 
 fn layout_table_scroll(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -341,7 +341,7 @@ fn layout_table_scroll(
 
 fn layout_virtual_list(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -432,7 +432,7 @@ fn layout_virtual_list(
 )]
 fn layout_variable_virtual_list(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
     viewport_rect: Rect,
@@ -598,7 +598,7 @@ fn child_clip(child: &view::Node, clip: Option<Clip>) -> Option<Clip> {
 
 fn layout_root(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     rect: Rect,
     clip: Option<Clip>,
@@ -1073,7 +1073,7 @@ fn placed_content_size(rect: Rect, padding: view::Padding, children: &[Rect]) ->
 
 fn emit_stack_children(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     child_rects: Vec<Rect>,
     floating_layer: bool,
@@ -1117,7 +1117,7 @@ fn debug_assert_scroll_content_contains(placement: &StackPlacement, viewport: Re
 
 fn layout_vertical_stack(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -1147,7 +1147,7 @@ fn layout_vertical_stack(
 
 fn layout_horizontal_stack(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -1259,7 +1259,7 @@ fn table_stack_placement(
 
 fn layout_overlay_stack(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -1280,7 +1280,7 @@ fn layout_overlay_stack(
 
 fn layout_menu_bar(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     rect: Rect,
     floating_layer: bool,
@@ -1308,7 +1308,7 @@ fn layout_menu_bar(
 
 fn layout_floating_panel(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: &path::Path,
     rect: Rect,
     _clip: Option<Clip>,
@@ -1421,7 +1421,7 @@ fn layout_floating_panel(
 
 fn layout_menu_row(
     node: &view::Node,
-    retained: &composition::Node,
+    retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
     shortcut_width: i32,
@@ -1434,7 +1434,7 @@ fn layout_menu_row(
     ctx.frames.push(frame);
 }
 
-fn retained_child(parent: &composition::Node, index: usize) -> &composition::Node {
+fn retained_child(parent: &composition::tree::Node, index: usize) -> &composition::tree::Node {
     parent
         .children()
         .get(index)

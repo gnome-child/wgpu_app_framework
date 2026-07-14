@@ -37,6 +37,12 @@ pub(crate) struct Tree {
     root: Node,
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub(crate) struct Layout {
+    root: Node,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Node {
     id: NodeId,
@@ -91,10 +97,6 @@ impl NodeId {
         id
     }
 
-    fn retained_id(self) -> Option<Self> {
-        (self.space == Space::Retained).then_some(self)
-    }
-
     #[cfg(test)]
     pub(crate) fn is_retained(self) -> bool {
         self.space == Space::Retained
@@ -137,9 +139,7 @@ impl Changes {
     }
 
     fn add_removed_subtree(&mut self, node: &Node) {
-        if let Some(id) = node.id.retained_id() {
-            self.removed.push(id);
-        }
+        self.removed.push(node.id);
         if let Some(id) = node.element_id {
             self.removed_elements.push(id);
         }
@@ -165,13 +165,6 @@ impl Tree {
         (Self { root }, changes)
     }
 
-    #[cfg(test)]
-    pub(crate) fn layout(view: &view::View) -> Self {
-        let mut next_id = 1;
-        let root = Node::build_layout(view.root(), None, &mut next_id);
-        Self { root }
-    }
-
     pub(crate) fn reconcile(&self, view: &view::View, next_node_id: &mut u64) -> (Self, Changes) {
         let mut changes = Changes::empty();
         let root = Node::reconcile(
@@ -193,6 +186,19 @@ impl Tree {
 
     pub(crate) fn node(&self, id: NodeId) -> Option<&Node> {
         self.root.find(id)
+    }
+}
+
+#[cfg(test)]
+impl Layout {
+    pub(crate) fn new(view: &view::View) -> Self {
+        let mut next_id = 1;
+        let root = Node::build_layout(view.root(), None, &mut next_id);
+        Self { root }
+    }
+
+    pub(crate) fn root(&self) -> &Node {
+        &self.root
     }
 }
 
@@ -348,10 +354,6 @@ impl Node {
             .filter(|child| child.matches(view))
     }
 
-    pub(crate) fn retained_id(&self) -> Option<NodeId> {
-        self.id.retained_id()
-    }
-
     pub(crate) fn node_id(&self) -> NodeId {
         self.id
     }
@@ -360,8 +362,8 @@ impl Node {
         self.element_id
     }
 
-    pub(crate) fn parent(&self) -> Option<NodeId> {
-        self.parent.and_then(NodeId::retained_id)
+    pub(in crate::composition) fn parent(&self) -> Option<NodeId> {
+        self.parent
     }
 
     pub(crate) fn subject(&self) -> Option<&subject::Segment> {

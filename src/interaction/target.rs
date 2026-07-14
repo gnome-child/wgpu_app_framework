@@ -36,7 +36,7 @@ enum Identity {
     Element(Id),
     TableCell(crate::table::Cell),
     Node {
-        id: composition::NodeId,
+        id: composition::tree::NodeId,
         element: Option<Id>,
     },
 }
@@ -70,7 +70,7 @@ impl Target {
     }
 
     pub(crate) fn command_node(
-        node: composition::NodeId,
+        node: composition::tree::NodeId,
         element: Option<Id>,
         command_name: &'static str,
         source: Source,
@@ -110,7 +110,7 @@ impl Target {
     }
 
     pub(crate) fn scroll_node(
-        node: composition::NodeId,
+        node: composition::tree::NodeId,
         element: Option<Id>,
         label: impl Into<String>,
     ) -> Self {
@@ -118,7 +118,7 @@ impl Target {
     }
 
     pub(crate) fn scrollbar_node(
-        node: composition::NodeId,
+        node: composition::tree::NodeId,
         element: Option<Id>,
         label: impl Into<String>,
     ) -> Self {
@@ -133,7 +133,10 @@ impl Target {
         Self::new(Kind::Label, id, label)
     }
 
-    pub(crate) fn table_divider_node(node: composition::NodeId, label: impl Into<String>) -> Self {
+    pub(crate) fn table_divider_node(
+        node: composition::tree::NodeId,
+        label: impl Into<String>,
+    ) -> Self {
         Self::node(Kind::TableDivider, node, None, label).with_capture()
     }
 
@@ -159,7 +162,7 @@ impl Target {
         }
     }
 
-    pub(crate) fn node_id(&self) -> Option<composition::NodeId> {
+    pub(crate) fn node_id(&self) -> Option<composition::tree::NodeId> {
         match self.identity {
             Identity::Element(_) | Identity::TableCell(_) => None,
             Identity::Node { id, .. } => Some(id),
@@ -168,7 +171,7 @@ impl Target {
 
     pub(crate) fn matches_removed_identity(
         &self,
-        removed_nodes: &[composition::NodeId],
+        removed_nodes: &[composition::tree::NodeId],
         removed_elements: &[Id],
         removed_table_cells: &[crate::table::Cell],
     ) -> bool {
@@ -235,7 +238,7 @@ impl Target {
 
     fn node(
         kind: Kind,
-        id: composition::NodeId,
+        id: composition::tree::NodeId,
         element: Option<Id>,
         label: impl Into<String>,
     ) -> Self {

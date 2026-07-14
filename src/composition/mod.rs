@@ -1,9 +1,10 @@
 mod store;
-mod tree;
+pub(crate) mod tree;
 
 pub(crate) use store::Store;
-pub(crate) use tree::NodeId;
-pub(crate) use tree::{Changes, Node, Tree};
+pub(crate) use tree::Tree;
+
+use tree::{Changes, NodeId};
 
 use super::{interaction, session, subject, view, window};
 

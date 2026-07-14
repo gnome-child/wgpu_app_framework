@@ -32,7 +32,7 @@ impl ShortcutPart {
 
 pub(super) struct Input<'a> {
     pub(super) node: &'a Node,
-    pub(super) node_id: composition::NodeId,
+    pub(super) node_id: composition::tree::NodeId,
     pub(super) path: path::Path,
     pub(super) rect: Rect,
     pub(super) floating_layer: bool,
@@ -180,7 +180,7 @@ struct SeparatorContent {
 
 #[derive(Clone)]
 pub(crate) struct Frame {
-    node_id: composition::NodeId,
+    node_id: composition::tree::NodeId,
     interaction_id: Option<interaction::Id>,
     path: path::Path,
     content: FrameContent,
@@ -594,7 +594,7 @@ impl Frame {
         self.path.len()
     }
 
-    pub(crate) fn node_id(&self) -> composition::NodeId {
+    pub(crate) fn node_id(&self) -> composition::tree::NodeId {
         self.node_id
     }
 
@@ -1477,6 +1477,6 @@ fn action_for(node: &Node) -> Option<view::Action> {
     }
 }
 
-fn target_for(node: &Node, node_id: composition::NodeId) -> Option<interaction::Target> {
+fn target_for(node: &Node, node_id: composition::tree::NodeId) -> Option<interaction::Target> {
     node.node_pointer_target(node_id)
 }

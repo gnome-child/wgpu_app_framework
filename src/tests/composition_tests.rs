@@ -1,4 +1,5 @@
 use super::*;
+use crate::composition::{Tree, tree};
 
 #[test]
 fn explicit_ids_preserve_node_ids_across_sibling_movement() {
@@ -6,12 +7,12 @@ fn explicit_ids_preserve_node_ids_across_sibling_movement() {
     let window = window::Id::new(1);
 
     let first = store.install(window, labeled_view(["a", "b"]));
-    let a = retained_id(&first.tree().root().children()[0]);
-    let b = retained_id(&first.tree().root().children()[1]);
+    let a = node_id(&first.tree().root().children()[0]);
+    let b = node_id(&first.tree().root().children()[1]);
 
     let second = store.install(window, labeled_view(["b", "a"]));
-    assert_eq!(retained_id(&second.tree().root().children()[0]), b);
-    assert_eq!(retained_id(&second.tree().root().children()[1]), a);
+    assert_eq!(node_id(&second.tree().root().children()[0]), b);
+    assert_eq!(node_id(&second.tree().root().children()[1]), a);
     assert!(second.changes().is_empty());
 }
 
@@ -21,10 +22,10 @@ fn role_position_preserves_node_ids_for_identical_rebuilds() {
     let window = window::Id::new(1);
 
     let first = store.install(window, anonymous_button_view());
-    let button = retained_id(&first.tree().root().children()[0]);
+    let button = node_id(&first.tree().root().children()[0]);
 
     let second = store.install(window, anonymous_button_view());
-    assert_eq!(retained_id(&second.tree().root().children()[0]), button);
+    assert_eq!(node_id(&second.tree().root().children()[0]), button);
     assert!(second.changes().is_empty());
 }
 
@@ -34,16 +35,16 @@ fn idless_sibling_insertions_remain_positional_by_design() {
     let window = window::Id::new(1);
 
     let first = store.install(window, anonymous_label_view(["one", "two"]));
-    let first_position_id = retained_id(&first.tree().root().children()[0]);
-    let second_position_id = retained_id(&first.tree().root().children()[1]);
+    let first_position_id = node_id(&first.tree().root().children()[0]);
+    let second_position_id = node_id(&first.tree().root().children()[1]);
 
     let second = store.install(window, anonymous_label_view(["zero", "one", "two"]));
     assert_eq!(
-        retained_id(&second.tree().root().children()[0]),
+        node_id(&second.tree().root().children()[0]),
         first_position_id
     );
     assert_eq!(
-        retained_id(&second.tree().root().children()[1]),
+        node_id(&second.tree().root().children()[1]),
         second_position_id
     );
     assert_eq!(second.changes().added().len(), 1);
@@ -56,10 +57,10 @@ fn explicit_ids_do_not_survive_cross_parent_reparenting_in_v1() {
     let window = window::Id::new(1);
 
     let first = store.install(window, reparenting_view(true));
-    let moved = retained_id(&first.tree().root().children()[0].children()[0]);
+    let moved = node_id(&first.tree().root().children()[0].children()[0]);
 
     let second = store.install(window, reparenting_view(false));
-    let readded = retained_id(&second.tree().root().children()[1].children()[0]);
+    let readded = node_id(&second.tree().root().children()[1].children()[0]);
     assert_ne!(readded, moved);
     assert_eq!(second.changes().removed(), &[moved]);
     assert_eq!(
@@ -71,20 +72,20 @@ fn explicit_ids_do_not_survive_cross_parent_reparenting_in_v1() {
 #[test]
 fn mismatched_old_node_reports_removed_subtree_before_rebuild() {
     let mut next_node_id = 1;
-    let (first, _) = composition::Tree::new(
+    let (first, _) = Tree::new(
         &View::new(view::Node::root().child(view::Node::label("Old").with_interaction_id("old"))),
         &mut next_node_id,
     );
-    let old_root = retained_id(first.root());
-    let old_child = retained_id(&first.root().children()[0]);
+    let old_root = node_id(first.root());
+    let old_child = node_id(&first.root().children()[0]);
 
     let (second, changes) = first.reconcile(
         &View::new(view::Node::root().child(view::Node::stack(view::Axis::Vertical))),
         &mut next_node_id,
     );
 
-    assert_eq!(retained_id(second.root()), old_root);
-    assert_ne!(retained_id(&second.root().children()[0]), old_child);
+    assert_eq!(node_id(second.root()), old_root);
+    assert_ne!(node_id(&second.root().children()[0]), old_child);
     assert_eq!(changes.removed(), &[old_child]);
     assert_eq!(changes.removed_elements(), &[interaction::Id::new("old")]);
 }
@@ -105,7 +106,7 @@ fn removed_nodes_and_elements_are_reported_for_pruning() {
     let window = window::Id::new(1);
 
     let first = store.install(window, labeled_view(["a", "b"]));
-    let removed = retained_id(&first.tree().root().children()[1]);
+    let removed = node_id(&first.tree().root().children()[1]);
 
     let second = store.install(window, labeled_view(["a"]));
     assert_eq!(second.changes().removed(), &[removed]);
@@ -194,12 +195,12 @@ fn idless_binding_hit_targets_use_retained_identity() {
 fn view_only_layout_uses_layout_namespace_node_ids() {
     let view = anonymous_button_view();
     let mut next_node_id = 1;
-    let (retained, _) = composition::Tree::new(&view, &mut next_node_id);
-    let layout = composition::Tree::layout(&view);
+    let (retained, _) = Tree::new(&view, &mut next_node_id);
+    let layout = tree::Layout::new(&view);
 
-    assert!(retained_id(retained.root()).is_retained());
+    assert!(node_id(retained.root()).is_retained());
     assert!(!layout.root().node_id().is_retained());
-    assert_ne!(retained_id(retained.root()), layout.root().node_id());
+    assert_ne!(node_id(retained.root()), layout.root().node_id());
 }
 
 #[test]
@@ -282,9 +283,8 @@ fn labeled_view<const N: usize>(ids: [&'static str; N]) -> View {
     View::new(root)
 }
 
-fn retained_id(node: &composition::Node) -> composition::NodeId {
-    node.retained_id()
-        .expect("test composition should use retained node ids")
+fn node_id(node: &tree::Node) -> tree::NodeId {
+    node.node_id()
 }
 
 fn anonymous_label_view<const N: usize>(labels: [&'static str; N]) -> View {

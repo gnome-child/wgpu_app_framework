@@ -2,8 +2,10 @@
 use std::any::TypeId;
 
 use super::{
-    command, composition, context::Context as CommandContext, interaction, responder, session,
-    subject,
+    command,
+    composition::{Tree, tree},
+    context::Context as CommandContext,
+    interaction, responder, session, subject,
 };
 use std::collections::HashMap;
 
@@ -207,7 +209,7 @@ impl View {
 
     pub(crate) fn selectable_virtual_list_for_focus(
         &self,
-        tree: &composition::Tree,
+        tree: &Tree,
         focus: session::Focus,
     ) -> Option<&crate::virtual_list::Model> {
         self.root
@@ -297,7 +299,7 @@ impl View {
 
     pub(crate) fn contains_enabled_focus_retained(
         &self,
-        tree: &composition::Tree,
+        tree: &Tree,
         focus: session::Focus,
     ) -> bool {
         self.root
@@ -306,7 +308,7 @@ impl View {
 
     pub(crate) fn virtual_list_pins_retained(
         &self,
-        tree: &composition::Tree,
+        tree: &Tree,
         focus: Option<session::Focus>,
         targets: &[interaction::Target],
     ) -> HashMap<interaction::Id, Vec<crate::virtual_list::Key>> {
@@ -316,7 +318,7 @@ impl View {
         pins
     }
 
-    pub(crate) fn focus_order_retained(&self, tree: &composition::Tree) -> Vec<session::Focus> {
+    pub(crate) fn focus_order_retained(&self, tree: &Tree) -> Vec<session::Focus> {
         let mut order = Vec::new();
         if !self
             .root
@@ -330,7 +332,7 @@ impl View {
 
     pub(crate) fn next_focus_retained(
         &self,
-        tree: &composition::Tree,
+        tree: &Tree,
         current: Option<session::Focus>,
         direction: FocusDirection,
     ) -> Option<session::Focus> {
@@ -339,7 +341,7 @@ impl View {
 
     pub(crate) fn next_focus_outside_table_retained(
         &self,
-        tree: &composition::Tree,
+        tree: &Tree,
         current: session::Focus,
         direction: FocusDirection,
         table: interaction::Id,
@@ -419,17 +421,13 @@ impl View {
     pub(crate) fn project_layout_interaction_retained(
         &mut self,
         interaction: &interaction::Interaction,
-        tree: &composition::Tree,
+        tree: &Tree,
     ) {
         self.root
             .project_layout_interaction_retained(interaction, tree.root());
     }
 
-    pub(crate) fn project_focus_retained(
-        &mut self,
-        focus: Option<session::Focus>,
-        tree: &composition::Tree,
-    ) {
+    pub(crate) fn project_focus_retained(&mut self, focus: Option<session::Focus>, tree: &Tree) {
         self.root
             .project_focus_retained(focus.as_ref(), tree.root());
     }
@@ -437,7 +435,7 @@ impl View {
     pub(crate) fn focus_action_retained(
         &self,
         focus: &session::Focus,
-        tree: &composition::Tree,
+        tree: &Tree,
     ) -> Option<Action> {
         self.root.focus_action_retained(focus, tree.root())
     }
@@ -445,7 +443,7 @@ impl View {
     pub(crate) fn subject_path_for_focus_retained(
         &self,
         focus: session::Focus,
-        tree: &composition::Tree,
+        tree: &Tree,
     ) -> Option<subject::Path> {
         self.root
             .subject_path_for_focus_retained(focus, tree.root())
@@ -453,8 +451,8 @@ impl View {
 
     pub(crate) fn context_path_retained(
         &self,
-        tree: &composition::Tree,
-        target: composition::NodeId,
+        tree: &Tree,
+        target: tree::NodeId,
     ) -> Vec<ContextOwner> {
         let mut path = Vec::new();
         self.root

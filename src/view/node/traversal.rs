@@ -29,14 +29,10 @@ impl Node {
 
     pub(in crate::view) fn hover_tip_text_retained(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         target: &interaction::Target,
     ) -> Option<Option<String>> {
-        if self
-            .node_pointer_target(require_retained_id(retained))
-            .as_ref()
-            == Some(target)
-        {
+        if self.node_pointer_target(retained.node_id()).as_ref() == Some(target) {
             let text = self.binding().and_then(|binding| {
                 binding
                     .hint()
@@ -109,8 +105,8 @@ impl Node {
 
     pub(in crate::view) fn context_path_retained(
         &self,
-        retained: &composition::Node,
-        target: composition::NodeId,
+        retained: &composition::tree::Node,
+        target: composition::tree::NodeId,
         path: &mut Vec<super::super::ContextOwner>,
     ) -> bool {
         if retained.node_id() == target {
@@ -152,7 +148,10 @@ impl Node {
             .or_else(|| self.table_cell().map(session::Focus::table_cell))
     }
 
-    fn context_owners(&self, retained: &composition::Node) -> Vec<super::super::ContextOwner> {
+    fn context_owners(
+        &self,
+        retained: &composition::tree::Node,
+    ) -> Vec<super::super::ContextOwner> {
         if !self.is_context_layer() {
             return Vec::new();
         }
@@ -317,7 +316,7 @@ impl Node {
     pub(in crate::view) fn selectable_virtual_list_for_focus_retained(
         &self,
         focus: session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> Option<&crate::virtual_list::Model> {
         if let Some(model) = self
             .virtual_list_model()
@@ -460,7 +459,7 @@ impl Node {
     pub(in crate::view) fn contains_enabled_focus_retained(
         &self,
         focus: session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> bool {
         self.contains_focus_retained_at(&focus, retained, true)
     }
@@ -468,7 +467,7 @@ impl Node {
     pub(in crate::view) fn contains_focus_retained(
         &self,
         focus: session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> bool {
         self.contains_focus_retained_at(&focus, retained, false)
     }
@@ -476,7 +475,7 @@ impl Node {
     pub(in crate::view) fn contains_target_retained(
         &self,
         target: &interaction::Target,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> bool {
         self.node_pointer_target(retained.node_id()).as_ref() == Some(target)
             || self.children.iter().enumerate().any(|(index, child)| {
@@ -486,7 +485,7 @@ impl Node {
 
     pub(in crate::view) fn collect_virtual_list_pins_retained(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         focus: Option<session::Focus>,
         targets: &[interaction::Target],
         pins: &mut std::collections::HashMap<interaction::Id, Vec<crate::virtual_list::Key>>,
@@ -514,7 +513,7 @@ impl Node {
 
     pub(in crate::view) fn collect_focus_order_retained(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         order: &mut Vec<session::Focus>,
     ) {
         self.collect_focus_order_retained_at(retained, order);
@@ -522,7 +521,7 @@ impl Node {
 
     pub(in crate::view) fn collect_floating_panel_focus_order_retained(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         order: &mut Vec<session::Focus>,
     ) -> bool {
         self.collect_floating_panel_focus_order_retained_at(retained, order)
@@ -694,7 +693,7 @@ impl Node {
     pub(in crate::view) fn project_layout_interaction_retained(
         &mut self,
         interaction: &interaction::Interaction,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) {
         self.project_layout_interaction_retained_at(interaction, retained);
     }
@@ -702,9 +701,9 @@ impl Node {
     fn project_layout_interaction_retained_at(
         &mut self,
         interaction: &interaction::Interaction,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) {
-        let pointer_target = self.node_pointer_target(require_retained_id(retained));
+        let pointer_target = self.node_pointer_target(retained.node_id());
         if matches!(self.role(), Role::Scroll | Role::VirtualList) {
             let offset = pointer_target
                 .as_ref()
@@ -738,7 +737,7 @@ impl Node {
     pub(in crate::view) fn project_focus_retained(
         &mut self,
         focus: Option<&session::Focus>,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) {
         self.project_focus_retained_at(focus, retained);
     }
@@ -746,7 +745,7 @@ impl Node {
     fn project_focus_retained_at(
         &mut self,
         focus: Option<&session::Focus>,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) {
         let focused = self
             .focus_at_retained(retained, true)
@@ -795,7 +794,7 @@ impl Node {
     pub(in crate::view) fn focus_action_retained(
         &self,
         focus: &session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> Option<Action> {
         self.focus_action_retained_at(focus, retained)
     }
@@ -803,7 +802,7 @@ impl Node {
     pub(in crate::view) fn subject_path_for_focus_retained(
         &self,
         focus: session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> Option<subject::Path> {
         self.subject_path_for_focus_retained_at(&focus, retained, &mut Vec::new())
     }
@@ -821,7 +820,7 @@ impl Node {
     fn contains_focus_retained_at(
         &self,
         focus: &session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         require_enabled: bool,
     ) -> bool {
         self.focus_at_retained(retained, require_enabled)
@@ -838,7 +837,7 @@ impl Node {
 
     fn collect_focus_order_retained_at(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         order: &mut Vec<session::Focus>,
     ) {
         if let Some(focus) = self.focus_at_retained(retained, true) {
@@ -856,7 +855,7 @@ impl Node {
 
     fn collect_floating_panel_focus_order_retained_at(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         order: &mut Vec<session::Focus>,
     ) -> bool {
         if self.role() == Role::FloatingPanel {
@@ -881,7 +880,7 @@ impl Node {
     fn focus_action_retained_at(
         &self,
         focus: &session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
     ) -> Option<Action> {
         if self
             .focus_at_retained(retained, true)
@@ -903,7 +902,7 @@ impl Node {
     fn subject_path_for_focus_retained_at(
         &self,
         focus: &session::Focus,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         segments: &mut Vec<subject::Segment>,
     ) -> Option<subject::Path> {
         let pushed = retained.subject().cloned().inspect(|segment| {
@@ -953,7 +952,7 @@ impl Node {
 
     fn focus_at_retained(
         &self,
-        retained: &composition::Node,
+        retained: &composition::tree::Node,
         require_enabled: bool,
     ) -> Option<session::Focus> {
         if let Some(focus) = self.text_area_model().and_then(TextArea::focus) {
@@ -968,7 +967,7 @@ impl Node {
             return None;
         }
 
-        self.node_pointer_target(require_retained_id(retained))
+        self.node_pointer_target(retained.node_id())
             .map(|target| session::Focus::control(&target))
     }
 
@@ -1003,14 +1002,9 @@ fn push_focus(order: &mut Vec<session::Focus>, focus: session::Focus) {
     }
 }
 
-fn retained_child(parent: &composition::Node, index: usize) -> &composition::Node {
+fn retained_child(parent: &composition::tree::Node, index: usize) -> &composition::tree::Node {
     parent
         .children()
         .get(index)
         .expect("composition tree must match view child order")
-}
-
-fn require_retained_id(node: &composition::Node) -> composition::NodeId {
-    node.retained_id()
-        .expect("retained view traversal requires retained composition identity")
 }

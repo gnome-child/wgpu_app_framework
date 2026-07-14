@@ -104,7 +104,7 @@ impl Store {
 
     pub(super) fn prune_removed(
         &mut self,
-        removed_nodes: &[crate::composition::NodeId],
+        removed_nodes: &[crate::composition::tree::NodeId],
         removed_elements: &[crate::interaction::Id],
         removed_table_cells: &[crate::table::Cell],
     ) -> bool {

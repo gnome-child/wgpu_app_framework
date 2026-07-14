@@ -31,7 +31,7 @@ enum Parts {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct MaterialRealizationReport {
-    id: composition::NodeId,
+    id: composition::tree::NodeId,
     parts: RealizedMaterialParts,
 }
 
@@ -79,11 +79,11 @@ impl RealizedMaterialParts {
 }
 
 impl MaterialRealizationReport {
-    pub(crate) const fn new(id: composition::NodeId, parts: RealizedMaterialParts) -> Self {
+    pub(crate) const fn new(id: composition::tree::NodeId, parts: RealizedMaterialParts) -> Self {
         Self { id, parts }
     }
 
-    pub(crate) const fn id(self) -> composition::NodeId {
+    pub(crate) const fn id(self) -> composition::tree::NodeId {
         self.id
     }
 
@@ -98,7 +98,7 @@ impl MaterialRealizationReport {
 /// surrounding `Vec` is paint order only and never participates in identity.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MaterialRegion {
-    id: composition::NodeId,
+    id: composition::tree::NodeId,
     rect: geometry::Rect,
     rounding: Rounding,
     clips: Vec<Clip>,
@@ -108,7 +108,11 @@ pub(crate) struct MaterialRegion {
 
 #[cfg_attr(not(test), allow(dead_code))]
 impl MaterialRegion {
-    pub(super) fn from_pane(id: composition::NodeId, pane: &Pane, clip: Option<Clip>) -> Self {
+    pub(super) fn from_pane(
+        id: composition::tree::NodeId,
+        pane: &Pane,
+        clip: Option<Clip>,
+    ) -> Self {
         Self {
             id,
             rect: pane.rect(),
@@ -119,7 +123,7 @@ impl MaterialRegion {
         }
     }
 
-    pub(crate) fn id(&self) -> composition::NodeId {
+    pub(crate) fn id(&self) -> composition::tree::NodeId {
         self.id
     }
 

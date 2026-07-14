@@ -1,4 +1,4 @@
-use super::{Changes, Composition, Tree};
+use super::{Composition, Tree, tree::Changes};
 use crate::{notification, view, window};
 
 #[derive(Default)]

@@ -118,7 +118,7 @@ pub struct Pane {
     rect: geometry::Rect,
     rounding: Rounding,
     material: Material,
-    region_id: Option<crate::composition::NodeId>,
+    region_id: Option<crate::composition::tree::NodeId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -878,7 +878,7 @@ impl Pane {
         self
     }
 
-    pub(in crate::scene) fn with_region_id(mut self, id: crate::composition::NodeId) -> Self {
+    pub(in crate::scene) fn with_region_id(mut self, id: crate::composition::tree::NodeId) -> Self {
         self.region_id = Some(id);
         self
     }
@@ -909,7 +909,7 @@ impl Pane {
         &self.material
     }
 
-    pub(crate) fn region_id(&self) -> Option<crate::composition::NodeId> {
+    pub(crate) fn region_id(&self) -> Option<crate::composition::tree::NodeId> {
         self.region_id
     }
 

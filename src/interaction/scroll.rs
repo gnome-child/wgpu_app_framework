@@ -136,7 +136,7 @@ impl Scroll {
 
     pub(super) fn prune_removed(
         &mut self,
-        removed_nodes: &[super::super::composition::NodeId],
+        removed_nodes: &[super::super::composition::tree::NodeId],
         removed_elements: &[super::Id],
     ) -> bool {
         let before_offsets = self.offsets.len();
