@@ -2719,6 +2719,62 @@ Status: **complete; unowned suppression removed**. Correction `0456a0f8`
    boundary ruling; the UI sweep continues through lifecycle state and
    intermediate types.
 
+### R5-06 — atomic provided-list selection endpoints
+
+Status: **complete; correlated optional state collapsed**. Correction
+`ee43ac04` (`Make selection endpoints atomic`).
+
+1. **Question and complete trace.** The state-shape sweep traced provided-list
+   selection from pointer and keyboard admission through the virtual-list
+   provider operations, session-scoped lookup, snapshot/restore, view
+   projection, table active-row lookup, runtime reveal/presentation, provider
+   reorder and deletion reconciliation, and the public read-only selection
+   facts. Anchor and active each carried one stable key and one last usable
+   provider index, but represented that one endpoint as two independent
+   `Option`s.
+2. **Authority and invariant.** The key remains the authoritative identity.
+   Current provider order resolves it when available; the stored index remains
+   only the existing navigation fallback when that key has departed or moved.
+   Every construction, toggle, extension, select-all, movement, clear, and
+   reconciliation path already created, replaced, or removed each key/index
+   pair together. No caller observed either index independently.
+3. **Reduction and displaced state.** Added the private value `Endpoint { key,
+   index }` and reduced four independently optional fields to
+   `anchor: Option<Endpoint>` and `active: Option<Endpoint>`. Endpoint resolution
+   now has one local implementation. The four parallel fields and every
+   duplicated half-pair assignment are deleted; a key-without-index or
+   index-without-key state is no longer representable.
+4. **Naming, visibility, and API ruling.** `Selection`, `Selection::anchor`,
+   `Selection::active`, the root projection, and all call-site spellings remain
+   exact. `Endpoint` is a simple private supporting concept in the selection
+   owner and receives no parent re-export or compound alias, consistent with
+   the canonical module/type and projection law. No visibility widened.
+5. **Doctrine and ratchet.** Master design now records that an anchor or active
+   endpoint atomically owns its stable key and fallback index. The architecture
+   witness requires the two endpoint options and tombstones the four former
+   independently optional field spellings.
+6. **Behavior and economics.** Membership, selected counts, public facts,
+   pointer modifiers, keyboard movement, range anchoring, all-except select-all,
+   reorder/deletion fallback, snapshot identity, and change detection are
+   unchanged. The same provider lookups occur at the same transitions. There is
+   no new allocation, callback, layout, scene, renderer, presentation-clock, or
+   platform work; selection state carries two option discriminants rather than
+   four.
+7. **Proof and gauge delta from R5-05.** The library discovered 1,091 tests:
+   1,081 passed, 10 standing ignores, and 0 failed. All targets and all five
+   examples compiled without warnings; focused selection and architecture
+   witnesses, all nine census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed. Production/test module edges remain
+   325/109; split responsibilities, slot edges, forbidden edges, external
+   violations, and SCCs remain 3, 54, 0, 0, and 0. Visibility, cross-slot test
+   edges, allowances, panics, and expects remain 1,806 in 190 files, 90, 8, 7,
+   and 90. The new ratchet raises source-root mentions 117 -> 118 and filesystem
+   reads 359 -> 360.
+8. **Fixed point and next frontier.** Provided-list endpoints have one atomic
+   representation and no parallel optional state. The UI sweep continues
+   through overlay lifecycle shape and the two argument-count allowances; the
+   clean import graph and this local correction do not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
