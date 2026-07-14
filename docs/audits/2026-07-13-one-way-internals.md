@@ -945,6 +945,67 @@ failure`).
    task owner keeps a bounded asynchronous pool under partial capacity and an
    honest rejection result under zero capacity. Cell closed.
 
+### R1-10 — window facts versus scene-owned color housing
+
+Status: **complete; remaining window projections routed**. Correction
+`ef0d9363` (`Move semantic color to its lower owner`).
+
+1. **Question and trace.** `window::Id`, `Facts`, `Options`, `Kind`,
+   `PresentationEpoch`, and `Departed` were traced through session, shell,
+   host, platform, semantic presentation, diagnostics, cleanup publication,
+   public defaults, and theme selection. Every layer wraps `Facts`; the fact
+   owner remains authoritative for id, title, inner size, canvas color, and
+   kind. The direct `window -> scene` edge existed only because the sRGB-byte
+   `Color` value was physically declared under scene while all of its transfer,
+   packed-byte, and boundary-conversion laws already lived in the lower
+   `color` owner.
+2. **Current and proposed graph.** Scene construction and window facts were
+   peers sharing the same semantic color datum, but housing the value in scene
+   forced window upward and helped form the provisional UI/foundation cycle.
+   A new color type or renamed public path would create parallel vocabulary.
+   The admitted graph instead makes existing `color` own the byte value and
+   conversion laws; scene and window consume it. `scene::Color` remains the
+   exact established public re-export, so application API and value identity do
+   not change.
+3. **Reduction and rewire.** Moved the 21-line `Color` declaration from
+   `scene/color.rs` into `color.rs`, deleted the old module, and made scene
+   re-export the lower value. Window facts and options now name the lower owner
+   internally. Constructors, channels, equality, copy semantics, theme tokens,
+   scene brushes, renderer conversion, canvas clears, and public
+   `scene::Color` call sites are unchanged. No new module, compatibility type,
+   or name was introduced.
+4. **Remaining window projections.** The two surviving window back-edges are
+   not laundered into this correction. `window::DEFAULT_CANVAS_COLOR` and the
+   default selected by `Options` intentionally project the theme-owned token;
+   lowering the bytes into window would violate settled theme ownership. Their
+   physical facade/housing disposition belongs to the Rung 5 UI examination.
+   `window::Departed` is a domain past-tense fact implemented through the
+   command notification contract; moving it behind a callback or duplicating
+   cleanup would be worse. Its trait/realization boundary travels with the full
+   Rung 3 notification and responder trace. `Id`, `Facts`, `Kind`, and
+   `PresentationEpoch` remain the lower window core. The provisional
+   top-level-module map therefore stays explicitly split-pending rather than
+   claiming the entire module is purified.
+5. **Proof and ratchet.** The lower owner test pins the scene re-export and
+   absence of `scene::Color` from window facts/options. Existing default-token,
+   window-fact uniqueness, color conversion, theme parsing, canvas, native
+   paint, and renderer color witnesses passed: 24 focused color tests and 44
+   focused window tests. Full library: 1,066 passed, 10 ignored, 0 failed; all
+   targets compiled without warnings; formatting and diff checks passed.
+   Renderer topology, shaping, batching, presentation clocks, and frame
+   economics are unchanged because the Rust value and every consuming route
+   are identical.
+6. **Gauge delta.** Provisional forbidden edges fall 15 -> 14 by deleting
+   `window -> scene`. Production module edges rise 322 -> 323 because the gauge
+   now sees both truthful lower dependencies, `scene -> color` and
+   `window -> color`, in place of the one false peer dependency. Slot edges,
+   the existing SCC, external questions, visibility, test edges, source-root
+   and filesystem reads, allowances, panics, and expects are unchanged.
+7. **Fixed point.** Semantic sRGB color has one lower owner and scene is a
+   public consumer, not its implementation home. Window facts no longer import
+   scene. The theme-default and departure-notification projections remain
+   visible, named questions at their proper later rungs. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,

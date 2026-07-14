@@ -156,12 +156,19 @@ Owns `Facts`: id, title, inner size, canvas color, and kind. Session, shell,
 host, and platform window types remain layer projections that wrap this core;
 they must not redeclare its fields.
 
+Window facts consume the lower semantic color value directly. The
+theme-selected default in `Options` and the `Departed` notification are
+higher projections around that core; neither authorizes the fact owner to
+depend on scene construction or to duplicate theme and notification policy.
+
 `color`
 
-Owns transfer functions and named byte conventions. Scene RGB bytes are sRGB,
-paint RGB floats are linear, and glyphon color bytes are sRGB. Platform-packed
-formats are named at their platform boundary; conversion happens once through
-`color` rather than being re-derived by native adapters.
+Owns the semantic sRGB-byte `Color` value, transfer functions, and named byte
+conventions. `scene::Color` is the established public presentation re-export
+of that lower value; scene construction does not own the datum. Paint RGB
+floats are linear, and glyphon color bytes are sRGB. Platform-packed formats
+are named at their platform boundary; conversion happens once through `color`
+rather than being re-derived by native adapters.
 
 `text`
 
