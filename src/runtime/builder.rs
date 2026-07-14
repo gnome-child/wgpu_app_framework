@@ -1,7 +1,7 @@
 use super::super::{
     clipboard::Clipboard,
     command::{self, Command},
-    keymap, responder, state, task, theme, view,
+    keymap, pointer, responder, state, task, theme, view,
 };
 use super::{Context, Retention, Runtime};
 
@@ -31,6 +31,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn keymap(mut self, profile: keymap::Profile) -> Self {
         self.keymap = profile;
         self
+    }
+
+    pub fn multi_click_settings(mut self, settings: pointer::MultiClickSettings) -> Self {
+        self.session.set_multi_click_settings(settings);
+        self
+    }
+
+    pub(crate) fn set_multi_click_settings(&mut self, settings: pointer::MultiClickSettings) {
+        self.session.set_multi_click_settings(settings);
     }
 
     pub fn responders(mut self, configure: impl FnOnce(&mut responder::Builder<M>)) -> Self {

@@ -66,6 +66,35 @@ fn animation_vocabulary_is_platform_neutral() {
 }
 
 #[test]
+fn pointer_grammar_consumes_platform_facts_without_importing_platform_ffi() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let pointer = std::fs::read_to_string(root.join("src/pointer/mod.rs"))
+        .expect("pointer source should read");
+    let platform_event = std::fs::read_to_string(root.join("src/platform/event.rs"))
+        .expect("platform event source should read");
+    let native_runner = std::fs::read_to_string(root.join("src/platform/runner/native.rs"))
+        .expect("native runner source should read");
+
+    for os_detail in [
+        "windows_sys",
+        "GetDoubleClickTime",
+        "GetSystemMetrics",
+        "system_multi_click_settings",
+    ] {
+        assert!(
+            !pointer.contains(os_detail),
+            "pointer grammar must not own platform detail {os_detail}"
+        );
+    }
+    assert!(
+        platform_event.contains("pub(crate) fn system_multi_click_settings()")
+            && platform_event.contains("GetDoubleClickTime")
+            && native_runner.contains(".set_multi_click_settings("),
+        "the native event adapter must realize and inject OS click thresholds"
+    );
+}
+
+#[test]
 fn table_std_capabilities_have_no_framework_trait_mirrors() {
     let table = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/table.rs"),

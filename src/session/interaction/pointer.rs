@@ -65,9 +65,21 @@ impl Session {
         point: crate::geometry::Point,
         at: std::time::Instant,
     ) -> interaction::ClickCount {
+        let settings = self.multi_click_settings;
         self.window_mut(id)
-            .map(|window| window.interaction.classify_click(target, point, at))
+            .map(|window| {
+                window
+                    .interaction
+                    .classify_click(target, point, at, settings)
+            })
             .unwrap_or(interaction::ClickCount::Single)
+    }
+
+    pub(crate) fn set_multi_click_settings(
+        &mut self,
+        settings: crate::pointer::MultiClickSettings,
+    ) {
+        self.multi_click_settings = settings;
     }
 
     pub(crate) fn cancel_click_sequence(&mut self, id: app_window::Id) -> bool {

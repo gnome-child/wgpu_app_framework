@@ -55,8 +55,9 @@ impl Interaction {
         target: &Target,
         point: crate::geometry::Point,
         at: Instant,
+        settings: crate::pointer::MultiClickSettings,
     ) -> ClickCount {
-        self.pointer.classify_click(target, point, at)
+        self.pointer.classify_click(target, point, at, settings)
     }
 
     pub(crate) fn cancel_click_sequence(&mut self) -> bool {

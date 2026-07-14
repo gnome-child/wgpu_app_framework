@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+#[cfg(target_os = "windows")]
+use std::time::Duration;
 
 use crate::text;
 use winit::{
@@ -318,4 +320,23 @@ fn logical_i32(value: f64) -> i32 {
 
 fn origin() -> geometry::Point {
     geometry::Point::new(0, 0)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn system_multi_click_settings() -> pointer::MultiClickSettings {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetDoubleClickTime;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXDOUBLECLK, SM_CYDOUBLECLK,
+    };
+
+    pointer::MultiClickSettings::new(
+        Duration::from_millis(unsafe { GetDoubleClickTime() } as u64),
+        unsafe { GetSystemMetrics(SM_CXDOUBLECLK) },
+        unsafe { GetSystemMetrics(SM_CYDOUBLECLK) },
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn system_multi_click_settings() -> pointer::MultiClickSettings {
+    pointer::MultiClickSettings::default()
 }

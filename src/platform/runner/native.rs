@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use winit::{
-    event::WindowEvent as WinitWindowEvent,
+    event::{ElementState, WindowEvent as WinitWindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
 };
 
@@ -34,6 +34,19 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         raw_window: winit::window::WindowId,
         event: &WinitWindowEvent,
     ) -> Option<host::Event> {
+        if matches!(
+            event,
+            WinitWindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                ..
+            }
+        ) {
+            self.platform
+                .host_mut()
+                .shell_mut()
+                .runtime_mut()
+                .set_multi_click_settings(super::super::event::system_multi_click_settings());
+        }
         self.platform
             .backend_mut()
             .route_cursor_host_event(raw_window, event);

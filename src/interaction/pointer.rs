@@ -55,8 +55,8 @@ impl Pointer {
         target: &Target,
         point: Point,
         at: Instant,
+        settings: pointer::MultiClickSettings,
     ) -> ClickCount {
-        let settings = crate::pointer::MultiClickSettings::system();
         let count = self
             .last_click
             .as_ref()
@@ -204,6 +204,7 @@ impl Capture {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn visible_hover_tip_keeps_its_reveal_point_when_pointer_moves_within_target() {
@@ -222,6 +223,38 @@ mod tests {
             pointer.hover_tip_anchor(),
             Some(reveal_point),
             "pointer attachment is a reveal snapshot, not a live-follow geometry clock"
+        );
+    }
+
+    #[test]
+    fn click_chain_consumes_injected_thresholds_and_target_identity() {
+        let mut pointer = Pointer::default();
+        let target = Target::label("click.target", "Click target");
+        let other = Target::label("click.other", "Other target");
+        let started = Instant::now();
+        let settings = pointer::MultiClickSettings::new(Duration::from_millis(200), 4, 4);
+
+        assert_eq!(
+            pointer.classify_click(&target, Point::new(10, 10), started, settings),
+            ClickCount::Single
+        );
+        assert_eq!(
+            pointer.classify_click(
+                &target,
+                Point::new(14, 14),
+                started + Duration::from_millis(200),
+                settings,
+            ),
+            ClickCount::Double
+        );
+        assert_eq!(
+            pointer.classify_click(
+                &other,
+                Point::new(14, 14),
+                started + Duration::from_millis(201),
+                settings,
+            ),
+            ClickCount::Single
         );
     }
 }
