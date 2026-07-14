@@ -1216,6 +1216,75 @@ text`).
    2 now continues with the complete read-only selection/caret projection
    versus mutation, history, draft, and IME machinery trace.
 
+### R2-03 — read-only text projection versus mutation capability
+
+Status: **in progress; two independently green production checkpoints**.
+Vocabulary correction `979878ef` (`Separate read-only text vocabulary`);
+operation correction `60fff63d` (`Separate selection operations from text
+mutation`). The cell remains open for the action/clipboard/history split and
+IME/preedit ownership trace below.
+
+1. **Question and trace so far.** Text buffer state, caret motion, selection,
+   field-mode capability, surface projection, view state, direct pointer/key
+   operations, document commands, draft routing, clipboard actions, history,
+   and composition were traced through editable documents, local text-box and
+   table-cell drafts, read-only selection, disabled fields, keyboard and
+   pointer entrances, visual caret maps, reveal/blink updates, rejection,
+   preedit clearing, undo/redo, and example responders. The live code had
+   placed always-present caret/selection/surface/view vocabulary under
+   `text::edit`, and one `Edit` sum mixed pure selection operations with text
+   mutation.
+2. **First reduction and naming ruling.** Caret maps, motion, selection state,
+   surface capability/projection, and view vocabulary now live at first-class
+   text modules that do not depend on mutation. The parent follows the house
+   law: `text::Edit`, `text::Surface`, and `text::View` are the sole
+   same-named central projections, while supporting concepts remain qualified
+   through `text::edit`, `text::surface`, `text::selection`, and `text::view`.
+   No compound compatibility declaration or old mutation-owned projection was
+   retained.
+3. **Operation reduction and rewire.** `text::selection::Operation` now owns
+   move, extend, select-all, direct-position, and pointer selection grammar,
+   with one selection-owned application path and `PointerKind`. `text::Edit`
+   contains mutation only. Input, view actions, keymap, document routing,
+   drafts, focused services, runtime, and the text-editor example carry the
+   distinction structurally. Visual motion still consumes the existing caret
+   map; selection never enters mutation history; mutation retains the exact
+   buffer transaction and diagnostic path. The redundant public compound
+   spelling was not propagated: framework call sites use parent-projected
+   `text::Edit`, while `text::edit::Editor` and `text::edit::History` remain
+   namespaced supporting machinery.
+4. **Behavior and lifecycle preservation.** Editable mutation, read-only
+   selection, disabled-field rejection, stale table-draft rejection,
+   single/double/triple click and drag, Unicode motion, selection collapse,
+   reveal, caret blink, clipboard behavior, draft validation, feedback
+   clearing, undo/redo, and application revision versus document-dirty clocks
+   retain their existing paths. A focused owner witness proves selection
+   clears active preedit without changing text or entering mutation history.
+5. **Proof and ratchet.** Architecture witnesses require first-class
+   always-present modules, the central parent projections, absence of old
+   compatibility paths, distinct selection/mutation input and command types,
+   a selection-only pointer view action, and a private typed keymap sum. Full
+   library: 1,071 passed, 10 ignored, 0 failed; all targets compiled without
+   warnings; formatting and diff checks passed. Shaping, hit testing, renderer
+   topology, batching/pass fusion, presentation clocks, and frame economics
+   are unchanged because the same buffers, states, positions, and resolved
+   operation order reach the same owners.
+6. **Gauge delta from R2-02.** Production/test module edges, slot edges,
+   forbidden edges, external questions, SCCs, and cross-slot test edges remain
+   325/98, 42, 13, 1, 1, and 78. Explicit crossing/application surfaces raise
+   production `pub(crate)` declarations 1,746 -> 1,751. The two architecture
+   receipts raise source-root mentions 105 -> 107 and filesystem reads
+   302 -> 313; Rung 6 retains their consolidation. Allowances, panics, and
+   expects remain 10, 9, and 102.
+7. **Open residuals.** `text::edit::Action` still mixes read-only Copy and
+   SelectAll with Cut/Delete/Paste/Undo/Redo and is still executed by mutation
+   machinery; this keeps clipboard action availability and history coupled to
+   the mutation seam. `text::view::ViewState` still owns optional `Preedit`, so
+   the always-present presentation vocabulary still carries mutation/IME
+   state. Both require their complete consumer, failure, lifecycle, and
+   feature-off traces before this cell can reach fixed point. R2-03 is not
+   closed by either checkpoint.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
