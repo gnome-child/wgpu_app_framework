@@ -5028,6 +5028,61 @@ removed**. Correction `7d20ba15` (`Project typed view content into layout`).
    layout lifecycles, and the complete visibility, failure, intermediate,
    housing, and naming inventories. This cell does not close Rung 5.
 
+### R5-48 — two-phase frame specialization resistance
+
+Status: **complete resistance ruling; no production correction admitted**.
+
+1. **Question and complete trace.** The post-R5-47 sweep traced ordinary and
+   table scroll viewport resolution, fixed and variable virtual-list requests,
+   parent-measured menu shortcut columns, floating-panel recursive placement,
+   frame publication, every specialized frame query, and all five
+   `with_*`/placement call sites. It followed the surrounding child layout,
+   clipping, table projection lifetime, materialization fixed point, overlay
+   attachment, scene consumption, and hit testing.
+2. **Construction-phase invariant.** Generic `layout_node` excludes Scroll and
+   VirtualList before publishing a frame. Their dedicated algorithms resolve
+   geometry and immediately specialize the frame before its one push. Menu
+   rows receive the parent-resolved maximum shortcut width before publication.
+   Floating placement is the one recursive exception: the parent resolves the
+   request, lays out the child panel, then updates that exact child frame by
+   retained node identity. No consumer observes a half-specialized frame.
+3. **Challenge and rejected reductions.** Replacing the panics/assertion with
+   no-ops, defaults, or `Option` returns would hide caller drift and manufacture
+   false fallibility. Adding a generic resolution enum would merely represent
+   every invalid node/resolution pairing in another type. A structurally total
+   solution requires a draft-frame typestate sum plus a second common envelope,
+   or broadening every recursive layout entrance with role-specific state;
+   neither deletes an owner, translation, traversal, or observed defect.
+4. **Ruling.** Retain the four local specialization invariants and the popup
+   debug assertion. They guard one cohesive layout owner's private construction
+   protocol, not a cross-seam agreement or operational failure. Reopen only if
+   another consumer observes incomplete frames, a second specialization path
+   appears, or a broader layout-state refactor supplies the draft type without
+   duplicating the common frame envelope.
+5. **Boundary and naming ruling.** The protocol remains entirely under layout;
+   no public or crate-crossing type, visibility, projection, alias, compound
+   declaration, or call-site import changes. The newly admitted
+   `view::{node, Node}` seam is not widened with layout staging vocabulary.
+6. **Behavior and economics.** Viewport geometry, table projection, virtual
+   requests, shortcut alignment, floating placement, frame order, clipping,
+   scene order, renderer topology, batching/pass fusion, invalidation,
+   allocation, recursive work, and presentation clocks remain byte-for-byte
+   unchanged.
+7. **Proof.** The one-way call-site census found one ordinary-scroll, one
+   table-scroll, two virtual-list, one menu-row, and one popup-placement path,
+   each paired with its immediate publication or exact-node update. R5-47's
+   unchanged full boundary remains the proof: 1,118 passed, 10 ignored, all
+   five examples and all ten census parser witnesses green, with format, diff,
+   census, and protected-state checks passing.
+8. **Gauge and next frontier.** No code or map changed: production/test edges
+   remain 325/109, split responsibilities 3, slot edges 54, forbidden/
+   external/SCC counts 0/0/0, production `pub(crate)` 1,827 in 192 files,
+   cross-slot upper bound 1,780, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 362, allowances 6, panics 6, and expects 62. The
+   reverse sweep continues with retained-tree identity/child admission, then
+   remaining layout lifecycles and the full visibility, failure, intermediate,
+   housing, and naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
