@@ -1,5 +1,5 @@
 use super::{DEFAULT_CANVAS_COLOR, DEFAULT_HEIGHT, DEFAULT_TITLE, DEFAULT_WIDTH};
-use crate::{geometry, scene};
+use crate::{color, geometry};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -11,7 +11,7 @@ pub enum Kind {
 pub struct Options {
     title: String,
     inner_size: geometry::Size,
-    canvas_color: scene::Color,
+    canvas_color: color::Color,
     kind: Kind,
 }
 
@@ -29,7 +29,7 @@ impl Options {
         geometry::Size::new(DEFAULT_WIDTH, DEFAULT_HEIGHT)
     }
 
-    pub const fn default_canvas_color() -> scene::Color {
+    pub const fn default_canvas_color() -> color::Color {
         DEFAULT_CANVAS_COLOR
     }
 
@@ -38,7 +38,7 @@ impl Options {
         self
     }
 
-    pub fn with_canvas_color(mut self, color: scene::Color) -> Self {
+    pub fn with_canvas_color(mut self, color: color::Color) -> Self {
         self.canvas_color = color;
         self
     }
@@ -56,7 +56,7 @@ impl Options {
         self.inner_size
     }
 
-    pub fn canvas_color(&self) -> scene::Color {
+    pub fn canvas_color(&self) -> color::Color {
         self.canvas_color
     }
 
@@ -64,7 +64,7 @@ impl Options {
         self.kind
     }
 
-    pub(crate) fn into_parts(self) -> (String, geometry::Size, scene::Color, Kind) {
+    pub(crate) fn into_parts(self) -> (String, geometry::Size, color::Color, Kind) {
         (self.title, self.inner_size, self.canvas_color, self.kind)
     }
 }

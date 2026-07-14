@@ -1,3 +1,25 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl Color {
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self::rgba(r, g, b, 255)
+    }
+
+    pub fn channels(self) -> (u8, u8, u8, u8) {
+        (self.r, self.g, self.b, self.a)
+    }
+}
+
 pub(crate) fn srgb_byte_to_linear(value: u8) -> f32 {
     srgb_unit_to_linear(byte_to_unit(value))
 }
@@ -86,5 +108,16 @@ mod tests {
         }
         assert!(!native_color.contains("powf"));
         assert!(!sys.contains("<<"));
+    }
+
+    #[test]
+    fn semantic_color_value_has_one_lower_owner() {
+        let scene = include_str!("scene/mod.rs");
+        let window_facts = include_str!("window/facts.rs");
+        let window_options = include_str!("window/options.rs");
+
+        assert!(scene.contains("pub use crate::color::Color;"));
+        assert!(!window_facts.contains("scene::Color"));
+        assert!(!window_options.contains("scene::Color"));
     }
 }

@@ -1396,7 +1396,7 @@ fn theme_owns_the_framework_default_canvas_color() {
         !scene.contains("DEFAULT_CLEAR")
             && scene.contains("theme::DEFAULT_CANVAS_COLOR")
             && window.contains(
-                "pub const DEFAULT_CANVAS_COLOR: scene::Color = theme::DEFAULT_CANVAS_COLOR"
+                "pub const DEFAULT_CANVAS_COLOR: color::Color = theme::DEFAULT_CANVAS_COLOR"
             ),
         "scene and window defaults must project the theme-owned token"
     );

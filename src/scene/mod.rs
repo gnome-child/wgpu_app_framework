@@ -1,4 +1,3 @@
-mod color;
 mod material;
 mod paint;
 mod presentation;
@@ -6,7 +5,7 @@ mod primitive;
 mod region;
 mod visual;
 
-pub use color::Color;
+pub use crate::color::Color;
 pub(crate) use material::GlassBase;
 pub use material::{
     BackdropBlur, BackdropEdgeMode, BackdropLayer, Glass, Luminosity, Material, Noise, Refraction,

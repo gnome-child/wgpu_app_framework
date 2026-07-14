@@ -1,4 +1,4 @@
-use crate::{geometry, scene};
+use crate::{color, geometry};
 
 use super::{Id, Kind};
 
@@ -7,7 +7,7 @@ pub struct Facts {
     id: Id,
     title: String,
     inner_size: geometry::Size,
-    canvas_color: scene::Color,
+    canvas_color: color::Color,
     kind: Kind,
 }
 
@@ -16,7 +16,7 @@ impl Facts {
         id: Id,
         title: impl Into<String>,
         inner_size: geometry::Size,
-        canvas_color: scene::Color,
+        canvas_color: color::Color,
         kind: Kind,
     ) -> Self {
         Self {
@@ -40,7 +40,7 @@ impl Facts {
         self.inner_size
     }
 
-    pub fn canvas_color(&self) -> scene::Color {
+    pub fn canvas_color(&self) -> color::Color {
         self.canvas_color
     }
 
