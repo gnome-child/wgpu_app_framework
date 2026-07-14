@@ -1028,6 +1028,10 @@ captured press additionally owns the resolved cursor beside that same target.
 Pointer release, cancellation, and target removal retire the unit atomically;
 pointer leave retains a captured press and retires an uncaptured one.
 
+Pointer presence is one location fact: logical point and owning parent or popup
+surface are stored and consumed together. Absence carries neither coordinate
+nor stale surface identity; pointer leave retires the complete location.
+
 Visual interaction state is paint input. Hover, press, active/selected row
 tint, animation phase, and caret blink should be resolved from session/visuals
 by retained target identity during paint, not projected into view data as a

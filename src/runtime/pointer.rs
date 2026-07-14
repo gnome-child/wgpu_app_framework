@@ -288,8 +288,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session
-            .set_pointer_position(window, Some(point), surface);
+        self.session.set_pointer_location(window, point, surface);
         if self
             .session
             .interaction(window)
@@ -318,12 +317,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         modifiers: input::Modifiers,
     ) -> std::result::Result<input::Outcome, Error> {
         let changed = self.session.set_pointer_modifiers(window, modifiers);
-        let Some((point, surface)) = self.session.interaction(window).and_then(|interaction| {
-            interaction
-                .pointer()
-                .position()
-                .map(|point| (point, interaction.pointer().surface()))
-        }) else {
+        let Some(location) = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().location())
+        else {
             return Ok(if changed {
                 input::Outcome::handled(false, response::Effect::None)
             } else {
@@ -332,8 +330,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
         let hit = self
             .presented_layout(window)
-            .and_then(|layout| layout.hit_test_on_surface(point, surface));
-        let resolved = self.resolve_press(window, point, modifiers, hit);
+            .and_then(|layout| layout.hit_test_on_surface(location.point(), location.surface()));
+        let resolved = self.resolve_press(window, location.point(), modifiers, hit);
         let cursor_changed = self.set_pointer_cursor(window, resolved.cursor());
 
         Ok(if changed || cursor_changed {
@@ -376,8 +374,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         modifiers: input::Modifiers,
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session
-            .set_pointer_position(window, Some(point), surface);
+        self.session.set_pointer_location(window, point, surface);
         self.session.set_pointer_modifiers(window, modifiers);
         let hit = self.hit_test_on_surface(window, size, point, surface);
         let resolved = self.resolve_press(window, point, modifiers, hit);
@@ -569,8 +566,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session
-            .set_pointer_position(window, Some(point), surface);
+        self.session.set_pointer_location(window, point, surface);
         let hit = self.hit_test_on_surface(window, size, point, surface);
         let modifiers = self
             .session
@@ -609,8 +605,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session
-            .set_pointer_position(window, Some(point), surface);
+        self.session.set_pointer_location(window, point, surface);
         self.session.cancel_click_sequence(window);
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
@@ -668,7 +663,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let point = self
             .session
             .interaction(window)
-            .and_then(|interaction| interaction.pointer().position())
+            .and_then(|interaction| interaction.pointer().location())
+            .map(interaction::pointer::Location::point)
             .unwrap_or_else(|| geometry::Point::new(0, 0));
         let modifiers = self
             .session
@@ -699,8 +695,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         delta: interaction::ScrollDelta,
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
-        self.session
-            .set_pointer_position(window, Some(point), surface);
+        self.session.set_pointer_location(window, point, surface);
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };

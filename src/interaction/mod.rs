@@ -206,14 +206,14 @@ impl Interaction {
         changed | (changed && self.pointer.dismiss_hover_tip())
     }
 
-    pub(crate) fn set_pointer_position(
+    pub(crate) fn set_pointer_location(
         &mut self,
-        position: Option<crate::geometry::Point>,
+        point: crate::geometry::Point,
         surface: crate::popup::Surface,
     ) -> bool {
-        let changed = self.pointer.position != position || self.pointer.surface != surface;
-        self.pointer.position = position;
-        self.pointer.surface = surface;
+        let location = pointer::Location::new(point, surface);
+        let changed = self.pointer.location != Some(location);
+        self.pointer.location = Some(location);
         changed
     }
 
@@ -279,9 +279,8 @@ impl Interaction {
             .as_ref()
             .is_some_and(|press| press.capture().is_none());
         let changed =
-            self.pointer.position.is_some() || self.pointer.hovered.is_some() || uncaptured_press;
-        self.pointer.position = None;
-        self.pointer.surface = crate::popup::Surface::Parent;
+            self.pointer.location.is_some() || self.pointer.hovered.is_some() || uncaptured_press;
+        self.pointer.location = None;
         self.pointer.hovered = None;
         if uncaptured_press {
             self.pointer.press = None;

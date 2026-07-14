@@ -4,13 +4,18 @@ use std::time::Instant;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Pointer {
-    pub(super) position: Option<Point>,
-    pub(super) surface: crate::popup::Surface,
+    pub(super) location: Option<Location>,
     pub(super) modifiers: crate::keyboard::Modifiers,
     pub(super) hovered: Option<Target>,
     pub(super) press: Option<Press>,
     hover_tip: HoverTip,
     last_click: Option<Click>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Location {
+    point: Point,
+    surface: crate::popup::Surface,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -150,7 +155,7 @@ impl Pointer {
         if now < started_at + delay {
             return false;
         }
-        let Some(anchor) = self.position else {
+        let Some(anchor) = self.location.map(Location::point) else {
             return false;
         };
         self.hover_tip = HoverTip::Visible { anchor };
@@ -163,10 +168,6 @@ impl Pointer {
         changed
     }
 
-    pub(crate) fn position(&self) -> Option<Point> {
-        self.position
-    }
-
     pub(crate) fn hover_tip_anchor(&self) -> Option<Point> {
         match self.hover_tip {
             HoverTip::Visible { anchor } => Some(anchor),
@@ -174,8 +175,8 @@ impl Pointer {
         }
     }
 
-    pub(crate) fn surface(&self) -> crate::popup::Surface {
-        self.surface
+    pub(crate) fn location(&self) -> Option<Location> {
+        self.location
     }
 
     pub(crate) fn modifiers(&self) -> crate::keyboard::Modifiers {
@@ -195,6 +196,20 @@ impl Pointer {
             .as_ref()
             .filter(|press| press.intent() == PressIntent::Activate)
             .map(Press::target)
+    }
+}
+
+impl Location {
+    pub(super) fn new(point: Point, surface: crate::popup::Surface) -> Self {
+        Self { point, surface }
+    }
+
+    pub(crate) fn point(self) -> Point {
+        self.point
+    }
+
+    pub(crate) fn surface(self) -> crate::popup::Surface {
+        self.surface
     }
 }
 
@@ -257,20 +272,34 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn location_keeps_point_and_surface_under_one_presence_lifetime() {
+        let point = Point::new(12, 34);
+        let surface = crate::popup::Surface::Native(crate::interaction::Id::new("test.popup"));
+        let location = Location::new(point, surface);
+
+        assert_eq!(location.point(), point);
+        assert_eq!(location.surface(), surface);
+        assert_eq!(Pointer::default().location(), None);
+    }
+
+    #[test]
     fn visible_hover_tip_keeps_its_reveal_point_when_pointer_moves_within_target() {
         let mut pointer = Pointer::default();
         let target = Target::label("hover.target", "Hover target");
         let entered_at = Instant::now();
         let reveal_point = Point::new(40, 30);
 
-        pointer.position = Some(reveal_point);
+        pointer.location = Some(Location::new(reveal_point, crate::popup::Surface::Parent));
         assert!(pointer.update_projected_hover(Some(target), true, entered_at));
         assert_eq!(pointer.hover_tip_deadline(Duration::ZERO), Some(entered_at));
         assert!(pointer.promote_hover_tip(entered_at, std::time::Duration::ZERO));
         assert_eq!(pointer.hover_tip_deadline(Duration::ZERO), None);
         assert_eq!(pointer.hover_tip_anchor(), Some(reveal_point));
 
-        pointer.position = Some(Point::new(80, 60));
+        pointer.location = Some(Location::new(
+            Point::new(80, 60),
+            crate::popup::Surface::Parent,
+        ));
         assert_eq!(
             pointer.hover_tip_anchor(),
             Some(reveal_point),

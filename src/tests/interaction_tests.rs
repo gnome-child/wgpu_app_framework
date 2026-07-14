@@ -2276,13 +2276,16 @@ fn pointer_departure_clears_retained_position_and_hover() {
     app.pointer_move_at(window, size, point)
         .expect("pointer move should be handled");
     let pointer = app.session().interaction(window).unwrap().pointer();
-    assert_eq!(pointer.position(), Some(point));
+    assert_eq!(
+        pointer.location().map(|location| location.point()),
+        Some(point)
+    );
     assert!(pointer.hovered().is_some());
 
     app.pointer_left_at(window)
         .expect("pointer departure should be handled");
     let pointer = app.session().interaction(window).unwrap().pointer();
-    assert_eq!(pointer.position(), None);
+    assert_eq!(pointer.location(), None);
     assert_eq!(pointer.hovered(), None);
 }
 

@@ -111,6 +111,24 @@ fn pointer_press_state_is_one_lifecycle_species() {
 }
 
 #[test]
+fn pointer_position_and_surface_share_one_location() {
+    let pointer = include_str!("../interaction/pointer.rs");
+
+    assert!(
+        pointer.contains("location: Option<Location>")
+            && pointer.contains("pub(crate) struct Location {")
+            && pointer.contains("point: Point")
+            && pointer.contains("surface: crate::popup::Surface")
+            && pointer.contains("pub(crate) fn location(&self) -> Option<Location>")
+    );
+    let interaction = include_str!("../interaction/mod.rs");
+    assert!(interaction.contains("pub(crate) fn set_pointer_location("));
+    assert!(!interaction.contains("fn set_pointer_position("));
+    assert!(!pointer.contains("position: Option<Point>"));
+    assert!(!pointer.contains("pub(super) surface: crate::popup::Surface"));
+}
+
+#[test]
 fn realized_material_parts_encode_tint_inside_frost() {
     let region = include_str!("../scene/region.rs");
 

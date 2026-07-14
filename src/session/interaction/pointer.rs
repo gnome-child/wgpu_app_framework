@@ -26,14 +26,14 @@ impl Session {
             .is_some_and(|window| window.interaction.promote_hover_tip(now, delay))
     }
 
-    pub(crate) fn set_pointer_position(
+    pub(crate) fn set_pointer_location(
         &mut self,
         id: app_window::Id,
-        position: Option<crate::geometry::Point>,
+        point: crate::geometry::Point,
         surface: crate::popup::Surface,
     ) -> bool {
         self.window_mut(id)
-            .is_some_and(|window| window.interaction.set_pointer_position(position, surface))
+            .is_some_and(|window| window.interaction.set_pointer_location(point, surface))
     }
 
     pub(crate) fn set_pointer_modifiers(

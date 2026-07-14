@@ -220,14 +220,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         layout: std::sync::Arc::new(layout.clone()),
                     },
                 );
-                let point = self
+                let location = self
                     .session
                     .interaction(window)
-                    .and_then(|interaction| interaction.pointer().position());
-                let hit = self.session.interaction(window).and_then(|interaction| {
-                    point.and_then(|point| {
-                        layout.hit_test_on_surface(point, interaction.pointer().surface())
-                    })
+                    .and_then(|interaction| interaction.pointer().location());
+                let hit = location.and_then(|location| {
+                    layout.hit_test_on_surface(location.point(), location.surface())
                 });
                 let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
                 let hover_tip_eligible = hovered.as_ref().is_some_and(|target| {
@@ -264,7 +262,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     .unwrap_or_default();
                 let resolved = self.resolve_press(
                     window,
-                    point.unwrap_or_else(|| super::super::geometry::Point::new(0, 0)),
+                    location
+                        .map(|location| location.point())
+                        .unwrap_or_else(|| super::super::geometry::Point::new(0, 0)),
                     modifiers,
                     hit,
                 );

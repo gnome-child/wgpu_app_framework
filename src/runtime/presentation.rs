@@ -302,8 +302,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let mut interaction = self.session.interaction(window)?.clone();
         let hovered = interaction
             .pointer()
-            .position()
-            .and_then(|point| layout.hit_test_on_surface(point, interaction.pointer().surface()))
+            .location()
+            .and_then(|location| layout.hit_test_on_surface(location.point(), location.surface()))
             .and_then(|hit| hit.target().cloned());
         interaction.project_pointer_hover(hovered, false);
         Some(interaction)
