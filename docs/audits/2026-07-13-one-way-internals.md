@@ -675,6 +675,55 @@ Status: **complete; investigation map redrawn**. Correction `b5ad7720`
    no other module imports iconflow. Alternate/glyph-less packs remain a later
    capability question, not a split forced without a caller. Cell closed.
 
+### R1-05 — task vocabulary versus queues and execution
+
+Status: **complete; investigation map redrawn**. Correction `d417aab6`
+(`Admit task system as an independent seam`).
+
+1. **Question and trace.** `Task::new`, `ready`, and `future` produce deferred
+   event work; `Id`, `Status`, and `Outcome` preserve identity and lifecycle;
+   `Queue` and `Sink` own pending, completed, canceled, and stale-completion
+   transitions; and `Executor` realizes native-host work on a bounded named
+   worker pool. The trace covered command spawning, direct/headless
+   `run_next`, native dispatch and completion events, no-poll wake accounting,
+   cancellation before and during execution, restore, discarded stale
+   completions, unchanged outcomes, and worker-thread realization.
+2. **Current graph.** The provisional foundation slot housed the whole task
+   subsystem while treating `task -> pollster` as misplaced runtime weight.
+   A candidate vocabulary/machinery split would put the public values below
+   private queues, sinks, and executors despite those parts implementing one
+   deferred-work lifecycle and the standing doctrine assigning bounded worker
+   execution to that lifecycle owner.
+3. **Admission.** The split is rejected. A tenth virtual owner, `tasks`, owns
+   deferred work identity, status, outcome, future realization, queuing,
+   cancellation, completion, and bounded worker execution. It has independent
+   command, runtime, platform, and facade consumers, imports no framework
+   owner, and isolates pollster without a callback, service locator, or state
+   bag. `Task`, `Id`, `Status`, and `Outcome` remain its crossing vocabulary;
+   `Queue`, `Sink`, and `Executor` remain private machinery pending the Rung 6
+   symbol-level visibility disposition.
+4. **Reduction/rewire.** No production route or intermediate was displaced:
+   the live ownership was already coherent. The provisional map now removes
+   `task` from foundation, admits `tasks` as a dependency-free slot, and
+   assigns pollster to `tasks` and platform—the latter separately realizes
+   GPU startup. No module, API, or established name moved or changed.
+5. **Proof and ratchet.** The existing architecture witness now also pins
+   `Task::future` realization inside task and excludes UI, renderer, and
+   platform dependencies. Twenty focused task witnesses passed across every
+   traced lifecycle. Full library: 1,061 passed, 10 ignored, 0 failed; all
+   examples, formatting, census parser tests, and diff checks passed.
+   Presentation clocks, renderer topology, and frame economics were
+   inapplicable because the cell changed no production path.
+6. **Gauge delta.** Heavy external-boundary questions 3 -> 2. Production and
+   test-only module edges remain 325/96; provisional forbidden internal edges
+   remain 15. The honest slot raises cross-slot edges 33 -> 37 but remains
+   outside the existing SCC. Production `pub(crate)` declarations remain
+   1,740; cross-slot test edges and source-root mentions remain 76/103. The
+   strengthened witness raises filesystem read calls 295 -> 296.
+7. **Fixed point.** One owner now names the complete deferred-work lifecycle;
+   pollster is honest implementation weight at that owner; no higher framework
+   concept enters task. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
