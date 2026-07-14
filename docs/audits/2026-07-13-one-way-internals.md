@@ -2146,6 +2146,45 @@ Correction `0a3878fa` (`Count external test modules correctly`).
    changed. Rung 4 resumes its hygiene and visibility sweep using the corrected
    gauge.
 
+### R4-06 — popup pipeline cache admission versus asserted lookup order
+
+Status: **complete; redundant cache protocol removed**. Correction `ec1ac0f8`
+(`Make popup pipeline cache admission structural`).
+
+1. **Question and trace.** The corrected production-expect inventory found the
+   popup packer checking a format-keyed pipeline cache, creating/inserting on
+   absence, then looking up the same key again and expecting initialization.
+   The path was traced through non-sRGB premultiplied popup surfaces, renderer
+   construction, composition-target drawing, exact sRGB packing, bind-group
+   creation, the final replacement pass, and the ignored GPU readback witness.
+2. **Challenge and admission.** Pipeline identity is legitimately cached by
+   output format, but the `contains_key -> insert -> get -> expect` sequence
+   encoded one map invariant as repeated logic plus a runtime assertion. The
+   map entry API represents occupied versus vacant structurally and returns
+   the admitted value from both paths. No new wrapper or state is needed.
+3. **Reduction and rewire.** `pack_to_view` now consumes one
+   `pipelines.entry(output_format)` result. The vacant path creates exactly the
+   former pipeline and inserts it; the occupied path reuses the same value.
+   The separate ensure method, duplicate hash lookup, and initialization expect
+   are deleted. Pipeline creation still precedes bind-group creation and pass
+   encoding, and the cache remains lazy and per renderer/format.
+4. **Behavior and economics.** Shader source, alpha convention, target format,
+   sampler, pipeline layout, render-pass load/store, bind group, draw call, and
+   output bytes are unchanged. A cache hit now performs one lookup instead of
+   two; no allocation, pass, batch, presentation clock, invalidation, surface
+   acquisition, submission, or acknowledgement changed.
+5. **Proof and gauge.** Four focused popup-pack witnesses passed with one
+   standing ignored GPU readback diagnostic, and the existing alpha-owner
+   architecture witness now pins single-entry admission and tombstones the old
+   protocol. Full library: 1,078 passed, 10 ignored, 0 failed; all targets and
+   all five examples compiled without warnings; parser, census, format, diff,
+   and protected-state checks passed. Production expects fall 97 -> 96; every
+   other corrected gauge count remains unchanged.
+6. **Fixed point and next frontier.** The renderer has one format-keyed popup
+   pipeline owner and no asserted cache-order protocol. Rung 4 continues with
+   native backend attempt shape, native-popup lifecycle expects, allowances,
+   public/private backend crossings, and presentation-clock closure.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
