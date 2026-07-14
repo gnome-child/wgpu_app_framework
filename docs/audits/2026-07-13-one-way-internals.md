@@ -2107,6 +2107,45 @@ Correction `7053ed93` (`Project composition geometry through renderer`).
    presentation-clock, popup-retirement, allowance, panic/expect, visibility,
    and naming sweep before its boundary can close.
 
+### R4-05 — external test modules versus the production gauge
+
+Status: **complete; instrument correction with no production change**.
+Correction `0a3878fa` (`Count external test modules correctly`).
+
+1. **Question and evidence.** The Rung 4 panic/expect sweep found two reported
+   production panics in `render/filter/tests.rs`, a file reachable only through
+   `#[cfg(test)] mod tests;`. The gauge partitioned inline cfg-test items but
+   forced an external file to test-only only when its top-level path happened
+   to begin with `tests`. That made module housing, rather than the declaring
+   cfg, decide whether external test helpers counted as production.
+2. **Trace.** Every external module declaration inside a cfg-test range was
+   resolved through Rust's ordinary `parent/name.rs` and
+   `parent/name/mod.rs` housing. The live roots are `tests`,
+   `text::acceptance`, `text::tests`, `view::presentation`, and
+   `render::filter::tests`; all descendant files inherit the root's test-only
+   status. Path-overridden example modules remain outside the source census,
+   while their declarations are already excluded from production imports.
+3. **Correction.** The census now masks all files first, resolves test-only
+   external module roots from the parent declaration, and partitions each file
+   according to that resolved module ancestry. It no longer guesses from a
+   filename. Two new parser witnesses pin root resolution, descendant
+   inheritance, ordinary production siblings, and both Rust file-housing
+   forms; the parser suite now has eight witnesses.
+4. **Gauge correction.** Production edges remain 326. Test-only edges correct
+   107 -> 109; cross-slot test edges 88 -> 90. Production `pub(crate)` corrects
+   1,813 in 192 files -> 1,809 in 191 files; production panics 9 -> 7 and
+   production expects 102 -> 97. Modules, slot edges, forbidden edges,
+   external violations, SCCs, source-root mentions, filesystem reads, and
+   allowances remain 47, 52, 4, 0, 1, 115, 345, and 10. Earlier cell gauges
+   remain receipts of the then-current instrument; these corrected counts are
+   the canonical current baseline and will govern subsequent boundaries.
+5. **Proof and fixed point.** All eight parser witnesses and a full census
+   passed; the five live external roots were independently enumerated from the
+   corrected resolver. No Rust source, behavior, dependency, visibility, test
+   execution, presentation clock, renderer topology, or frame economics
+   changed. Rung 4 resumes its hygiene and visibility sweep using the corrected
+   gauge.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
