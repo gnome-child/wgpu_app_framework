@@ -4710,6 +4710,79 @@ Correction `27dcc1d0` (`Preserve theme glass luminosity round trips`).
    failure, intermediate, housing, and naming inventories; this cell does not
    close Rung 5.
 
+### R5-43 — structurally nonempty text line index and total current marks
+
+Status: **complete; false current-document absence removed at its lower
+owner**. Correction `8ffdc983` (`Make current text marks total`).
+
+1. **Question and complete trace.** The remaining layout-failure sweep traced
+   every current position/cursor-to-mark projection through empty and multiline
+   buffer construction, persistent line-index creation and replacement, full
+   deletion, grapheme clamping, selection state, edits and history markers,
+   TextBox field layout, table TextArea draft projection, scroll anchors, and
+   stale mark restoration. It distinguished creation of a mark in the current
+   document from later lookup of a stable line identity after edits.
+2. **False absence and lower invariant.** `TextDocument::mark_for_position` and
+   `mark_for_cursor` returned `Option` even though the source tree always has at
+   least one logical line and every position/cursor is clamped into it. The
+   persistent `LineIndex` nevertheless stored an optional root because private
+   split/concat temporaries could be empty. That leaked splice machinery into
+   the stored owner and forced layout, view, edit, selection, marker, and scroll
+   paths to carry unreachable absence, fallback-to-end protocols, or runtime
+   assertions. Reverse mark lookup remains legitimately optional because an
+   older mark's stable line identity can depart after a later edit.
+3. **Correction and displaced paths.** Stored `LineIndex` now owns a total
+   `Arc<Node>` root; only private split, join, and replacement-middle values may
+   be empty. Removing every line installs one fresh empty-document line before
+   the index becomes observable. Current position/cursor and selection-range
+   mark creation is total, while mark-to-position/cursor projection keeps its
+   existing `Option`. Field layout, projected TextArea drafts, selection/edit
+   mutation, history recovery, and scroll-anchor construction consume the
+   total result directly. Six production assertions and all associated
+   fallback/re-pairing paths are deleted.
+4. **Boundary, API, and naming ruling.** The public
+   `Buffer::mark_for_position` contract now truthfully returns `Mark` rather
+   than advertising impossible absence; clamping and affinity are unchanged and
+   no compatibility shim preserves the false shape. `text::Buffer` remains the
+   namesake module's sole parent projection. Supporting `Mark`, `MarkRange`,
+   `Position`, and related values remain simple declarations under
+   `text::buffer` and are used through that namespace; no compound declaration,
+   flattened support export, alias, or unrelated rename was introduced.
+5. **Behavior and economics.** Empty and fully deleted documents still contain
+   one logical line; oversized positions and cursors still clamp to the current
+   text and grapheme boundary; affinity, stable line identity, stale-mark
+   absence, selection, edit history, reveal, shaping, layout, scene order,
+   renderer topology, batching/pass fusion, invalidation, and presentation
+   clocks are unchanged. The release acceptance witness measured 8 MiB load at
+   33.255 ms, long-line typing at 2.501–3.613 microseconds/edit, and 10-byte
+   versus 10-MiB clone medians at 33.674/34.225 ns, all within the standing
+   bounds.
+6. **Doctrine and ratchet.** Master design now states that the stored line index
+   is structurally nonempty, current-document mark creation is total, and only
+   stale stable-identity lookup is fallible. A typed public witness fails to
+   compile if `mark_for_position` regains `Option`; an owner test removes every
+   indexed line and proves the replacement remains nonempty; and the existing
+   buffer architecture witness pins the total root and signatures while
+   tombstoning the optional stored root and old invariant assertion.
+7. **Proof.** The 132-test text slice passed 130 with its two standing ignores;
+   the text-buffer architecture witness and all 39 TextBox and 55 TextArea
+   slices passed. Both ignored deep-tier witnesses were then run explicitly:
+   the release economics bound and the 100,000-operation edit/undo reference
+   property passed. The full library discovered 1,126 tests and passed 1,116
+   with 10 ignored; all five examples compiled; formatting and diff checks
+   passed; protected `comparison_open: true` remained unchanged.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, cross-slot test
+   edges, source-root mentions, allowances, and panics remain 325/111, 3, 54,
+   0/0/0, 90, 118, 6, and 6. Narrowing the end-mark helper lowers production
+   `pub(crate)` declarations 1,815 -> 1,814 and the cross-slot upper bound 1,768
+   -> 1,767. The strengthened existing architecture witness raises filesystem
+   reads 361 -> 362. Removing the six assertions lowers production expects 86
+   -> 80. Current-document mark projection is at fixed point; the reverse sweep
+   continues through remaining layout lifecycles and the complete visibility,
+   failure, intermediate, housing, and naming inventories. This cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
