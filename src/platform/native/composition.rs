@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{composition, paint, render, scene};
+use crate::{composition, render, scene};
 
 use windows::Foundation::TimeSpan;
 use windows::System::DispatcherQueueController;
@@ -882,7 +882,7 @@ fn project_shadow(
     if alpha == 0 {
         return None;
     }
-    let scale_factor = paint::Grid::new(scale_factor).scale_factor();
+    let scale_factor = render::scene::Scale::new(scale_factor).factor();
     let spread = recipe.spread().max(0.0) * scale_factor;
     Some(ProjectedShadow {
         mask_offset: Vector2 {
@@ -971,27 +971,26 @@ fn project_geometry(
     opacity: f32,
     scale_factor: f32,
 ) -> Option<ProjectedRegion> {
-    let grid = paint::Grid::new(scale_factor);
-    let rect = render::scene::into_paint_rounded_rect_at_scale(source, source_rounding, grid);
-    let rounding = rect.rounding.resolve(rect.area);
+    let scale = render::scene::Scale::new(scale_factor);
+    let rect = render::scene::physical_rounded_rect(source, source_rounding, scale);
+    let rounding = rect.rounding();
     if !rounding
         .iter()
         .all(|radius| (radius - rounding[0]).abs() <= f32::EPSILON)
     {
         return None;
     }
-    let scale = grid.scale_factor();
     Some(ProjectedRegion {
         offset: Vector3 {
-            X: rect.origin.x() * scale,
-            Y: rect.origin.y() * scale,
+            X: rect.x(),
+            Y: rect.y(),
             Z: 0.0,
         },
         size: Vector2 {
-            X: rect.area.width() * scale,
-            Y: rect.area.height() * scale,
+            X: rect.width(),
+            Y: rect.height(),
         },
-        radius: rounding[0] * scale,
+        radius: rounding[0],
         opacity: opacity.clamp(0.0, 1.0),
     })
 }

@@ -10,6 +10,18 @@ pub(crate) struct PopupProjection {
     scale_factor: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Scale(paint::Grid);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PhysicalRect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    rounding: [f32; 4],
+}
+
 impl PopupProjection {
     pub(crate) fn resolve(
         source: &scene::Scene,
@@ -85,6 +97,58 @@ impl PopupProjection {
             self.visual_bounds.origin,
             paint::Grid::new(self.scale_factor),
         )
+    }
+}
+
+impl Scale {
+    pub(crate) fn new(scale_factor: f32) -> Self {
+        Self(paint::Grid::new(scale_factor))
+    }
+
+    pub(crate) fn factor(self) -> f32 {
+        self.0.scale_factor()
+    }
+}
+
+impl PhysicalRect {
+    pub(crate) fn x(self) -> f32 {
+        self.x
+    }
+
+    pub(crate) fn y(self) -> f32 {
+        self.y
+    }
+
+    pub(crate) fn width(self) -> f32 {
+        self.width
+    }
+
+    pub(crate) fn height(self) -> f32 {
+        self.height
+    }
+
+    pub(crate) fn rounding(self) -> [f32; 4] {
+        self.rounding
+    }
+}
+
+pub(crate) fn physical_rounded_rect(
+    rect: geometry::Rect,
+    rounding: scene::Rounding,
+    scale: Scale,
+) -> PhysicalRect {
+    let rect = into_paint_rounded_rect_at_scale(rect, rounding, scale.0);
+    let factor = scale.factor();
+    let rounding = rect
+        .rounding
+        .resolve(rect.area)
+        .map(|radius| radius * factor);
+    PhysicalRect {
+        x: rect.origin.x() * factor,
+        y: rect.origin.y() * factor,
+        width: rect.area.width() * factor,
+        height: rect.area.height() * factor,
+        rounding,
     }
 }
 
@@ -374,7 +438,7 @@ fn into_paint_rounded_rect(rect: geometry::Rect, rounding: scene::Rounding) -> p
     into_paint_rounded_rect_at_scale(rect, rounding, paint::Grid::new(1.0))
 }
 
-pub(crate) fn into_paint_rounded_rect_at_scale(
+fn into_paint_rounded_rect_at_scale(
     rect: geometry::Rect,
     rounding: scene::Rounding,
     grid: paint::Grid,

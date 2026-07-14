@@ -4146,9 +4146,13 @@ fn windows_material_regions_are_keyed_projections_with_report_after_success() {
         "reports must follow successful geometry and order projection"
     );
     assert!(
-        composition.contains("into_paint_rounded_rect_at_scale")
+        composition.contains("render::scene::physical_rounded_rect")
             && !composition.contains("enumerate()"),
         "material realization must share raster projection and never derive identity from order"
+    );
+    assert!(
+        !composition.contains("paint::") && !composition.contains("use crate::{composition, paint"),
+        "native composition must consume the renderer's physical projection without private paint vocabulary"
     );
 }
 
