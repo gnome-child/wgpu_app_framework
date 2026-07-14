@@ -4783,6 +4783,74 @@ owner**. Correction `8ffdc983` (`Make current text marks total`).
    failure, intermediate, housing, and naming inventories. This cell does not
    close Rung 5.
 
+### R5-44 — direct namespaced composition identity
+
+Status: **complete; duplicate namespace wrapper and two asserted conversions
+removed**. Correction `3c5f0dcc` (`Make composition identity directly
+namespaced`).
+
+1. **Question and complete trace.** The composition-identity sweep traced
+   retained tree construction, view-only layout construction, reconciliation,
+   sibling matching, parent links, addition/removal receipts, subtree pruning,
+   retained traversal, layout frames, hit targets, and scene-region ownership.
+   It included the standing collision witness that gives view-only layouts a
+   separate namespace from installed retained composition.
+2. **Duplicate representation and retained law.** `NodeId` already stored the
+   authoritative `Retained | Layout` namespace, while private `Identity`
+   wrapped the same value in a second `Retained | Layout` sum. The wrapper
+   preserved no additional identity, authority, lifetime, or capability and
+   could represent disagreement between its outer species and the inner
+   `NodeId` space. The layout namespace itself is deliberate doctrine and is
+   retained unchanged.
+3. **Correction and displaced paths.** Composition nodes and parent links now
+   store `NodeId` directly; sibling-use sets, construction, reconciliation,
+   lookup, and ancestry consume that same value. Retained construction adds
+   the freshly minted retained id directly to `Changes`, deleting both
+   `retained_id().expect(...)` conversions. Layout construction still mints
+   `NodeId::layout`, and retained projections still return `Option` where the
+   shared test-only tree species makes namespace absence meaningful.
+4. **Boundary, naming, and resistance ruling.** `NodeId` remains process-
+   transient crate vocabulary and is neither public API nor application state.
+   No module projection, supporting-type flattening, alias, compound
+   declaration, or public call-site spelling changed. The production
+   `require_retained_id` traversal guard remains: deleting it would require a
+   separately proven retained-tree type boundary rather than assuming every
+   composition node has the installed species.
+5. **Gauge instrument correction.** Removing the wrapper exposed that the
+   census treated `#[cfg(test)]` enum variants and match arms as whole Rust
+   items, sometimes masking a later production item. The range scanner now
+   ends attributed variants, arms, fields, and statements at their own syntax
+   boundary while retaining item/block handling. A tenth parser witness pins
+   both the test-only receipts and the following production visibility. The
+   corrected governing R5-43 baseline is 109 test-only edges rather than 111,
+   1,819 production `pub(crate)` declarations rather than 1,814, and a 1,772
+   cross-slot upper bound rather than 1,767; no Rust visibility changed.
+6. **Behavior and economics.** Stable retained ids, positional and explicit-id
+   reconciliation, cross-parent removal/addition, subtree cleanup, parent
+   ancestry, view-only layout ids, hit-target isolation, allocation, hashing,
+   layout, scene order, renderer topology, batching/pass fusion, invalidation,
+   and presentation clocks are unchanged. One enum discriminant and two
+   asserted conversions disappear from retained construction.
+7. **Doctrine and proof.** Master design now states that `NodeId` itself owns
+   the namespace and nodes/parents store it directly. The architecture witness
+   failed against the old `Identity` representation, then passed while
+   tombstoning the wrapper. All fourteen composition tests passed, including
+   retained hit identity and view-only namespace separation. The full library
+   discovered 1,126 tests and passed 1,116 with 10 ignored; all five examples,
+   all ten census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed.
+8. **Gauge delta and next frontier.** Production edges, split
+   responsibilities, slot edges, forbidden/external/SCC findings, cross-slot
+   test edges, source-root mentions, filesystem reads, allowances, and panics
+   remain 325, 3, 54, 0/0/0, 90, 118, 362, 6, and 6. On the corrected
+   instrument, test-only edges and visibility remain 109 and 1,819 in 191
+   files with a 1,772 upper bound. Removing the two assertions lowers
+   production expects 80 -> 78. Direct namespaced composition identity is at
+   fixed point; the reverse sweep continues through retained-tree admission,
+   remaining layout lifecycles, and the complete visibility, failure,
+   intermediate, housing, and naming inventories. This cell does not close
+   Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
