@@ -23,15 +23,12 @@ impl Selections {
         if let Some(index) = self.entries.iter().position(|entry| entry.list == list) {
             return &mut self.entries[index].selection;
         }
+        let index = self.entries.len();
         self.entries.push(Entry {
             list,
             selection: Selection::new(),
         });
-        &mut self
-            .entries
-            .last_mut()
-            .expect("selection entry was inserted")
-            .selection
+        &mut self.entries[index].selection
     }
 
     pub(crate) fn reconcile(&mut self, models: &[virtual_list::Model]) -> bool {

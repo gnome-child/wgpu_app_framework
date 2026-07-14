@@ -40,11 +40,10 @@ impl Store {
             return &self.compositions[index];
         }
 
+        let index = self.compositions.len();
         self.compositions
             .push(Composition::new_prepared(window, view, tree, changes));
-        self.compositions
-            .last()
-            .expect("a composition was just installed")
+        &self.compositions[index]
     }
 
     pub(crate) fn get(&self, window: window::Id) -> Option<&Composition> {
