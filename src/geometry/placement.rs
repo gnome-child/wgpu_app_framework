@@ -52,10 +52,16 @@ impl Request {
             return candidate;
         }
 
-        let best = candidates
+        let [first, second, third, fourth] = candidates;
+        let best = [second, third, fourth]
             .into_iter()
-            .max_by_key(|candidate| intersection_area(*candidate, available))
-            .expect("panel placement always has four candidates");
+            .fold(first, |best, candidate| {
+                if intersection_area(candidate, available) >= intersection_area(best, available) {
+                    candidate
+                } else {
+                    best
+                }
+            });
         clamp_origin(best, available)
     }
 }
@@ -172,6 +178,17 @@ mod tests {
         assert_eq!(resolved, Rect::new(-40, -20, 90, 70));
         assert_eq!(resolved.width(), desired.width());
         assert_eq!(resolved.height(), desired.height());
+    }
+
+    #[test]
+    fn equal_fallback_areas_keep_the_last_candidate_preference() {
+        let available = Rect::new(0, 0, 100, 80);
+        let desired = Size::new(120, 20);
+
+        assert_eq!(
+            Request::new(Anchor::Point(Point::new(50, 40)), desired).resolve(available),
+            Rect::new(0, 20, 120, 20)
+        );
     }
 
     #[test]
