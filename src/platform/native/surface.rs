@@ -9,39 +9,37 @@ use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{Native, NativeContext, PopupPrewarmState};
 use crate::{shell, window as app_window};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Attempts {
+    first: context::Backends,
+    fallback: Option<context::Backends>,
+}
+
+impl Attempts {
+    fn initialize(self) -> render::Result<Context> {
+        match initialize_context(self.first, 0) {
+            Ok(context) => Ok(context),
+            Err(first_error) => {
+                let Some(fallback) = self.fallback else {
+                    return Err(first_error);
+                };
+                let context = initialize_context(fallback, 1)?;
+                log::warn!(
+                    target: "wgpu_l3::native_popup",
+                    "DX12-first context initialization failed; continuing with backend set {fallback:?} and non-tenancy material realization"
+                );
+                Ok(context)
+            }
+        }
+    }
+}
+
 impl Native {
     pub(in crate::platform::native) fn ensure_context(&mut self) -> Result<(), NativeError> {
         if self.context.is_none() {
             log::debug!("initializing native render context");
             let explicit = context::Backends::from_env();
-            let attempts = native_backend_attempts(explicit);
-            let mut last_error = None;
-            for (index, backends) in attempts.iter().copied().enumerate() {
-                match pollster::block_on(Context::new(context::Options::native(backends))) {
-                    Ok(context) => {
-                        if index > 0 {
-                            log::warn!(
-                                target: "wgpu_l3::native_popup",
-                                "DX12-first context initialization failed; continuing with backend set {backends:?} and non-tenancy material realization"
-                            );
-                        }
-                        self.context = Some(context);
-                        break;
-                    }
-                    Err(error) => {
-                        log::warn!(
-                            target: "wgpu_l3::native_popup",
-                            "native graphics attempt {index} with {backends:?} failed: {error}"
-                        );
-                        last_error = Some(error);
-                    }
-                }
-            }
-            if self.context.is_none() {
-                return Err(NativeError::Render(
-                    last_error.expect("native backend attempts are never empty"),
-                ));
-            }
+            self.context = Some(native_backend_attempts(explicit).initialize()?);
         }
 
         Ok(())
@@ -234,18 +232,36 @@ impl Native {
     }
 }
 
-fn native_backend_attempts(explicit: Option<context::Backends>) -> Vec<context::Backends> {
+fn initialize_context(backends: context::Backends, index: usize) -> render::Result<Context> {
+    pollster::block_on(Context::new(context::Options::native(backends))).inspect_err(|error| {
+        log::warn!(
+            target: "wgpu_l3::native_popup",
+            "native graphics attempt {index} with {backends:?} failed: {error}"
+        );
+    })
+}
+
+fn native_backend_attempts(explicit: Option<context::Backends>) -> Attempts {
     if let Some(explicit) = explicit {
-        return vec![explicit];
+        return Attempts {
+            first: explicit,
+            fallback: None,
+        };
     }
 
     #[cfg(target_os = "windows")]
     {
-        vec![context::Backends::dx12(), context::Backends::all()]
+        Attempts {
+            first: context::Backends::dx12(),
+            fallback: Some(context::Backends::all()),
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        vec![context::Backends::all()]
+        Attempts {
+            first: context::Backends::all(),
+            fallback: None,
+        }
     }
 }
 
@@ -257,7 +273,10 @@ mod tests {
     fn explicit_backend_choice_is_the_only_attempt() {
         assert_eq!(
             native_backend_attempts(Some(context::Backends::vulkan())),
-            vec![context::Backends::vulkan()]
+            Attempts {
+                first: context::Backends::vulkan(),
+                fallback: None,
+            }
         );
     }
 
@@ -265,7 +284,11 @@ mod tests {
     #[cfg(target_os = "windows")]
     fn implicit_windows_policy_earns_tenancy_through_dx12_first() {
         let attempts = native_backend_attempts(None);
-        assert_eq!(attempts[0], context::Backends::dx12());
-        assert!(attempts[1].contains(context::Backends::vulkan()));
+        assert_eq!(attempts.first, context::Backends::dx12());
+        assert!(
+            attempts
+                .fallback
+                .is_some_and(|fallback| fallback.contains(context::Backends::vulkan()))
+        );
     }
 }

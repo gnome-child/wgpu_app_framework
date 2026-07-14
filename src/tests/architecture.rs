@@ -3100,7 +3100,9 @@ fn windows_native_popup_material_prefers_dx12_without_overriding_explicit_choice
         "native backend selection must have one policy owner"
     );
     assert!(
-        native_surface.contains("vec![context::Backends::dx12(), context::Backends::all()]"),
+        native_surface.contains("first: context::Backends::dx12()")
+            && native_surface.contains("fallback: Some(context::Backends::all())")
+            && !native_surface.contains("native backend attempts are never empty"),
         "implicit Windows selection should try tenancy-capable DX12 then retain the ordinary fallback set"
     );
     assert!(
@@ -3724,7 +3726,8 @@ fn windows_tenancy_is_earned_by_dx12_wrap_and_keeps_legacy_fallback() {
     );
     assert!(
         surface.contains("native_backend_attempts(explicit)")
-            && surface.contains("vec![context::Backends::dx12(), context::Backends::all()]")
+            && surface.contains("first: context::Backends::dx12()")
+            && surface.contains("fallback: Some(context::Backends::all())")
             && popup.contains("retaining legacy popup realization"),
         "DX12-first tenancy must preserve explicit overrides and a clean legacy fallback"
     );
