@@ -286,9 +286,12 @@ participation, context-menu eligibility, and children remain on the common
 envelope because live nodes combine them independently of role.
 
 Layout consumes this truth through the crate-internal `view::node::Content`
-contract rather than querying role and then recovering a parallel optional
-model. The namesake parent projection remains `view::Node` alone; supporting
-content species stay qualified through `view::node` and are not flattened.
+contract. Both frame construction and recursive algorithm dispatch match that
+content directly; ordinary/table `view::node::Scroll` and virtual-list content
+pass their owned models into the selected algorithm without a role query or
+optional recovery. The namesake parent projection remains `view::Node` alone;
+supporting content species stay qualified through `view::node` and are not
+flattened.
 
 Resolved focus presentation is one `view::focus::Presentation` species:
 unfocused, focused without a visible affordance, or visibly focused. Visible
@@ -494,6 +497,10 @@ there is no independent copied role or parallel optional leaf-payload cluster.
 Frame construction matches the view's typed content directly and enriches that
 species with layout-owned geometry; it never reconstructs role/content
 agreement through optional accessors and assertions.
+Recursive layout dispatch follows the same content value. Table-scroll and
+virtual-list algorithms receive their structurally owned models as inputs;
+derived `Role` remains inspection vocabulary rather than an internal dispatch
+key.
 Its floating-panel payload owns popup placement and context, material and group
 preferences, and the same structural panel policy; those facts do not occupy
 ordinary frames.

@@ -1,7 +1,8 @@
 use super::super::{
     composition,
     geometry::{self, Rect, Size},
-    interaction, keymap, theme, view,
+    interaction, keymap, theme,
+    view::{self, node},
 };
 use super::{
     Viewport, control, engine, flow,
@@ -107,14 +108,27 @@ fn layout_node(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let floating_layer = floating_layer || is_floating_panel_role(node.role());
-    if node.role() == view::Role::Scroll {
-        layout_scroll(node, retained, path, rect, floating_layer, clip, ctx);
-        return;
-    }
-    if node.role() == view::Role::VirtualList {
-        layout_virtual_list(node, retained, path, rect, floating_layer, clip, ctx);
-        return;
+    let content = node.content();
+    let floating_layer = floating_layer || is_floating_panel(node);
+    match content {
+        node::Content::Scroll(scroll) => {
+            layout_scroll(
+                node,
+                scroll,
+                retained,
+                path,
+                rect,
+                floating_layer,
+                clip,
+                ctx,
+            );
+            return;
+        }
+        node::Content::VirtualList { model, .. } => {
+            layout_virtual_list(node, model, retained, path, rect, floating_layer, clip, ctx);
+            return;
+        }
+        _ => {}
     }
 
     let frame = ctx.frame(
@@ -127,9 +141,9 @@ fn layout_node(
     );
     ctx.frames.push(frame);
 
-    match node.role() {
-        view::Role::Root => layout_root(node, retained, &path, rect, clip, ctx),
-        view::Role::Stack | view::Role::Table => match node.axis() {
+    match content {
+        node::Content::Root => layout_root(node, retained, &path, rect, clip, ctx),
+        node::Content::Stack | node::Content::Table => match node.axis() {
             Some(view::Axis::Horizontal) => {
                 layout_horizontal_stack(node, retained, &path, rect, floating_layer, clip, ctx)
             }
@@ -140,35 +154,38 @@ fn layout_node(
                 layout_overlay_stack(node, retained, &path, rect, floating_layer, clip, ctx)
             }
         },
-        view::Role::MenuBar => {
+        node::Content::MenuBar(_) => {
             layout_menu_bar(node, retained, &path, rect, floating_layer, clip, ctx)
         }
-        view::Role::FloatingPanel => layout_floating_panel(node, retained, &path, rect, None, ctx),
-        view::Role::Panel => {
+        node::Content::FloatingPanel(_) => {
+            layout_floating_panel(node, retained, &path, rect, None, ctx)
+        }
+        node::Content::Panel => {
             layout_vertical_stack(node, retained, &path, rect, floating_layer, clip, ctx)
         }
-        view::Role::Menu
-        | view::Role::Binding
-        | view::Role::Separator
-        | view::Role::TextArea
-        | view::Role::Button
-        | view::Role::Checkbox
-        | view::Role::Radio
-        | view::Role::Slider
-        | view::Role::TextBox
-        | view::Role::Scroll
-        | view::Role::VirtualList
-        | view::Role::SectionHeader
-        | view::Role::Label => {}
+        node::Content::Menu
+        | node::Content::Binding
+        | node::Content::Separator
+        | node::Content::TextArea(_)
+        | node::Content::Button(_)
+        | node::Content::Checkbox(_)
+        | node::Content::Radio(_)
+        | node::Content::Slider(_)
+        | node::Content::TextBox { .. }
+        | node::Content::Scroll(_)
+        | node::Content::VirtualList { .. }
+        | node::Content::SectionHeader
+        | node::Content::Label => {}
     }
 }
 
-fn is_floating_panel_role(role: view::Role) -> bool {
-    role == view::Role::FloatingPanel
+fn is_floating_panel(node: &view::Node) -> bool {
+    matches!(node.content(), node::Content::FloatingPanel(_))
 }
 
 fn layout_scroll(
     node: &view::Node,
+    scroll: &node::Scroll,
     retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
@@ -176,9 +193,12 @@ fn layout_scroll(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    if node.table_model().is_some() {
-        layout_table_scroll(node, retained, path, rect, floating_layer, clip, ctx);
-        return;
+    match scroll {
+        node::Scroll::Ordinary { .. } => {}
+        node::Scroll::Table { model, .. } => {
+            layout_table_scroll(node, model, retained, path, rect, floating_layer, clip, ctx);
+            return;
+        }
     }
 
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
@@ -224,6 +244,7 @@ fn layout_scroll(
 
 fn layout_table_scroll(
     node: &view::Node,
+    model: &crate::table::Model,
     retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
@@ -231,9 +252,6 @@ fn layout_table_scroll(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let model = node
-        .table_model()
-        .expect("table scroll owner must carry its table model");
     let surface = node
         .children()
         .first()
@@ -341,6 +359,7 @@ fn layout_table_scroll(
 
 fn layout_virtual_list(
     node: &view::Node,
+    model: &crate::virtual_list::Model,
     retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
@@ -348,9 +367,6 @@ fn layout_virtual_list(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let model = node
-        .virtual_list_model()
-        .expect("VirtualList role must carry provider content");
     let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
     let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
     if let Some(measurements) = model.measurements() {
@@ -591,9 +607,7 @@ fn intersect_rect(inherited: Option<Rect>, rect: Rect) -> Rect {
 }
 
 fn child_clip(child: &view::Node, clip: Option<Clip>) -> Option<Clip> {
-    (!is_floating_panel_role(child.role()))
-        .then_some(clip)
-        .flatten()
+    (!is_floating_panel(child)).then_some(clip).flatten()
 }
 
 fn layout_root(
@@ -607,7 +621,7 @@ fn layout_root(
     for (index, child) in node.children().iter().enumerate() {
         let retained_child = retained_child(retained, index);
         let child_path = path.child(index);
-        if child.role() == view::Role::FloatingPanel {
+        if is_floating_panel(child) {
             let (popup_rect, popup_placement) = root_floating_panel_rect(
                 child,
                 &ctx.frames,
@@ -633,15 +647,7 @@ fn layout_root(
                 panel.set_popup_placement(popup_placement);
             }
         } else {
-            layout_node(
-                child,
-                retained_child,
-                child_path,
-                rect,
-                is_floating_panel_role(child.role()),
-                clip,
-                ctx,
-            );
+            layout_node(child, retained_child, child_path, rect, false, clip, ctx);
         }
     }
 }

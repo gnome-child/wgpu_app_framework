@@ -1617,6 +1617,7 @@ fn view_node_content_is_the_single_role_payload_representation() {
     let builder = include_str!("../view/node/builder.rs");
     let control = include_str!("../view/control/mod.rs");
     let frame = include_str!("../layout/frame.rs");
+    let algorithm = include_str!("../layout/algorithm.rs");
     let fields = node
         .split("pub struct Node {")
         .nth(1)
@@ -1693,6 +1694,22 @@ fn view_node_content_is_the_single_role_payload_representation() {
     assert!(builder.contains("fn text_box_state_with_commit("));
     assert!(!builder.contains("fn with_table_model("));
     assert!(!builder.contains("fn with_text_commit("));
+    assert!(
+        algorithm.contains("let content = node.content();") && algorithm.contains("match content")
+    );
+    assert!(algorithm.contains("node::Content::Scroll(scroll)"));
+    assert!(algorithm.contains("node::Content::VirtualList { model, .. }"));
+    assert!(algorithm.contains("scroll: &node::Scroll"));
+    for displaced in [
+        ".role()",
+        "table scroll owner must carry its table model",
+        "VirtualList role must carry provider content",
+    ] {
+        assert!(
+            !algorithm.contains(displaced),
+            "layout dispatch must consume typed view content without role/payload recovery: {displaced}"
+        );
+    }
 }
 
 #[test]
