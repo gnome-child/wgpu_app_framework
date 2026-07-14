@@ -1,6 +1,6 @@
+use crate::geometry::area;
 use wgpu::{SurfaceTarget, SurfaceTargetUnsafe};
 
-use crate::paint;
 use crate::render;
 
 use std::time::{Duration, Instant};
@@ -62,7 +62,7 @@ pub(crate) struct SurfaceReport {
 
 impl Surface {
     pub fn new(
-        area: paint::area::Physical,
+        area: area::Physical,
         render_context: &render::Context,
         target: impl Into<SurfaceTarget<'static>>,
         alpha_preference: CompositeAlphaPreference,
@@ -79,7 +79,7 @@ impl Surface {
     /// Creates a surface whose raw target lifetime is retained by the native
     /// presentation owner rather than by wgpu's safe handle wrapper.
     pub(crate) unsafe fn new_unsafe(
-        area: paint::area::Physical,
+        area: area::Physical,
         render_context: &render::Context,
         target: SurfaceTargetUnsafe,
         alpha_preference: CompositeAlphaPreference,
@@ -89,7 +89,7 @@ impl Surface {
     }
 
     fn from_wgpu_surface(
-        area: paint::area::Physical,
+        area: area::Physical,
         render_context: &render::Context,
         inner: wgpu::Surface<'static>,
         alpha_preference: CompositeAlphaPreference,
@@ -159,7 +159,7 @@ impl Surface {
         &self.config
     }
 
-    pub fn resize(&mut self, render_context: &render::Context, area: paint::area::Physical) {
+    pub fn resize(&mut self, render_context: &render::Context, area: area::Physical) {
         let area = area.clamp_min(1);
 
         log::debug!(

@@ -61,6 +61,7 @@ fn push_glyph<'a>(batches: &mut Vec<ItemBatch<'a>>, glyph: Glyph<'a>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::geometry::{area, point};
     use crate::paint::{self, Rect};
     use crate::{icon, text};
 
@@ -78,10 +79,7 @@ mod tests {
 
     fn solid_quad(x: f32) -> paint::Quad {
         paint::Quad::unchecked_for_test(
-            Rect::new(
-                paint::point::logical(x, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::RED))),
                 stroke: None,
@@ -94,10 +92,7 @@ mod tests {
 
     fn label(x: f32) -> paint::Text {
         paint::Text {
-            rect: Rect::new(
-                paint::point::logical(x, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             document: text::document::Document::plain("Label"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
@@ -107,10 +102,7 @@ mod tests {
 
     fn icon(x: f32) -> paint::Icon {
         paint::Icon {
-            rect: Rect::new(
-                paint::point::logical(x, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             icon: icon::Icon::phosphor(icon::Id::new("check")),
             color: paint::Color::BLACK,
             size: 16.0,
@@ -119,14 +111,11 @@ mod tests {
 
     fn shadow(x: f32) -> paint::Shadow {
         paint::Shadow {
-            rect: Rect::new(
-                paint::point::logical(x, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
             blur: 16.0,
             spread: 1.0,
-            offset: paint::point::logical(0.0, 4.0),
+            offset: point::logical(0.0, 4.0),
         }
     }
 
@@ -174,10 +163,7 @@ mod tests {
     #[test]
     fn pane_batches_as_own_ordered_material_operation() {
         let pane = paint::Pane::new(
-            Rect::new(
-                paint::point::logical(1.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
             paint::Material::Glass(paint::Glass {
                 fallback: paint::Brush::solid(paint::Color::BLACK),
                 base: paint::GlassBase::FrameworkBackdrop,
@@ -203,10 +189,7 @@ mod tests {
     #[test]
     fn clip_commands_split_batches_to_preserve_order() {
         let clip = paint::Clip {
-            rect: Rect::new(
-                paint::point::logical(1.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(1.0, 0.0), area::logical(10.0, 10.0)),
         };
         let items = vec![
             paint::Item::Quad(solid_quad(0.0)),
@@ -231,10 +214,7 @@ mod tests {
     #[test]
     fn group_batches_as_own_ordered_operation() {
         let group = paint::Group {
-            bounds: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            bounds: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             opacity: 0.5,
             items: vec![paint::Item::Quad(solid_quad(0.0))],
         };
@@ -253,10 +233,7 @@ mod tests {
     #[test]
     fn promoted_group_text_stays_in_separate_glyph_batch() {
         let group = paint::Group {
-            bounds: Rect::new(
-                paint::point::logical(20.0, 20.0),
-                paint::area::logical(40.0, 20.0),
-            ),
+            bounds: Rect::new(point::logical(20.0, 20.0), area::logical(40.0, 20.0)),
             opacity: 0.5,
             items: vec![paint::Item::Text(label(0.0)), paint::Item::Icon(icon(12.0))],
         };

@@ -1,3 +1,4 @@
+use crate::geometry::{area, point};
 use crate::{paint, text};
 
 use crate::{geometry, scene};
@@ -33,8 +34,8 @@ impl PopupProjection {
         }
     }
 
-    pub(in crate::platform::native) fn panel_offset(self) -> paint::point::Logical {
-        paint::point::logical(
+    pub(in crate::platform::native) fn panel_offset(self) -> point::Logical {
+        point::logical(
             self.panel_bounds.origin.x() - self.visual_bounds.origin.x(),
             self.panel_bounds.origin.y() - self.visual_bounds.origin.y(),
         )
@@ -77,7 +78,7 @@ impl PopupProjection {
         )
     }
 
-    pub(in crate::platform::native) fn logical_area(self) -> paint::area::Logical {
+    pub(in crate::platform::native) fn logical_area(self) -> area::Logical {
         self.visual_bounds.area
     }
 
@@ -136,7 +137,7 @@ pub(in crate::platform::native) fn translate_popup_scene(
 ) -> paint::Scene {
     let offset = realization.visual_offset();
     scene.translated_from_origin(
-        paint::point::logical(offset.x() as f32, offset.y() as f32),
+        point::logical(offset.x() as f32, offset.y() as f32),
         paint::Grid::new(realization.scale() as f32),
     )
 }
@@ -187,8 +188,8 @@ fn to_paint_quad(quad: &scene::Quad, grid: paint::Grid) -> paint::Quad {
 
 fn to_paint_rule(rule: &scene::Rule, grid: paint::Grid) -> paint::Rule {
     let rect = paint::Rect::new(
-        paint::point::logical(rule.rect().x() as f32, rule.rect().y() as f32),
-        paint::area::logical(rule.rect().width() as f32, rule.rect().height() as f32),
+        point::logical(rule.rect().x() as f32, rule.rect().y() as f32),
+        area::logical(rule.rect().width() as f32, rule.rect().height() as f32),
     );
     let axis = to_paint_axis(rule.axis());
     let rect = match axis {
@@ -264,7 +265,7 @@ fn to_paint_shadow(shadow: &scene::Shadow, grid: paint::Grid) -> paint::Shadow {
         brush: paint::Brush::solid(super::color::paint_color(shadow.color())),
         blur: shadow.blur(),
         spread: shadow.spread(),
-        offset: paint::point::logical(shadow.offset().x(), shadow.offset().y()),
+        offset: point::logical(shadow.offset().x(), shadow.offset().y()),
     }
 }
 
@@ -369,8 +370,8 @@ fn to_paint_outline(outline: &scene::Outline, grid: paint::Grid) -> paint::Outli
 
 fn into_paint_rect_at_scale(rect: geometry::Rect, grid: paint::Grid) -> paint::Rect {
     grid.snap_rect(paint::Rect::new(
-        paint::point::logical(rect.x() as f32, rect.y() as f32),
-        paint::area::logical(rect.width() as f32, rect.height() as f32),
+        point::logical(rect.x() as f32, rect.y() as f32),
+        area::logical(rect.width() as f32, rect.height() as f32),
     ))
 }
 
@@ -385,8 +386,8 @@ pub(super) fn into_paint_rounded_rect_at_scale(
     grid: paint::Grid,
 ) -> paint::Rect {
     grid.snap_rect(paint::Rect::rounded(
-        paint::point::logical(rect.x() as f32, rect.y() as f32),
-        paint::area::logical(rect.width() as f32, rect.height() as f32),
+        point::logical(rect.x() as f32, rect.y() as f32),
+        area::logical(rect.width() as f32, rect.height() as f32),
         into_paint_rounding(rounding),
     ))
 }
@@ -441,8 +442,8 @@ fn to_paint_rasterization(rasterization: scene::Rasterization) -> paint::Rasteri
 
 fn to_paint_transform(transform: scene::Transform) -> paint::Transform {
     paint::Transform {
-        origin: paint::point::logical(transform.origin_x(), transform.origin_y()),
-        translate: paint::point::logical(transform.translate_x(), transform.translate_y()),
+        origin: point::logical(transform.origin_x(), transform.origin_y()),
+        translate: point::logical(transform.translate_x(), transform.translate_y()),
         scale_x: transform.scale_x(),
         scale_y: transform.scale_y(),
         motion: to_paint_motion(transform.motion()),
@@ -820,8 +821,8 @@ mod tests {
         let transform = scene::Transform::scale_about(12.0, 18.0, 1.25, 1.5);
         let paint = to_paint_transform(transform);
 
-        assert_eq!(paint.origin, paint::point::logical(12.0, 18.0));
-        assert_eq!(paint.translate, paint::point::logical(0.0, 0.0));
+        assert_eq!(paint.origin, point::logical(12.0, 18.0));
+        assert_eq!(paint.translate, point::logical(0.0, 0.0));
         assert_eq!(paint.scale_x, 1.25);
         assert_eq!(paint.scale_y, 1.5);
         assert_eq!(paint.motion, paint::Motion::Resting);

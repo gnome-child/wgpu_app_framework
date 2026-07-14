@@ -1,9 +1,8 @@
+use crate::geometry::{area, point};
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
-
-use crate::paint;
 
 use super::buffer::{
     Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_TARGET_LEAF_BYTES,
@@ -448,7 +447,7 @@ fn area_model_owns_buffer_state_separately_from_buffer() {
     let start_area = Area::new(buffer.clone()).with_state(start_state);
     let end_area = Area::new(buffer.clone()).with_state(end_state);
     let mut engine = engine();
-    let viewport = paint::area::logical(240.0, 80.0);
+    let viewport = area::logical(240.0, 80.0);
     let style = Style::default();
     let now = Instant::now();
     let state = ViewState::new_at(0.0, now);
@@ -562,7 +561,7 @@ fn text_area_frame_cache_reuses_unchanged_frame_and_rebuilds_after_typing() {
     let mut buffer = Buffer::from_multiline_text("one\ntwo\nthree");
     let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 120.0);
+    let viewport = area::logical(240.0, 120.0);
     let state = ViewState::default();
     let now = Instant::now();
 
@@ -613,8 +612,8 @@ fn undo_restored_clone_reuses_line_keyed_text_area_caches() {
     let mut edit_state = buffer.initial_state();
     let undo_snapshot = buffer.clone();
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 120.0);
-    let content_area = paint::area::logical(240.0, 360.0);
+    let viewport = area::logical(240.0, 120.0);
+    let content_area = area::logical(240.0, 360.0);
     let state = ViewState::default();
     let now = Instant::now();
 
@@ -714,7 +713,7 @@ fn text_area_interaction_surfaces_keep_bounded_observation_coverage() {
     let buffer = Buffer::from_multiline_text(text);
     let area_model = Area::new(buffer).read_only();
     let style = Style::default();
-    let viewport = paint::area::logical(360.0, 72.0);
+    let viewport = area::logical(360.0, 72.0);
     let state = ViewState::new_at(0.0, Instant::now()).with_scroll_y(900.0);
     let mut engine = engine();
 
@@ -752,7 +751,7 @@ fn text_diagnostics_record_visible_text_area_cache_work() {
     let buffer = Buffer::from_multiline_text("one\ntwo\nthree");
     let area_model = Area::new(buffer);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 120.0);
+    let viewport = area::logical(240.0, 120.0);
     let state = ViewState::default();
     let now = Instant::now();
 
@@ -780,10 +779,10 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     );
     let area_model = Area::new(buffer).read_only();
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 120.0);
+    let viewport = area::logical(240.0, 120.0);
     let state = ViewState::default();
     let now = Instant::now();
-    let content_area = paint::area::logical(240.0, 360.0);
+    let content_area = area::logical(240.0, 360.0);
 
     engine.reset_diagnostics();
     let first = engine.text_area_render_layout_for_area_at(
@@ -842,9 +841,9 @@ delta",
     apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::SelectAll);
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 120.0);
+    let viewport = area::logical(240.0, 120.0);
     let state = ViewState::default().with_preedit(Some(Preedit::new("x", None)));
-    let content_area = paint::area::logical(240.0, 360.0);
+    let content_area = area::logical(240.0, 360.0);
 
     let layout = engine.text_area_render_layout_for_area_at(
         &area_model,
@@ -873,9 +872,9 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
     let area_model = Area::new(Buffer::from_multiline_text(text)).read_only();
     let style = Style::default().with_size(13.0);
     let line_height = text_area_estimated_line_height(style);
-    let viewport = paint::area::logical(240.0, line_height * 8.0);
+    let viewport = area::logical(240.0, line_height * 8.0);
     let now = Instant::now();
-    let content_area = paint::area::logical(240.0, line_height * 200.0);
+    let content_area = area::logical(240.0, line_height * 200.0);
 
     engine.reset_diagnostics();
     let first = engine.text_area_render_layout_for_area_at(
@@ -933,7 +932,7 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
 fn text_area_frame_cache_is_bounded() {
     let mut engine = engine();
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 80.0);
+    let viewport = area::logical(240.0, 80.0);
     let state = ViewState::default();
     let now = Instant::now();
 
@@ -960,7 +959,7 @@ fn text_area_preedit_projection_is_not_cached() {
     let buffer = Buffer::from_multiline_text("hello");
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 80.0);
+    let viewport = area::logical(240.0, 80.0);
     let state = ViewState::default();
     let now = Instant::now();
     let committed = engine
@@ -1001,7 +1000,7 @@ fn text_area_prepared_frame_is_bounded_to_viewport_window() {
         .join("\n");
     let buffer = Buffer::from_multiline_text(text);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let state = ViewState::default();
     let now = Instant::now();
     let (layout, surfaces) = engine
@@ -1025,7 +1024,7 @@ fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
     editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let state = ViewState::default().with_scroll_y(13.0 * 1.25 * 50_000.0);
 
     engine.reset_interaction_stats();
@@ -1243,7 +1242,7 @@ fn shaping_relevant_document_and_bounds_changes_use_distinct_cache_keys() {
     engine.measure(&size, Measure::unbounded());
     engine.measure(&weight, Measure::unbounded());
     engine.measure(&align, Measure::unbounded());
-    engine.measure(&base, Measure::bounded(paint::area::logical(40.0, 100.0)));
+    engine.measure(&base, Measure::bounded(area::logical(40.0, 100.0)));
 
     assert_eq!(engine.uncached_measure_count(), 6);
     assert_eq!(engine.cache_len(), 6);
@@ -1810,7 +1809,7 @@ fn bidi_hit_testing_preserves_visual_affinity() {
     let prepared = engine.prepare_text_field_buffer(
         &buffer,
         Style::default().with_size(18.0),
-        paint::area::logical(400.0, 32.0),
+        area::logical(400.0, 32.0),
     );
     let prepared = prepared.0.borrow();
     let map = TextLayoutMap::new(&prepared);
@@ -1852,7 +1851,7 @@ fn rtl_paragraph_embedded_ltr_glyph_owns_its_hit_direction() {
     let prepared = engine.prepare_text_field_buffer(
         &buffer,
         Style::default().with_size(18.0),
-        paint::area::logical(400.0, 32.0),
+        area::logical(400.0, 32.0),
     );
     let prepared = prepared.0.borrow();
     let map = TextLayoutMap::new(&prepared);
@@ -1898,7 +1897,7 @@ fn rtl_paragraph_embedded_ltr_glyph_owns_its_hit_direction() {
 fn text_field_surface_cache_reuses_shape_but_projects_current_color() {
     let mut engine = engine();
     let field = Field::new("cached field");
-    let area = paint::area::logical(240.0, 32.0);
+    let area = area::logical(240.0, 32.0);
     let state = ViewState::default();
     let red = Style::default().with_color(Color::RED);
     let black = Style::default().with_color(Color::BLACK);
@@ -1939,7 +1938,7 @@ fn mixed_direction_preedit_spans_are_projected_inline() {
     let layout = engine.text_field_layout_for_field_at(
         &field,
         Style::default().with_size(18.0),
-        paint::area::logical(400.0, 32.0),
+        area::logical(400.0, 32.0),
         state,
         Instant::now(),
     );
@@ -1979,7 +1978,7 @@ fn text_field_selection_layout_uses_shaped_text_span() {
     let layout = engine.text_field_layout_for_field(
         &field,
         Style::default().with_size(16.0),
-        paint::area::logical(240.0, 32.0),
+        area::logical(240.0, 32.0),
         ViewState::default(),
     );
     let span = layout
@@ -2006,7 +2005,7 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
     let layout = engine.text_field_layout_for_field_at(
         &field,
         Style::default().with_size(16.0),
-        paint::area::logical(240.0, 32.0),
+        area::logical(240.0, 32.0),
         state,
         Instant::now(),
     );
@@ -2020,7 +2019,7 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
     let committed = engine.text_field_layout_for_field(
         &committed_field,
         Style::default().with_size(16.0),
-        paint::area::logical(240.0, 32.0),
+        area::logical(240.0, 32.0),
         ViewState::default(),
     );
 
@@ -2035,7 +2034,7 @@ fn text_field_preedit_caret_uses_composed_projection() {
     let buffer = Buffer::from_text("hello");
     let field = Field::new(buffer);
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(240.0, 32.0);
+    let viewport = area::logical(240.0, 32.0);
     let now = Instant::now();
     let committed = engine
         .text_field_layout_for_field_at(&field, style, viewport, ViewState::default(), now)
@@ -2068,7 +2067,7 @@ fn text_area_metrics_layout_skips_highlight_overlay_work() {
     editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
 
     engine.reset_highlight_stats();
     engine.reset_interaction_stats();
@@ -2102,7 +2101,7 @@ fn text_area_paint_layout_computes_highlight_overlays_from_interaction_surfaces(
     editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let state = ViewState::default();
     let now = Instant::now();
 
@@ -2145,7 +2144,7 @@ fn wrapped_text_area_line_displays_do_not_overlap() {
     let long = "wrap ".repeat(40);
     let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(72.0, 220.0);
+    let viewport = area::logical(72.0, 220.0);
 
     let paint_layout = engine.text_area_paint_layout_for_area_at(
         &area_model,
@@ -2174,7 +2173,7 @@ fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
     let buffer = Buffer::from_multiline_text(text);
     let area_model = Area::new(buffer);
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(86.0, 180.0);
+    let viewport = area::logical(86.0, 180.0);
 
     let (x, y, first_row_end, second_row_start, second_row_end) = {
         let display = engine.text_area_line_display(
@@ -2216,7 +2215,7 @@ fn wrapped_text_area_hit_testing_uses_clicked_visual_row() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(x, y),
+            point::logical(x, y),
             ViewState::default(),
         )
         .expect("wrapped visual row hit should resolve to a caret");
@@ -2238,7 +2237,7 @@ fn wrapped_line_boundary_pointer_carets_preserve_visual_affinity() {
     let source = Buffer::from_multiline_text(text);
     let area_model = Area::new(source.clone());
     let style = Style::default().with_size(18.0);
-    let viewport = paint::area::logical(54.0, 180.0);
+    let viewport = area::logical(54.0, 180.0);
 
     let (previous_row_end, next_row_start) = {
         let display = engine.text_area_line_display(
@@ -2322,7 +2321,7 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
     let mut edit_state = buffer.initial_state();
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(86.0, 180.0);
+    let viewport = area::logical(86.0, 180.0);
     let (start_point, end_point, first_row_end, second_row_top) = {
         let display = engine.text_area_line_display(
             &area_model,
@@ -2352,11 +2351,11 @@ fn wrapped_text_area_drag_selection_extends_into_lower_visual_row() {
             .last()
             .expect("second visual row should have a last glyph");
         (
-            paint::point::logical(
+            point::logical(
                 start_glyph.x + start_glyph.w * 0.25,
                 (groups[0].top + groups[0].bottom) * 0.5,
             ),
-            paint::point::logical(
+            point::logical(
                 end_glyph.x + end_glyph.w * 0.75,
                 (groups[1].top + groups[1].bottom) * 0.5,
             ),
@@ -2429,7 +2428,7 @@ fn text_area_metrics_reuse_measured_wrapped_heights_after_paint() {
     let long = "wrap ".repeat(40);
     let area_model = Area::new(Buffer::from_multiline_text(format!("{long}\nnext")));
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(72.0, 24.0);
+    let viewport = area::logical(72.0, 24.0);
     let state = ViewState::default();
 
     let cold = engine.text_area_metrics_layout_for_area_at(
@@ -2474,7 +2473,7 @@ fn text_area_overlay_cache_key_tracks_scroll_window() {
     apply_edit(&mut editor, &mut buffer, &mut edit_state, Edit::SelectAll);
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let line_height = 13.0 * 1.25;
     let now = Instant::now();
 
@@ -2534,7 +2533,7 @@ fn offscreen_text_area_selection_skips_run_highlight_calls() {
     assert!(has_selection(&buffer, edit_state));
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let state = ViewState::default().with_scroll_y(13.0 * 1.25 * 500.0);
 
     engine.reset_highlight_stats();
@@ -2622,7 +2621,7 @@ fn selection_only_pointer_edits_do_not_bump_revision_or_invalidate_surfaces() {
     let mut edit_state = buffer.initial_state();
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     engine.text_area_paint_layout_for_area_at(
         &area_model,
         style,
@@ -2666,7 +2665,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
     let mut buffer = Buffer::from_multiline_text("abcdefghij\nclick target\nlast line");
     let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(320.0, 120.0);
+    let viewport = area::logical(320.0, 120.0);
 
     engine.text_area_paint_layout_for_area_at(
         &Area::new(buffer.clone()),
@@ -2719,7 +2718,7 @@ fn text_area_hit_testing_refreshes_cached_line_offsets_after_edit_above() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(1.0, target_y),
+            point::logical(1.0, target_y),
             ViewState::default(),
         )
         .expect("clicking visible lower line should resolve a caret");
@@ -2749,7 +2748,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
     let mut buffer = Buffer::from_multiline_text(text);
     let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(320.0, 120.0);
+    let viewport = area::logical(320.0, 120.0);
     let state = ViewState::default().with_scroll(0.0, 500.0);
     let now = Instant::now();
 
@@ -2802,7 +2801,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
     let observed_hit = engine
         .text_area_position_at_for_paint_layout(
             &area_model,
-            paint::point::logical(1.0, target_y),
+            point::logical(1.0, target_y),
             state.clone(),
             &paint_layout,
         )
@@ -2816,7 +2815,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_delete_above() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(1.0, target_y),
+            point::logical(1.0, target_y),
             state,
         )
         .expect("fallback hit testing should resolve the target line");
@@ -2846,7 +2845,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
     let mut buffer = Buffer::from_multiline_text(text);
     let mut edit_state = buffer.initial_state();
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(320.0, 120.0);
+    let viewport = area::logical(320.0, 120.0);
     let state = ViewState::default().with_scroll(0.0, 480.0);
     let now = Instant::now();
 
@@ -2899,7 +2898,7 @@ fn text_area_hit_testing_uses_current_line_order_after_line_insert_above() {
     let observed_hit = engine
         .text_area_position_at_for_paint_layout(
             &area_model,
-            paint::point::logical(1.0, target_y),
+            point::logical(1.0, target_y),
             state,
             &paint_layout,
         )
@@ -2914,7 +2913,7 @@ fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
     let buffer = Buffer::from_multiline_text("abcdefghijklmnopqrstuvwxyz");
     let area_model = Area::new(buffer).no_wrap();
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(120.0, 48.0);
+    let viewport = area::logical(120.0, 48.0);
     let observed_state = ViewState::default().with_scroll(80.0, 0.0);
     let stale_state = ViewState::default();
     let paint_layout = engine.text_area_paint_layout_for_area_at(
@@ -2928,7 +2927,7 @@ fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
     let observed_hit = engine
         .text_area_position_at_for_paint_layout(
             &area_model,
-            paint::point::logical(0.0, 8.0),
+            point::logical(0.0, 8.0),
             stale_state.clone(),
             &paint_layout,
         )
@@ -2938,7 +2937,7 @@ fn text_area_observed_hit_testing_uses_observed_horizontal_scroll() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(0.0, 8.0),
+            point::logical(0.0, 8.0),
             stale_state,
         )
         .expect("fallback hit should use state scroll");
@@ -2955,14 +2954,14 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
     let buffer = Buffer::from_multiline_text("one\ntwo");
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(240.0, 120.0);
+    let viewport = area::logical(240.0, 120.0);
 
     let below_near_start = engine
         .text_area_position_at_for_area(
             &area_model,
             style,
             viewport,
-            paint::point::logical(-4.0, 100.0),
+            point::logical(-4.0, 100.0),
             ViewState::default(),
         )
         .expect("click below short text should resolve on the nearest line");
@@ -2973,7 +2972,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(220.0, 100.0),
+            point::logical(220.0, 100.0),
             ViewState::default(),
         )
         .expect("click below short text should still honor x on the nearest line");
@@ -2984,7 +2983,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(220.0, 8.0),
+            point::logical(220.0, 8.0),
             ViewState::default(),
         )
         .expect("click to the right of a line should resolve to a caret");
@@ -2995,7 +2994,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(-4.0, -8.0),
+            point::logical(-4.0, -8.0),
             ViewState::default(),
         )
         .expect("click above text should resolve on the nearest line");
@@ -3006,7 +3005,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             &area_model,
             style,
             viewport,
-            paint::point::logical(220.0, -8.0),
+            point::logical(220.0, -8.0),
             ViewState::default(),
         )
         .expect("click above text should still honor x on the nearest line");
@@ -3018,7 +3017,7 @@ fn text_area_hit_testing_uses_nearest_caret_in_empty_space() {
             &empty,
             style,
             viewport,
-            paint::point::logical(12.0, 80.0),
+            point::logical(12.0, 80.0),
             ViewState::default(),
         )
         .expect("empty text area should still resolve to a caret");
@@ -3031,7 +3030,7 @@ fn mixed_direction_line_edges_preserve_affinity_for_nearest_line_hits() {
     let buffer = Buffer::from_multiline_text("abc אבג\nxyz");
     let area_model = Area::new(buffer);
     let style = Style::default().with_size(18.0);
-    let viewport = paint::area::logical(280.0, 120.0);
+    let viewport = area::logical(280.0, 120.0);
     let display =
         engine.text_area_line_display(&area_model, area_model.buffer(), true, style, viewport, 0);
     let prepared = display.buffer.borrow();
@@ -3079,7 +3078,7 @@ fn repeated_large_text_area_hit_tests_reuse_cached_frame() {
         .join("\n");
     let area_model = Area::new(Buffer::from_multiline_text(text));
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let state = ViewState::default();
 
     engine.reset_interaction_stats();
@@ -3087,14 +3086,14 @@ fn repeated_large_text_area_hit_tests_reuse_cached_frame() {
         &area_model,
         style,
         viewport,
-        paint::point::logical(16.0, 18.0),
+        point::logical(16.0, 18.0),
         state.clone(),
     );
     let second = engine.text_area_position_at_for_area(
         &area_model,
         style,
         viewport,
-        paint::point::logical(18.0, 18.0),
+        point::logical(18.0, 18.0),
         state.clone(),
     );
     let stats = engine.interaction_stats();
@@ -3118,14 +3117,14 @@ fn warmed_large_text_area_hit_test_does_not_reshape_visible_window() {
         .join("\n");
     let area_model = Area::new(Buffer::from_multiline_text(text));
     let style = Style::default().with_size(13.0);
-    let viewport = paint::area::logical(240.0, 52.0);
+    let viewport = area::logical(240.0, 52.0);
     let state = ViewState::default();
 
     let _ = engine.text_area_position_at_for_area(
         &area_model,
         style,
         viewport,
-        paint::point::logical(16.0, 18.0),
+        point::logical(16.0, 18.0),
         state.clone(),
     );
     engine.reset_interaction_stats();
@@ -3133,7 +3132,7 @@ fn warmed_large_text_area_hit_test_does_not_reshape_visible_window() {
         &area_model,
         style,
         viewport,
-        paint::point::logical(20.0, 18.0),
+        point::logical(20.0, 18.0),
         state,
     );
     let stats = engine.interaction_stats();
@@ -3161,7 +3160,7 @@ fn text_area_preedit_reveal_scroll_uses_composed_projection() {
     );
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(120.0, 36.0);
+    let viewport = area::logical(120.0, 36.0);
     let state =
         ViewState::default().with_preedit(Some(Preedit::new("\nthree\nfour\nfive\nsix", None)));
 
@@ -3190,8 +3189,8 @@ fn obscured_text_field_hit_testing_maps_display_cursor_to_source_cursor() {
         .text_field_position_at_for_field(
             &field,
             Style::default().with_size(16.0),
-            paint::area::logical(200.0, 24.0),
-            paint::point::logical(200.0, 8.0),
+            area::logical(200.0, 24.0),
+            point::logical(200.0, 8.0),
             ViewState::default(),
         )
         .expect("hit testing should return a position");
@@ -3215,7 +3214,7 @@ fn ensure_caret_visible_keeps_caret_inside_content_rect() {
     let mut engine = engine();
     let buffer = Buffer::from_text("hello world this is a long single-line field");
     let field = Field::new(buffer);
-    let area = paint::area::logical(80.0, 32.0);
+    let area = area::logical(80.0, 32.0);
     let state = engine.ensure_caret_visible_for_field(
         &field,
         Style::default().with_size(16.0),
@@ -3238,7 +3237,7 @@ fn text_field_caret_visibility_follows_blink_phase() {
     let mut engine = engine();
     let buffer = Buffer::from_text("hello");
     let field = Field::new(buffer);
-    let area = paint::area::logical(100.0, 24.0);
+    let area = area::logical(100.0, 24.0);
     let epoch = Instant::now();
     let state = ViewState::new_at(0.0, epoch);
 
@@ -3275,7 +3274,7 @@ fn text_field_selection_suppresses_caret_layout() {
     let mut editor = Editor::new();
     let mut buffer = Buffer::from_text("hello");
     let mut edit_state = buffer.initial_state();
-    let area = paint::area::logical(100.0, 24.0);
+    let area = area::logical(100.0, 24.0);
     let epoch = Instant::now();
 
     editor.apply_edit(&mut buffer, &mut edit_state, Edit::SelectAll);
@@ -3436,7 +3435,7 @@ fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
     let mut buffer = Buffer::from_multiline_text(text);
     let area_model = Area::new(buffer.clone());
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(86.0, 24.0);
+    let viewport = area::logical(86.0, 24.0);
     let (cursor_index, second_row_top, row_height) = {
         let display = engine.text_area_line_display(
             &area_model,
@@ -3486,7 +3485,7 @@ fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
         .text_area_paint_layout_for_area_at(
             &area_model,
             style,
-            paint::area::logical(viewport.width(), row_height + 4.0),
+            area::logical(viewport.width(), row_height + 4.0),
             revealed,
             Instant::now(),
         )
@@ -3510,7 +3509,7 @@ fn text_area_reveal_scroll_keeps_caret_inside_vertical_viewport() {
     );
 
     let area_model = Area::new(buffer).with_state(edit_state);
-    let viewport = paint::area::logical(120.0, 36.0);
+    let viewport = area::logical(120.0, 36.0);
     let state = engine.ensure_caret_visible_for_area(
         &area_model,
         Style::default().with_size(16.0),
@@ -3557,7 +3556,7 @@ fn text_area_ensure_caret_visible_preserves_visible_caret_scroll_after_backspace
 
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(200.0, 64.0);
+    let viewport = area::logical(200.0, 64.0);
     let scroll_y = text_area_estimated_line_height(style) * 18.0;
     let state = ViewState::default()
         .with_scroll_y(scroll_y)
@@ -3607,7 +3606,7 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
     );
 
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(122.0, 72.0);
+    let viewport = area::logical(122.0, 72.0);
     let initial_scroll_y = text_area_estimated_line_height(style)
         * (target_line + TEXT_AREA_FRAME_MIN_OVERSCAN_LINES) as f32;
     let now = Instant::now();
@@ -3629,11 +3628,9 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
             .layout()
             .caret()
             .expect("target caret should be in the warmed viewport");
-        let visibility = Viewport::new(
-            viewport,
-            paint::point::logical(state.scroll_x(), state.scroll_y()),
-        )
-        .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN);
+        let visibility =
+            Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+                .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN);
         if visibility.is_visible() {
             warm_layout = Some(layout);
             break;
@@ -3659,11 +3656,9 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
         .layout()
         .caret()
         .expect("target caret should be in the warmed viewport");
-    let warm_visibility = Viewport::new(
-        viewport,
-        paint::point::logical(state.scroll_x(), state.scroll_y()),
-    )
-    .visibility_of_local_caret(warm_caret, TEXT_FIELD_CARET_MARGIN);
+    let warm_visibility =
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+            .visibility_of_local_caret(warm_caret, TEXT_FIELD_CARET_MARGIN);
     assert!(
         warm_visibility.is_visible(),
         "warm caret {warm_caret:?} should be visible, got {warm_visibility:?}"
@@ -3718,12 +3713,9 @@ fn large_wrapped_text_area_ensure_caret_visible_uses_observed_visible_caret_afte
         .caret()
         .expect("caret should remain visible after backspace");
     assert!(
-        Viewport::new(
-            viewport,
-            paint::point::logical(state.scroll_x(), state.scroll_y())
-        )
-        .visibility_of_local_caret(observed_caret, TEXT_FIELD_CARET_MARGIN)
-        .is_visible()
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+            .visibility_of_local_caret(observed_caret, TEXT_FIELD_CARET_MARGIN)
+            .is_visible()
     );
 
     engine.reset_interaction_stats();
@@ -3764,7 +3756,7 @@ fn text_area_ensure_caret_visible_uses_observed_hidden_caret_minimally() {
 
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(200.0, 36.0);
+    let viewport = area::logical(200.0, 36.0);
     let now = Instant::now();
     let state = ViewState::default().ensure_caret_visible(now);
     let observed =
@@ -3774,11 +3766,8 @@ fn text_area_ensure_caret_visible_uses_observed_hidden_caret_minimally() {
         .caret()
         .expect("overscan should include the below-viewport caret");
     assert!(matches!(
-        Viewport::new(
-            viewport,
-            paint::point::logical(state.scroll_x(), state.scroll_y())
-        )
-        .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN),
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()))
+            .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN),
         Visibility::Below
     ));
 
@@ -3825,7 +3814,7 @@ fn text_area_ensure_caret_visible_scrolls_hidden_caret_into_view() {
 
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(200.0, 64.0);
+    let viewport = area::logical(200.0, 64.0);
     let state = ViewState::default().ensure_caret_visible(Instant::now());
 
     let revealed = engine.ensure_caret_visible_for_area(&area_model, style, viewport, state, None);
@@ -3867,7 +3856,7 @@ fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection
     );
 
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(126.0, 80.0);
+    let viewport = area::logical(126.0, 80.0);
     let now = Instant::now();
     let mut state = ViewState::default()
         .with_scroll_y(text_area_estimated_line_height(style) * target_line as f32)
@@ -3896,12 +3885,9 @@ fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection
             now,
         );
         if let Some(caret) = layout.layout().caret()
-            && Viewport::new(
-                viewport,
-                paint::point::logical(next.scroll_x(), next.scroll_y()),
-            )
-            .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN)
-            .is_visible()
+            && Viewport::new(viewport, point::logical(next.scroll_x(), next.scroll_y()))
+                .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN)
+                .is_visible()
         {
             state = next.ensure_caret_visible(now);
             break;
@@ -3945,7 +3931,7 @@ fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection
         .caret()
         .expect("collapsed caret should remain visible after deleting selection");
     assert!(
-        Viewport::new(viewport, paint::point::logical(0.0, scroll_y))
+        Viewport::new(viewport, point::logical(0.0, scroll_y))
             .visibility_of_local_caret(caret, TEXT_FIELD_CARET_MARGIN)
             .is_visible(),
         "caret should remain visible after preserving scroll: {caret:?}"
@@ -3958,7 +3944,7 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
         engine: &mut Engine,
         area_model: &Area,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         state: ViewState,
         scroll_y: f32,
         now: Instant,
@@ -3987,7 +3973,7 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
     }
 
     let style = Style::default().with_size(16.0);
-    let viewport = paint::area::logical(240.0, 72.0);
+    let viewport = area::logical(240.0, 72.0);
     let now = Instant::now();
     let line_height = text_area_estimated_line_height(style);
     let scroll_y = line_height * 28.0;

@@ -1,4 +1,5 @@
-use super::{area, point, rect};
+use super::rect;
+use crate::geometry::{area, point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Grid {
@@ -432,14 +433,6 @@ mod tests {
                 (area_round_trip.width() - width).abs() <= tolerance
                     && (area_round_trip.height() - height).abs() <= tolerance,
                 "area round trip case {case} at {scale}x"
-            );
-
-            let logical_point = point::logical(x, y);
-            let point_round_trip = logical_point.to_physical(scale).to_logical(scale);
-            assert!(
-                (point_round_trip.x() - x).abs() <= 0.0001
-                    && (point_round_trip.y() - y).abs() <= 0.0001,
-                "point round trip case {case} at {scale}x"
             );
         }
     }

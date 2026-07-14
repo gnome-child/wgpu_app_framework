@@ -1,6 +1,6 @@
 use super::super::document::Style;
 use super::super::edit::AreaWrap;
-use crate::paint;
+use crate::geometry::area;
 
 pub(in crate::text) fn text_area_estimated_line_height(style: Style) -> f32 {
     glyphon::Metrics::relative(style.size().max(1.0), 1.25)
@@ -8,7 +8,7 @@ pub(in crate::text) fn text_area_estimated_line_height(style: Style) -> f32 {
         .max(1.0)
 }
 
-pub(super) fn buffer_content_area(buffer: &glyphon::Buffer) -> paint::area::Logical {
+pub(super) fn buffer_content_area(buffer: &glyphon::Buffer) -> area::Logical {
     let mut width: f32 = 0.0;
     let mut height: f32 = 0.0;
 
@@ -26,12 +26,12 @@ pub(super) fn buffer_content_area(buffer: &glyphon::Buffer) -> paint::area::Logi
         height = buffer.metrics().line_height;
     }
 
-    paint::area::logical(width, height)
+    area::logical(width, height)
 }
 
 pub(super) fn text_area_content_width(
     wrap: AreaWrap,
-    viewport: paint::area::Logical,
+    viewport: area::Logical,
     observed_width: f32,
 ) -> f32 {
     match wrap {

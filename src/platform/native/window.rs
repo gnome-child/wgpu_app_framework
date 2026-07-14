@@ -1,6 +1,7 @@
 use super::{Native, NativeError, PopupPresentationMode};
+use crate::geometry::area;
 use crate::window as app_window;
-use crate::{paint, pointer, render};
+use crate::{pointer, render};
 use std::sync::Arc;
 use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::{
@@ -27,7 +28,7 @@ pub(in crate::platform::native) struct Options {
 }
 
 pub(in crate::platform::native) enum InitialSize {
-    Logical(paint::area::Logical),
+    Logical(area::Logical),
 }
 
 impl Window {
@@ -75,8 +76,8 @@ impl Window {
         self.handle.request_redraw();
     }
 
-    pub fn inner_area(&self) -> paint::area::Physical {
-        paint::area::physical(
+    pub fn inner_area(&self) -> area::Physical {
+        area::physical(
             self.handle.inner_size().width,
             self.handle.inner_size().height,
         )
@@ -106,7 +107,7 @@ impl Window {
         super::sys::hide_popup_before_teardown(&self.handle);
     }
 
-    pub fn configure_popup_bounds(&self, x: i32, y: i32, area: paint::area::Logical) {
+    pub fn configure_popup_bounds(&self, x: i32, y: i32, area: area::Logical) {
         super::sys::configure_popup_bounds(&self.handle, x, y, area);
     }
 
@@ -167,7 +168,7 @@ impl Window {
     pub fn resize(
         &mut self,
         render_context: &render::Context,
-        area: paint::area::Physical,
+        area: area::Physical,
         scale_factor: f32,
     ) {
         self.canvas.resize(render_context, area, scale_factor);

@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use std::time::Instant;
 
 use super::super::super::{
@@ -16,26 +17,25 @@ use super::super::{
     text_area,
     text_area::{DisplaySegment as TextAreaDisplaySegment, Observation as TextAreaObservation},
 };
-use crate::paint;
 
 struct AreaPaintRequest<'a> {
     area_model: &'a Area,
     style: Style,
-    viewport: paint::area::Logical,
+    viewport: area::Logical,
     state: ViewState,
     now: Instant,
-    content_area: Option<paint::area::Logical>,
+    content_area: Option<area::Logical>,
 }
 
 struct SegmentLayoutRequest<'a> {
     area_model: &'a Area,
     style: Style,
-    viewport: paint::area::Logical,
+    viewport: area::Logical,
     state: &'a ViewState,
     now: Instant,
     projection: &'a PreeditProjection,
     segments: &'a [TextAreaDisplaySegment],
-    content_area: Option<paint::area::Logical>,
+    content_area: Option<area::Logical>,
 }
 
 impl Engine {
@@ -43,7 +43,7 @@ impl Engine {
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         state: ViewState,
         _now: Instant,
     ) -> TextFieldLayout {
@@ -71,7 +71,7 @@ impl Engine {
                 .fold(viewport.width().max(0.0), f32::max),
             AreaWrap::WordOrGlyph => viewport.width().max(0.0),
         };
-        let content_area = paint::area::logical(content_width, content_height);
+        let content_area = area::logical(content_width, content_height);
         TextFieldLayout {
             selection_spans: Vec::new(),
             preedit_underline_spans: Vec::new(),
@@ -87,7 +87,7 @@ impl Engine {
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextAreaPaintLayout {
@@ -108,10 +108,10 @@ impl Engine {
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         state: ViewState,
         now: Instant,
-        content_area: paint::area::Logical,
+        content_area: area::Logical,
     ) -> TextAreaPaintLayout {
         self.text_area_layout_for_area_at_with_observation(
             AreaPaintRequest {
@@ -130,10 +130,10 @@ impl Engine {
         &mut self,
         area_model: &Area,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         state: ViewState,
         now: Instant,
-        content_area: paint::area::Logical,
+        content_area: area::Logical,
     ) -> TextFieldLayout {
         let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
         let committed = !projection.has_preedit();
@@ -164,7 +164,7 @@ impl Engine {
         area_model: &Area,
         state: ViewState,
         now: Instant,
-        content_area: paint::area::Logical,
+        content_area: area::Logical,
         surfaces: &[TextAreaSurface],
     ) -> TextFieldLayout {
         let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
@@ -392,7 +392,7 @@ impl Engine {
 
         self.add_highlight_stats(combined_stats);
         let content_area = request.content_area.unwrap_or_else(|| {
-            paint::area::logical(
+            area::logical(
                 text_area_content_width(
                     request.area_model.wrap(),
                     request.viewport,

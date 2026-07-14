@@ -1,3 +1,4 @@
+use crate::geometry::{area, point};
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use super::super::{
@@ -19,7 +20,6 @@ use super::{
     shaping_cache::ShapingCache,
     system,
 };
-use crate::paint;
 
 const TEXT_FIELD_SURFACE_CACHE_CAPACITY: usize = 512;
 
@@ -44,7 +44,7 @@ pub(super) fn surface_cache() -> ShapingCache<FieldSurfaceKey, CachedFieldSurfac
 }
 
 impl FieldSurfaceKey {
-    fn new(buffer: &Buffer, style: Style, area: paint::area::Logical) -> Self {
+    fn new(buffer: &Buffer, style: Style, area: area::Logical) -> Self {
         Self {
             text: buffer.text_for_line_range(0, 1),
             size: finite_bits(style.size().max(1.0)),
@@ -61,7 +61,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
     ) -> TextFieldLayout {
         self.text_field_layout_for_field_at(field, style, area, state, Instant::now())
@@ -72,7 +72,7 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
@@ -85,7 +85,7 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldPaintLayout {
@@ -152,7 +152,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
     ) -> TextFieldPaintLayout {
         self.text_field_paint_layout_for_field_at(field, style, area, state, Instant::now())
@@ -162,7 +162,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldPaintLayout {
@@ -186,7 +186,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
@@ -211,8 +211,8 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint::area::Logical,
-        position: paint::point::Logical,
+        area: area::Logical,
+        position: point::Logical,
         state: ViewState,
     ) -> Option<Position> {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
@@ -231,8 +231,8 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
-        position: paint::point::Logical,
+        area: area::Logical,
+        position: point::Logical,
         state: ViewState,
     ) -> Option<Position> {
         let projection = FieldProjection::new(field);
@@ -252,7 +252,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
     ) -> Option<Caret> {
         if !field.paints_caret() {
@@ -268,7 +268,7 @@ impl Engine {
         buffer: &Buffer,
         edit_state: State,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
     ) -> ViewState {
         let projection = PreeditProjection::new(buffer, edit_state, &state);
@@ -295,7 +295,7 @@ impl Engine {
         &mut self,
         field: &Field,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
         state: ViewState,
     ) -> ViewState {
         let projection = FieldProjection::new(field);
@@ -312,7 +312,7 @@ impl Engine {
         &mut self,
         buffer: &Buffer,
         style: Style,
-        area: paint::area::Logical,
+        area: area::Logical,
     ) -> (Rc<RefCell<glyphon::Buffer>>, f32) {
         let key = FieldSurfaceKey::new(buffer, style, area);
         let shaped = self

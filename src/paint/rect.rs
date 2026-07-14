@@ -1,4 +1,4 @@
-use super::{area, point};
+use crate::geometry::{area, point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
@@ -72,63 +72,17 @@ impl Rounding {
     }
 
     pub fn none() -> Self {
-        Self::fixed(0.0)
+        Self::all(Radius::fixed(0.0))
     }
 
+    #[cfg(test)]
     pub fn relative(value: f32) -> Self {
         Self::all(Radius::relative(value))
     }
 
+    #[cfg(test)]
     pub fn fixed(value: f32) -> Self {
         Self::all(Radius::fixed(value))
-    }
-
-    pub fn relative_left(value: f32) -> Self {
-        Self::left(Radius::relative(value))
-    }
-
-    pub fn relative_right(value: f32) -> Self {
-        Self::right(Radius::relative(value))
-    }
-
-    pub fn relative_top(value: f32) -> Self {
-        Self::top(Radius::relative(value))
-    }
-
-    pub fn relative_bottom(value: f32) -> Self {
-        Self::bottom(Radius::relative(value))
-    }
-
-    pub fn fixed_left(value: f32) -> Self {
-        Self::left(Radius::fixed(value))
-    }
-
-    pub fn fixed_right(value: f32) -> Self {
-        Self::right(Radius::fixed(value))
-    }
-
-    pub fn fixed_top(value: f32) -> Self {
-        Self::top(Radius::fixed(value))
-    }
-
-    pub fn fixed_bottom(value: f32) -> Self {
-        Self::bottom(Radius::fixed(value))
-    }
-
-    pub fn top_left(self) -> Radius {
-        self.top_left
-    }
-
-    pub fn top_right(self) -> Radius {
-        self.top_right
-    }
-
-    pub fn bottom_right(self) -> Radius {
-        self.bottom_right
-    }
-
-    pub fn bottom_left(self) -> Radius {
-        self.bottom_left
     }
 
     pub fn resolve(self, area: area::Logical) -> [f32; 4] {
@@ -160,38 +114,6 @@ impl Rounding {
 
     fn all(radius: Radius) -> Self {
         Self::new(radius, radius, radius, radius)
-    }
-
-    fn left(radius: Radius) -> Self {
-        Self {
-            top_right: Radius::fixed(0.0),
-            bottom_right: Radius::fixed(0.0),
-            ..Self::all(radius)
-        }
-    }
-
-    fn right(radius: Radius) -> Self {
-        Self {
-            top_left: Radius::fixed(0.0),
-            bottom_left: Radius::fixed(0.0),
-            ..Self::all(radius)
-        }
-    }
-
-    fn top(radius: Radius) -> Self {
-        Self {
-            bottom_right: Radius::fixed(0.0),
-            bottom_left: Radius::fixed(0.0),
-            ..Self::all(radius)
-        }
-    }
-
-    fn bottom(radius: Radius) -> Self {
-        Self {
-            top_left: Radius::fixed(0.0),
-            top_right: Radius::fixed(0.0),
-            ..Self::all(radius)
-        }
     }
 }
 

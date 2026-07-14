@@ -1,10 +1,9 @@
-mod area;
+pub mod area;
 mod placement;
-mod point;
+pub mod point;
 mod rect;
 mod size;
 
-pub use area::LogicalArea;
 pub(crate) use placement::{Anchor as PlacementAnchor, Request as PlacementRequest};
 pub use point::Point;
 pub use rect::Rect;

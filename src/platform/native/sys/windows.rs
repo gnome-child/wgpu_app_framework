@@ -1,5 +1,5 @@
 use super::PopupAccentMaterial;
-use crate::paint;
+use crate::geometry::area;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use std::collections::HashMap;
@@ -154,7 +154,7 @@ pub(super) fn configure_popup_bounds(
     window: &winit::window::Window,
     x: i32,
     y: i32,
-    area: paint::area::Logical,
+    area: area::Logical,
 ) {
     let Some(hwnd) = hwnd(window) else {
         log::warn!(target: "wgpu_l3::native_popup", "cannot configure popup bounds without HWND");

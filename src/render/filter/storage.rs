@@ -1,16 +1,17 @@
+use crate::geometry::area;
 use crate::{paint, render};
 
 use super::{Renderer, Target, TextureSource};
 
 pub(in crate::render) struct Layer {
     pub(super) texture: Texture,
-    pub(super) area: paint::area::Physical,
-    pub(super) logical_area: paint::area::Logical,
+    pub(super) area: area::Physical,
+    pub(super) logical_area: area::Logical,
 }
 
 pub(super) struct Textures {
-    pub(super) area: paint::area::Physical,
-    pub(super) logical_area: paint::area::Logical,
+    pub(super) area: area::Physical,
+    pub(super) logical_area: area::Logical,
     pub(super) composition: Texture,
     pub(super) ping: Texture,
     pub(super) pong: Texture,
@@ -19,21 +20,21 @@ pub(super) struct Textures {
 pub(super) struct Texture {
     pub(super) _inner: wgpu::Texture,
     pub(super) view: wgpu::TextureView,
-    pub(super) area: paint::area::Physical,
+    pub(super) area: area::Physical,
 }
 
 pub(super) struct ScratchTextures {
     ping: Texture,
     pong: Texture,
-    pub(super) area: paint::area::Physical,
-    logical_area: paint::area::Logical,
+    pub(super) area: area::Physical,
+    logical_area: area::Logical,
 }
 
 pub(super) enum ScratchTargets<'a> {
     Shared {
         ping: &'a Texture,
         pong: &'a Texture,
-        logical_area: paint::area::Logical,
+        logical_area: area::Logical,
     },
     Pooled(ScratchTextures),
 }
@@ -53,7 +54,7 @@ pub(in crate::render) struct LayerComposite<'a> {
 impl Texture {
     pub(super) fn source(
         &self,
-        logical_area: paint::area::Logical,
+        logical_area: area::Logical,
         sampling: paint::LayerSampling,
     ) -> TextureSource<'_> {
         debug_assert!(self.area.width() > 0 && self.area.height() > 0);
@@ -139,17 +140,14 @@ impl Layer {
     }
 }
 
-pub(super) fn take_pooled_layer(
-    pool: &mut Vec<Layer>,
-    area: paint::area::Physical,
-) -> Option<Layer> {
+pub(super) fn take_pooled_layer(pool: &mut Vec<Layer>, area: area::Physical) -> Option<Layer> {
     let position = pool.iter().position(|layer| layer.area == area)?;
     Some(pool.swap_remove(position))
 }
 
 pub(super) fn take_pooled_scratch(
     pool: &mut Vec<ScratchTextures>,
-    area: paint::area::Physical,
+    area: area::Physical,
 ) -> Option<ScratchTextures> {
     let position = pool.iter().position(|scratch| scratch.area == area)?;
     Some(pool.swap_remove(position))

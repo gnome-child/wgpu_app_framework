@@ -1,6 +1,6 @@
 use super::super::edit::{ViewState, Viewport, Visibility};
 use super::constants::TEXT_FIELD_CARET_MARGIN;
-use crate::paint;
+use crate::geometry::{area, point};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Caret {
@@ -48,14 +48,12 @@ impl CaretLayout {
 
 pub(super) fn ensure_visible_from_layout(
     state: ViewState,
-    viewport: paint::area::Logical,
+    viewport: area::Logical,
     caret_layout: CaretLayout,
-    content_area: Option<paint::area::Logical>,
+    content_area: Option<area::Logical>,
 ) -> Option<ViewState> {
-    let viewport_state = Viewport::new(
-        viewport,
-        paint::point::logical(state.scroll_x(), state.scroll_y()),
-    );
+    let viewport_state =
+        Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()));
     let visibility = caret_layout.visibility_in(viewport_state, TEXT_FIELD_CARET_MARGIN);
     if visibility.is_visible() {
         return Some(state);

@@ -1,10 +1,10 @@
+use crate::geometry::point;
 use std::time::Instant;
 
 use super::buffer::{Buffer, CursorSelection, Position};
 use super::document::{Document, Style};
 use super::edit;
 use super::edit::{Motion, State, Surface, ViewState};
-use crate::paint;
 
 mod area;
 mod caret;
@@ -65,15 +65,12 @@ pub(crate) use system::{
     color as glyphon_color, measure_document as measure_document_with_glyphon,
 };
 
-pub(crate) type SurfaceArea = paint::area::Logical;
-pub(crate) type SurfacePoint = paint::point::Logical;
-
-pub(crate) fn surface_area(width: f32, height: f32) -> SurfaceArea {
-    paint::area::logical(width, height)
+pub(crate) fn surface_area(width: f32, height: f32) -> crate::geometry::area::Logical {
+    crate::geometry::area::logical(width, height)
 }
 
-pub(crate) fn surface_point(x: f32, y: f32) -> SurfacePoint {
-    paint::point::logical(x, y)
+pub(crate) fn surface_point(x: f32, y: f32) -> point::Logical {
+    point::logical(x, y)
 }
 
 impl Engine {
@@ -151,7 +148,7 @@ impl Engine {
         &mut self,
         surface: &Surface,
         style: Style,
-        area: paint::area::Logical,
+        area: crate::geometry::area::Logical,
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
@@ -170,8 +167,8 @@ impl Engine {
         &mut self,
         surface: &Surface,
         style: Style,
-        area: paint::area::Logical,
-        position: paint::point::Logical,
+        area: crate::geometry::area::Logical,
+        position: point::Logical,
         state: ViewState,
     ) -> Option<Position> {
         match surface {
@@ -188,7 +185,7 @@ impl Engine {
         &mut self,
         surface: &Surface,
         style: Style,
-        area: paint::area::Logical,
+        area: crate::geometry::area::Logical,
         state: ViewState,
     ) -> ViewState {
         match surface {

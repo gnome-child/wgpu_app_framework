@@ -1,6 +1,5 @@
+use crate::geometry::{area, point};
 use std::time::{Duration, Instant};
-
-use crate::paint::{self, Rect};
 
 const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -13,8 +12,8 @@ use super::Area;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
-    area: paint::area::Logical,
-    scroll: paint::point::Logical,
+    area: area::Logical,
+    scroll: point::Logical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,9 +42,9 @@ pub struct ScrollAnchor {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ObservedArea<'a> {
-    viewport: Rect,
-    scroll: paint::point::Logical,
-    content_area: paint::area::Logical,
+    origin: point::Logical,
+    viewport: Viewport,
+    content_area: area::Logical,
     interaction_surfaces: &'a [TextAreaSurface],
 }
 
@@ -56,18 +55,18 @@ const SELECTION_DRAG_AUTOSCROLL_MIN_STEP: f32 = 2.0;
 const SELECTION_DRAG_AUTOSCROLL_MAX_STEP: f32 = 36.0;
 
 impl Viewport {
-    pub fn new(area: paint::area::Logical, scroll: paint::point::Logical) -> Self {
+    pub fn new(area: area::Logical, scroll: point::Logical) -> Self {
         Self {
             area,
-            scroll: paint::point::logical(scroll.x().max(0.0), scroll.y().max(0.0)),
+            scroll: point::logical(scroll.x().max(0.0), scroll.y().max(0.0)),
         }
     }
 
-    pub fn area(self) -> paint::area::Logical {
+    pub fn area(self) -> area::Logical {
         self.area
     }
 
-    pub fn scroll(self) -> paint::point::Logical {
+    pub fn scroll(self) -> point::Logical {
         self.scroll
     }
 
@@ -121,28 +120,28 @@ impl ScrollAnchor {
 
 impl<'a> ObservedArea<'a> {
     pub fn new(
-        viewport: Rect,
-        scroll: paint::point::Logical,
-        content_area: paint::area::Logical,
+        origin: point::Logical,
+        viewport: Viewport,
+        content_area: area::Logical,
         interaction_surfaces: &'a [TextAreaSurface],
     ) -> Self {
         Self {
+            origin,
             viewport,
-            scroll,
             content_area,
             interaction_surfaces,
         }
     }
 
-    pub fn viewport(self) -> Rect {
+    pub fn viewport(self) -> Viewport {
         self.viewport
     }
 
-    pub fn scroll(self) -> paint::point::Logical {
-        self.scroll
+    pub fn scroll(self) -> point::Logical {
+        self.viewport.scroll()
     }
 
-    pub fn content_area(self) -> paint::area::Logical {
+    pub fn content_area(self) -> area::Logical {
         self.content_area
     }
 
@@ -150,10 +149,10 @@ impl<'a> ObservedArea<'a> {
         self.interaction_surfaces
     }
 
-    pub fn local_position(self, position: paint::point::Logical) -> paint::point::Logical {
-        paint::point::logical(
-            position.x() - self.viewport.origin.x(),
-            position.y() - self.viewport.origin.y(),
+    pub fn local_position(self, position: point::Logical) -> point::Logical {
+        point::logical(
+            position.x() - self.origin.x(),
+            position.y() - self.origin.y(),
         )
     }
 }
@@ -161,12 +160,12 @@ impl<'a> ObservedArea<'a> {
 impl View {
     pub fn selection_drag_autoscroll_offset(
         observed: ObservedArea<'_>,
-        position: paint::point::Logical,
-    ) -> Option<paint::point::Logical> {
+        position: point::Logical,
+    ) -> Option<point::Logical> {
         let viewport = observed.viewport();
         let current = observed.scroll();
-        let top = viewport.origin.y();
-        let bottom = viewport.origin.y() + viewport.area.height();
+        let top = observed.origin.y();
+        let bottom = observed.origin.y() + viewport.area().height();
         let distance = if position.y() < top {
             position.y() - top
         } else if position.y() > bottom {
@@ -183,8 +182,8 @@ impl View {
         } else {
             current.y() + step
         };
-        let max_y = (observed.content_area().height() - viewport.area.height()).max(0.0);
-        let next = paint::point::logical(current.x(), next_y.clamp(0.0, max_y));
+        let max_y = (observed.content_area().height() - viewport.area().height()).max(0.0);
+        let next = point::logical(current.x(), next_y.clamp(0.0, max_y));
 
         (next != current).then_some(next)
     }
@@ -194,7 +193,7 @@ impl View {
         area_model: &Area,
         state: ViewState,
         observed: ObservedArea<'_>,
-        position: paint::point::Logical,
+        position: point::Logical,
     ) -> Option<Position> {
         if observed.interaction_surfaces().is_empty() {
             return None;
@@ -216,7 +215,7 @@ impl View {
     ) -> Option<ScrollAnchor> {
         top_visible_surface(
             observed.interaction_surfaces(),
-            observed.viewport().area.height(),
+            observed.viewport().area().height(),
         )
         .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
     }
@@ -227,7 +226,7 @@ impl View {
         render_surfaces: &[TextAreaSurface],
     ) -> Option<ScrollAnchor> {
         Self::scroll_anchor_for_observed_area(area_model, observed).or_else(|| {
-            top_visible_surface(render_surfaces, observed.viewport().area.height())
+            top_visible_surface(render_surfaces, observed.viewport().area().height())
                 .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
         })
     }

@@ -1,3 +1,4 @@
+use crate::geometry::point;
 use crate::paint::{self, Rect};
 use crate::render::silhouette::PreparedSilhouette;
 
@@ -53,13 +54,13 @@ pub(super) fn source_rect_for_prepared_destination(
     prepared: PreparedFilter,
     source: Rect,
 ) -> Rect {
-    let origin_delta = paint::point::logical(
+    let origin_delta = point::logical(
         prepared.shape_rect.origin.x() - destination.origin.x(),
         prepared.shape_rect.origin.y() - destination.origin.y(),
     );
 
     Rect::new(
-        paint::point::logical(
+        point::logical(
             source.origin.x() + origin_delta.x(),
             source.origin.y() + origin_delta.y(),
         ),

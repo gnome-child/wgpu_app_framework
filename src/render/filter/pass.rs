@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use bytemuck::{Pod, Zeroable};
 
 use crate::paint::{self, Rect};
@@ -26,8 +27,8 @@ pub(super) struct RefractionPass<'a> {
     pub(super) render_context: &'a render::Context,
     pub(super) encoder: &'a mut wgpu::CommandEncoder,
     pub(super) source: &'a wgpu::TextureView,
-    pub(super) source_area: paint::area::Physical,
-    pub(super) source_logical_area: paint::area::Logical,
+    pub(super) source_area: area::Physical,
+    pub(super) source_logical_area: area::Logical,
     pub(super) source_rect: Rect,
     pub(super) source_sampling: paint::LayerSampling,
     pub(super) output: &'a wgpu::TextureView,
@@ -42,8 +43,8 @@ pub(super) struct EffectPass<'a> {
     pub(super) render_context: &'a render::Context,
     pub(super) encoder: &'a mut wgpu::CommandEncoder,
     pub(super) source: &'a wgpu::TextureView,
-    pub(super) source_area: paint::area::Physical,
-    pub(super) source_logical_area: paint::area::Logical,
+    pub(super) source_area: area::Physical,
+    pub(super) source_logical_area: area::Logical,
     pub(super) source_rect: Rect,
     pub(super) source_sampling: paint::LayerSampling,
     pub(super) output: &'a wgpu::TextureView,
@@ -130,7 +131,7 @@ impl CompositeVertex {
 }
 
 pub(super) fn composite_vertices(
-    canvas_area: paint::area::Logical,
+    canvas_area: area::Logical,
     prepared: PreparedFilter,
 ) -> [CompositeVertex; 6] {
     let to_clip = |x: f32, y: f32| -> [f32; 2] {

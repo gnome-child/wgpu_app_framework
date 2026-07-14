@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use crate::paint;
 
 use super::Target;
@@ -5,16 +6,16 @@ use super::Target;
 #[derive(Clone, Copy)]
 pub(in crate::render) struct TextureSource<'a> {
     pub(in crate::render::filter) view: &'a wgpu::TextureView,
-    pub(in crate::render::filter) area: paint::area::Physical,
-    pub(in crate::render::filter) logical_area: paint::area::Logical,
+    pub(in crate::render::filter) area: area::Physical,
+    pub(in crate::render::filter) logical_area: area::Logical,
     pub(in crate::render::filter) sampling: paint::LayerSampling,
 }
 
 impl<'a> TextureSource<'a> {
     pub(in crate::render) fn new(
         view: &'a wgpu::TextureView,
-        area: paint::area::Physical,
-        logical_area: paint::area::Logical,
+        area: area::Physical,
+        logical_area: area::Logical,
         sampling: paint::LayerSampling,
     ) -> Self {
         debug_assert!(area.width() > 0 && area.height() > 0);

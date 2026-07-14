@@ -1,9 +1,10 @@
-use crate::{paint, render};
+use crate::geometry::area;
+use crate::render;
 
 #[derive(Debug, Clone, Copy)]
 pub(in crate::render) struct Target {
-    pub(super) physical_area: paint::area::Physical,
-    pub(super) logical_area: paint::area::Logical,
+    pub(super) physical_area: area::Physical,
+    pub(super) logical_area: area::Logical,
     pub(super) scale_factor: f32,
 }
 
@@ -25,7 +26,7 @@ impl Target {
     }
 
     pub(in crate::render) fn from_logical_area(
-        logical_area: paint::area::Logical,
+        logical_area: area::Logical,
         scale_factor: f32,
     ) -> Self {
         Self {
@@ -35,11 +36,11 @@ impl Target {
         }
     }
 
-    pub(in crate::render) fn physical_area(self) -> paint::area::Physical {
+    pub(in crate::render) fn physical_area(self) -> area::Physical {
         self.physical_area
     }
 
-    pub(in crate::render) fn logical_area(self) -> paint::area::Logical {
+    pub(in crate::render) fn logical_area(self) -> area::Logical {
         self.logical_area
     }
 }

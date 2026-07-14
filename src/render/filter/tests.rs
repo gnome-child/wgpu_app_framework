@@ -8,16 +8,14 @@ use super::params::{
     with_texture_area as params_with_texture_area,
 };
 use super::pass::composite_vertices;
+use crate::geometry::{area, point};
 
 use crate::paint::{self, Rect};
 use crate::render::silhouette::edges;
 
 #[test]
 fn filter_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
-    let rect = Rect::new(
-        paint::point::logical(10.2, 20.3),
-        paint::area::logical(40.4, 30.8),
-    );
+    let rect = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
     let prepared = prepare_filter(rect, 2.0)
         .expect("filter should prepare")
         .with_blur_sigma(30.0, 2.0);
@@ -32,12 +30,12 @@ fn filter_shape_snaps_and_raster_bounds_expand_by_one_physical_pixel() {
 #[test]
 fn filter_preserves_rounded_shape_metadata_for_composite() {
     let rect = Rect::rounded(
-        paint::point::logical(10.0, 20.0),
-        paint::area::logical(80.0, 30.0),
+        point::logical(10.0, 20.0),
+        area::logical(80.0, 30.0),
         crate::paint::Rounding::relative(1.0),
     );
     let prepared = prepare_filter(rect, 1.0).expect("filter should prepare");
-    let vertices = composite_vertices(paint::area::logical(100.0, 100.0), prepared);
+    let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
 
     assert_eq!(prepared.rounding[0], 15.0);
     assert_eq!(vertices.len(), 6);
@@ -48,12 +46,12 @@ fn filter_preserves_rounded_shape_metadata_for_composite() {
 #[test]
 fn clip_preserves_rounded_shape_metadata_for_layer_composite() {
     let rect = Rect::rounded(
-        paint::point::logical(8.0, 12.0),
-        paint::area::logical(48.0, 20.0),
+        point::logical(8.0, 12.0),
+        area::logical(48.0, 20.0),
         crate::paint::Rounding::relative(1.0),
     );
     let prepared = prepare_clip(rect, 1.0).expect("clip should prepare");
-    let vertices = composite_vertices(paint::area::logical(100.0, 100.0), prepared);
+    let vertices = composite_vertices(area::logical(100.0, 100.0), prepared);
 
     assert_eq!(prepared.blur_amount, 0.0);
     assert_eq!(prepared.blur_sigma_px, 0.0);
@@ -64,14 +62,8 @@ fn clip_preserves_rounded_shape_metadata_for_layer_composite() {
 
 #[test]
 fn layer_source_rect_tracks_snapped_destination_without_scaling() {
-    let destination = Rect::new(
-        paint::point::logical(10.2, 20.3),
-        paint::area::logical(40.4, 30.8),
-    );
-    let source = Rect::new(
-        paint::point::logical(4.0, 8.0),
-        paint::area::logical(40.4, 30.8),
-    );
+    let destination = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+    let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.4, 30.8));
     let prepared = prepare_clip(destination, 2.0).expect("clip should prepare");
 
     let source = source_rect_for_prepared_destination(destination, prepared, source);
@@ -83,21 +75,15 @@ fn layer_source_rect_tracks_snapped_destination_without_scaling() {
 
 #[test]
 fn layer_source_rect_data_uses_source_texture_scale() {
-    let destination = Rect::new(
-        paint::point::logical(10.2, 20.3),
-        paint::area::logical(40.4, 30.8),
-    );
-    let source = Rect::new(
-        paint::point::logical(4.0, 8.0),
-        paint::area::logical(40.4, 30.8),
-    );
+    let destination = Rect::new(point::logical(10.2, 20.3), area::logical(40.4, 30.8));
+    let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.4, 30.8));
     let prepared = prepare_clip(destination, 2.0).expect("clip should prepare");
     let source = source_rect_for_prepared_destination(destination, prepared, source);
 
     let source_data = physical_source_rect_data(
         source,
-        paint::area::logical(100.0, 80.0),
-        paint::area::physical(200, 160),
+        area::logical(100.0, 80.0),
+        area::physical(200, 160),
         2.0,
         paint::LayerSampling::Filtered,
     );
@@ -111,15 +97,12 @@ fn layer_source_rect_data_uses_source_texture_scale() {
 
 #[test]
 fn layer_source_rect_data_does_not_assume_destination_scale() {
-    let source = Rect::new(
-        paint::point::logical(4.0, 8.0),
-        paint::area::logical(40.0, 30.0),
-    );
+    let source = Rect::new(point::logical(4.0, 8.0), area::logical(40.0, 30.0));
 
     let source_data = physical_source_rect_data(
         source,
-        paint::area::logical(80.0, 100.0),
-        paint::area::physical(100, 150),
+        area::logical(80.0, 100.0),
+        area::physical(100, 150),
         2.0,
         paint::LayerSampling::Filtered,
     );
@@ -129,15 +112,12 @@ fn layer_source_rect_data_does_not_assume_destination_scale() {
 
 #[test]
 fn pixel_aligned_source_rect_data_uses_target_scale() {
-    let source = Rect::new(
-        paint::point::logical(2.0, 4.0),
-        paint::area::logical(801.2, 1047.2),
-    );
+    let source = Rect::new(point::logical(2.0, 4.0), area::logical(801.2, 1047.2));
 
     let source_data = physical_source_rect_data(
         source,
-        paint::area::logical(805.2, 2138.4),
-        paint::area::physical(1007, 2673),
+        area::logical(805.2, 2138.4),
+        area::physical(1007, 2673),
         1.25,
         paint::LayerSampling::PixelAligned,
     );
@@ -147,10 +127,7 @@ fn pixel_aligned_source_rect_data_uses_target_scale() {
 
 #[test]
 fn target_rect_data_is_physical_destination_space() {
-    let target = Rect::new(
-        paint::point::logical(12.0, 8.0),
-        paint::area::logical(160.0, 80.0),
-    );
+    let target = Rect::new(point::logical(12.0, 8.0), area::logical(160.0, 80.0));
 
     assert_eq!(physical_rect_data(target, 1.25), [15.0, 10.0, 200.0, 100.0]);
 }
@@ -158,17 +135,14 @@ fn target_rect_data_is_physical_destination_space() {
 #[test]
 fn alpha_mode_params_encode_shape_and_source_modes() {
     let prepared = prepare_filter(
-        Rect::new(
-            paint::point::logical(0.0, 0.0),
-            paint::area::logical(160.0, 80.0),
-        ),
+        Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 80.0)),
         1.0,
     )
     .expect("filter should prepare");
     let input = |alpha_mode| ParamInput {
         target_scale_factor: 1.0,
-        texture_area: paint::area::physical(160, 80),
-        texture_logical_area: paint::area::logical(160.0, 80.0),
+        texture_area: area::physical(160, 80),
+        texture_logical_area: area::logical(160.0, 80.0),
         prepared,
         source_rect: prepared.shape_rect,
         direction: [0.0, 0.0],
@@ -186,21 +160,15 @@ fn alpha_mode_params_encode_shape_and_source_modes() {
 
 #[test]
 fn blur_intermediate_source_rect_is_local_after_first_pass() {
-    let local_filter_rect = Rect::new(
-        paint::point::logical(0.0, 0.0),
-        paint::area::logical(160.0, 80.0),
-    );
-    let global_backdrop_rect = Rect::new(
-        paint::point::logical(240.0, 120.0),
-        paint::area::logical(160.0, 80.0),
-    );
+    let local_filter_rect = Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 80.0));
+    let global_backdrop_rect = Rect::new(point::logical(240.0, 120.0), area::logical(160.0, 80.0));
     let prepared = prepare_filter(local_filter_rect, 1.25).expect("filter should prepare");
 
     assert_eq!(
         physical_source_rect_data(
             global_backdrop_rect,
-            paint::area::logical(800.0, 600.0),
-            paint::area::physical(1000, 750),
+            area::logical(800.0, 600.0),
+            area::physical(1000, 750),
             1.25,
             paint::LayerSampling::PixelAligned,
         ),
@@ -209,8 +177,8 @@ fn blur_intermediate_source_rect_is_local_after_first_pass() {
     assert_eq!(
         physical_source_rect_data(
             prepared.shape_rect,
-            paint::area::logical(160.0, 80.0),
-            paint::area::physical(200, 100),
+            area::logical(160.0, 80.0),
+            area::physical(200, 100),
             1.25,
             paint::LayerSampling::PixelAligned,
         ),
@@ -221,22 +189,16 @@ fn blur_intermediate_source_rect_is_local_after_first_pass() {
 #[test]
 fn first_backdrop_sample_can_use_global_texture_extent_for_local_target() {
     let prepared = prepare_filter(
-        Rect::new(
-            paint::point::logical(0.0, 0.0),
-            paint::area::logical(160.0, 80.0),
-        ),
+        Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 80.0)),
         1.5,
     )
     .expect("filter should prepare");
     let params = params_with_texture_area(ParamInput {
         target_scale_factor: 1.5,
-        texture_area: paint::area::physical(1200, 900),
-        texture_logical_area: paint::area::logical(800.0, 600.0),
+        texture_area: area::physical(1200, 900),
+        texture_logical_area: area::logical(800.0, 600.0),
         prepared,
-        source_rect: Rect::new(
-            paint::point::logical(240.0, 120.0),
-            paint::area::logical(160.0, 80.0),
-        ),
+        source_rect: Rect::new(point::logical(240.0, 120.0), area::logical(160.0, 80.0)),
         direction: [1.0, 0.0],
         effect: [1.0, 0.0, 0.0, 0.0],
         alpha_mode: AlphaMode::Shape,
@@ -251,17 +213,14 @@ fn first_backdrop_sample_can_use_global_texture_extent_for_local_target() {
 #[test]
 fn group_intermediate_params_use_target_local_texture_extent() {
     let prepared = prepare_filter(
-        Rect::new(
-            paint::point::logical(0.0, 0.0),
-            paint::area::logical(160.0, 80.0),
-        ),
+        Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 80.0)),
         1.5,
     )
     .expect("filter should prepare");
     let params = params_with_texture_area(ParamInput {
         target_scale_factor: 1.5,
-        texture_area: paint::area::physical(240, 120),
-        texture_logical_area: paint::area::logical(160.0, 80.0),
+        texture_area: area::physical(240, 120),
+        texture_logical_area: area::logical(160.0, 80.0),
         prepared,
         source_rect: prepared.shape_rect,
         direction: [0.0, 1.0],
@@ -288,8 +247,8 @@ fn promoted_blur_first_pass_samples_global_and_writes_local() {
         .with_blur_sigma(44.55, 1.5);
     let params = params_with_texture_area(ParamInput {
         target_scale_factor: 1.5,
-        texture_area: paint::area::physical(1200, 900),
-        texture_logical_area: paint::area::logical(800.0, 600.0),
+        texture_area: area::physical(1200, 900),
+        texture_logical_area: area::logical(800.0, 600.0),
         prepared,
         source_rect: local
             .source_rect
@@ -379,20 +338,14 @@ fn filter_op_composites_use_context_output() {
 #[test]
 fn noise_material_coordinates_are_panel_local_across_group_translation() {
     let scale = 1.5;
-    let inline_rect = Rect::new(
-        paint::point::logical(240.0, 120.0),
-        paint::area::logical(160.0, 80.0),
-    );
-    let promoted_rect = Rect::new(
-        paint::point::logical(0.0, 0.0),
-        paint::area::logical(160.0, 80.0),
-    );
+    let inline_rect = Rect::new(point::logical(240.0, 120.0), area::logical(160.0, 80.0));
+    let promoted_rect = Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 80.0));
     let inline_prepared = prepare_filter(inline_rect, scale).expect("filter should prepare");
     let promoted_prepared = prepare_filter(promoted_rect, scale).expect("filter should prepare");
     let inline_params = params_with_texture_area(ParamInput {
         target_scale_factor: scale,
-        texture_area: paint::area::physical(1200, 900),
-        texture_logical_area: paint::area::logical(800.0, 600.0),
+        texture_area: area::physical(1200, 900),
+        texture_logical_area: area::logical(800.0, 600.0),
         prepared: inline_prepared,
         source_rect: inline_prepared.shape_rect,
         direction: [0.0, 0.0],
@@ -402,8 +355,8 @@ fn noise_material_coordinates_are_panel_local_across_group_translation() {
     });
     let promoted_params = params_with_texture_area(ParamInput {
         target_scale_factor: scale,
-        texture_area: paint::area::physical(1200, 900),
-        texture_logical_area: paint::area::logical(800.0, 600.0),
+        texture_area: area::physical(1200, 900),
+        texture_logical_area: area::logical(800.0, 600.0),
         prepared: promoted_prepared,
         source_rect: inline_prepared.shape_rect,
         direction: [0.0, 0.0],
@@ -421,17 +374,14 @@ fn noise_material_coordinates_are_panel_local_across_group_translation() {
 #[test]
 fn noise_material_coordinates_ignore_source_rect() {
     let prepared = prepare_filter(
-        Rect::new(
-            paint::point::logical(0.0, 0.0),
-            paint::area::logical(160.0, 80.0),
-        ),
+        Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 80.0)),
         1.25,
     )
     .expect("filter should prepare");
     let params_a = params_with_texture_area(ParamInput {
         target_scale_factor: 1.25,
-        texture_area: paint::area::physical(1000, 750),
-        texture_logical_area: paint::area::logical(800.0, 600.0),
+        texture_area: area::physical(1000, 750),
+        texture_logical_area: area::logical(800.0, 600.0),
         prepared,
         source_rect: prepared.shape_rect,
         direction: [0.0, 0.0],
@@ -441,13 +391,10 @@ fn noise_material_coordinates_ignore_source_rect() {
     });
     let params_b = params_with_texture_area(ParamInput {
         target_scale_factor: 1.25,
-        texture_area: paint::area::physical(1000, 750),
-        texture_logical_area: paint::area::logical(800.0, 600.0),
+        texture_area: area::physical(1000, 750),
+        texture_logical_area: area::logical(800.0, 600.0),
         prepared,
-        source_rect: Rect::new(
-            paint::point::logical(300.0, 150.0),
-            paint::area::logical(160.0, 80.0),
-        ),
+        source_rect: Rect::new(point::logical(300.0, 150.0), area::logical(160.0, 80.0)),
         direction: [0.0, 0.0],
         effect: [1.0, 0.0, 0.0, 0.0],
         alpha_mode: AlphaMode::Shape,
@@ -464,17 +411,14 @@ fn noise_material_coordinates_ignore_source_rect() {
 #[test]
 fn noise_material_coordinates_use_target_physical_scale() {
     let prepared = prepare_filter(
-        Rect::new(
-            paint::point::logical(0.0, 0.0),
-            paint::area::logical(80.0, 40.0),
-        ),
+        Rect::new(point::logical(0.0, 0.0), area::logical(80.0, 40.0)),
         1.25,
     )
     .expect("filter should prepare");
     let params = params_with_texture_area(ParamInput {
         target_scale_factor: 1.25,
-        texture_area: paint::area::physical(100, 50),
-        texture_logical_area: paint::area::logical(80.0, 40.0),
+        texture_area: area::physical(100, 50),
+        texture_logical_area: area::logical(80.0, 40.0),
         prepared,
         source_rect: prepared.shape_rect,
         direction: [0.0, 0.0],
@@ -496,7 +440,7 @@ fn retained_layer_composite_uses_source_rect_step_by_axis() {
     assert_eq!(
         source_step_data(
             source_rect_data,
-            paint::area::logical(32.0, 22.0),
+            area::logical(32.0, 22.0),
             2.0,
             paint::LayerSampling::Filtered,
         ),
@@ -509,16 +453,13 @@ fn retained_layer_source_step_does_not_assume_whole_texture_scale() {
     let source_rect_data = [10.0, 20.0, 96.0, 72.0];
 
     assert_eq!(
-        source_scale_data(
-            paint::area::logical(200.0, 100.0),
-            paint::area::physical(300, 300)
-        ),
+        source_scale_data(area::logical(200.0, 100.0), area::physical(300, 300)),
         [1.5, 3.0]
     );
     assert_eq!(
         source_step_data(
             source_rect_data,
-            paint::area::logical(64.0, 48.0),
+            area::logical(64.0, 48.0),
             2.0,
             paint::LayerSampling::Filtered,
         ),
@@ -533,7 +474,7 @@ fn pixel_aligned_layer_source_step_uses_target_scale_not_source_size() {
     assert_eq!(
         source_step_data(
             source_rect_data,
-            paint::area::logical(64.0, 48.0),
+            area::logical(64.0, 48.0),
             1.25,
             paint::LayerSampling::PixelAligned,
         ),
@@ -543,10 +484,7 @@ fn pixel_aligned_layer_source_step_uses_target_scale_not_source_size() {
 
 #[test]
 fn zero_size_filters_do_not_prepare() {
-    let rect = Rect::new(
-        paint::point::logical(10.0, 20.0),
-        paint::area::logical(0.0, 30.0),
-    );
+    let rect = Rect::new(point::logical(10.0, 20.0), area::logical(0.0, 30.0));
 
     assert!(prepare_filter(rect, 1.0).is_none());
 }
@@ -576,7 +514,7 @@ fn assert_edges_close(left: (f32, f32, f32, f32), right: (f32, f32, f32, f32)) {
     assert!((left.3 - right.3).abs() <= EPSILON, "{left:?} != {right:?}");
 }
 
-fn rect_fits_in_area(rect: Rect, area: paint::area::Logical) -> bool {
+fn rect_fits_in_area(rect: Rect, area: area::Logical) -> bool {
     const EPSILON: f32 = 0.0001;
     let (left, top, right, bottom) = edges(rect);
 
@@ -588,10 +526,7 @@ fn rect_fits_in_area(rect: Rect, area: paint::area::Logical) -> bool {
 
 fn high_sigma_blur_pane() -> paint::Pane {
     paint::Pane::new(
-        Rect::new(
-            paint::point::logical(20.0, 30.0),
-            paint::area::logical(50.0, 40.0),
-        ),
+        Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
         paint::Material::Glass(paint::Glass {
             fallback: paint::Brush::solid(paint::Color::BLACK),
             base: paint::GlassBase::FrameworkBackdrop,

@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -403,14 +404,14 @@ enum PopupAccentPresence {
 }
 
 impl PopupGeometry {
-    fn logical_area(self) -> crate::paint::area::Logical {
-        crate::paint::area::logical(self.width, self.height)
+    fn logical_area(self) -> area::Logical {
+        area::logical(self.width, self.height)
     }
 
     #[cfg(test)]
-    fn rounded_physical_area(self) -> crate::paint::area::Physical {
+    fn rounded_physical_area(self) -> area::Physical {
         let scale = f64::from_bits(self.scale_factor_bits);
-        crate::paint::area::physical(
+        area::physical(
             ((self.width as f64) * scale).round() as u32,
             ((self.height as f64) * scale).round() as u32,
         )
@@ -543,6 +544,7 @@ mod tests {
         PopupMaterialRealization, PopupPresentationMode, popup_accent_due, popup_border_due,
         popup_geometry_due, readiness_for_reused_session,
     };
+    use crate::geometry::area;
     use crate::overlay::PopupMaterialPreference;
     use crate::platform::native::sys::PopupAccentMaterial;
     use crate::scene;
@@ -682,14 +684,8 @@ mod tests {
     fn popup_geometry_scale_chain_rounds_logical_size_to_physical_size() {
         let geometry = geometry(10, 20, 1.5);
 
-        assert_eq!(
-            geometry.logical_area(),
-            crate::paint::area::logical(240.0, 180.0)
-        );
-        assert_eq!(
-            geometry.rounded_physical_area(),
-            crate::paint::area::physical(360, 270)
-        );
+        assert_eq!(geometry.logical_area(), area::logical(240.0, 180.0));
+        assert_eq!(geometry.rounded_physical_area(), area::physical(360, 270));
     }
 
     #[test]

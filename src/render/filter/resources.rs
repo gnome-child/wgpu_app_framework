@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use crate::paint;
 use crate::render;
 
@@ -192,8 +193,8 @@ impl Renderer {
     fn ensure_textures(
         &mut self,
         render_context: &render::Context,
-        area: paint::area::Physical,
-        logical_area: paint::area::Logical,
+        area: area::Physical,
+        logical_area: area::Logical,
     ) {
         if self
             .textures
@@ -215,7 +216,7 @@ impl Renderer {
     pub(super) fn create_texture(
         &self,
         render_context: &render::Context,
-        area: paint::area::Physical,
+        area: area::Physical,
         label: &'static str,
     ) -> Texture {
         let texture = render_context

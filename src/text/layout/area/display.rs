@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -19,7 +20,6 @@ use super::super::{
         LineDisplay as TextAreaLineDisplay, LineDisplayKey as TextAreaLineDisplayKey,
     },
 };
-use crate::paint;
 
 impl Engine {
     pub(super) fn text_area_content_height(
@@ -28,7 +28,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
     ) -> f32 {
         let line_count = source.logical_line_count().max(1);
         let estimated_line_height = text_area_estimated_line_height(style);
@@ -50,7 +50,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         source_line: usize,
     ) -> TextAreaLineDisplay {
         let key = TextAreaLineDisplayKey::new(
@@ -116,7 +116,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         source_line: usize,
     ) -> Option<TextAreaLineDisplay> {
         if !committed {
@@ -148,7 +148,7 @@ impl Engine {
         source: &Buffer,
         committed: bool,
         style: Style,
-        viewport: paint::area::Logical,
+        viewport: area::Logical,
         state: &ViewState,
     ) -> Vec<TextAreaDisplaySegment> {
         let estimated_line_height = text_area_estimated_line_height(style);
@@ -232,7 +232,7 @@ fn prepare_text_area_line_display(
     area_model: &Area,
     source: &Buffer,
     style: Style,
-    viewport: paint::area::Logical,
+    viewport: area::Logical,
     source_line: usize,
 ) -> CachedTextAreaLineDisplay {
     let font_size = style.size().max(1.0);

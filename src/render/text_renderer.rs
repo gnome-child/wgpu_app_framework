@@ -352,6 +352,7 @@ fn glyphon_color_from_linear_paint(color: paint::Color) -> glyphon::Color {
 
 #[cfg(test)]
 mod tests {
+    use crate::geometry::{area, point};
     use crate::paint::{self, Rect};
     use crate::text::document::{Align, Block, Run, Style, Weight};
     use crate::{icon, text};
@@ -360,10 +361,7 @@ mod tests {
 
     fn centered_text(document: text::document::Document, height: f32) -> paint::Text {
         paint::Text {
-            rect: Rect::new(
-                paint::point::logical(4.0, 7.0),
-                paint::area::logical(240.0, height),
-            ),
+            rect: Rect::new(point::logical(4.0, 7.0), area::logical(240.0, height)),
             document,
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
@@ -388,10 +386,7 @@ mod tests {
         ));
 
         paint::Text {
-            rect: Rect::new(
-                paint::point::logical(origin_x, 0.0),
-                paint::area::logical(160.0, 22.0),
-            ),
+            rect: Rect::new(point::logical(origin_x, 0.0), area::logical(160.0, 22.0)),
             document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
@@ -404,7 +399,7 @@ mod tests {
         text_layout::measure_document_with_glyphon(
             &mut font_system,
             document,
-            text::layout::Measure::bounded(paint::area::logical(240.0, 1_000.0)),
+            text::layout::Measure::bounded(area::logical(240.0, 1_000.0)),
         )
         .height()
     }
@@ -478,7 +473,7 @@ mod tests {
         let mut cache = InlineCache::new();
         let first = label_text("Command", text::Color::BLACK, 12.0, Weight::Normal, 0.0);
         let mut second = first.clone();
-        second.rect.area = paint::area::logical(180.0, 22.0);
+        second.rect.area = area::logical(180.0, 22.0);
 
         let _ = prepare_text(&mut cache, &first, 1.0).expect("first label should prepare");
         let second = prepare_text(&mut cache, &second, 1.0).expect("second label should prepare");
@@ -504,10 +499,7 @@ mod tests {
                 .with_size(12.0),
         ));
         let rich = paint::Text {
-            rect: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(160.0, 22.0),
-            ),
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(160.0, 22.0)),
             document: text::document::Document::from_block(block),
             wrap: paint::TextWrap::None,
             vertical_align: paint::TextVerticalAlign::Center,
@@ -527,10 +519,7 @@ mod tests {
         let mut cache = InlineCache::new();
         let icon = icon::Icon::phosphor(icon::Id::new("command"));
         let red = paint::Icon {
-            rect: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(18.0, 18.0),
-            ),
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(18.0, 18.0)),
             icon,
             color: paint::Color::RED,
             size: 12.0,

@@ -1,4 +1,5 @@
-use crate::{paint, render};
+use crate::geometry::area;
+use crate::render;
 
 use super::storage::Texture;
 
@@ -44,7 +45,7 @@ pub(super) fn create_texture(render_context: &render::Context) -> Texture {
     Texture {
         _inner: texture,
         view,
-        area: paint::area::physical(TEXTURE_SIZE, TEXTURE_SIZE),
+        area: area::physical(TEXTURE_SIZE, TEXTURE_SIZE),
     }
 }
 

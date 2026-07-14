@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use bytemuck::{Pod, Zeroable};
 
 use crate::paint::{self, Rect};
@@ -22,8 +23,8 @@ impl AlphaMode {
 
 pub(super) struct ParamInput {
     pub(super) target_scale_factor: f32,
-    pub(super) texture_area: paint::area::Physical,
-    pub(super) texture_logical_area: paint::area::Logical,
+    pub(super) texture_area: area::Physical,
+    pub(super) texture_logical_area: area::Logical,
     pub(super) prepared: PreparedFilter,
     pub(super) source_rect: Rect,
     pub(super) direction: [f32; 2],
@@ -83,8 +84,8 @@ pub(super) fn with_texture_area(input: ParamInput) -> Params {
 
 pub(super) fn physical_source_rect_data(
     source_rect: Rect,
-    texture_logical_area: paint::area::Logical,
-    texture_physical_area: paint::area::Physical,
+    texture_logical_area: area::Logical,
+    texture_physical_area: area::Physical,
     target_scale_factor: f32,
     sampling: paint::LayerSampling,
 ) -> [f32; 4] {
@@ -115,8 +116,8 @@ pub(super) fn physical_rect_data(rect: Rect, scale_factor: f32) -> [f32; 4] {
 }
 
 pub(super) fn source_scale_data(
-    texture_logical_area: paint::area::Logical,
-    texture_physical_area: paint::area::Physical,
+    texture_logical_area: area::Logical,
+    texture_physical_area: area::Physical,
 ) -> [f32; 2] {
     [
         texture_physical_area.width() as f32 / texture_logical_area.width().max(1.0),
@@ -126,7 +127,7 @@ pub(super) fn source_scale_data(
 
 pub(super) fn source_step_data(
     source_rect_data: [f32; 4],
-    destination_area: paint::area::Logical,
+    destination_area: area::Logical,
     target_scale_factor: f32,
     sampling: paint::LayerSampling,
 ) -> [f32; 2] {

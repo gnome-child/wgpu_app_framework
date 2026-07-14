@@ -1,4 +1,5 @@
 use crate::diagnostics::DrawStats;
+use crate::geometry::{area, point};
 use crate::paint;
 use crate::paint::Rect;
 use crate::render;
@@ -1025,7 +1026,7 @@ impl<'a> SceneEncoder<'a> {
 }
 
 fn group_layer_source_rect(bounds: Rect) -> Rect {
-    Rect::new(paint::point::logical(0.0, 0.0), bounds.area)
+    Rect::new(point::logical(0.0, 0.0), bounds.area)
 }
 
 fn current_target_view<'a>(
@@ -1043,7 +1044,7 @@ fn current_target_view<'a>(
 
 fn current_scissor(
     clips: &[ClipFrame],
-    physical_area: crate::paint::area::Physical,
+    physical_area: area::Physical,
     scale_factor: f32,
 ) -> Option<render::Scissor> {
     let mut scissor = render::Scissor::new(
@@ -1087,7 +1088,7 @@ fn clip_is_full_target(clip: paint::Clip, viewport: render::Viewport) -> bool {
 
 fn clip_scissor(
     rect: Rect,
-    physical_area: crate::paint::area::Physical,
+    physical_area: area::Physical,
     scale_factor: f32,
 ) -> Option<render::Scissor> {
     let scale_factor = scale_factor.max(0.0001);
@@ -1153,11 +1154,8 @@ mod tests {
     #[test]
     fn clip_scissor_converts_logical_rect_to_physical_pixels() {
         let scissor = clip_scissor(
-            Rect::new(
-                paint::point::logical(2.25, 3.25),
-                paint::area::logical(10.5, 8.5),
-            ),
-            paint::area::physical(100, 80),
+            Rect::new(point::logical(2.25, 3.25), area::logical(10.5, 8.5)),
+            area::physical(100, 80),
             2.0,
         )
         .expect("clip should produce scissor");
@@ -1174,8 +1172,8 @@ mod tests {
             ClipFrame::Layer {
                 clip: paint::Clip {
                     rect: Rect::rounded(
-                        paint::point::logical(2.0, 2.0),
-                        paint::area::logical(20.0, 20.0),
+                        point::logical(2.0, 2.0),
+                        area::logical(20.0, 20.0),
                         paint::Rounding::relative(0.5),
                     ),
                 },
@@ -1183,13 +1181,10 @@ mod tests {
                 dirty: false,
             },
             ClipFrame::Scissor(paint::Clip {
-                rect: Rect::new(
-                    paint::point::logical(10.0, 0.0),
-                    paint::area::logical(20.0, 12.0),
-                ),
+                rect: Rect::new(point::logical(10.0, 0.0), area::logical(20.0, 12.0)),
             }),
         ];
-        let scissor = current_scissor(&clips, paint::area::physical(100, 80), 1.0)
+        let scissor = current_scissor(&clips, area::physical(100, 80), 1.0)
             .expect("nested clips should intersect");
 
         assert_eq!(scissor.x(), 10);
@@ -1204,8 +1199,8 @@ mod tests {
             ClipFrame::Layer {
                 clip: paint::Clip {
                     rect: Rect::rounded(
-                        paint::point::logical(2.0, 2.0),
-                        paint::area::logical(20.0, 20.0),
+                        point::logical(2.0, 2.0),
+                        area::logical(20.0, 20.0),
                         paint::Rounding::relative(0.5),
                     ),
                 },
@@ -1213,10 +1208,7 @@ mod tests {
                 dirty: false,
             },
             ClipFrame::Scissor(paint::Clip {
-                rect: Rect::new(
-                    paint::point::logical(10.0, 0.0),
-                    paint::area::logical(20.0, 12.0),
-                ),
+                rect: Rect::new(point::logical(10.0, 0.0), area::logical(20.0, 12.0)),
             }),
         ];
 
@@ -1229,12 +1221,12 @@ mod tests {
     fn rounded_clip_keeps_mask_geometry_and_a_bounding_scissor() {
         let clip = paint::Clip {
             rect: Rect::rounded(
-                paint::point::logical(4.0, 4.0),
-                paint::area::logical(18.0, 12.0),
+                point::logical(4.0, 4.0),
+                area::logical(18.0, 12.0),
                 paint::Rounding::relative(1.0),
             ),
         };
-        let scissor = clip_scissor(clip.rect, paint::area::physical(100, 80), 1.0)
+        let scissor = clip_scissor(clip.rect, area::physical(100, 80), 1.0)
             .expect("clip should produce scissor");
 
         assert_eq!(clip.rect.rounding.resolve(clip.rect.area)[0], 6.0);
@@ -1249,10 +1241,7 @@ mod tests {
     fn draw_stats_summarize_scene_and_batches() {
         let mut scene = paint::Scene::new();
         scene.push_quad(paint::Quad::unchecked_for_test(
-            Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
                 stroke: None,
@@ -1262,43 +1251,28 @@ mod tests {
             paint::Transform::identity(),
         ));
         scene.push_text(paint::Text {
-            rect: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             document: text::document::Document::plain("hello"),
             wrap: paint::TextWrap::WordOrGlyph,
             vertical_align: paint::TextVerticalAlign::Center,
             overflow: crate::text::Overflow::Clip,
         });
         scene.push_icon(paint::Icon {
-            rect: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             icon: crate::icon::Icon::phosphor(crate::icon::Id::new("check")),
             color: paint::Color::BLACK,
             size: 16.0,
         });
         scene.push_clip(paint::Clip {
-            rect: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
         });
         scene.pop_clip();
         scene.push_group(paint::Group {
-            bounds: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(10.0, 10.0),
-            ),
+            bounds: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
             opacity: 0.5,
             items: vec![
                 paint::Item::Quad(paint::Quad::unchecked_for_test(
-                    Rect::new(
-                        paint::point::logical(0.0, 0.0),
-                        paint::area::logical(10.0, 10.0),
-                    ),
+                    Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
                     paint::Style {
                         fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::BLACK))),
                         stroke: None,
@@ -1308,10 +1282,7 @@ mod tests {
                     paint::Transform::identity(),
                 )),
                 paint::Item::Text(paint::Text {
-                    rect: Rect::new(
-                        paint::point::logical(0.0, 0.0),
-                        paint::area::logical(10.0, 10.0),
-                    ),
+                    rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
                     document: text::document::Document::plain("group"),
                     wrap: paint::TextWrap::WordOrGlyph,
                     vertical_align: paint::TextVerticalAlign::Center,
@@ -1333,14 +1304,11 @@ mod tests {
 
     #[test]
     fn group_layer_source_rect_is_local_texture_space() {
-        let bounds = Rect::new(
-            paint::point::logical(240.0, 120.0),
-            paint::area::logical(160.0, 80.0),
-        );
+        let bounds = Rect::new(point::logical(240.0, 120.0), area::logical(160.0, 80.0));
 
         let source = group_layer_source_rect(bounds);
 
-        assert_eq!(source.origin, paint::point::logical(0.0, 0.0));
+        assert_eq!(source.origin, point::logical(0.0, 0.0));
         assert_eq!(source.area, bounds.area);
     }
 
@@ -1391,8 +1359,8 @@ mod tests {
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_quad(paint::Quad::unchecked_for_test(
             Rect::rounded(
-                paint::point::logical(4.0, 4.0),
-                paint::area::logical(24.0, 24.0),
+                point::logical(4.0, 4.0),
+                area::logical(24.0, 24.0),
                 paint::Rounding::fixed(8.0),
             ),
             paint::Style {
@@ -1423,10 +1391,7 @@ mod tests {
             let mut scene = paint::Scene::new();
             scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
             scene.push_pane(paint::Pane::new(
-                Rect::new(
-                    paint::point::logical(2.0, 2.0),
-                    paint::area::logical(12.0, 12.0),
-                ),
+                Rect::new(point::logical(2.0, 2.0), area::logical(12.0, 12.0)),
                 paint::Material::Glass(paint::Glass {
                     fallback: paint::Brush::solid(paint::Color::rgba(1.0, 0.0, 0.0, 1.0)),
                     base,
@@ -1460,10 +1425,7 @@ mod tests {
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_pane(paint::Pane::new(
-            Rect::new(
-                paint::point::logical(2.0, 2.0),
-                paint::area::logical(12.0, 12.0),
-            ),
+            Rect::new(point::logical(2.0, 2.0), area::logical(12.0, 12.0)),
             paint::Material::Glass(paint::Glass {
                 fallback: paint::Brush::solid(paint::Color::BLACK),
                 base: paint::GlassBase::Transparent,
@@ -1499,10 +1461,7 @@ mod tests {
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_text(paint::Text {
-            rect: Rect::new(
-                paint::point::logical(2.0, 2.0),
-                paint::area::logical(60.0, 28.0),
-            ),
+            rect: Rect::new(point::logical(2.0, 2.0), area::logical(60.0, 28.0)),
             document: text::document::Document::plain("Ag")
                 .with_color(text::Color::RED)
                 .with_size(24.0),
@@ -1525,16 +1484,10 @@ mod tests {
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_group(paint::Group {
-            bounds: Rect::new(
-                paint::point::logical(0.0, 0.0),
-                paint::area::logical(16.0, 16.0),
-            ),
+            bounds: Rect::new(point::logical(0.0, 0.0), area::logical(16.0, 16.0)),
             opacity: 0.5,
             items: vec![paint::Item::Quad(paint::Quad::unchecked_for_test(
-                Rect::new(
-                    paint::point::logical(2.0, 2.0),
-                    paint::area::logical(12.0, 12.0),
-                ),
+                Rect::new(point::logical(2.0, 2.0), area::logical(12.0, 12.0)),
                 paint::Style {
                     fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
                         1.0, 0.0, 0.0, 0.5,
@@ -1621,10 +1574,7 @@ mod tests {
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_quad(paint::Quad::unchecked_for_test(
-            Rect::new(
-                paint::point::logical(2.0, 2.0),
-                paint::area::logical(12.0, 12.0),
-            ),
+            Rect::new(point::logical(2.0, 2.0), area::logical(12.0, 12.0)),
             paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
                     1.0, 0.0, 0.0, 0.5,
@@ -1638,10 +1588,8 @@ mod tests {
             paint::Transform::identity(),
         ));
 
-        let viewport = render::Viewport::from_logical_area(
-            paint::area::logical(width as f32, height as f32),
-            1.0,
-        );
+        let viewport =
+            render::Viewport::from_logical_area(area::logical(width as f32, height as f32), 1.0);
         let item_batch_list = item_batches(scene.items());
         let mut text_renderer_index = 0;
         renderer.quad_arena.begin_frame();
@@ -1802,10 +1750,7 @@ mod tests {
         let mut scene = paint::Scene::new();
         scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0));
         scene.push_quad(paint::Quad::unchecked_for_test(
-            Rect::new(
-                paint::point::logical(2.0, 2.0),
-                paint::area::logical(12.0, 12.0),
-            ),
+            Rect::new(point::logical(2.0, 2.0), area::logical(12.0, 12.0)),
             paint::Style {
                 fill: Some(paint::Fill::Brush(paint::Brush::solid(paint::Color::rgba(
                     0.25, 0.25, 0.25, 0.5,
@@ -1819,10 +1764,8 @@ mod tests {
             paint::Transform::identity(),
         ));
 
-        let viewport = render::Viewport::from_logical_area(
-            paint::area::logical(width as f32, height as f32),
-            1.0,
-        );
+        let viewport =
+            render::Viewport::from_logical_area(area::logical(width as f32, height as f32), 1.0);
         let item_batch_list = item_batches(scene.items());
         let mut text_renderer_index = 0;
         renderer.quad_arena.begin_frame();
@@ -1984,10 +1927,8 @@ mod tests {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut renderer = Renderer::new(&context, format);
-        let viewport = render::Viewport::from_logical_area(
-            paint::area::logical(width as f32, height as f32),
-            1.0,
-        );
+        let viewport =
+            render::Viewport::from_logical_area(area::logical(width as f32, height as f32), 1.0);
         let item_batch_list = item_batches(scene.items());
         let text_batch_count = glyph_batch_count(&item_batch_list);
         if text_batch_count > 0 {

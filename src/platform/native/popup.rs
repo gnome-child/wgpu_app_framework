@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -694,7 +695,7 @@ impl Native {
         &mut self,
         context: &NativeContext<'_>,
         parent: super::window::Handle,
-        initial_area: paint::area::Logical,
+        initial_area: area::Logical,
         presentation_mode: PopupPresentationMode,
         clear: crate::scene::Color,
     ) -> Result<PopupHost, NativeError> {
@@ -708,7 +709,7 @@ impl Native {
         let handle = NativeWindow::open(native_options, context.event_loop())?;
         let inner_size = handle.inner_size();
         let canvas_options = || render::CanvasOptions {
-            area: paint::area::physical(inner_size.width, inner_size.height).clamp_min(1),
+            area: area::physical(inner_size.width, inner_size.height).clamp_min(1),
             scale_factor: handle.scale_factor() as f32,
             color: render::color_to_wgpu(super::color::paint_color(clear)),
             composite_alpha: presentation_mode.alpha_preference(),
@@ -883,7 +884,7 @@ impl Native {
         let mut host = self.create_popup_host(
             context,
             parent_handle,
-            paint::area::logical(1.0, 1.0),
+            area::logical(1.0, 1.0),
             presentation_mode,
             crate::scene::Color::rgba(0, 0, 0, 0),
         )?;
@@ -1708,7 +1709,7 @@ impl PopupFirstPresentTrace {
         key: PopupKey,
         desired: PopupGeometry,
         observed_position: Option<winit::dpi::PhysicalPosition<i32>>,
-        observed_area: paint::area::Physical,
+        observed_area: area::Physical,
     ) {
         if self.configured {
             return;

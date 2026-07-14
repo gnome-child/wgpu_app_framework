@@ -282,38 +282,30 @@ fn renderer_adapter_helpers_stay_crate_private() {
 }
 
 #[test]
-fn paint_stays_below_text_and_native_rendering() {
+fn paint_stays_with_display_list_and_rendering_consumers() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed_roots = [
         src_dir.join("paint"),
-        src_dir.join("paint"),
         src_dir.join("render"),
         src_dir.join("platform").join("native"),
-        src_dir.join("text"),
     ];
 
     assert_imports_only_under_any(&src_dir, &allowed_roots, &["paint"]);
 }
 
 #[test]
-fn paint_file_modules_stay_private() {
-    let paint_mod = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("paint")
-            .join("mod.rs"),
-    )
-    .expect("paint geometry module should read");
+fn paint_keeps_policy_and_not_shared_coordinate_modules() {
+    let paint_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("paint");
+    let paint_mod =
+        std::fs::read_to_string(paint_dir.join("mod.rs")).expect("paint module should read");
 
     for module in ["area", "point"] {
-        let pattern = format!("pub(crate) mod {module};");
         assert!(
-            paint_mod.contains(&pattern),
-            "unit-distinguished paint module should be crate-visible: {pattern}"
-        );
-        assert!(
-            !paint_mod.contains(&format!("pub mod {module};")),
-            "paint file module should not become public API: pub mod {module};"
+            !paint_dir.join(format!("{module}.rs")).exists()
+                && !paint_mod.contains(&format!("mod {module};")),
+            "renderer-neutral {module} coordinates should stay with geometry"
         );
     }
 
@@ -327,20 +319,10 @@ fn paint_file_modules_stay_private() {
         }
     }
 
-    for alias in [
-        "Area",
-        "Point",
-        "LogicalArea",
-        "PhysicalArea",
-        "LogicalPoint",
-    ] {
-        assert!(
-            !paint_mod.contains(&format!("use area::{{{alias}"))
-                && !paint_mod.contains(&format!("use point::{{{alias}"))
-                && !paint_mod.contains(&format!(" as {alias}")),
-            "paint should not reintroduce compound or unit-erasing root alias {alias}"
-        );
-    }
+    assert!(
+        paint_mod.contains("use crate::geometry::{area, point};"),
+        "paint should consume geometry-owned unit-qualified coordinates"
+    );
 }
 
 #[test]
@@ -351,7 +333,7 @@ fn old_paint_space_root_module_is_extinct() {
 
     assert!(
         !src_dir.join(old_module).exists(),
-        "old paint-space root module should be folded into paint"
+        "old paint-space root bucket should stay extinct"
     );
     assert!(
         !lib.contains(&format!("mod {old_module};")),
@@ -368,21 +350,68 @@ fn old_paint_space_module() -> &'static str {
 }
 
 #[test]
-fn geometry_file_modules_stay_private() {
-    let geometry_mod = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("geometry")
-            .join("mod.rs"),
-    )
-    .expect("geometry module should read");
+fn geometry_namespaces_unit_species_without_compound_aliases() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let geometry_dir = src_dir.join("geometry");
+    let geometry_mod =
+        std::fs::read_to_string(geometry_dir.join("mod.rs")).expect("geometry module should read");
 
-    for module in ["area", "point", "rect", "size"] {
+    for module in ["area", "point"] {
         assert!(
-            !geometry_mod.contains(&format!("pub mod {module};")),
-            "public geometry API should expose concepts through the facade, not file modules: {module}"
+            geometry_mod.contains(&format!("pub mod {module};")),
+            "unit species should use the public geometry namespace: {module}::Logical"
         );
     }
+
+    assert!(
+        geometry_mod.contains("pub use point::Point;"),
+        "a module's same-named central type should be its sole parent projection"
+    );
+    assert!(
+        !geometry_mod.contains("pub use area::")
+            && !geometry_mod.contains("pub use point::{")
+            && !geometry_mod.contains("pub use point::Logical"),
+        "supporting coordinate species should remain simply named behind their module"
+    );
+
+    for module in ["rect", "size"] {
+        assert!(
+            !geometry_mod.contains(&format!("pub mod {module};")),
+            "single-species geometry should retain its established root name: {module}"
+        );
+    }
+
+    for file in ["area.rs", "point.rs"] {
+        let source = std::fs::read_to_string(geometry_dir.join(file))
+            .unwrap_or_else(|error| panic!("geometry/{file} should read: {error}"));
+        assert!(
+            source.contains("pub struct Logical"),
+            "geometry/{file} should declare the namespaced Logical species"
+        );
+    }
+
+    for alias in [
+        "LogicalArea",
+        "LogicalPoint",
+        "PhysicalArea",
+        "PhysicalPoint",
+    ] {
+        assert!(
+            !geometry_mod.contains(alias),
+            "compound coordinate alias should collapse to its namespaced declaration: {alias}"
+        );
+    }
+    assert!(
+        !geometry_mod.contains(" as Logical") && !geometry_mod.contains(" as Physical"),
+        "parent projections should not preserve compound coordinate declarations behind aliases"
+    );
+    assert_source_patterns_absent(
+        &src_dir,
+        &[
+            concat!("geometry::Logical", "Area").to_owned(),
+            concat!("geometry::Logical", "Point").to_owned(),
+        ],
+    );
 }
 
 #[test]

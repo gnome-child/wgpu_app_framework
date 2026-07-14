@@ -1,18 +1,18 @@
+use crate::geometry::area;
 use wgpu::{SurfaceTarget, SurfaceTargetUnsafe};
 
-use crate::paint;
 use crate::render;
 
 pub struct Canvas {
     surface: render::Surface,
-    physical_area: paint::area::Physical,
-    logical_area: paint::area::Logical,
+    physical_area: area::Physical,
+    logical_area: area::Logical,
     scale_factor: f32,
     color: wgpu::Color,
 }
 
 pub struct Options {
-    pub area: paint::area::Physical,
+    pub area: area::Physical,
     pub scale_factor: f32,
     pub color: wgpu::Color,
     pub composite_alpha: render::CompositeAlphaPreference,
@@ -75,11 +75,11 @@ impl Canvas {
         self.surface.config().alpha_mode
     }
 
-    pub fn physical_area(&self) -> paint::area::Physical {
+    pub fn physical_area(&self) -> area::Physical {
         self.physical_area
     }
 
-    pub fn logical_area(&self) -> paint::area::Logical {
+    pub fn logical_area(&self) -> area::Logical {
         self.logical_area
     }
 
@@ -94,7 +94,7 @@ impl Canvas {
     pub fn resize(
         &mut self,
         render_context: &render::Context,
-        area: paint::area::Physical,
+        area: area::Physical,
         scale_factor: f32,
     ) {
         self.physical_area = area;

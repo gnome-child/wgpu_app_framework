@@ -1,7 +1,8 @@
+use crate::geometry::area;
 #[cfg(target_os = "windows")]
 mod windows;
 
-use crate::{geometry, paint, scene};
+use crate::{geometry, scene};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::platform::native) enum PopupAccentMaterial {
@@ -56,7 +57,7 @@ pub(in crate::platform::native) fn configure_popup_bounds(
     window: &winit::window::Window,
     x: i32,
     y: i32,
-    area: paint::area::Logical,
+    area: area::Logical,
 ) {
     #[cfg(target_os = "windows")]
     windows::configure_popup_bounds(window, x, y, area);

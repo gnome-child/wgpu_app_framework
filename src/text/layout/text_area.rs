@@ -1,3 +1,4 @@
+use crate::geometry::area;
 use std::cell::RefCell;
 use std::num::NonZeroUsize;
 use std::rc::Rc;
@@ -14,7 +15,6 @@ use super::constants::{
 use super::key::{StyleKey, finite_bits};
 use super::output::TextAreaSurface;
 use super::shaping_cache::ShapingCache;
-use crate::paint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Observation {
@@ -172,7 +172,7 @@ pub(super) fn render_line_window(
 pub(super) fn surface_for_segment(
     segment: &DisplaySegment,
     style: Style,
-    viewport: paint::area::Logical,
+    viewport: area::Logical,
     state: &ViewState,
 ) -> TextAreaSurface {
     TextAreaSurface {

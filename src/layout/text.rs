@@ -9,7 +9,7 @@ use crate::text as text_engine;
 
 use super::super::{
     diagnostics,
-    geometry::{Point, Rect, Size},
+    geometry::{Point, Rect, Size, area},
     interaction, scene,
     theme::Theme,
     view,
@@ -438,7 +438,7 @@ fn viewport_for_text_area(
 fn clamp_text_area_scroll_state(
     state: &text_engine::edit::ViewState,
     layout: &text_engine::layout::TextFieldLayout,
-    viewport: text_engine::layout::SurfaceArea,
+    viewport: area::Logical,
 ) -> text_engine::edit::ViewState {
     let content_area = layout.content_area();
     let max_scroll_x = (content_area.width() - viewport.width()).max(0.0);

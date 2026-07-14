@@ -1,11 +1,12 @@
+use crate::geometry::area;
 use std::time::Instant;
 
-use crate::{diagnostics, paint, render};
+use crate::{diagnostics, render};
 
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{Native, NativeContext, PopupPrewarmState};
-use crate::{geometry, shell, window as app_window};
+use crate::{shell, window as app_window};
 
 impl Native {
     pub(in crate::platform::native) fn ensure_context(&mut self) -> Result<(), NativeError> {
@@ -74,9 +75,7 @@ impl Native {
 
         let native_options = Options {
             title: window.title().to_owned(),
-            inner_size: InitialSize::Logical(native_logical_area(
-                geometry::LogicalArea::from_size(window.size()),
-            )),
+            inner_size: InitialSize::Logical(area::Logical::from_size(window.size())),
             kind: window.kind(),
             owner: None,
             popup_presentation_mode: None,
@@ -89,7 +88,7 @@ impl Native {
         let inner_size = handle.inner_size();
         let canvas = render::Canvas::new(
             render::CanvasOptions {
-                area: paint::area::physical(inner_size.width, inner_size.height).clamp_min(1),
+                area: area::physical(inner_size.width, inner_size.height).clamp_min(1),
                 scale_factor: handle.scale_factor() as f32,
                 color: render::color_to_wgpu(super::color::paint_color(window.canvas_color())),
                 composite_alpha: render::CompositeAlphaPreference::Default,
@@ -269,12 +268,6 @@ fn native_backend_attempts(explicit: Option<wgpu::Backends>) -> Vec<wgpu::Backen
     {
         vec![wgpu::Backends::all()]
     }
-}
-
-pub(in crate::platform::native) fn native_logical_area(
-    area: geometry::LogicalArea,
-) -> paint::area::Logical {
-    paint::area::logical(area.width(), area.height())
 }
 
 #[cfg(test)]

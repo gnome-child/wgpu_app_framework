@@ -1,12 +1,11 @@
+use crate::geometry::{area, point};
 use crate::icon;
 use crate::text;
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-pub(crate) mod area;
 mod grid;
-pub(crate) mod point;
 mod rect;
 
 pub(crate) use grid::Grid;
