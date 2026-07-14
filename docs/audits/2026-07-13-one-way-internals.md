@@ -3114,6 +3114,49 @@ Status: **complete; capture implication encoded**. Correction `d5e0be2e`
    remaining UI inventories and option/boolean clusters; this cell does not
    close Rung 5.
 
+### R5-14 — valid realized-material parts receipt
+
+Status: **complete; tint implication encoded**. Correction `27231efe`
+(`Make realized material parts valid`).
+
+1. **Question and complete trace.** The reverse scene-receipt sweep traced
+   material requests from retained pane identity and native capability forecast
+   through Windows composition/accent outcomes, popup reports, unique report
+   matching, residual material subtraction, fidelity classification, renderer
+   lowering, and all material lifecycle witnesses.
+2. **Invalid state.** `scene::RealizedMaterialParts` carried independent
+   `backdrop_frost` and `surface_tint` booleans. Its constructors admitted only
+   no parts, frost, or frost plus tint, but the representation also admitted
+   surface tint without backdrop frost, which no platform report can mean.
+3. **Correction.** The receipt now contains one private
+   `Parts::{None, Frost { surface_tint }}` fact. Existing `none()`, `frost()`,
+   `backdrop_frost()`, and `surface_tint()` crossings are unchanged; tint can
+   exist only within the frost species.
+4. **Boundary and naming ruling.** `RealizedMaterialParts` retains its direct,
+   unchanged crate-private projection from `scene::region`; private `Parts`
+   does not escape or acquire an alias. No compound declaration is exposed
+   under a simpler spelling and no visibility widened.
+5. **Behavior and economics.** Platform forecast and realization, report
+   identity/order, duplicate rejection, residual subtraction order, fidelity,
+   popup material paths, renderer batching, allocation, and presentation work
+   are unchanged. One enum replaces two booleans without a heap object or
+   additional traversal.
+6. **Doctrine and witnesses.** Master design now states that surface tint is a
+   fact nested inside realized frost. The architecture witness pins that
+   species and tombstones the old parallel receipt fields; the existing 38
+   material-path witnesses continue to cover realization and fallback.
+7. **Proof and gauge delta from R5-13.** The architecture witness and all 38
+   focused material-path tests passed; the full library discovered 1,096 tests
+   and passed 1,086 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains
+   unchanged.
+8. **Fixed point and next frontier.** Material realization now carries only
+   reportable part combinations from platform receipt through residual paint.
+   The reverse sweep continues across composition identity and remaining UI
+   state shapes; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
