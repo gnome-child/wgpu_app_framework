@@ -236,6 +236,12 @@ so a late worker completion for a no-longer-pending id is inert. Headless test
 helpers may execute a task deterministically, but they are not the native
 production path.
 
+Worker-pool realization retains every worker the operating system admits. If
+none can start, the executor rejects work and the native runner cancels the
+authoritative task id. Work is never buffered without a consumer, moved onto
+the UI thread, or allowed to panic application startup merely because a worker
+thread could not be created.
+
 Suite-runtime measurements distinguish Cargo wall time from test-harness work.
 The Loop III suite-runtime audit at 785 tests measured five warm `cargo test --lib`
 runs at 2.054s average, the already-built test binary at 1.169s average, and

@@ -880,6 +880,71 @@ semantic owner`).
    failures remain typed at the owners that can define their recovery and
    lifetime. Cell closed.
 
+### R1-09 — Rung 1 hygiene and task worker startup failure
+
+Status: **complete**. Correction `176aa109` (`Handle task worker startup
+failure`).
+
+1. **Question and trace.** The required Rung 1 hygiene pass inventoried
+   production `pub(crate)`, allowances, panic/expect paths, and compatibility
+   structure in animation, pointer, document, icons, tasks, state, feedback,
+   command failure, and the immediate command/responder consumers encountered
+   by those traces. One site described an operational outcome as an invariant:
+   `task::Executor::new` expected every requested OS worker thread to start.
+   The trace covered full, partial, and zero worker capacity; queued jobs;
+   executor drop; native dispatch rejection; cancellation; event-loop proxy
+   completion; and the direct/headless path.
+2. **Inventory disposition.** No Rung 1 owner contains an `#[allow(...)]` or a
+   production `panic!`. The ten global allowances have named later owners: the
+   overlay dead-code allowance and popup/layout argument-shape allowances go to
+   the Rung 5 UI examination; native-popup argument shape goes through Rungs 4
+   and 5; and the six platform/backend private-interface allowances go through
+   Rungs 4 and 6. The nine global production panics likewise route to Rung 2
+   shaping cache (one), Rung 4 render-filter shader (two), and the Rung 3/5
+   command/UI examination for layout frames, focus, and standard-menu topology
+   (six). They are owned debt, not silently accepted residue.
+3. **Retained invariants and visibility.** The task sink's downcast follows an
+   exact `TypeId` admission check; responder insertion, response-effect
+   cardinality, and menu-section insertion are local cardinality proofs. The
+   registered-category label expectation is a command state-shape question and
+   travels with the complete Rung 3 command trace rather than being hidden as
+   indexing or `unreachable!`. Icon expectations are test-only. All-target
+   compilation reports no dead-code warning in the touched owners. Their live
+   crate-visible crossings have named consumers—task executor/queue/sink from
+   platform/runtime/command, state machinery from runtime/timeline, feedback
+   stack from draft/session, icon fonts from text, and command internals from
+   runtime/UI—while Rung 6 still owes the symbol-level future-workspace
+   visibility disposition. The one-line root error facade remains the sole
+   intentional compatibility surface admitted by R1-08; no retired Rung 1
+   path receives new behavior.
+4. **Admission and correction.** OS thread creation failure is absence of
+   execution capacity, not proof of a programming invariant. A new public
+   error or platform callback would enlarge the seam unnecessarily because the
+   existing executor contract already returns whether it accepted a job and
+   the native runner already cancels rejected task ids. Executor construction
+   now retains every worker that starts, logs individual failures, and removes
+   its sender when zero workers exist. Partial capacity continues asynchronously;
+   zero capacity rejects immediately and uses the existing cancellation path.
+   It never runs deferred work on the UI thread or leaves work buffered without
+   a receiver.
+5. **Proof and ratchet.** New owner tests simulate zero and partial startup
+   capacity. The existing exact worker-thread witness, 22 focused task
+   witnesses, and the strengthened architecture witness pin named workers,
+   nonpanic startup, zero-capacity rejection, event-loop proxy completion, and
+   cancellation after rejection. Full library: 1,065 passed, 10 ignored, 0
+   failed; all five examples and all targets compiled without warnings;
+   formatting and diff checks passed. The task doctrine now records the
+   failure law. Renderer topology, presentation clocks, and frame economics
+   are inapplicable; the successful full-capacity execution path is unchanged.
+6. **Gauge delta.** Production `.expect(...)` calls fall 103 -> 102. Production
+   and test module edges, slot edges, forbidden edges, external questions, the
+   SCC, visibility, test-edge counts, source-root reads, filesystem reads,
+   allowances, and production panics are unchanged.
+7. **Fixed point.** Rung 1's one operational expect is retired; every remaining
+   hygiene finding in the examined slices has an owner and disposition. The
+   task owner keeps a bounded asynchronous pool under partial capacity and an
+   honest rejection result under zero capacity. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
