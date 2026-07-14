@@ -4342,6 +4342,63 @@ Correction `4fc97968` (`Make focus presentation structural`).
    and the complete visibility/failure/intermediate inventories; this cell does
    not close Rung 5.
 
+### R5-37 — valid draft-change implication species
+
+Status: **complete; detailed changes made to imply the broader receipt**.
+Correction `2d2ce117` (`Make draft change implications structural`).
+
+1. **Question and complete trace.** The reverse draft-receipt sweep traced the
+   sole change producer through ordinary edit, selection, undo/redo, target
+   replacement, preedit clearing, cursor and caret-blink updates, submit,
+   runtime input outcomes, focused document services, feedback retirement,
+   command-palette rebuilding, layout invalidation, and the draft/TextBox/text-
+   input witnesses.
+2. **Invalid states and retained independence.** `draft::Change` stored
+   `text_changed`, `selection_changed`, and the broader `changed` fact as three
+   independent booleans even though either detail always implies the broader
+   change. A changed receipt without either detail remains valid for cursor,
+   target, preedit, operation, or blink work. Submit is also independent: a
+   submit request can exist without mutating draft state and is consumed
+   separately by commit handling.
+3. **Correction and repeated-policy reduction.** One private
+   `Kind::{Unchanged, Changed { text, selection }}` now owns the implication.
+   The sole constructor accepts the two details plus only the remaining change
+   causes and derives the species once. The producer no longer repeats text and
+   selection inside its broader-change expression; all existing receipt queries
+   project from the sum, while submit remains beside it.
+4. **Boundary and naming ruling.** Crate-visible `draft::Change` remains the
+   namesake module's sole parent projection. Private `Kind` stays inside
+   `draft::change` and receives no re-export or alias. No compound declaration,
+   flattened supporting name, visibility widening, or public application
+   spelling was introduced.
+5. **Behavior and economics.** Text, selection, cursor, target, preedit,
+   history, blink, submit, command-palette reset, feedback clearing, response
+   effects, document outcomes, allocation, layout work, scene order, renderer
+   topology, batching/pass fusion, invalidation, and presentation clocks are
+   unchanged. One enum discriminant replaces the correlated broad boolean
+   without a heap object, lookup, callback, or traversal.
+6. **Doctrine and witnesses.** Master design now records the unchanged/changed
+   species, the detailed-change implication, and submit independence. A direct
+   owner witness proves both implications and submit-only absence of mutation;
+   the architecture witness pins the private sum, the one central parent
+   projection, derived admission, and extinction of the repeated producer
+   terms.
+7. **Proof and gauge delta from R5-36.** The full library discovered 1,121 tests
+   and passed 1,111 with 10 ignored; all targets and all five examples compiled
+   without warnings. All nine census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed. Every gauge remains
+   unchanged: production/test edges 325/111, split responsibilities 3, slot
+   edges 54, forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,814
+   in 191 files, cross-slot upper bound 1,767, cross-slot test edges 90,
+   source-root mentions 118, filesystem reads 361, allowances 6, panics 6, and
+   expects 89.
+8. **Fixed point and next frontier.** Detailed draft changes can no longer exist
+   outside the broader changed species, and the producer no longer maintains
+   the same implication manually. The reverse sweep continues through session
+   scopes, scene/view action receipts, theme patch semantics, remaining layout
+   lifecycles, and the complete visibility/failure/intermediate inventories;
+   this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
