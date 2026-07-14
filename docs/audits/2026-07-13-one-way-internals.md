@@ -3833,6 +3833,69 @@ Correction `7e008361` (`Make cursor publication state valid`).
    remaining visibility, failure, and intermediate inventories; this cell does
    not close Rung 5.
 
+### R5-29 — contextual-menu pruning retires captured focus
+
+Status: **complete; cross-owner cleanup made explicit**. Correction `b4e00498`
+(`Retire pruned menu focus capture`).
+
+1. **Question and complete trace.** The reverse menu-focus sweep traced authored
+   and contextual menu opening, switching, toggling, explicit close, outside-
+   surface dismissal, command activation, palette replacement, focus capture
+   and restoration, contextual-owner reconciliation, command-scope resolution,
+   window restore, and destruction. Every ordinary session path retired
+   `menu_restore_focus` with the menu except interaction-owned contextual-menu
+   pruning.
+2. **Stale authority and reopened evidence.** Removing a contextual owner made
+   `interaction::Interaction` close its menu directly, but the session-owned
+   captured focus survived. `Session::command_focus` then preferred that stale
+   capture over later live focus even though no menu surface remained. This new
+   downstream consequence legitimately reopens R5-13's three-species pruning
+   receipt: capture removal was not the only cleanup fact that had to cross the
+   interaction/session boundary.
+3. **Correction.** `PruneOutcome` is now
+   `Unchanged | Changed { capture_removed, menu_removed }`. The outer species
+   makes every consequence imply change, while the two consequences remain
+   independent and may coexist. Interaction reports contextual-menu removal;
+   the session wrapper consumes that receipt and clears `menu_restore_focus`
+   without restoring a possibly removed owner. The stale capture path is
+   deleted.
+4. **Boundary and resistance ruling.** Interaction continues to own command-
+   surface identity and contextual-owner pruning; session continues to own
+   keyboard focus and restoration. Moving `Focus` into interaction, duplicating
+   menu activity in a session enum, or inferring cleanup after the fact would
+   blur those owners. The narrow cleanup receipt is the honest crossing and
+   existing explicit-close, outside-dismissal, palette-replacement, restore,
+   and destruction paths retain their distinct policies.
+5. **Naming and visibility ruling.** `Pruned` remains the crate-visible central
+   receipt and private `PruneOutcome` remains unprojected. The supporting
+   `menu_removed()` query is visible only across the interaction/session module
+   boundary; no parent re-export, alias, compound declaration, or public
+   application spelling was added.
+6. **Behavior and economics.** Menu placement, switching, command resolution
+   while live, focus restoration on ordinary close, non-restoring outside
+   dismissal, palette capture, composition order, scene/overlay paint,
+   renderer topology, presentation clocks, allocation, and frame work are
+   unchanged. Owner removal still closes the contextual menu without restoring
+   focus; it now also retires the capture that had become meaningless.
+7. **Proof and gauge delta from R5-28.** The focused architecture witness and
+   contextual-owner removal journey passed, including a live-focus replacement
+   that would previously have been shadowed. The full library discovered 1,111
+   tests and passed 1,101 with 10 ignored; all targets compiled without
+   warnings. All nine census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed. Production/test edges remain
+   325/111; split responsibilities, slot edges, forbidden edges, external
+   violations, SCCs, and cross-slot test edges remain 3, 54, 0, 0, 0, and 90.
+   The explicit cleanup query raises production `pub(crate)` declarations
+   1,809 -> 1,810 and the cross-slot upper bound 1,762 -> 1,763. Source-root
+   mentions, filesystem reads, allowances, panics, and expects remain 118, 361,
+   6, 7, and 90.
+8. **Fixed point and next frontier.** A contextual menu and its captured focus
+   now retire together across the owner boundary, and no other direct menu-
+   retirement path leaves a capture behind. The reverse sweep continues through
+   the partial focus/target APIs, view/layout role facts, widget/theme state,
+   and the remaining visibility, failure, and intermediate inventories; this
+   cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
