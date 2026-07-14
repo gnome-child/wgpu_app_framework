@@ -3,7 +3,7 @@ mod menu;
 pub(crate) mod pointer;
 mod scroll;
 mod selection;
-mod table;
+pub(crate) mod table;
 mod target;
 
 pub use crate::identity::Id;

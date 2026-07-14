@@ -471,6 +471,26 @@ fn view_command_palette_parent_projects_only_its_namesake_type() {
 }
 
 #[test]
+fn table_interaction_snapshot_crosses_session_as_one_owned_state() {
+    let interaction = include_str!("../interaction/mod.rs");
+    let tables = include_str!("../interaction/table.rs");
+    let window = include_str!("../session/window.rs");
+
+    assert!(
+        interaction.contains("pub(crate) mod table;")
+            && interaction.contains("pub(crate) use table::Tables;")
+            && !interaction.contains("use table::Snapshot")
+            && tables.contains("pub(crate) struct Snapshot {")
+            && tables.contains("pub(crate) fn snapshot(&self) -> Snapshot")
+            && tables.contains("pub(crate) fn restore(&mut self, snapshot: Snapshot)")
+            && window.contains("tables: interaction::table::Snapshot,")
+            && window.contains("restore(snapshot.tables)")
+            && !window.contains("table_widths")
+            && !window.contains("table_active_columns")
+    );
+}
+
+#[test]
 fn layout_chrome_parent_projects_only_its_namesake_type() {
     let layout = include_str!("../layout/mod.rs");
     let chrome = include_str!("../layout/chrome.rs");

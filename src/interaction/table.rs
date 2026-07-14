@@ -8,6 +8,12 @@ pub(crate) struct Tables {
     active_columns: HashMap<crate::interaction::Id, crate::interaction::Id>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Snapshot {
+    widths: Vec<(table::HeaderCell, i32)>,
+    active_columns: Vec<(crate::interaction::Id, crate::interaction::Id)>,
+}
+
 impl Tables {
     pub(crate) fn width(&self, column: table::HeaderCell) -> Option<i32> {
         self.widths.get(&column).copied()
@@ -41,12 +47,7 @@ impl Tables {
         true
     }
 
-    pub(crate) fn snapshot(
-        &self,
-    ) -> (
-        Vec<(table::HeaderCell, i32)>,
-        Vec<(crate::interaction::Id, crate::interaction::Id)>,
-    ) {
+    pub(crate) fn snapshot(&self) -> Snapshot {
         let widths = self
             .widths
             .iter()
@@ -57,15 +58,35 @@ impl Tables {
             .iter()
             .map(|(table, column)| (*table, *column))
             .collect();
-        (widths, active_columns)
+        Snapshot {
+            widths,
+            active_columns,
+        }
     }
 
-    pub(crate) fn restore(
-        &mut self,
-        widths: Vec<(table::HeaderCell, i32)>,
-        active_columns: Vec<(crate::interaction::Id, crate::interaction::Id)>,
-    ) {
-        self.widths = widths.into_iter().collect();
-        self.active_columns = active_columns.into_iter().collect();
+    pub(crate) fn restore(&mut self, snapshot: Snapshot) {
+        self.widths = snapshot.widths.into_iter().collect();
+        self.active_columns = snapshot.active_columns.into_iter().collect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_restores_width_and_active_column_as_one_table_state() {
+        let table = crate::interaction::Id::new("table");
+        let column = crate::interaction::Id::new("column");
+        let header = table::HeaderCell::new(table, column);
+        let mut source = Tables::default();
+        assert!(source.set_width(header, 172));
+        assert!(source.set_active_column(table, column));
+
+        let mut restored = Tables::default();
+        restored.restore(source.snapshot());
+
+        assert_eq!(restored.width(header), Some(172));
+        assert_eq!(restored.active_column(table), Some(column));
     }
 }
