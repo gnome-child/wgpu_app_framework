@@ -17,7 +17,7 @@ mod control;
 mod feedback;
 pub(crate) mod focus;
 mod hint;
-mod node;
+pub(crate) mod node;
 #[cfg(test)]
 mod presentation;
 mod style;

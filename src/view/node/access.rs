@@ -3,12 +3,16 @@ use super::super::{
     control::{Button, Checkbox, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, PanelPolicy, Role};
+use super::{Axis, Content, FloatingPlacement, Node, PanelPolicy, Role};
 use crate::{interaction, subject};
 
 static INTERACTIVE_PANEL_POLICY: PanelPolicy = PanelPolicy::Interactive;
 
 impl Node {
+    pub(crate) fn content(&self) -> &Content {
+        &self.content
+    }
+
     pub(crate) fn role(&self) -> Role {
         self.content.role()
     }
@@ -31,10 +35,6 @@ impl Node {
         self.content.panel().and_then(|panel| panel.attachment)
     }
 
-    pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
-        self.content.panel().and_then(|panel| panel.popup_context)
-    }
-
     pub(crate) fn panel_policy(&self) -> &PanelPolicy {
         self.content
             .panel()
@@ -45,20 +45,6 @@ impl Node {
         self.content
             .panel()
             .and_then(|panel| panel.policy.auxiliary_hint())
-    }
-
-    pub(crate) fn force_overlay_group(&self) -> bool {
-        self.content
-            .panel()
-            .is_some_and(|panel| panel.force_overlay_group)
-    }
-
-    pub(crate) fn native_popup_material_preference(&self) -> NativePopupMaterialPreference {
-        self.content
-            .panel()
-            .map_or(NativePopupMaterialPreference::System, |panel| {
-                panel.native_material
-            })
     }
 
     pub(crate) fn table_header_presentation(&self) -> Option<crate::table::HeaderPresentation> {

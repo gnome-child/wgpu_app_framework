@@ -13,7 +13,7 @@ mod standard_menu;
 mod traversal;
 
 pub use axis::Axis;
-use content::Content;
+pub(crate) use content::{Content, MenuBar, Panel, Scroll};
 pub(crate) use role::Role;
 pub(crate) use standard_menu::Extension as StandardMenuExtension;
 

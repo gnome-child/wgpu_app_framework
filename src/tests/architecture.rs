@@ -1562,7 +1562,7 @@ fn view_style_module_stays_private() {
 }
 
 #[test]
-fn view_node_module_stays_private() {
+fn view_node_module_exposes_only_namespaced_internal_content() {
     let view_mod = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("src")
@@ -1571,12 +1571,14 @@ fn view_node_module_stays_private() {
     )
     .expect("view module should read");
 
-    for pattern in ["pub mod node;", "pub(crate) mod node;"] {
-        assert!(
-            !view_mod.contains(pattern),
-            "view node file module should stay behind the facade: {pattern}"
-        );
-    }
+    assert!(!view_mod.contains("pub mod node;"));
+    assert!(view_mod.contains("pub(crate) mod node;"));
+    assert!(
+        view_mod.contains(
+            "pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};"
+        )
+    );
+    assert!(!view_mod.contains("pub(crate) use node::{Content"));
 }
 
 #[test]
@@ -1608,10 +1610,13 @@ fn view_control_module_stays_private() {
 
 #[test]
 fn view_node_content_is_the_single_role_payload_representation() {
+    let view = include_str!("../view/mod.rs");
     let node = include_str!("../view/node/mod.rs");
     let content = include_str!("../view/node/content.rs");
+    let access = include_str!("../view/node/access.rs");
     let builder = include_str!("../view/node/builder.rs");
     let control = include_str!("../view/control/mod.rs");
+    let frame = include_str!("../layout/frame.rs");
     let fields = node
         .split("pub struct Node {")
         .nth(1)
@@ -1621,10 +1626,11 @@ fn view_node_content_is_the_single_role_payload_representation() {
         .expect("Node fields should end");
 
     assert!(
-        node.contains("mod content;")
-            && node.contains("use content::Content;")
+        view.contains("pub(crate) mod node;")
+            && node.contains("mod content;")
+            && node.contains("pub(crate) use content::{Content, MenuBar, Panel, Scroll};")
             && fields.contains("content: Content"),
-        "Node must carry one private typed role payload"
+        "Node must carry one typed role payload through the namespaced layout seam"
     );
     for displaced in [
         "role: Role",
@@ -1651,7 +1657,7 @@ fn view_node_content_is_the_single_role_payload_representation() {
     }
 
     for required in [
-        "pub(super) enum Content {",
+        "pub(crate) enum Content {",
         "MenuBar(MenuBar)",
         "TextArea(TextArea)",
         "Button(Button)",
@@ -1663,9 +1669,9 @@ fn view_node_content_is_the_single_role_payload_representation() {
         "VirtualList {",
         "FloatingPanel(Panel)",
         "pub(super) fn role(&self) -> Role",
-        "pub(super) enum MenuBar {",
+        "pub(crate) enum MenuBar {",
         "Standard(Vec<StandardMenuExtension>)",
-        "pub(super) enum Scroll {",
+        "pub(crate) enum Scroll {",
         "Table {",
     ] {
         assert!(
@@ -1675,6 +1681,14 @@ fn view_node_content_is_the_single_role_payload_representation() {
     }
 
     assert!(!control.contains("enum Control"));
+    assert!(access.contains("pub(crate) fn content(&self) -> &Content"));
+    assert!(frame.contains("match node.content()"));
+    assert!(frame.contains("view::{self, Node, node}"));
+    assert!(frame.contains("node::Content::"));
+    assert!(frame.contains("node::Panel {"));
+    assert!(!frame.contains("fn for_node("));
+    assert!(!frame.contains("role must carry"));
+    assert!(!frame.contains("frame must carry"));
     assert!(builder.contains("fn table_scroll(model: crate::table::Model)"));
     assert!(builder.contains("fn text_box_state_with_commit("));
     assert!(!builder.contains("fn with_table_model("));
@@ -1691,7 +1705,7 @@ fn floating_panel_state_is_structural_through_view_and_layout() {
     let frame = include_str!("../layout/frame.rs");
     let algorithm = include_str!("../layout/algorithm.rs");
     let panel_fields = content
-        .split("pub(super) struct Panel {")
+        .split("pub(crate) struct Panel {")
         .nth(1)
         .expect("view panel content should exist")
         .split("\n}")

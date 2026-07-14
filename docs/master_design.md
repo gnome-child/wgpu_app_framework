@@ -275,8 +275,8 @@ and action metadata. View answers "what is being presented?" It should not own
 input dispatch, command execution, mutation history, platform rendering, or
 task execution.
 
-A view `Node` is one common declarative envelope around one private typed
-`Content`. The content discriminant is the node's role truth and owns the
+A view `Node` is one common declarative envelope around one typed `Content`.
+The content discriminant is the node's role truth and owns the
 mutually exclusive control models, ordinary/table scroll state, virtual-list
 model and offset, text-box commit capability, standard menu-bar state, and
 floating-panel state. Role is derived; it is never copied beside those
@@ -284,6 +284,11 @@ payloads. Cross-role annotations such as identity, axis, style, subject,
 visible text, bindings, focus/selection projection, provided/table identity,
 participation, context-menu eligibility, and children remain on the common
 envelope because live nodes combine them independently of role.
+
+Layout consumes this truth through the crate-internal `view::node::Content`
+contract rather than querying role and then recovering a parallel optional
+model. The namesake parent projection remains `view::Node` alone; supporting
+content species stay qualified through `view::node` and are not flattened.
 
 Resolved focus presentation is one `view::focus::Presentation` species:
 unfocused, focused without a visible affordance, or visibly focused. Visible
@@ -473,6 +478,9 @@ answer "can this command run?" or "what side effect should happen?"
 typed `FrameContent`. The content discriminant is the frame's role truth and
 owns mutually exclusive choice, text, slider, scroll, and unit-role payloads;
 there is no independent copied role or parallel optional leaf-payload cluster.
+Frame construction matches the view's typed content directly and enriches that
+species with layout-owned geometry; it never reconstructs role/content
+agreement through optional accessors and assertions.
 Its floating-panel payload owns popup placement and context, material and group
 preferences, and the same structural panel policy; those facts do not occupy
 ordinary frames.

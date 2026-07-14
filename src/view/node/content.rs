@@ -10,7 +10,7 @@ use super::super::{
 };
 
 #[derive(Clone)]
-pub(super) enum Content {
+pub(crate) enum Content {
     Root,
     Stack,
     MenuBar(MenuBar),
@@ -39,13 +39,13 @@ pub(super) enum Content {
 }
 
 #[derive(Clone)]
-pub(super) enum MenuBar {
+pub(crate) enum MenuBar {
     Ordinary,
     Standard(Vec<StandardMenuExtension>),
 }
 
 #[derive(Clone)]
-pub(super) enum Scroll {
+pub(crate) enum Scroll {
     Ordinary {
         offset: interaction::ScrollOffset,
     },
@@ -56,13 +56,13 @@ pub(super) enum Scroll {
 }
 
 #[derive(Clone)]
-pub(super) struct Panel {
+pub(crate) struct Panel {
     pub(super) placement: FloatingPlacement,
     pub(super) attachment: Option<PanelAttachment>,
-    pub(super) popup_context: Option<popup::ContextFingerprint>,
-    pub(super) policy: PanelPolicy,
-    pub(super) force_overlay_group: bool,
-    pub(super) native_material: NativePopupMaterialPreference,
+    pub(crate) popup_context: Option<popup::ContextFingerprint>,
+    pub(crate) policy: PanelPolicy,
+    pub(crate) force_overlay_group: bool,
+    pub(crate) native_material: NativePopupMaterialPreference,
 }
 
 impl Content {

@@ -3,7 +3,7 @@ use super::super::{
     geometry::{Point, Rect},
     interaction, keymap, scene,
     theme::Theme,
-    view,
+    view::{self, Node, node},
 };
 use super::{Viewport, control, engine, measure, path, table, text, typography};
 use crate::{animation, text as text_model};
@@ -31,7 +31,7 @@ impl ShortcutPart {
 }
 
 pub(super) struct Input<'a> {
-    pub(super) node: &'a view::Node,
+    pub(super) node: &'a Node,
     pub(super) node_id: composition::NodeId,
     pub(super) path: path::Path,
     pub(super) rect: Rect,
@@ -218,153 +218,250 @@ impl Frame {
         } = input;
         let target = target_for(node, node_id);
         let binding = node.binding().cloned();
-        let text_box = node.text_box_model().cloned();
-        let input_parts = text_box.as_ref().map(|text_box| {
-            control::input_parts(
-                rect,
-                node.participation() == Some(view::Participation::Table(view::TablePart::Cell)),
-                text_box.indicator_hint().is_some(),
-                theme,
-            )
-        });
-        let inactive_text_box = text_box
-            .as_ref()
-            .is_some_and(view::TextBox::projects_inactive_display);
-        let text_area = node.text_area_model().cloned().or_else(|| {
-            text_box
-                .as_ref()
-                .filter(|_| inactive_text_box)
-                .map(|text_box| {
-                    let mut text_area = view::TextArea::new(text_box.display_text().to_owned())
+        let now = animation_frame.now();
+        let (content, label, active_rect) = match node.content() {
+            node::Content::Root => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Structural(StructuralRole::Root), label, rect)
+            }
+            node::Content::Stack => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Structural(StructuralRole::Stack), label, rect)
+            }
+            node::Content::MenuBar(node::MenuBar::Ordinary | node::MenuBar::Standard(_)) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Structural(StructuralRole::MenuBar),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::Menu => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Menu, label, rect)
+            }
+            node::Content::Binding => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Binding, label, rect)
+            }
+            node::Content::Separator => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Separator(SeparatorContent {
+                        shortcut_width: None,
+                    }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::TextArea(model) => {
+                let model = model.clone();
+                let text_rect =
+                    table_cell_text_rect_for(node, rect, None, Some(&model), engine, theme);
+                let projection = text_area_projection(node, &model, text_rect, engine, theme);
+                let display_model = projected_text_area(&model, projection.as_ref());
+                let color = text_area_color(node, theme);
+                let layout = engine.text_area_layout(&display_model, text_rect, theme, color, now);
+                let (label, _) = frame_label(node, rect, projection, engine, theme);
+                (
+                    FrameContent::Text(TextContent::Area {
+                        model,
+                        display_model,
+                        layout,
+                        text_rect,
+                        world_overflow: node.world_text_overflow(),
+                        world_wrap: node.world_text_wrap(),
+                        world_align: node.world_text_align(),
+                    }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::Button(_) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Button(WorldTextContent {
+                        overflow: node.world_text_overflow(),
+                        wrap: node.world_text_wrap(),
+                        align: node.world_text_align(),
+                    }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::Checkbox(model) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                let active_rect =
+                    if matches!(node.participation(), Some(view::Participation::Table(_))) {
+                        control::table_choice_mark_rect(rect, theme)
+                    } else {
+                        control::choice_mark_rect(rect, theme)
+                    };
+                (
+                    FrameContent::Choice(ChoiceContent::Checkbox(model.clone())),
+                    label,
+                    active_rect,
+                )
+            }
+            node::Content::Radio(model) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Choice(ChoiceContent::Radio(model.clone())),
+                    label,
+                    control::choice_mark_rect(rect, theme),
+                )
+            }
+            node::Content::Slider(model) => {
+                let (label, label_width) = frame_label(node, rect, None, engine, theme);
+                let track_rect = control::slider_track_rect(rect, label_width, theme);
+                (
+                    FrameContent::Slider(SliderContent {
+                        model: model.clone(),
+                        track_rect,
+                    }),
+                    label,
+                    control::slider_active_rect(rect, model, label_width, theme),
+                )
+            }
+            node::Content::TextBox { model, .. } => {
+                let parts = control::input_parts(
+                    rect,
+                    node.participation() == Some(view::Participation::Table(view::TablePart::Cell)),
+                    model.indicator_hint().is_some(),
+                    theme,
+                );
+                let input = TextBoxContent {
+                    model: model.clone(),
+                    parts,
+                };
+                if model.projects_inactive_display() {
+                    let mut text_area = view::TextArea::new(model.display_text().to_owned())
                         .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
                         .read_only();
-                    if let Some(focus) = text_box.focus() {
+                    if let Some(focus) = model.focus() {
                         text_area = text_area.with_focus(focus);
                     }
-                    text_area
-                })
-        });
-        let now = animation_frame.now();
-        let inactive_input_text_rect = inactive_text_box
-            .then(|| input_parts.map(control::InputParts::text))
-            .flatten();
-        let text_area_text_rect = table_cell_text_rect_for(
-            node,
-            rect,
-            inactive_input_text_rect,
-            text_area.as_ref(),
-            engine,
-            theme,
-        );
-        let text_box_text_rect = input_parts.map_or(rect, control::InputParts::text);
-        let text_box_layout = (!inactive_text_box)
-            .then_some(text_box.as_ref())
-            .flatten()
-            .map(|text_box| engine.text_field_layout(text_box, text_box_text_rect, theme, now));
-        let label_style = typography::label_style(node, theme);
-        let world_text_overflow = node.world_text_overflow();
-        let world_text_wrap = node.world_text_wrap();
-        let world_text_align = node.world_text_align();
-        let world_text_rect = match node.participation() {
-            Some(view::Participation::Table(view::TablePart::Cell)) => {
-                control::table_content_rect(rect, theme)
-            }
-            Some(view::Participation::Table(
-                view::TablePart::Header | view::TablePart::HeaderControl,
-            )) => control::table_header_label_rect(
-                rect,
-                node.table_header_presentation()
-                    .is_some_and(|presentation| presentation.sort_direction().is_some()),
-                theme,
-            ),
-            _ => rect,
-        };
-        let text_area_projection = text_area.as_ref().and_then(|text_area| {
-            world_text_overflow.map(|overflow| {
-                engine.resolve_selectable_text(
-                    &text_area.buffer().text(),
-                    text_area_text_rect.width(),
-                    label_style,
-                    world_text_wrap.unwrap_or_else(|| text_area.wrap()),
-                    overflow,
-                )
-            })
-        });
-        let label_projection = text_area
-            .is_none()
-            .then(|| {
-                label_for(node).and_then(|label| {
-                    world_text_overflow.map(|overflow| {
-                        engine.resolve_selectable_text(
-                            label,
-                            world_text_rect.width(),
-                            label_style,
-                            world_text_wrap.unwrap_or(view::Wrap::None),
-                            overflow,
-                        )
-                    })
-                })
-            })
-            .flatten();
-        let text_area_display = text_area.as_ref().map(|text_area| {
-            let Some(projection) = text_area_projection.as_ref() else {
-                return text_area.clone();
-            };
-            let (buffer, state) =
-                projection.project_buffer_state(text_area.buffer(), text_area.state());
-            text_area.clone().with_resolved_presentation(buffer, state)
-        });
-        let text_area_color =
-            if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
-                theme.text().primary
-            } else {
-                theme.text_input().foreground
-            };
-        let text_area_layout = text_area_display.as_ref().map(|text_area| {
-            engine.text_area_layout(text_area, text_area_text_rect, theme, text_area_color, now)
-        });
-        let overflow_projection = text_area_projection.or(label_projection);
-        let label = if let Some(projection) = overflow_projection.as_ref() {
-            Some(projection.visible().to_owned())
-        } else {
-            label_for(node).map(|label| match world_text_overflow {
-                Some(overflow) => engine.resolve_label_overflow(
-                    label,
-                    world_text_rect.width(),
-                    label_style,
-                    overflow,
-                ),
-                None => label.to_owned(),
-            })
-        };
-        let label_width = label
-            .as_deref()
-            .map(|label| {
-                if node.role() == view::Role::SectionHeader {
-                    engine.label_width_with_style(
-                        &typography::section_header_text(label),
-                        label_style,
+                    let text_rect = table_cell_text_rect_for(
+                        node,
+                        rect,
+                        Some(parts.text()),
+                        Some(&text_area),
+                        engine,
+                        theme,
+                    );
+                    let projection =
+                        text_area_projection(node, &text_area, text_rect, engine, theme);
+                    let display_model = projected_text_area(&text_area, projection.as_ref());
+                    let color = text_area_color(node, theme);
+                    let layout =
+                        engine.text_area_layout(&display_model, text_rect, theme, color, now);
+                    let (label, _) = frame_label(node, rect, projection, engine, theme);
+                    (
+                        FrameContent::Text(TextContent::InactiveField {
+                            input,
+                            model: text_area,
+                            display_model,
+                            layout,
+                            text_rect,
+                            world_overflow: node.world_text_overflow(),
+                            world_wrap: node.world_text_wrap(),
+                            world_align: node.world_text_align(),
+                        }),
+                        label,
+                        rect,
                     )
                 } else {
-                    engine.label_width_with_style(label, label_style)
+                    let text_rect = parts.text();
+                    let layout = engine.text_field_layout(model, text_rect, theme, now);
+                    let display_text = node
+                        .label_text()
+                        .is_none()
+                        .then(|| model.display_text().to_owned());
+                    let (label, _) = frame_label(node, rect, None, engine, theme);
+                    (
+                        FrameContent::Text(TextContent::Field {
+                            input,
+                            layout,
+                            text_rect,
+                            display_text,
+                        }),
+                        label,
+                        rect,
+                    )
                 }
-            })
-            .unwrap_or_default();
-        if world_text_overflow.is_none() && world_text_wrap.is_none() {
-            if let Some(label) = label.as_deref() {
-                let diagnostic_label = if node.role() == view::Role::SectionHeader {
-                    typography::section_header_text(label)
-                } else {
-                    label.to_owned()
-                };
-                engine.diagnose_author_text_overflow(
-                    &diagnostic_label,
-                    rect.width(),
-                    rect.height(),
-                    label_style,
-                );
             }
-        }
+            node::Content::Scroll(node::Scroll::Ordinary { .. }) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Scroll(ScrollContent::Ordinary { viewport: None }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::Scroll(node::Scroll::Table { .. }) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Scroll(ScrollContent::Table { resolved: None }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::VirtualList { model, .. } => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::VirtualList(VirtualListContent {
+                        geometry: None,
+                        model: model.clone(),
+                    }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::Table => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Structural(StructuralRole::Table), label, rect)
+            }
+            node::Content::Panel => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Structural(StructuralRole::Panel), label, rect)
+            }
+            node::Content::FloatingPanel(node::Panel {
+                popup_context,
+                policy,
+                force_overlay_group,
+                native_material,
+                ..
+            }) => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::FloatingPanel(FloatingPanelContent {
+                        force_overlay_group: *force_overlay_group,
+                        native_popup_material_preference: *native_material,
+                        popup_placement: None,
+                        popup_context: *popup_context,
+                        policy: policy.clone(),
+                    }),
+                    label,
+                    rect,
+                )
+            }
+            node::Content::SectionHeader => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (FrameContent::Text(TextContent::SectionHeader), label, rect)
+            }
+            node::Content::Label => {
+                let (label, _) = frame_label(node, rect, None, engine, theme);
+                (
+                    FrameContent::Text(TextContent::Label {
+                        world_overflow: node.world_text_overflow(),
+                        world_wrap: node.world_text_wrap(),
+                        world_align: node.world_text_align(),
+                    }),
+                    label,
+                    rect,
+                )
+            }
+        };
         let shortcut_display = binding
             .as_ref()
             .and_then(view::Binding::shortcut)
@@ -389,38 +486,11 @@ impl Frame {
             })
             .unwrap_or((None, 0));
         let shortcut_width = shortcut_display.as_ref().map(|_| shortcut_content_width);
-        let slider = node.slider_model().cloned();
-        let slider_track_rect = slider
-            .as_ref()
-            .map(|_| control::slider_track_rect(rect, label_width, theme));
-        let active_rect = active_rect_for(node, rect, slider.as_ref(), label_width, theme);
-        let text_box = text_box
-            .zip(input_parts)
-            .map(|(model, parts)| TextBoxContent { model, parts });
-        let content = FrameContent::for_node(
-            node,
-            text_area,
-            text_area_display,
-            text_area_layout,
-            text_area_text_rect,
-            text_box,
-            text_box_layout,
-            text_box_text_rect,
-            world_text_overflow,
-            world_text_wrap,
-            world_text_align,
-            slider_track_rect,
-        );
         let binding = binding.map(|binding| BoundContent {
             binding,
             shortcut_width,
             shortcut_content_width,
             shortcut_display,
-        });
-        let label = label.map(|text| LabelContent {
-            text,
-            width: label_width,
-            overflow_projection,
         });
         Self {
             path,
@@ -1137,115 +1207,6 @@ impl Frame {
 }
 
 impl FrameContent {
-    fn for_node(
-        node: &view::Node,
-        text_area: Option<view::TextArea>,
-        text_area_display: Option<view::TextArea>,
-        text_area_layout: Option<text::Area>,
-        text_area_text_rect: Rect,
-        text_box: Option<TextBoxContent>,
-        text_box_layout: Option<text::Field>,
-        text_box_text_rect: Rect,
-        world_text_overflow: Option<text_model::Overflow>,
-        world_text_wrap: Option<view::Wrap>,
-        world_text_align: Option<view::Align>,
-        slider_track_rect: Option<Rect>,
-    ) -> Self {
-        match node.role() {
-            view::Role::Root => Self::Structural(StructuralRole::Root),
-            view::Role::Stack => Self::Structural(StructuralRole::Stack),
-            view::Role::Table => Self::Structural(StructuralRole::Table),
-            view::Role::MenuBar => Self::Structural(StructuralRole::MenuBar),
-            view::Role::Menu => Self::Menu,
-            view::Role::Binding => Self::Binding,
-            view::Role::Separator => Self::Separator(SeparatorContent {
-                shortcut_width: None,
-            }),
-            view::Role::TextArea => Self::Text(TextContent::Area {
-                model: text_area.expect("TextArea role must carry TextArea content"),
-                display_model: text_area_display
-                    .expect("TextArea frame must carry a display model"),
-                layout: text_area_layout.expect("TextArea frame must carry layout content"),
-                text_rect: text_area_text_rect,
-                world_overflow: world_text_overflow,
-                world_wrap: world_text_wrap,
-                world_align: world_text_align,
-            }),
-            view::Role::Button => Self::Button(WorldTextContent {
-                overflow: world_text_overflow,
-                wrap: world_text_wrap,
-                align: world_text_align,
-            }),
-            view::Role::Checkbox => Self::Choice(ChoiceContent::Checkbox(
-                node.checkbox_model()
-                    .cloned()
-                    .expect("Checkbox role must carry Checkbox content"),
-            )),
-            view::Role::Radio => Self::Choice(ChoiceContent::Radio(
-                node.radio_model()
-                    .cloned()
-                    .expect("Radio role must carry Radio content"),
-            )),
-            view::Role::Slider => Self::Slider(SliderContent {
-                model: node
-                    .slider_model()
-                    .cloned()
-                    .expect("Slider role must carry Slider content"),
-                track_rect: slider_track_rect.expect("Slider frame must carry track geometry"),
-            }),
-            view::Role::TextBox if text_box_layout.is_none() => {
-                Self::Text(TextContent::InactiveField {
-                    input: text_box.expect("inactive TextBox must carry TextBox content"),
-                    model: text_area.expect("inactive TextBox must carry display content"),
-                    display_model: text_area_display
-                        .expect("inactive TextBox frame must carry a display model"),
-                    layout: text_area_layout
-                        .expect("inactive TextBox frame must carry layout content"),
-                    text_rect: text_area_text_rect,
-                    world_overflow: world_text_overflow,
-                    world_wrap: world_text_wrap,
-                    world_align: world_text_align,
-                })
-            }
-            view::Role::TextBox => Self::Text(TextContent::Field {
-                display_text: node
-                    .label_text()
-                    .is_none()
-                    .then(|| text_box.as_ref().map(|input| input.model.display_text()))
-                    .flatten()
-                    .map(str::to_owned),
-                input: text_box.expect("TextBox role must carry TextBox content"),
-                layout: text_box_layout.expect("TextBox frame must carry layout content"),
-                text_rect: text_box_text_rect,
-            }),
-            view::Role::Scroll if node.table_model().is_some() => {
-                Self::Scroll(ScrollContent::Table { resolved: None })
-            }
-            view::Role::Scroll => Self::Scroll(ScrollContent::Ordinary { viewport: None }),
-            view::Role::VirtualList => Self::VirtualList(VirtualListContent {
-                geometry: None,
-                model: node
-                    .virtual_list_model()
-                    .expect("VirtualList role must carry provider content")
-                    .clone(),
-            }),
-            view::Role::Panel => Self::Structural(StructuralRole::Panel),
-            view::Role::FloatingPanel => Self::FloatingPanel(FloatingPanelContent {
-                force_overlay_group: node.force_overlay_group(),
-                native_popup_material_preference: node.native_popup_material_preference(),
-                popup_placement: None,
-                popup_context: node.popup_context(),
-                policy: node.panel_policy().clone(),
-            }),
-            view::Role::SectionHeader => Self::Text(TextContent::SectionHeader),
-            view::Role::Label => Self::Text(TextContent::Label {
-                world_overflow: world_text_overflow,
-                world_wrap: world_text_wrap,
-                world_align: world_text_align,
-            }),
-        }
-    }
-
     fn role(&self) -> view::Role {
         match self {
             Self::Structural(StructuralRole::Root) => view::Role::Root,
@@ -1305,7 +1266,7 @@ impl Clip {
 }
 
 fn table_cell_text_rect_for(
-    node: &view::Node,
+    node: &Node,
     rect: Rect,
     input_text_rect: Option<Rect>,
     text_area: Option<&view::TextArea>,
@@ -1359,28 +1320,126 @@ fn clipped_caret_rect(rect: Rect, caret: crate::text::layout::Caret) -> Option<R
     (right > left && bottom > top).then(|| Rect::new(left, top, right - left, bottom - top))
 }
 
-fn active_rect_for(
-    node: &view::Node,
-    rect: Rect,
-    slider: Option<&view::Slider>,
-    label_width: i32,
+fn text_area_projection(
+    node: &Node,
+    model: &view::TextArea,
+    text_rect: Rect,
+    engine: &mut engine::Engine,
     theme: &Theme,
-) -> Rect {
-    match node.role() {
-        view::Role::Checkbox
-            if matches!(node.participation(), Some(view::Participation::Table(_))) =>
-        {
-            control::table_choice_mark_rect(rect, theme)
+) -> Option<text::Selectable> {
+    node.world_text_overflow().map(|overflow| {
+        engine.resolve_selectable_text(
+            &model.buffer().text(),
+            text_rect.width(),
+            typography::label_style(node, theme),
+            node.world_text_wrap().unwrap_or_else(|| model.wrap()),
+            overflow,
+        )
+    })
+}
+
+fn projected_text_area(
+    model: &view::TextArea,
+    projection: Option<&text::Selectable>,
+) -> view::TextArea {
+    let Some(projection) = projection else {
+        return model.clone();
+    };
+    let (buffer, state) = projection.project_buffer_state(model.buffer(), model.state());
+    model.clone().with_resolved_presentation(buffer, state)
+}
+
+fn text_area_color(node: &Node, theme: &Theme) -> scene::Color {
+    if node.participation() == Some(view::Participation::Table(view::TablePart::Cell)) {
+        theme.text().primary
+    } else {
+        theme.text_input().foreground
+    }
+}
+
+fn frame_label(
+    node: &Node,
+    rect: Rect,
+    text_projection: Option<text::Selectable>,
+    engine: &mut engine::Engine,
+    theme: &Theme,
+) -> (Option<LabelContent>, i32) {
+    let style = typography::label_style(node, theme);
+    let overflow = node.world_text_overflow();
+    let wrap = node.world_text_wrap();
+    let world_rect = world_text_rect(node, rect, theme);
+    let overflow_projection = text_projection.or_else(|| {
+        label_for(node).and_then(|label| {
+            overflow.map(|overflow| {
+                engine.resolve_selectable_text(
+                    label,
+                    world_rect.width(),
+                    style,
+                    wrap.unwrap_or(view::Wrap::None),
+                    overflow,
+                )
+            })
+        })
+    });
+    let text = if let Some(projection) = overflow_projection.as_ref() {
+        Some(projection.visible().to_owned())
+    } else {
+        label_for(node).map(|label| match overflow {
+            Some(overflow) => {
+                engine.resolve_label_overflow(label, world_rect.width(), style, overflow)
+            }
+            None => label.to_owned(),
+        })
+    };
+    let width = text
+        .as_deref()
+        .map(|label| {
+            if node.role() == view::Role::SectionHeader {
+                engine.label_width_with_style(&typography::section_header_text(label), style)
+            } else {
+                engine.label_width_with_style(label, style)
+            }
+        })
+        .unwrap_or_default();
+    if overflow.is_none()
+        && wrap.is_none()
+        && let Some(label) = text.as_deref()
+    {
+        let diagnostic_label = if node.role() == view::Role::SectionHeader {
+            typography::section_header_text(label)
+        } else {
+            label.to_owned()
+        };
+        engine.diagnose_author_text_overflow(&diagnostic_label, rect.width(), rect.height(), style);
+    }
+    (
+        text.map(|text| LabelContent {
+            text,
+            width,
+            overflow_projection,
+        }),
+        width,
+    )
+}
+
+fn world_text_rect(node: &Node, rect: Rect, theme: &Theme) -> Rect {
+    match node.participation() {
+        Some(view::Participation::Table(view::TablePart::Cell)) => {
+            control::table_content_rect(rect, theme)
         }
-        view::Role::Checkbox | view::Role::Radio => control::choice_mark_rect(rect, theme),
-        view::Role::Slider => slider
-            .map(|slider| control::slider_active_rect(rect, slider, label_width, theme))
-            .unwrap_or(rect),
+        Some(view::Participation::Table(
+            view::TablePart::Header | view::TablePart::HeaderControl,
+        )) => control::table_header_label_rect(
+            rect,
+            node.table_header_presentation()
+                .is_some_and(|presentation| presentation.sort_direction().is_some()),
+            theme,
+        ),
         _ => rect,
     }
 }
 
-fn label_for(node: &view::Node) -> Option<&str> {
+fn label_for(node: &Node) -> Option<&str> {
     node.label_text().or_else(|| {
         (node.role() == view::Role::Binding)
             .then(|| node.binding().and_then(view::Binding::label))
@@ -1388,7 +1447,7 @@ fn label_for(node: &view::Node) -> Option<&str> {
     })
 }
 
-fn action_for(node: &view::Node) -> Option<view::Action> {
+fn action_for(node: &Node) -> Option<view::Action> {
     if let Some(binding) = node.binding() {
         return binding.is_enabled().then(|| binding.action());
     }
@@ -1418,6 +1477,6 @@ fn action_for(node: &view::Node) -> Option<view::Action> {
     }
 }
 
-fn target_for(node: &view::Node, node_id: composition::NodeId) -> Option<interaction::Target> {
+fn target_for(node: &Node, node_id: composition::NodeId) -> Option<interaction::Target> {
     node.node_pointer_target(node_id)
 }
