@@ -172,9 +172,10 @@ pub(crate) enum PopupMaterialPreference {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Capabilities {
-    native_popups: bool,
-    native_popup_animation: bool,
+pub(crate) enum Capabilities {
+    InFrameOnly,
+    AnimatedNativePopups,
+    ImmediateNativePopups,
 }
 
 #[derive(Debug, Clone)]
@@ -533,32 +534,23 @@ impl Layer {
 
 impl Capabilities {
     pub(crate) fn in_frame_only() -> Self {
-        Self {
-            native_popups: false,
-            native_popup_animation: false,
-        }
+        Self::InFrameOnly
     }
 
     pub(crate) fn with_native_popups() -> Self {
-        Self {
-            native_popups: true,
-            native_popup_animation: true,
-        }
+        Self::AnimatedNativePopups
     }
 
     pub(crate) fn with_immediate_native_popups() -> Self {
-        Self {
-            native_popups: true,
-            native_popup_animation: false,
-        }
+        Self::ImmediateNativePopups
     }
 
     pub(crate) fn native_popups_supported(self) -> bool {
-        self.native_popups
+        !matches!(self, Self::InFrameOnly)
     }
 
     pub(crate) fn native_popup_animation_supported(self) -> bool {
-        self.native_popup_animation
+        matches!(self, Self::AnimatedNativePopups)
     }
 }
 

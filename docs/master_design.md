@@ -1351,6 +1351,11 @@ realization capabilities decide whether each layer joins the parent scene or
 becomes a native popup. Headless and native callers supply capabilities rather
 than selecting recipe behavior with mode booleans.
 
+Overlay realization capability is one closed species: in-frame only, animated
+native popups, or immediate native popups. Native animation cannot exist
+without native popup realization; parallel support booleans must not admit that
+contradiction.
+
 **Presentation clock.** Events and frames are separate clocks. Input applies
 model mutations, cumulative deltas, discrete commands, and window-local
 session changes immediately and in order. It strengthens one pending

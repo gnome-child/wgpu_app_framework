@@ -44,6 +44,20 @@ fn root_source_tree_has_no_empty_concept_buckets() {
 }
 
 #[test]
+fn overlay_capabilities_are_one_valid_realization_species() {
+    let overlay = include_str!("../overlay.rs");
+
+    assert!(
+        overlay.contains("pub(crate) enum Capabilities {")
+            && overlay.contains("InFrameOnly,")
+            && overlay.contains("AnimatedNativePopups,")
+            && overlay.contains("ImmediateNativePopups,")
+    );
+    assert!(!overlay.contains("native_popups: bool"));
+    assert!(!overlay.contains("native_popup_animation: bool"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
