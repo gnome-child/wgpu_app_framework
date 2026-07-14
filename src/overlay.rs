@@ -118,7 +118,6 @@ impl PopupFade {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Layer {
-    #[allow(dead_code)]
     id: interaction::Id,
     order: u64,
     bounds: geometry::Rect,
