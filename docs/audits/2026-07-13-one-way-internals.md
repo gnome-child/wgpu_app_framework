@@ -2250,6 +2250,47 @@ Status: **complete; unowned suppression removed**. Correction `4be10c9e`
    visible for the Rung 6 symbol-level public-surface ruling; Rung 4 now closes
    its full clocks, retirement, dependency, and retained-invariant sweep.
 
+### R4-09 — native renderer cache admission versus post-insert expects
+
+Status: **complete; one platform cache owner consumed directly**. Correction
+`80586f7f` (`Centralize native renderer cache admission`).
+
+1. **Question and trace.** Parent clear/present, popup present, and popup-host
+   prewarm each called `ensure_renderer(format)`, then looked up the identical
+   format and expected the renderer to exist. Popup first-present diagnostics
+   separately queried the same map for warm/cold state. The trace covered
+   render-format resolution, parent and popup canvas lifetimes, lazy renderer
+   construction, prewarm, clear/draw, renderer reuse, alpha packing, and every
+   acquire/present outcome.
+2. **Admission.** Platform legitimately owns a renderer-instance cache keyed
+   by opaque renderer `surface::Format`; renderer owns construction and draw
+   behavior. The cache entry is the complete crossing. A second cache type or
+   wrapper would repeat identity, while the existing ensure-plus-get protocol
+   repeated lookup and represented impossible postconditions dynamically.
+3. **Reduction and rewire.** One private `renderer_for_format` function now
+   consumes `renderers.entry(format)`, returns the admitted renderer and its
+   warm/cold fact, and constructs only on vacancy. All four consumers use that
+   returned renderer directly. The ensure method, separate warm query, four
+   follow-up lookups/expects, and the ensure method's context expect are
+   deleted.
+4. **Behavior and economics.** The same opaque format selects the same cached
+   renderer and pipeline set. Cold initialization still precedes clear/draw;
+   warm diagnostics retain their exact value and timing; parent, popup, and
+   prewarm paths reach the same canvas and renderer. Each use now hashes once
+   instead of two or three times. Scene order, batching/pass fusion, shaping,
+   invalidation, acquisition, submission, acknowledgement, popup generation,
+   and all presentation clocks are unchanged.
+5. **Proof and gauge.** All 48 native lifecycle witnesses and the strengthened
+   format-cache architecture witness passed. Full library: 1,078 passed, 10
+   ignored, 0 failed; all targets and all five examples compiled without
+   warnings; parser, census, format, diff, and protected-state checks passed.
+   Production expects fall 95 -> 90; every other corrected gauge count remains
+   unchanged.
+6. **Fixed point and next frontier.** Native platform has one renderer cache
+   admission path and no renderer-existence protocol. Rung 4 proceeds to its
+   final bidirectional zero-change sweep over dependencies, presentation and
+   popup clocks, retirement, retained expects, visibility, and names.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
