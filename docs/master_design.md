@@ -1573,6 +1573,15 @@ invalidation runs the full view projection and composition reconciliation path.
 Snapshot restore has one runtime-owned reset for transient composition,
 animation, overlay, task, gesture, history-group, and layout-cache state.
 
+Erased command transactions preserve invocation cardinality in their private
+entrance type. Palette and shortcut lookup use the optional entrance because
+no registered/enabled command is a valid outcome; a resolved view binding uses
+the required entrance because invocation always yields an erased response,
+including typed failure. One prepared transaction token owns the invocation,
+history plan, and pre-dispatch revision until exactly one completion. Both
+entrances share the same context, responder, observer, history, and effect
+completion path; a required caller never recovers its result from `Option`.
+
 Frame preparation is one runtime recipe. A prepared frame carries its layout,
 base scene, overlay layers, IME geometry inputs, and animation consequences;
 realization capabilities decide whether each layer joins the parent scene or

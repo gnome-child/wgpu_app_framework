@@ -177,7 +177,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let keymap = self.keymap;
 
         let source = command_context::Source::Shortcut;
-        let Some(transaction) = self.transact_any_command(
+        let Some(transaction) = self.transact_optional_any_command(
             transaction::AnyInvocation {
                 focus: self.session.focused(window),
                 window: Some(window),

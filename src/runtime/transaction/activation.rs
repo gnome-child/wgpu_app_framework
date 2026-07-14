@@ -9,19 +9,17 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         binding: &view::Binding,
     ) -> std::result::Result<response::Effect, Error> {
         let source = binding.source();
-        let transaction = self
-            .transact_any_command(
-                AnyInvocation {
-                    focus,
-                    window,
-                    command_type: binding.command_type(),
-                    command_name: binding.command_name(),
-                    history_group: binding.history_group(),
-                    source,
-                },
-                |registry, chain, cx| Ok(Some(binding.invoke(registry, chain, cx))),
-            )?
-            .expect("view binding activation always invokes a command");
+        let transaction = self.transact_required_any_command(
+            AnyInvocation {
+                focus,
+                window,
+                command_type: binding.command_type(),
+                command_name: binding.command_name(),
+                history_group: binding.history_group(),
+                source,
+            },
+            |registry, chain, cx| binding.invoke(registry, chain, cx),
+        )?;
 
         transaction
             .response

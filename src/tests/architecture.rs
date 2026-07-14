@@ -335,6 +335,36 @@ fn transaction_history_plan_owns_automatic_snapshot_presence() {
 }
 
 #[test]
+fn erased_command_transaction_cardinality_is_structural() {
+    let transaction = include_str!("../runtime/transaction/command/any.rs");
+    let activation = include_str!("../runtime/transaction/activation.rs");
+    let palette = include_str!("../runtime/palette.rs");
+    let text_input = include_str!("../runtime/input/text/mod.rs");
+
+    assert!(
+        transaction.contains("struct Prepared<M: state::State> {")
+            && transaction.contains("invocation: AnyInvocation,")
+            && transaction.contains("history: history::Plan<M>,")
+            && transaction.contains("revision_before: state::Revision,")
+            && transaction.contains("fn finish<E: Send + 'static, V>(")
+    );
+    assert!(
+        transaction.contains("fn transact_required_any_command(")
+            && transaction.contains("fn transact_optional_any_command(")
+            && transaction.contains("fn complete_any_command(")
+            && !transaction.contains("fn transact_any_command(")
+    );
+    assert!(
+        activation.contains("self.transact_required_any_command(")
+            && activation.contains("binding.invoke(registry, chain, cx)")
+            && !activation.contains("Ok(Some(binding.invoke")
+            && !activation.contains("view binding activation always invokes a command")
+    );
+    assert!(palette.contains("self.transact_optional_any_command("));
+    assert!(text_input.contains("self.transact_optional_any_command("));
+}
+
+#[test]
 fn command_collections_consume_cardinality_and_keep_support_namespaced() {
     let responder = include_str!("../responder/mod.rs");
     let builder = include_str!("../responder/builder.rs");

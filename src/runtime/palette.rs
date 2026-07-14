@@ -169,7 +169,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
         let closed = self.session.close_command_palette(window);
 
-        let Some(transaction) = self.transact_any_command(
+        let Some(transaction) = self.transact_optional_any_command(
             transaction::AnyInvocation {
                 focus,
                 window: Some(window),
