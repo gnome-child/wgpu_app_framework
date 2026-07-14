@@ -1,11 +1,11 @@
 # One-Way Internals — Seams Before Crates
 
-Status: **in flight**. Ignited from clean production baseline `1d7278c1`; the
-only pre-ignition changes were this finalized formulation and its roadmap sync.
-This is the canonical operating ledger
-for the full cleanup campaign. The campaign runs its examination loop until
-the exit theorem is satisfied. It does not stop after one cell, one rung, or
-the exhaustion of the initial queue.
+Status: **paused by user at the clean R5-70 boundary**. Ignited from clean
+production baseline `1d7278c1`; the only pre-ignition changes were this
+finalized formulation and its roadmap sync. This is the canonical operating
+ledger for the full cleanup campaign. The campaign runs its examination loop
+until the exit theorem is satisfied. It does not stop after one cell, one rung,
+or the exhaustion of the initial queue.
 
 The [crate-seams investigation](2026-07-13-crate-seams-investigation.md) is a
 useful census and source of hypotheses. It is not the architectural direction.
@@ -6356,6 +6356,62 @@ owner**. Correction `5d71eac4` (`Keep table interaction snapshots atomic`).
    pointer predicates and the remaining visibility, failure, intermediate,
    housing, naming, and bidirectional inventories; this cell does not close
    the rung.
+
+### R5-70 — one branch per resolved pointer outcome
+
+Status: **complete; repeated peer predicates collapsed before the user-requested
+campaign pause**. Correction `b590d71c` (`Centralize pointer outcome gates`).
+
+1. **Question and complete trace.** The repeated-policy sweep revisited the
+   shared resolved-press path from presented hit through task focus, press
+   admission, cursor selection, pointer-down action construction, capture,
+   text selection, sliders, table dividers, scrollbar chrome, and release. It
+   compared adjacent predicates by inputs and outcomes rather than merging
+   merely similar syntax.
+2. **Repeated outcomes.** Chrome and sliders selected `Manipulate` in one
+   branch while an already-focused text control selected the same intent in an
+   immediately adjacent branch. Table dividers and chrome likewise returned
+   the identical direct pointer-down action through adjacent branches. Within
+   each pair, ownership, clock, failure behavior, and result are identical; the
+   split preserved no semantic distinction.
+3. **Correction and deletion.** Each peer predicate set now feeds one outcome
+   branch: chrome, sliders, and focused text controls share one manipulation
+   admission; table dividers and chrome share one direct-action forwarding
+   branch. The duplicate branches are deleted without a helper, callback,
+   intermediate, or second policy owner. The same touched value accessor now
+   returns its already-`Copy` optional task focus directly instead of invoking
+   `clone`.
+4. **Boundary and naming ruling.** Runtime remains the one prospective-press
+   resolver and interaction remains the press-lifecycle owner. No declaration,
+   visibility, module projection, public API, alias, compound spelling, or
+   call-site import changed; the canonical namesake and support-qualification
+   laws remain satisfied without unrelated naming work.
+5. **Behavior and economics.** Focus admission, activation versus manipulation,
+   text caret placement, slider updates, divider resizing, scrollbar behavior,
+   capture, cursor values, gesture history, layout, scene order, renderer
+   topology, invalidation, and presentation clocks are unchanged. Two redundant
+   conditional branches and one redundant Copy clone disappear; no allocation,
+   lookup, traversal, or frame work is added.
+6. **Ratchet and proof.** The existing resolved-press architecture witness now
+   requires one branch for each peer outcome set. Focused text-box and
+   scrollbar-cursor journeys passed, and targeted Clippy probes no longer
+   report `if_same_then_else` or `clone_on_copy` in `runtime::pointer`. The full
+   library discovered 1,144 tests and passed 1,134 with ten standing ignores.
+   All targets and all five examples compiled; all ten census parser witnesses,
+   the full census, formatting, diff hygiene, and protected
+   `comparison_open: true` check passed.
+7. **Gauge.** No graph, visibility, test-edge, source-root, filesystem,
+   allowance, panic, or expect metric changed: production/test edges remain
+   325/109, split responsibilities 3, slot edges 54, forbidden/external/SCC
+   counts 0/0/0, production `pub(crate)` 1,806 in 192 files, cross-slot upper
+   bound 1,759, cross-slot test edges 90, source-root mentions 118, filesystem
+   reads 363, allowances 6, panics 5, and expects 44.
+8. **Pause boundary and next frontier.** Pointer outcome admission is at fixed
+   point. At the user's request, the campaign pauses at this independently
+   green production/ledger boundary rather than selecting another cell. Rung 5
+   and the overall exit theorem remain incomplete; on explicit resume, begin
+   with the remaining visibility, failure, intermediate, housing, naming, and
+   full bidirectional fixed-point inventories.
 
 ## Initial hypotheses and queue
 
