@@ -1168,13 +1168,13 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
         .layout()
         .table_tracks()
         .iter()
-        .filter(|track| track.axis() == layout::TableTrackAxis::Column)
+        .filter(|track| track.axis() == layout::table::Axis::Column)
         .collect::<Vec<_>>();
     let row_tracks = rendered
         .layout()
         .table_tracks()
         .iter()
-        .filter(|track| track.axis() == layout::TableTrackAxis::Row)
+        .filter(|track| track.axis() == layout::table::Axis::Row)
         .collect::<Vec<_>>();
     assert_eq!(column_tracks.len(), headers.len());
     assert_eq!(
@@ -1544,7 +1544,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
                     .column_identity()
                     .is_some_and(|cell| cell.column() == interaction::Id::new("action"))
             })
-            .and_then(layout::TableTrack::divider_hit_rect)
+            .and_then(layout::table::Track::divider_hit_rect)
             .expect("revealed far-right hit zone")
             .right(),
         240
@@ -2416,7 +2416,7 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
     fn column_track<'a>(
         rendered: &'a scene::Presentation,
         column: &'static str,
-    ) -> &'a layout::TableTrack {
+    ) -> &'a layout::table::Track {
         rendered
             .layout()
             .table_tracks()
@@ -9844,8 +9844,8 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .layout()
         .table_tracks()
         .iter()
-        .filter(|track| track.axis() == layout::TableTrackAxis::Column)
-        .map(layout::TableTrack::boundary)
+        .filter(|track| track.axis() == layout::table::Axis::Column)
+        .map(layout::table::Track::boundary)
         .collect::<Vec<_>>();
     let compact_header_heights = compact
         .layout()
@@ -9950,8 +9950,8 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .layout()
         .table_tracks()
         .iter()
-        .filter(|track| track.axis() == layout::TableTrackAxis::Column)
-        .map(layout::TableTrack::boundary)
+        .filter(|track| track.axis() == layout::table::Axis::Column)
+        .map(layout::table::Track::boundary)
         .collect::<Vec<_>>();
     assert_eq!(expanded_tracks, compact_tracks);
     assert_eq!(

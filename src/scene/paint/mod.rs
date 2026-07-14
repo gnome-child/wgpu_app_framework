@@ -167,7 +167,7 @@ fn chrome_belongs_to_panel(
 
 fn table_track_belongs_to_panel(
     layout: &layout::Layout,
-    track: &layout::TableTrack,
+    track: &layout::table::Track,
     panel: &layout::Frame,
 ) -> bool {
     layout
@@ -177,7 +177,7 @@ fn table_track_belongs_to_panel(
         .is_some_and(|frame| frame_belongs_to_panel(frame, panel))
 }
 
-fn table_track_layer_for(track: &layout::TableTrack) -> Layer {
+fn table_track_layer_for(track: &layout::table::Track) -> Layer {
     if track.is_floating_layer() {
         Layer::Floating
     } else {
@@ -185,12 +185,12 @@ fn table_track_layer_for(track: &layout::TableTrack) -> Layer {
     }
 }
 
-fn paint_table_track(track: &layout::TableTrack, scene: &mut Scene, theme: &Theme) {
+fn paint_table_track(track: &layout::table::Track, scene: &mut Scene, theme: &Theme) {
     let rule = match track.axis() {
-        layout::TableTrackAxis::Column => {
+        layout::table::Axis::Column => {
             super::Rule::vertical(track.rule_rect(), theme.menu().separator, 1)
         }
-        layout::TableTrackAxis::Row => {
+        layout::table::Axis::Row => {
             super::Rule::horizontal(track.rule_rect(), theme.menu().separator, 1)
         }
     };
@@ -216,7 +216,7 @@ fn paint_frames_with_shared_clip<'a>(
 }
 
 fn paint_table_tracks_with_shared_clip<'a>(
-    tracks: impl IntoIterator<Item = &'a layout::TableTrack>,
+    tracks: impl IntoIterator<Item = &'a layout::table::Track>,
     scene: &mut Scene,
     theme: &Theme,
 ) {

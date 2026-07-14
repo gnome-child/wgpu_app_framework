@@ -17,7 +17,7 @@ mod frame;
 mod hit;
 mod measure;
 mod path;
-mod table;
+pub(crate) mod table;
 mod text;
 mod typography;
 mod viewport;
@@ -31,7 +31,6 @@ pub(crate) use control::{
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
 pub(crate) use hit::Hit;
-pub(crate) use table::{Axis as TableTrackAxis, Track as TableTrack};
 pub(crate) use text::Area as TextArea;
 pub use text::Text;
 pub(crate) use typography::{
@@ -50,7 +49,7 @@ pub(crate) struct Layout {
     size: Size,
     frames: Vec<Frame>,
     chrome: Vec<Chrome>,
-    table_tracks: Vec<TableTrack>,
+    table_tracks: Vec<table::Track>,
     virtual_list_requests: Vec<crate::virtual_list::Request>,
     native_popup_surfaces: HashSet<interaction::Id>,
 }
@@ -189,7 +188,7 @@ impl Layout {
         &self.chrome
     }
 
-    pub(crate) fn table_tracks(&self) -> &[TableTrack] {
+    pub(crate) fn table_tracks(&self) -> &[table::Track] {
         &self.table_tracks
     }
 

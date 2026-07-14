@@ -249,7 +249,7 @@ impl Projection {
 }
 
 /// Projects already-resolved table frames into grid tracks; it never allocates track sizes.
-pub(crate) fn project(frames: &[Frame]) -> Vec<Track> {
+pub(super) fn project(frames: &[Frame]) -> Vec<Track> {
     let mut tracks = Vec::new();
     let mut header_rows = Vec::new();
 

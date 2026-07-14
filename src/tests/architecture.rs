@@ -396,6 +396,7 @@ fn command_collections_consume_cardinality_and_keep_support_namespaced() {
 
 #[test]
 fn table_track_species_owns_column_only_resize_facts() {
+    let layout = include_str!("../layout/mod.rs");
     let table = include_str!("../layout/table.rs");
     let track = table
         .split("pub(crate) struct Track")
@@ -411,6 +412,12 @@ fn table_track_species_owns_column_only_resize_facts() {
     );
     assert!(!track.contains("axis: Axis"));
     assert!(!track.contains("column: Option<Column>"));
+    assert!(
+        layout.contains("pub(crate) mod table;")
+            && !layout.contains("TableTrack")
+            && table.contains("pub(crate) struct Projection")
+            && table.contains("pub(super) fn project(")
+    );
 }
 
 #[test]
