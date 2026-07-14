@@ -52,6 +52,7 @@ pub(super) use map::TextLayoutMap;
 pub(super) use map::VisualLineGroup;
 #[cfg(test)]
 use measure_cache::MeasureCache;
+pub(crate) use output::ShapedBuffer;
 pub use output::{
     Measure, Metrics, TextAreaPaintLayout, TextAreaSurface, TextFieldLayout, TextFieldPaintLayout,
 };

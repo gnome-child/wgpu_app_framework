@@ -1,9 +1,7 @@
 use crate::geometry::{area, point};
 use crate::icon;
 use crate::text;
-use std::cell::RefCell;
 use std::fmt;
-use std::rc::Rc;
 
 mod grid;
 mod rect;
@@ -195,7 +193,7 @@ pub struct Text {
 #[derive(Clone)]
 pub struct TextSurface {
     pub rect: Rect,
-    pub buffer: Rc<RefCell<glyphon::Buffer>>,
+    pub buffer: text::layout::ShapedBuffer,
     pub default_color: Color,
 }
 

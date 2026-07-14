@@ -1,5 +1,5 @@
 use crate::geometry::area;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::fmt;
 use std::rc::Rc;
 
@@ -54,6 +54,9 @@ pub struct TextAreaSurface {
     pub(in crate::text) buffer: Rc<RefCell<glyphon::Buffer>>,
     pub(in crate::text) default_color: Color,
 }
+
+#[derive(Clone)]
+pub(crate) struct ShapedBuffer(Rc<RefCell<glyphon::Buffer>>);
 
 impl fmt::Debug for TextAreaSurface {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -230,11 +233,21 @@ impl TextAreaSurface {
         self.source_text_len
     }
 
-    pub fn buffer(&self) -> Rc<RefCell<glyphon::Buffer>> {
+    pub(in crate::text) fn buffer(&self) -> Rc<RefCell<glyphon::Buffer>> {
         self.buffer.clone()
+    }
+
+    pub(crate) fn shaped_buffer(&self) -> ShapedBuffer {
+        ShapedBuffer(self.buffer.clone())
     }
 
     pub fn default_color(&self) -> Color {
         self.default_color
+    }
+}
+
+impl ShapedBuffer {
+    pub(crate) fn borrow(&self) -> Ref<'_, glyphon::Buffer> {
+        self.0.borrow()
     }
 }

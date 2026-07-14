@@ -21,7 +21,7 @@ pub(super) fn surface(
 ) -> TextSurface {
     TextSurface::new(
         surface_rect(viewport, surface),
-        surface.buffer(),
+        surface.shaped_buffer(),
         text_color(surface.default_color()),
     )
 }

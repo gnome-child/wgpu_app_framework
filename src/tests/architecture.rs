@@ -326,6 +326,40 @@ fn paint_keeps_policy_and_not_shared_coordinate_modules() {
 }
 
 #[test]
+fn shaped_text_crosses_scene_and_paint_without_renderer_types() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text_output =
+        std::fs::read_to_string(src_dir.join("text").join("layout").join("output.rs"))
+            .expect("text layout output should read");
+    let scene_primitive = std::fs::read_to_string(src_dir.join("scene").join("primitive.rs"))
+        .expect("scene primitive should read");
+    let paint_mod = std::fs::read_to_string(src_dir.join("paint").join("mod.rs"))
+        .expect("paint module should read");
+
+    assert!(
+        text_output.contains("pub(crate) struct ShapedBuffer"),
+        "text should own the opaque shared handle for its shaped output"
+    );
+    assert!(
+        !text_output.contains("pub fn buffer(&self) -> Rc<RefCell<glyphon::Buffer>>"),
+        "text layout should not expose its renderer buffer representation publicly"
+    );
+    assert!(
+        scene_primitive.contains("buffer: text_model::layout::ShapedBuffer")
+            && paint_mod.contains("buffer: text::layout::ShapedBuffer"),
+        "scene and paint should transport the text-owned shaped handle"
+    );
+    assert_source_patterns_absent(
+        &src_dir.join("scene"),
+        &[concat!("glyph", "on::").to_owned()],
+    );
+    assert_source_patterns_absent(
+        &src_dir.join("paint"),
+        &[concat!("glyph", "on::").to_owned()],
+    );
+}
+
+#[test]
 fn old_paint_space_root_module_is_extinct() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
