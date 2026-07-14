@@ -2437,6 +2437,78 @@ edge: scene, view, widget, layout, composition, interaction, session, table,
 virtualization, selection, draft, popup, overlay, theme, pointer, and the four
 surviving forbidden crossings.
 
+## Rung 5 cell records
+
+### R5-01 — layout-produced text facts versus diagnostic aggregation
+
+Status: **complete; producer-owned observer fact established**. Correction
+`6a653084` (`Invert layout diagnostics ownership`).
+
+1. **Whole-knot trace before selection.** The required opening census covered
+   all 27,250 Rust lines under composition, draft, interaction, layout,
+   overlay, pointer, popup, scene, selection, session, table, theme, view,
+   virtual-list, and widget ownership. The fifteen modules have 73 internal
+   module edges and form one SCC. The live frame path is application view ->
+   retained composition -> transient session projection -> layout and virtual
+   refinement -> semantic scene and overlay buckets -> renderer/platform
+   realization. Session owns per-window focus and interaction; composition owns
+   retained node identity; layout owns geometry/hits; scene owns drawing;
+   overlay owns floating-entry lifetime. Those cycles express one coordinated
+   UI state machine, so no internal virtual-crate split is admitted merely from
+   the import graph.
+2. **Question and trace.** The first external contradiction was the
+   `layout -> diagnostics` edge. Layout's text service owns the author-overflow
+   counter, consumes and resets text-engine layout receipts, emits one aggregate
+   after composition, and runtime accumulates that fact into the per-window
+   diagnostic snapshot supplied to tools, tests, and the text-editor debug
+   panel. Successive layout recompositions add facts; cache reuse does not
+   manufacture layout work; reset occurs exactly when the aggregate is taken.
+3. **Current and proposed graph.** The complete public `Text` fact and its
+   aggregation methods were declared under diagnostics, forcing both
+   `layout::Engine` and `layout::text::Service` to import their observer.
+   Rung 4's observer law applies exactly: the producer declares its receipt and
+   diagnostics owns accumulation/storage. The admitted graph makes
+   `layout::text::Text` the canonical declaration and
+   `diagnostics::Text` its exact established public projection.
+4. **Naming and visibility.** The declaration remains simply `Text`; no
+   `LayoutText`, `TextDiagnostics`, alias, or compatibility type was added.
+   The private layout parent projects its same-named central `Text`, engine
+   call sites import `{text, Text}`, and supporting service/layout types remain
+   namespaced or private. The text-engine merge operation narrowed from
+   crate-visible to module-private because it has one owner; only runtime's
+   aggregate-to-aggregate `add` crossing remains crate-visible.
+5. **Reduction and rewire.** Moved the unchanged sixteen public fields and
+   accumulation law into `layout/text.rs`, deleted `diagnostics/text.rs`, and
+   changed diagnostics to re-export the producer-owned type. Runtime, view
+   context, examples, tests, field names, reset timing, counter addition, and
+   public paths are unchanged. Layout contains no diagnostics import, and no
+   duplicate fact or translation survives.
+6. **Behavior and economics.** The same text-engine receipt is read and reset
+   once, the same author-overflow counter is replaced with zero, and the same
+   aggregate is added to the same per-window snapshot. View rebuilding,
+   virtual refinement, layout cache reuse, shaping/cache work, scene order,
+   batching/pass fusion, invalidation, and presentation clocks are unchanged;
+   the correction only relocates the value and narrows one method.
+7. **Proof and ratchet.** A recursive architecture witness forbids diagnostics
+   vocabulary under layout, requires the canonical layout declaration and
+   parent projection, requires the exact diagnostics re-export, and tombstones
+   the former file. Debug-panel snapshot and live-render diagnostic witnesses
+   passed. Full library: 1,079 passed, 10 ignored, 0 failed; all targets and all
+   five examples compiled without warnings; all eight census parser witnesses,
+   formatting, diff checks, and protected state passed.
+8. **Gauge delta from Rung 4.** Production edges fall 326 -> 325, slot edges
+   52 -> 51, and forbidden edges 4 -> 3. Deleting the old crate-visible merge
+   method lowers production `pub(crate)` declarations 1,809 in 191 files ->
+   1,808 in 190 files. The architecture receipt raises source-root mentions
+   115 -> 116 and filesystem reads 345 -> 348. Modules, test edges, cross-slot
+   test edges, external violations, SCCs, allowances, panics, and expects remain
+   47, 109, 90, 0, 1, 9, 7, and 90.
+9. **Fixed point and next frontier.** Layout owns and publishes its facts;
+   diagnostics only observes and accumulates them. No other layout diagnostic
+   back-edge remains. The cohesive UI ruling stays provisional while Rung 5
+   continues through the document projection, view-context diagnostics, and
+   window/theme split responsibilities before re-scanning internal state shape.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
