@@ -66,7 +66,7 @@ and pointer execution consume that one result.
 | 0. Reductions, naming census, and baseline pins | Complete | Ledger, roadmap, current failures, behavior matrix, and structural absences before production edits |
 | 1. Name and migrate one resolved press | Complete | Private `ResolvedPress` / `PressAdmission`; current behavior preserved; scattered cursor helpers retired |
 | 2. Pointer execution consumes the resolved press | Complete | Target, task focus, row gesture, admission, intent, overlay relationship, and capture share the one answer |
-| 3. Modifiers become pointer truth | Pending | Retained modifiers and stationary parent/popup re-resolution without presentation |
+| 3. Modifiers become pointer truth | Complete | Retained modifiers and stationary parent/popup re-resolution without presentation |
 | 4. Cursor consumes press admission | Pending | Selection-only rows project Default; focal admitted selectable text projects Text |
 | 5. Future seam, doctrine, and closure | Pending | Architecture witnesses, master doctrine, full ritual, roadmap close-out |
 
@@ -156,6 +156,22 @@ and pointer execution consume that one result.
 - All-target compilation passed without warnings. Cursor, text-capture,
   divider-capture, rejected-departure, selection-before-participation, and the
   full 1,052-pass library suite remained green.
+
+### Checkpoint 3 receipts
+
+- Existing `interaction::Pointer` now retains `input::Modifiers` beside point
+  and physical surface; no `PointerState` or `PointerSnapshot` was introduced.
+- Native `ModifiersChanged` now produces a host event instead of ending below
+  runtime. Parent and native-popup adaptation keep distinct routing witnesses,
+  while both update the one parent-session pointer fact.
+- Shell routing re-resolves the stationary point against the retained physical
+  surface and last-presented layout. It emits only a deduplicated cursor update;
+  it performs no view action, redraw, layout, rebuild, or synthetic movement.
+- Pointer-down installs its event modifiers before resolution. Move, drag, up,
+  leave, and successful-presentation refresh consume the retained value.
+- All-target compilation passed without warnings. The cursor difference under
+  selection modifiers becomes observable at Checkpoint 4 when cursor projection
+  starts consuming the already-resolved admission.
 
 ## Structural-absence contract
 

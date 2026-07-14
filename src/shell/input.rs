@@ -168,6 +168,14 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         self.runtime.pointer_left_at(window)
     }
 
+    pub(crate) fn pointer_modifiers_changed(
+        &mut self,
+        window: app_window::Id,
+        modifiers: input::Modifiers,
+    ) -> Result<input::Outcome, Error> {
+        self.runtime.pointer_modifiers_changed(window, modifiers)
+    }
+
     pub fn scroll(
         &mut self,
         window: app_window::Id,

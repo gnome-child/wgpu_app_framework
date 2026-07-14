@@ -102,7 +102,9 @@ impl Events {
             },
             WinitWindowEvent::ModifiersChanged(next) => {
                 self.modifiers = modifiers(next.state());
-                return None;
+                host::WindowEvent::ModifiersChanged {
+                    modifiers: self.modifiers,
+                }
             }
             WinitWindowEvent::KeyboardInput {
                 event,
@@ -150,6 +152,12 @@ impl Events {
                 point: self.pointer(parent),
                 delta: scroll_delta(*delta, popup_scale_factor),
             },
+            WinitWindowEvent::ModifiersChanged(next) => {
+                self.modifiers = modifiers(next.state());
+                host::WindowEvent::ModifiersChanged {
+                    modifiers: self.modifiers,
+                }
+            }
             WinitWindowEvent::Ime(ime) => ime_window_event(ime)?,
             WinitWindowEvent::RedrawRequested => host::WindowEvent::RedrawRequested,
             _ => return None,

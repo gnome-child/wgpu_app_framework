@@ -59,6 +59,15 @@ pub enum Event {
         window: window::Id,
         popup: interaction::Id,
     },
+    ModifiersChanged {
+        window: window::Id,
+        modifiers: input::Modifiers,
+    },
+    PopupModifiersChanged {
+        window: window::Id,
+        popup: interaction::Id,
+        modifiers: input::Modifiers,
+    },
     Scrolled {
         window: window::Id,
         point: geometry::Point,
@@ -105,6 +114,8 @@ impl Event {
             | Self::PopupPointerUp { window, .. }
             | Self::PointerLeft { window }
             | Self::PopupPointerLeft { window, .. }
+            | Self::ModifiersChanged { window, .. }
+            | Self::PopupModifiersChanged { window, .. }
             | Self::Scrolled { window, .. }
             | Self::PopupScrolled { window, .. }
             | Self::KeyDown { window, .. }
@@ -192,6 +203,13 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
             }
             Event::PopupPointerLeft { window, popup } => {
                 self.pointer_left_popup(window, popup)?;
+                Ok(())
+            }
+            Event::ModifiersChanged { window, modifiers }
+            | Event::PopupModifiersChanged {
+                window, modifiers, ..
+            } => {
+                self.pointer_modifiers_changed(window, modifiers)?;
                 Ok(())
             }
             Event::Scrolled {

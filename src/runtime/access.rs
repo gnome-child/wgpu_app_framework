@@ -257,10 +257,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         current.merge(crate::animation::Schedule::At(deadline)),
                     );
                 }
+                let modifiers = self
+                    .session
+                    .interaction(window)
+                    .map(|interaction| interaction.pointer().modifiers())
+                    .unwrap_or_default();
                 let resolved = self.resolve_press(
                     window,
                     point.unwrap_or_else(|| super::super::geometry::Point::new(0, 0)),
-                    super::super::input::Modifiers::default(),
+                    modifiers,
                     hit,
                 );
                 self.session.set_cursor(window, resolved.cursor());

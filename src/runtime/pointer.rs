@@ -294,7 +294,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         let hit = self.hit_test_on_surface(window, size, point, surface);
-        let resolved = self.resolve_press(window, point, input::Modifiers::default(), hit);
+        let modifiers = self
+            .session
+            .interaction(window)
+            .map(|interaction| interaction.pointer().modifiers())
+            .unwrap_or_default();
+        let resolved = self.resolve_press(window, point, modifiers, hit);
         self.set_pointer_cursor(window, resolved.cursor());
         let target = resolved.target().cloned();
         if target.is_none() {
@@ -302,6 +307,37 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         self.handle_view(window, view::Action::pointer_move(target))
+    }
+
+    pub(crate) fn pointer_modifiers_changed(
+        &mut self,
+        window: window::Id,
+        modifiers: input::Modifiers,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let changed = self.session.set_pointer_modifiers(window, modifiers);
+        let Some((point, surface)) = self.session.interaction(window).and_then(|interaction| {
+            interaction
+                .pointer()
+                .position()
+                .map(|point| (point, interaction.pointer().surface()))
+        }) else {
+            return Ok(if changed {
+                input::Outcome::handled(false, response::Effect::None)
+            } else {
+                input::Outcome::ignored()
+            });
+        };
+        let hit = self
+            .presented_layout(window)
+            .and_then(|layout| layout.hit_test_on_surface(point, surface));
+        let resolved = self.resolve_press(window, point, modifiers, hit);
+        let cursor_changed = self.set_pointer_cursor(window, resolved.cursor());
+
+        Ok(if changed || cursor_changed {
+            input::Outcome::handled(false, response::Effect::None)
+        } else {
+            input::Outcome::ignored()
+        })
     }
 
     pub fn pointer_down_at(
@@ -339,6 +375,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         self.session
             .set_pointer_position(window, Some(point), surface);
+        self.session.set_pointer_modifiers(window, modifiers);
         let hit = self.hit_test_on_surface(window, size, point, surface);
         let resolved = self.resolve_press(window, point, modifiers, hit);
         self.set_pointer_cursor(window, resolved.cursor());
@@ -533,7 +570,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.session
             .set_pointer_position(window, Some(point), surface);
         let hit = self.hit_test_on_surface(window, size, point, surface);
-        let resolved = self.resolve_press(window, point, input::Modifiers::default(), hit);
+        let modifiers = self
+            .session
+            .interaction(window)
+            .map(|interaction| interaction.pointer().modifiers())
+            .unwrap_or_default();
+        let resolved = self.resolve_press(window, point, modifiers, hit);
         self.set_pointer_cursor(window, resolved.cursor_after_release());
         let target = resolved.target().cloned();
         let action = resolved.hit().and_then(|hit| {
@@ -571,10 +613,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
+        let modifiers = self
+            .session
+            .interaction(window)
+            .map(|interaction| interaction.pointer().modifiers())
+            .unwrap_or_default();
         let resolved = self.resolve_press(
             window,
             point,
-            input::Modifiers::default(),
+            modifiers,
             layout.hit_test_on_surface(point, surface),
         );
         self.set_pointer_cursor(window, resolved.cursor());
@@ -621,7 +668,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .interaction(window)
             .and_then(|interaction| interaction.pointer().position())
             .unwrap_or_else(|| geometry::Point::new(0, 0));
-        let resolved = self.resolve_press(window, point, input::Modifiers::default(), None);
+        let modifiers = self
+            .session
+            .interaction(window)
+            .map(|interaction| interaction.pointer().modifiers())
+            .unwrap_or_default();
+        let resolved = self.resolve_press(window, point, modifiers, None);
         self.set_pointer_cursor(window, resolved.cursor());
 
         self.handle_view(window, view::Action::pointer_left())
@@ -693,8 +745,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
-    fn set_pointer_cursor(&mut self, window: window::Id, cursor: pointer::Cursor) {
-        self.session.set_cursor(window, cursor);
+    fn set_pointer_cursor(&mut self, window: window::Id, cursor: pointer::Cursor) -> bool {
+        self.session.set_cursor(window, cursor)
     }
 }
 

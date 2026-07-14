@@ -193,6 +193,12 @@ impl Interaction {
         changed
     }
 
+    pub(crate) fn set_pointer_modifiers(&mut self, modifiers: crate::input::Modifiers) -> bool {
+        let changed = self.pointer.modifiers != modifiers;
+        self.pointer.modifiers = modifiers;
+        changed
+    }
+
     pub(crate) fn project_pointer_hover(
         &mut self,
         target: Option<Target>,

@@ -41,6 +41,9 @@ pub enum WindowEvent {
         button: pointer::Button,
     },
     PointerLeft,
+    ModifiersChanged {
+        modifiers: input::Modifiers,
+    },
     Scrolled {
         point: geometry::Point,
         delta: interaction::ScrollDelta,
@@ -103,6 +106,9 @@ impl WindowEvent {
                 button,
             },
             Self::PointerLeft => shell::Event::PointerLeft { window },
+            Self::ModifiersChanged { modifiers } => {
+                shell::Event::ModifiersChanged { window, modifiers }
+            }
             Self::Scrolled { point, delta } => shell::Event::Scrolled {
                 window,
                 point,
@@ -152,6 +158,11 @@ impl WindowEvent {
                 button,
             },
             Self::PointerLeft => shell::Event::PopupPointerLeft { window, popup },
+            Self::ModifiersChanged { modifiers } => shell::Event::PopupModifiersChanged {
+                window,
+                popup,
+                modifiers,
+            },
             Self::Scrolled { point, delta } => shell::Event::PopupScrolled {
                 window,
                 popup,
