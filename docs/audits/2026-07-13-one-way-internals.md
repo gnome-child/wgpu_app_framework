@@ -429,7 +429,7 @@ Rung 0 added:
   visibility and witness counts, and Markdown/JSON reports;
 - `tools/one_way_slots.json` — the explicitly provisional slot/direction and
   heavy external-boundary hypotheses; and
-- `tools/test_one_way_census.py` — five differently shaped parser witnesses
+- `tools/test_one_way_census.py` — six differently shaped parser witnesses
   for grouped crate paths, direct/grouped relative paths, masked receipts, and
   test-only separation.
 
@@ -448,7 +448,7 @@ map was accepted as a starting instrument.
 | Unique test-only module edges | 95 |
 | Provisional cross-slot edges | 30 |
 | Provisional forbidden internal module edges | 15 |
-| Provisional heavy external-boundary violations | 10 |
+| Provisional heavy external-boundary violations | 8 |
 | Provisional slot SCCs | 1 (command/foundation/renderer/runtime/text/UI) |
 | Production `pub(crate)` declarations | 1,738 in 183 files |
 | Cross-slot-provider `pub(crate)` upper bound | 1,738 |
@@ -482,11 +482,11 @@ not inherited violations:
 Heavy external-boundary questions are:
 
 - `animation -> winit`;
-- `document -> windows/windows-sys`;
+- `document -> windows-sys`;
 - `pointer -> windows-sys`;
 - `icon -> iconflow` and `text -> iconflow`;
 - `task -> pollster`;
-- `scene -> glyphon` and `render -> cosmic-text`;
+- `scene -> glyphon`;
 - `platform -> wgpu`.
 
 The full receipts are reproducible with
@@ -539,7 +539,7 @@ projection to platform`).
    projection witness, and the new structural-absence architecture witness
    passed. Full library result: 1,056 passed, 10 ignored, 0 failed; all examples,
    formatting, and diff checks passed.
-6. **Gauge delta.** Heavy external-boundary questions 10 -> 9;
+6. **Gauge delta.** Heavy external-boundary questions 8 -> 7;
    production `pub(crate)` declarations 1,738 -> 1,737. Production module edges
    and provisional internal back-edges remained 325 and 15. The new ratchet
    increased test-only module edges 95 -> 96, cross-slot test edges 75 -> 76,
@@ -579,7 +579,7 @@ thresholds`).
    and popup raw presses share the one runner translation path. Full library:
    1,059 passed, 10 ignored, 0 failed; all examples, format, and diff checks
    passed.
-6. **Gauge delta.** Heavy external-boundary questions 9 -> 8; pointer no longer
+6. **Gauge delta.** Heavy external-boundary questions 7 -> 6; pointer no longer
    appears as a `windows-sys` user. Production edges and provisional internal
    back-edges remained 325 and 15. Deliberate retained configuration raised
    production `pub(crate)` declarations 1,737 -> 1,739. The architecture
@@ -588,6 +588,51 @@ thresholds`).
 7. **Fixed point.** Pointer/interaction contain policy and state only; platform
    alone queries OS click metrics; native settings remain live per press; a
    custom host has an explicit value contract. Cell closed.
+
+### R1-03 — document atomic replacement versus native-window platform
+
+Status: **resistance; no production correction admitted**. Gauge/configuration
+checkpoint follows this record; the live persistence path is deliberately
+retained.
+
+1. **Question and trace.** `SaveSnapshot::write_to` streams a versioned buffer
+   into a uniquely created sibling, syncs contents, atomically replaces the
+   destination, and removes the sibling on every failure. It is called by
+   synchronous `Document::save_to`, direct snapshot callers, and deferred
+   worker tasks. Windows needs `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`
+   because an open source file cannot use the ordinary rename path. Non-Windows
+   uses `std::fs::rename`. Version/generation rejection occurs after the write
+   and remains separate from filesystem success.
+2. **Current graph.** The only `windows-sys` use below the native platform is a
+   private implementation step inside the document persistence owner. No UI,
+   event-loop, window, renderer, or runtime-session policy enters the path.
+3. **Challenge.** Moving replacement to the native-window platform would make
+   public `SaveSnapshot` and background tasks call upward through a callback,
+   service locator, or trait with one real implementation. A new filesystem
+   crate/module would likewise have one consumer and a contract no smaller than
+   the private function. Either move would conceal or enlarge coupling without
+   deleting competing authority.
+4. **Ruling.** Reject the candidate seam. Atomic replacement stays with the
+   document persistence guarantee. `document -> windows-sys` is an explicit
+   module-level exception to the platform-slot external boundary, not blanket
+   permission for the runtime slot. A future document-workflow feature owns
+   this dependency if that capability is admitted. A separate filesystem seam
+   requires a second consumer or a smaller proven contract.
+5. **Proof.** Existing witnesses cover synchronous round-trip, CRLF preservation
+   while the source is open, snapshot identity/revision, deferred generation
+   rejection, replacement of an existing destination, and temporary-sibling
+   cleanup. The four `document_save` cases, the CRLF case, and the architecture
+   ownership witness passed unchanged.
+6. **Gauge correction and delta.** The external scanner now requires a
+   dependency name at the root of a Rust path. A sixth parser witness proves
+   `use windows::...` is counted while `std::os::windows::...` is not; this also
+   stops treating `glyphon::cosmic_text` as a direct cosmic-text import. The
+   corrected Rung 0 external baseline is 8, R1-01 is 8 -> 7, and R1-02 is
+   7 -> 6. Recording the narrow document exception changes the current count
+   6 -> 5 without pretending code was deleted.
+7. **Fixed point.** One document owner retains the complete atomic write
+   transaction and one target-specific private primitive. No smaller honest
+   seam is evidenced. Cell closed as resistance.
 
 ## Initial hypotheses and queue
 

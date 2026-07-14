@@ -11,6 +11,7 @@ from one_way_census import (  # noqa: E402
     mask_rust_literals_and_comments,
     partition_test_code,
     referenced_roots,
+    uses_dependency,
 )
 
 
@@ -70,6 +71,10 @@ mod tests {
         test_roots, _ = referenced_roots(tests, ["view"])
         self.assertEqual(production_roots, {"text"})
         self.assertEqual(test_roots, {"platform", "render"})
+
+    def test_external_dependency_does_not_match_a_nested_path_segment(self) -> None:
+        self.assertTrue(uses_dependency("use windows::Win32;", "windows"))
+        self.assertFalse(uses_dependency("use std::os::windows::ffi;", "windows"))
 
 
 if __name__ == "__main__":

@@ -323,7 +323,12 @@ def discover_modules(lib_source: str) -> list[str]:
 
 def load_slots(
     path: Path,
-) -> tuple[dict[str, str], dict[str, set[str]], dict[str, set[str]]]:
+) -> tuple[
+    dict[str, str],
+    dict[str, set[str]],
+    dict[str, set[str]],
+    dict[str, set[str]],
+]:
     data = json.loads(path.read_text(encoding="utf-8"))
     owners: dict[str, str] = {}
     allowed: dict[str, set[str]] = {}
@@ -337,7 +342,11 @@ def load_slots(
         dependency.replace("-", "_"): set(slots)
         for dependency, slots in data.get("external_boundaries", {}).items()
     }
-    return owners, allowed, external_allowed
+    external_exceptions = {
+        dependency.replace("-", "_"): set(modules)
+        for dependency, modules in data.get("external_module_exceptions", {}).items()
+    }
+    return owners, allowed, external_allowed, external_exceptions
 
 
 def cargo_dependencies(manifest: Path) -> set[str]:
@@ -355,6 +364,15 @@ def cargo_dependencies(manifest: Path) -> set[str]:
 
     visit(data)
     return dependencies
+
+
+def uses_dependency(source: str, dependency: str) -> bool:
+    return bool(
+        re.search(
+            rf"(?<![A-Za-z0-9_:]){re.escape(dependency)}\s*::",
+            source,
+        )
+    )
 
 
 def add_edge(edges: dict[tuple[str, str], Edge], source: str, target: str, location: str) -> None:
@@ -376,12 +394,17 @@ def count_pattern(sources: Iterable[str], pattern: re.Pattern[str]) -> tuple[int
 
 def run_census(
     root: Path, slots_path: Path
-) -> tuple[Census, dict[str, set[str]], dict[str, set[str]]]:
+) -> tuple[
+    Census,
+    dict[str, set[str]],
+    dict[str, set[str]],
+    dict[str, set[str]],
+]:
     src = root / "src"
     rust_files = sorted(src.rglob("*.rs"))
     lib = src / "lib.rs"
     modules = discover_modules(lib.read_text(encoding="utf-8"))
-    owners, allowed, external_allowed = load_slots(slots_path)
+    owners, allowed, external_allowed, external_exceptions = load_slots(slots_path)
     dependencies = cargo_dependencies(root / "Cargo.toml")
     expected = set(modules) | {"lib"}
     missing = sorted(expected - set(owners))
@@ -423,7 +446,7 @@ def run_census(
                     add_edge(edges, source_module, target, location)
             if not is_test:
                 for dependency in dependencies:
-                    if re.search(rf"\b{re.escape(dependency)}\s*::", code):
+                    if uses_dependency(code, dependency):
                         external_users[dependency].add(source_module)
 
     pub_total, pub_files = count_pattern(
@@ -483,7 +506,7 @@ def run_census(
         allow_attributes=allow_attributes,
         panic_calls=panic_calls,
         expect_calls=expect_calls,
-    ), allowed, external_allowed
+    ), allowed, external_allowed, external_exceptions
 
 
 def forbidden_edges(census: Census, allowed: dict[str, set[str]]) -> list[Edge]:
@@ -497,13 +520,16 @@ def forbidden_edges(census: Census, allowed: dict[str, set[str]]) -> list[Edge]:
 
 
 def forbidden_external_edges(
-    census: Census, external_allowed: dict[str, set[str]]
+    census: Census,
+    external_allowed: dict[str, set[str]],
+    external_exceptions: dict[str, set[str]],
 ) -> list[tuple[str, str, str]]:
     violations = []
     for dependency, allowed_slots in external_allowed.items():
         for module in census.external_users.get(dependency, set()):
             slot = census.module_slots[module]
-            if slot not in allowed_slots:
+            excepted_modules = external_exceptions.get(dependency, set())
+            if slot not in allowed_slots and module not in excepted_modules:
                 violations.append((module, dependency, slot))
     return sorted(violations)
 
@@ -561,9 +587,12 @@ def as_json(
     census: Census,
     allowed: dict[str, set[str]],
     external_allowed: dict[str, set[str]],
+    external_exceptions: dict[str, set[str]],
 ) -> str:
     forbidden = forbidden_edges(census, allowed)
-    external_forbidden = forbidden_external_edges(census, external_allowed)
+    external_forbidden = forbidden_external_edges(
+        census, external_allowed, external_exceptions
+    )
     data = {
         "modules": len(census.modules),
         "production_module_edges": len(census.production_edges),
@@ -584,6 +613,10 @@ def as_json(
             {"module": module, "dependency": dependency, "slot": slot}
             for module, dependency, slot in external_forbidden
         ],
+        "external_module_exceptions": {
+            dependency: sorted(modules)
+            for dependency, modules in sorted(external_exceptions.items())
+        },
         "pub_crate": {
             "total": census.pub_crate_total,
             "files": census.pub_crate_files,
@@ -607,9 +640,12 @@ def as_markdown(
     census: Census,
     allowed: dict[str, set[str]],
     external_allowed: dict[str, set[str]],
+    external_exceptions: dict[str, set[str]],
 ) -> str:
     forbidden = forbidden_edges(census, allowed)
-    external_forbidden = forbidden_external_edges(census, external_allowed)
+    external_forbidden = forbidden_external_edges(
+        census, external_allowed, external_exceptions
+    )
     edges = slot_edges(census)
     cycles = strongly_connected(set(census.module_slots.values()), edges)
     lines = [
@@ -662,6 +698,14 @@ def as_markdown(
         lines.append(f"| `{module}` | `{dependency}` | `{slot}` | {allowed_slots} |")
     if not external_forbidden:
         lines.append("| — | — | — | — |")
+    lines.extend(["", "Accepted module-specific external exceptions:"])
+    if external_exceptions:
+        for dependency, modules in sorted(external_exceptions.items()):
+            lines.append(
+                f"- `{dependency}`: " + ", ".join(f"`{module}`" for module in sorted(modules))
+            )
+    else:
+        lines.append("- None.")
     lines.extend(["", "## Provisional slot cycles", ""])
     if cycles:
         for component in cycles:
@@ -683,14 +727,14 @@ def main() -> int:
     root = (args.root or workspace_root()).resolve()
     slots = (args.slots or Path(__file__).with_name("one_way_slots.json")).resolve()
     try:
-        census, allowed, external_allowed = run_census(root, slots)
+        census, allowed, external_allowed, external_exceptions = run_census(root, slots)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"one-way census failed: {error}", file=sys.stderr)
         return 2
     print(
-        as_json(census, allowed, external_allowed)
+        as_json(census, allowed, external_allowed, external_exceptions)
         if args.format == "json"
-        else as_markdown(census, allowed, external_allowed),
+        else as_markdown(census, allowed, external_allowed, external_exceptions),
         end="",
     )
     return 0

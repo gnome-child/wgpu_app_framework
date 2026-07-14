@@ -114,5 +114,8 @@
     "windows_numerics": ["platform"],
     "windows_sys": ["platform"],
     "winit": ["platform"]
+  },
+  "external_module_exceptions": {
+    "windows_sys": ["document"]
   }
 }
