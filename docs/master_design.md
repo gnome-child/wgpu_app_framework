@@ -396,6 +396,9 @@ own their order without enumeration; bounded `Source::records` providers
 apply the selected column's derived ordering projection automatically. Table
 paint derives striping and rules from layout row/cell facts, and the shared
 `Rule` rasterizer owns physical-pixel snapping across scale factors.
+Each projected table track is exactly a column track with its resize identity
+and geometry, or a row track without those facts. Axis is a projection of that
+species; an axis and optional column payload must not drift independently.
 
 Typed columns select a presentation medium explicitly. `Column::text` accepts
 any `Display` value, adds editing only for `FromStr` values, and defaults to

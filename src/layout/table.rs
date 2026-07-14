@@ -28,13 +28,12 @@ struct ResolvedColumn {
 
 #[derive(Clone)]
 pub(crate) struct Track {
-    axis: Axis,
+    kind: Kind,
     boundary: i32,
     rule_rect: Rect,
     clip: Option<Clip>,
     floating_layer: bool,
     table_node: composition::NodeId,
-    column: Option<Column>,
 }
 
 #[derive(Clone)]
@@ -43,6 +42,12 @@ struct Column {
     header_node: composition::NodeId,
     header_rect: Rect,
     table_rect: Rect,
+}
+
+#[derive(Clone)]
+enum Kind {
+    Column(Column),
+    Row,
 }
 
 impl Track {
@@ -60,7 +65,12 @@ impl Track {
             .saturating_add(resolved.width);
         debug_assert_eq!(header.rect().right(), boundary);
         Some(Self {
-            axis: Axis::Column,
+            kind: Kind::Column(Column {
+                identity,
+                header_node: header.node_id(),
+                header_rect: header.rect(),
+                table_rect: projection.viewport_rect,
+            }),
             boundary,
             rule_rect: Rect::new(
                 boundary.saturating_sub(1),
@@ -71,18 +81,12 @@ impl Track {
             clip: header.clip(),
             floating_layer: table.is_floating_layer(),
             table_node: table.node_id(),
-            column: Some(Column {
-                identity,
-                header_node: header.node_id(),
-                header_rect: header.rect(),
-                table_rect: projection.viewport_rect,
-            }),
         })
     }
 
     fn row(row: &Frame, table: &Frame, projection: &Projection, boundary: i32) -> Self {
         Self {
-            axis: Axis::Row,
+            kind: Kind::Row,
             boundary,
             rule_rect: Rect::new(
                 projection.surface_rect.x(),
@@ -93,12 +97,14 @@ impl Track {
             clip: row.clip(),
             floating_layer: table.is_floating_layer(),
             table_node: table.node_id(),
-            column: None,
         }
     }
 
     pub(crate) fn axis(&self) -> Axis {
-        self.axis
+        match &self.kind {
+            Kind::Column(_) => Axis::Column,
+            Kind::Row => Axis::Row,
+        }
     }
 
     pub(crate) fn rule_rect(&self) -> Rect {
@@ -123,22 +129,22 @@ impl Track {
     }
 
     pub(crate) fn header_node(&self) -> Option<composition::NodeId> {
-        self.column.as_ref().map(|column| column.header_node)
+        self.column_facts().map(|column| column.header_node)
     }
 
     #[cfg(test)]
     pub(crate) fn column_identity(&self) -> Option<crate::table::HeaderCell> {
-        self.column.as_ref().map(|column| column.identity)
+        self.column_facts().map(|column| column.identity)
     }
 
     pub(crate) fn divider_target(&self) -> Option<interaction::Target> {
-        self.column.as_ref().map(|column| {
+        self.column_facts().map(|column| {
             interaction::Target::table_divider_node(column.header_node, "Resize table column")
         })
     }
 
     pub(crate) fn resize_action_at(&self, point: Point) -> Option<view::Action> {
-        let column = self.column.as_ref()?;
+        let column = self.column_facts()?;
         let width = point
             .x()
             .saturating_sub(column.header_rect.x())
@@ -153,7 +159,7 @@ impl Track {
     }
 
     pub(crate) fn divider_hit_rect(&self) -> Option<Rect> {
-        let column = self.column.as_ref()?;
+        let column = self.column_facts()?;
         let width = crate::table::DIVIDER_HIT_WIDTH.min(column.table_rect.width());
         if width <= 0 {
             return None;
@@ -175,6 +181,13 @@ impl Track {
             width,
             column.header_rect.height(),
         ))
+    }
+
+    fn column_facts(&self) -> Option<&Column> {
+        match &self.kind {
+            Kind::Column(column) => Some(column),
+            Kind::Row => None,
+        }
     }
 }
 

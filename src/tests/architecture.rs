@@ -191,6 +191,25 @@ fn standard_menu_projected_entry_separates_catalog_and_authored_lifecycles() {
 }
 
 #[test]
+fn table_track_species_owns_column_only_resize_facts() {
+    let table = include_str!("../layout/table.rs");
+    let track = table
+        .split("pub(crate) struct Track")
+        .nth(1)
+        .and_then(|source| source.split("struct Column").next())
+        .expect("track declaration precedes its column facts");
+
+    assert!(
+        table.contains("enum Kind {")
+            && table.contains("Column(Column),")
+            && table.contains("Row,")
+            && track.contains("kind: Kind,")
+    );
+    assert!(!track.contains("axis: Axis"));
+    assert!(!track.contains("column: Option<Column>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
