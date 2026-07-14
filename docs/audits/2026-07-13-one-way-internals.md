@@ -1221,14 +1221,14 @@ text`).
 
 ### R2-03 — read-only text projection versus mutation capability
 
-Status: **in progress; three independently green production checkpoints**.
+Status: **complete; four independently green production checkpoints**.
 Vocabulary correction `979878ef` (`Separate read-only text vocabulary`);
 operation correction `60fff63d` (`Separate selection operations from text
 mutation`); action reduction `bf01aef4` (`Remove text action clipboard
-intermediate`). The cell remains open for the IME/preedit ownership trace
-below.
+intermediate`); composition correction `20d02bb4` (`Separate preedit projection
+from view state`).
 
-1. **Question and trace so far.** Text buffer state, caret motion, selection,
+1. **Question and trace.** Text buffer state, caret motion, selection,
    field-mode capability, surface projection, view state, direct pointer/key
    operations, document commands, draft routing, clipboard actions, history,
    and composition were traced through editable documents, local text-box and
@@ -1270,36 +1270,60 @@ below.
    real result is now `text::edit::history::Outcome`; `History` is its only
    parent projection, the coalescing constant stays namespaced, and the old
    compound `HistoryKind` declaration collapsed to private `history::Kind`.
-5. **Behavior and lifecycle preservation.** Editable mutation, read-only
+5. **Composition ownership and duplicate reduction.** `text::view::ViewState`
+   no longer stores optional IME state. The immutable composition value now
+   lives at same-named `text::preedit::Preedit` with `text::Preedit` as its sole
+   parent projection; draft input remains the only owner of target identity,
+   replacement, clearing, and retirement. The layout bridge passes the active
+   projection separately through six crate-private compose/reveal/hit
+   crossings, while ordinary public layout remains committed-text-only. The
+   complete producer/consumer trace also found that
+   `Surface::presentation_text_for_state` and its Field/Area implementations
+   duplicated the real `PreeditProjection` composition algorithm without a
+   production consumer. Those methods and their second string-composition
+   helper were deleted, including the separately repeated obscured-field path.
+6. **Behavior and lifecycle preservation.** Editable mutation, read-only
    selection, disabled-field rejection, stale table-draft rejection,
    single/double/triple click and drag, Unicode motion, selection collapse,
    reveal, caret blink, clipboard behavior, draft validation, feedback
-   clearing, undo/redo, and application revision versus document-dirty clocks
-   retain their existing paths. A focused owner witness proves selection
-   clears active preedit without changing text or entering mutation history.
-6. **Proof and ratchet.** Architecture witnesses require first-class
+   clearing, undo/redo, IME preedit/commit/disable, popup-to-parent routing,
+   cancel, focus/menu transitions, snapshot restore, removed-target pruning,
+   and application revision versus document-dirty clocks retain their existing
+   paths. Focused owner witnesses prove selection clears active preedit without
+   changing text or entering mutation history, numeric policy never filters a
+   composition, and obscured fields consume the one composed projection.
+7. **Proof and ratchet.** Architecture witnesses require first-class
    always-present modules, the central parent projections, absence of old
    compatibility paths, distinct selection/mutation input and command types,
    a selection-only pointer view action, a private typed keymap sum, and the
-   extinction of the text action/clipboard intermediate. Full library: 1,067
-   passed, 10 ignored, 0 failed; all targets compiled without warnings;
-   formatting and diff checks passed. Shaping, hit testing, renderer topology,
-   batching/pass fusion, presentation clocks, and frame economics are
-   unchanged because the same buffers, states, positions, and resolved
-   operation order reach the same owners.
-7. **Gauge delta from R2-02.** Production module edges fall 325 -> 324 while
+   extinction of the text action/clipboard intermediate. The composition
+   ratchet additionally requires the same-named preedit owner/projection,
+   forbids any preedit state or compatibility path in `text::view`, pins draft
+   input as lifecycle owner, and requires explicit layout consumption. Fourteen
+   focused preedit witnesses passed. Full library: 1,069 passed, 10 ignored, 0
+   failed; all targets compiled without warnings; formatting and diff checks
+   passed. Shaping, hit testing, renderer topology, batching/pass fusion,
+   presentation clocks, and frame economics are unchanged because the same
+   buffers, states, positions, and resolved operation order reach the same
+   owners.
+8. **Gauge delta from R2-02.** Production module edges fall 325 -> 324 while
    test-only edges rise 98 -> 99 and cross-slot test edges 78 -> 79 from the
    strengthened command-boundary witness. Slot edges, forbidden edges,
-   external questions, and SCCs remain 42, 13, 1, and 1. The three
-   checkpoints net production `pub(crate)` declarations 1,746 -> 1,748.
-   Architecture receipts raise source-root mentions 105 -> 107 and filesystem
-   reads 302 -> 313; Rung 6 retains their consolidation. Allowances, panics,
-   and expects remain 10, 9, and 102.
-8. **Open residual.** `text::view::ViewState` still owns optional `Preedit`, so
-   the always-present presentation vocabulary still carries mutation/IME
-   state. Its complete producer, consumer, clearing, cancellation, host, and
-   feature-off trace is required before this cell can reach fixed point. R2-03
-   is not closed by these checkpoints.
+   external questions, and SCCs remain 42, 13, 1, and 1. The four checkpoints
+   net production `pub(crate)` declarations 1,746 -> 1,756; the final eight
+   are the explicit framework-only composition crossings rather than a public
+   state bag. Architecture receipts raise source-root mentions 105 -> 108 and
+   filesystem reads 302 -> 318; Rung 6 retains their consolidation.
+   Allowances, panics, and expects remain 10, 9, and 102.
+9. **Fixed point and feature-seam result.** No selection, surface, or view
+   owner depends on mutation machinery; no view state carries composition; no
+   text action/clipboard route or duplicate composition algorithm survives.
+   Draft input owns transient composition lifetime, layout owns its immutable
+   projection, and ordinary committed-text layout has no composition in its
+   public state or method signatures. A later text-mutation capability can
+   therefore gate the upper lifecycle and explicit internal crossings without
+   disturbing committed display, selection, shaping, or hit testing. Cell
+   closed.
 
 ## Initial hypotheses and queue
 
