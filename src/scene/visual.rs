@@ -20,12 +20,16 @@ pub(crate) struct Target {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Scalar {
-    value: f32,
-    from: f32,
-    target: f32,
-    progress: f32,
-    motion: Motion,
+pub(crate) enum Scalar {
+    Moving {
+        value: f32,
+        from: f32,
+        target: f32,
+        progress: f32,
+    },
+    Resting {
+        value: f32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -127,52 +131,68 @@ impl Target {
 
 impl Scalar {
     pub(crate) fn moving(value: f32, from: f32, target: f32, progress: f32) -> Self {
-        Self {
+        Self::Moving {
             value,
             from,
             target,
             progress,
-            motion: Motion::Moving,
         }
     }
 
     pub(crate) fn resting(value: f32) -> Self {
-        Self {
-            value,
-            from: value,
-            target: value,
-            progress: 1.0,
-            motion: Motion::Resting,
-        }
+        Self::Resting { value }
     }
 
     pub(crate) fn value(self) -> f32 {
-        self.value
+        match self {
+            Self::Moving { value, .. } | Self::Resting { value } => value,
+        }
     }
 
     pub(crate) fn from(self) -> f32 {
-        self.from
+        match self {
+            Self::Moving { from, .. } => from,
+            Self::Resting { value } => value,
+        }
     }
 
     pub(crate) fn target(self) -> f32 {
-        self.target
+        match self {
+            Self::Moving { target, .. } => target,
+            Self::Resting { value } => value,
+        }
     }
 
     pub(crate) fn progress(self) -> f32 {
-        self.progress
+        match self {
+            Self::Moving { progress, .. } => progress,
+            Self::Resting { .. } => 1.0,
+        }
     }
 
     pub(crate) fn motion(self) -> Motion {
-        self.motion
+        match self {
+            Self::Moving { .. } => Motion::Moving,
+            Self::Resting { .. } => Motion::Resting,
+        }
     }
 
     fn sanitized_scale(self) -> Self {
-        Self {
-            value: sanitize_scale(self.value),
-            from: sanitize_scale(self.from),
-            target: sanitize_scale(self.target),
-            progress: sanitize_progress(self.progress),
-            motion: self.motion,
+        match self {
+            Self::Moving {
+                value,
+                from,
+                target,
+                progress,
+            } => Self::Moving {
+                value: sanitize_scale(value),
+                from: sanitize_scale(from),
+                target: sanitize_scale(target),
+                progress: sanitize_progress(progress),
+            },
+            Self::Resting { value } => Self::Resting {
+                value: sanitize_scale(value),
+            },
         }
     }
 }

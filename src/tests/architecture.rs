@@ -210,6 +210,26 @@ fn table_track_species_owns_column_only_resize_facts() {
 }
 
 #[test]
+fn visual_scalar_species_separates_moving_and_resting_state() {
+    let visual = include_str!("../scene/visual.rs");
+    let scalar = visual
+        .split("pub(crate) enum Scalar")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) struct Scrollbar").next())
+        .expect("scalar declaration precedes scrollbar state");
+
+    assert!(
+        scalar.contains("Moving {")
+            && scalar.contains("from: f32,")
+            && scalar.contains("target: f32,")
+            && scalar.contains("progress: f32,")
+            && scalar.contains("Resting {")
+            && scalar.contains("value: f32,")
+    );
+    assert!(!scalar.contains("motion: Motion"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))

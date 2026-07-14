@@ -558,8 +558,10 @@ is still moving.
 Resting targets are chosen in snapped terms before motion begins. Moving
 presentation interpolates between snapped resting truths, so the final moving
 frame and the first resting frame describe the same paint-space pose. Runtime
-visuals may carry current value, target value, progress, and motion, but device
-scale and snapping remain owned by the layout-to-paint boundary.
+scalar visuals carry exactly one transition species: moving owns the current
+value, endpoints, and progress, while resting owns only its settled value and
+derives equal endpoints, complete progress, and resting motion. Device scale
+and snapping remain owned by the layout-to-paint boundary.
 
 Renderer-local snapping is witness vocabulary, not a second source of truth.
 Resting quad geometry is asserted aligned during render preparation because it
