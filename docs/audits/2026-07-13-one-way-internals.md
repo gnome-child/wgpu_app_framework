@@ -5959,6 +5959,61 @@ Correction `3a8fbc2f` (`Centralize shadow visual bounds`).
    visibility, failure, intermediate, housing, and naming inventories. This
    cell does not close Rung 5.
 
+### R5-63 — canonical placement support namespace
+
+Status: **complete; flattened compound aliases removed**. Correction
+`58a487c6` (`Namespace placement support types`).
+
+1. **Question and complete trace.** The rung-closing naming sweep followed the
+   placement vocabulary from its geometry declarations through layout panel
+   attachment and frame retention, overlay drafts/live/retiring entries, view
+   node construction, context menus, hover feedback, native work-area
+   projection, Windows popup positioning, integration witnesses, and the
+   context-menu architecture contract.
+2. **Naming contradiction.** The owner declared simple support types
+   `placement::Anchor` and `placement::Request`, then the geometry parent hid
+   their namespace and changed both spellings with
+   `Anchor as PlacementAnchor` and `Request as PlacementRequest`. Every
+   downstream layer consequently used compound names to recover context that
+   the module already supplied. The two aliases were not compatibility API;
+   they were crate-visible private convention and violated one canonical
+   spelling through every projection.
+3. **Correction and displaced surface.** `geometry::placement` is now
+   crate-visible and the parent re-exports neither support type. All production
+   and test callsites use `geometry::placement::Anchor` and
+   `geometry::placement::Request`; declaration and consumption therefore share
+   one spelling at every depth. The compound parent aliases and every callsite
+   spelling are deleted without replacement aliases.
+4. **Namesake and visibility ruling.** `placement` owns no central `Placement`
+   type, so there is no central-type parent projection to preserve. `Anchor`
+   and `Request` are peer support declarations and remain qualified by their
+   module. Changing `mod placement` plus a crate-visible re-export into one
+   `pub(crate) mod placement` does not widen the effective crate boundary; it
+   removes the alias projection and exposes exactly the namespace already
+   consumed across the crate. No public API or external path changes.
+5. **Ownership and behavior.** Geometry still owns anchor species, desired
+   size, clearance, candidate ordering, fit, intersection, and clamping.
+   Layout, overlay, view, and platform retain their prior responsibilities and
+   values; only their Rust paths change. Panel placement, native/in-frame
+   realization, pointer clearance, visual bounds, hit testing, allocation,
+   invalidation, paint order, renderer topology, batching/pass fusion, and
+   presentation clocks are unchanged.
+6. **Ratchet and proof.** The context-menu architecture witness now requires
+   the namespaced request path, the crate-visible placement module, and
+   structural absence of both compound aliases. All five placement owner tests
+   and the focused architecture witness passed. The full library discovered
+   1,138 tests and passed 1,128 with ten standing ignores. All targets and all
+   five examples compiled without warnings; all ten census parser tests, the
+   full census, formatting, diff hygiene, and protected
+   `comparison_open: true` check passed.
+7. **Gauge and next frontier.** Every gauge remains unchanged: production/test
+   edges 325/109, split responsibilities 3, slot edges 54, forbidden/external/
+   SCC counts 0/0/0, production `pub(crate)` 1,825 in 192 files, cross-slot
+   upper bound 1,778, cross-slot test edges 90, source-root mentions 118,
+   filesystem reads 363, allowances 6, panics 5, and expects 44. Placement
+   naming is at fixed point. The rung-closing alias inventory continues through
+   remaining touched UI parent projections before Rung 5 can close.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
