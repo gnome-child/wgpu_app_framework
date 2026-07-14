@@ -2291,6 +2291,152 @@ Status: **complete; one platform cache owner consumed directly**. Correction
    final bidirectional zero-change sweep over dependencies, presentation and
    popup clocks, retirement, retained expects, visibility, and names.
 
+### R4-10 — full presentation-boundary fixed-point audit
+
+Status: **complete; no further Rung 4 correction admitted**.
+
+1. **Question and sweep.** The closing pass walked semantic scene preparation,
+   renderer lowering, private paint, GPU context/surface ownership, native
+   parent and popup realization, diagnostics observation, runtime
+   acknowledgement, presented geometry, popup generation receipts, retirement,
+   pooling, and parent departure in both directions. It challenged every
+   remaining dependency, translation, cache, presentation clock, failure path,
+   expect, allowance, visibility crossing, and parent projection in the slice.
+2. **Dependency result.** Render and private paint import neither platform,
+   runtime, nor diagnostics. Platform contains no production private-paint
+   import and no raw `wgpu`/`wgpu-hal` spelling. Renderer owns GPU dependency
+   types, semantic-to-paint lowering, physical geometry projection, draw facts,
+   and surface presentation; platform owns attempt sequencing, OS targets,
+   native windows, COM realization, renderer-instance caching, and popup host
+   lifecycle. Diagnostics consumes renderer facts and is never a renderer
+   behavior input. No callback-hidden replacement edge or parallel lowering
+   route survives.
+3. **Parent presentation clock.** `PreparedFrame` captures one layout, scene,
+   overlay set, invalidation, revision, and desired epoch. A skipped surface
+   acquisition submits and presents nothing and produces no present timing.
+   Native realization derives `presented` only from that timing; runtime
+   acknowledges the epoch and promotes `PresentedGeometry` only for a
+   successful receipt, while every skipped attempt retains the visible hit
+   surface and retries the same invalidation. Older successful receipts cannot
+   replace newer presented geometry. Diagnostic attempt samples remain
+   distinct from successful-frame and key-to-present samples.
+4. **Popup-local clock.** Live and `RetiringPopup` layers take the native-popup
+   path while in-frame `Ghost` layers remain semantic scene content. Each popup
+   show or reconfiguration carries an exact generation through configured,
+   prepared-concealed, acquire, present, synchronization, and exposure states.
+   Skipped acquire remains concealed and requests the bounded retry; stale
+   generation receipts are inert; geometry/material replacement commits only
+   after the current present. A retiring layer retains paint geometry but sets
+   `accepts_input` false, so it contributes no native hit target.
+5. **Retirement and cleanup.** Stale cleanup is scoped to synchronized parents,
+   rehomes cursor and IME state before removal, and returns only compatible,
+   ready composition hosts beneath the per-parent capacity. Every other host
+   hides before teardown and removes its popup subclass in `Drop`. Parent
+   departure removes live popups, raw-id routes, dormant hosts, capacity and
+   prewarm state, cursor ownership, and IME ownership. No ghost, host, receipt,
+   or native input route can outlive its owner.
+6. **Retained invariants and visibility.** The remaining native expects assert
+   already-witnessed lifecycle ordering: context after tenancy, popup after
+   admitted creation/configuration, due values after their applicator reports
+   due, and a composition host after committed material admission. Replacing
+   them would require a broad state-machine rewrite without an observed
+   failure or a smaller contract, so no behavior-preserving Rung 4 correction
+   is admitted. The six `private_interfaces` allowances are the public
+   `Backend` trait's overlay/IME crossings and remain assigned to Rung 6's
+   symbol-level public-surface ruling. The sole platform paint import is inside
+   the popup test module and remains assigned to Rung 6 test housing. No Rung 4
+   production panic remains under the corrected test partition.
+7. **Naming and economics.** Renderer parent projections are exactly the
+   same-named central `Canvas`, `Context`, `Frame`, and `Surface`; supporting
+   types remain qualified through their modules, and the retired compound
+   aliases stay absent. The same semantic scenes, snapped primitives, cache
+   identities, batch/pass order, filter pools, acquisition, submission, and
+   acknowledgement routes remain in force. The admitted cache cells reduce
+   hash lookups without changing renderer topology or frame work.
+8. **Proof and gauge.** The closing library run discovered 1,088 tests: 1,078
+   passed, 10 standing ignores, and 0 failed. All targets and all five examples
+   compiled without warnings; all eight census parser witnesses, the full
+   census, formatting, diff checks, and protected `comparison_open: true`
+   state passed. The corrected gauge is 47 top-level modules, 326 production
+   edges, 109 test-only edges, 52 slot edges, 4 forbidden edges, 0 external
+   violations, 1 SCC, 1,809 production `pub(crate)` declarations in 191 files,
+   90 cross-slot test edges, 115 source-root mentions, 345 filesystem reads,
+   9 allowances, 7 panics, and 90 expects.
+9. **Fixed point.** The full Rung 4 trace admits no additional correction.
+   Every renderer/platform crossing names a first-party contract and every
+   presentation clock advances only from its proper receipt. The four
+   surviving forbidden edges are all explicit UI questions. Rung 5 may now
+   reassess that territory without inheriting renderer or platform ownership
+   confusion.
+
+## Rung 4 closure — semantic presentation and physical realization
+
+Status: **complete**. Production boundary `80586f7f`; final production-cell
+ledger boundary `d89662fc`. The repository was clean before the closure record
+and preserved `comparison_open: true`.
+
+Rung 4 inverted diagnostics observation, moved semantic scene lowering and
+color conversion from native platform to renderer, introduced first-party GPU
+surface contracts, projected physical composition geometry at the renderer
+boundary, corrected the census treatment of external test modules, and reduced
+three asserted cache/attempt protocols to structural admission. No physical
+crate, feature gate, public numeric dependency type, callback bridge, or
+user-visible behavior change was introduced.
+
+### Boundary gauge
+
+| Metric | Rung 3 | Rung 4 |
+|---|---:|---:|
+| Top-level production modules | 47 | 47 |
+| Unique production module edges | 325 | 326 |
+| Unique test-only module edges | 100 | 109 |
+| Provisional cross-slot edges | 43 | 52 |
+| Provisional forbidden internal edges | 5 | 4 |
+| Provisional heavy external-boundary violations | 1 | 0 |
+| Provisional slot SCCs | 1 | 1 |
+| Production `pub(crate)` declarations | 1,764 | 1,809 |
+| Cross-slot test-only edges | 80 | 90 |
+| `CARGO_MANIFEST_DIR` mentions | 111 | 115 |
+| Filesystem read calls | 334 | 345 |
+| `#[allow(...)]` attributes | 10 | 9 |
+| Production `panic!` calls | 9 | 7 |
+| Production `.expect(...)` calls | 102 | 90 |
+
+R4-05 corrected the instrument mid-rung: five expects, two panics, four
+crate-visible declarations, and two module edges previously counted as
+production were actually housed beneath external cfg-test module roots. The
+Rung 3 column remains its historical receipt; the corrected Rung 4 column is
+the governing baseline from here forward. The added truthful slot edges and
+visibility are primarily the diagnostics observer seam and explicit renderer
+scene/surface contracts. Test-edge and source-read growth comes from focused
+architecture receipts plus the corrected test partition and remains assigned
+to Rung 6 consolidation.
+
+The final external-boundary violation and renderer diagnostic back-edge are
+gone. Platform has no production private-paint or raw GPU dependency crossing;
+renderer has no platform/runtime/diagnostics back-edge. The four remaining
+forbidden edges are `window -> theme`, `layout -> diagnostics`,
+`view -> diagnostics`, and `widget -> document`, all named inputs to the Rung 5
+UI examination rather than residue hidden by the presentation work.
+
+### Boundary proof and next frontier
+
+- full library: 1,078 passed, 10 ignored, 0 failed;
+- all targets and all five examples compiled without warnings;
+- parent presentation, stale-geometry, popup generation, concealment,
+  retirement, cleanup, renderer cache, scene projection, and architecture
+  witnesses passed;
+- all eight census parser witnesses, the full census, `cargo fmt --check`,
+  `git diff --check`, and tombstone searches passed;
+- renderer order, batching/pass fusion, shaping, invalidation, parent and popup
+  presentation clocks, and frame economics remain equivalent except for the
+  recorded cache-lookup reductions.
+
+Rung 5 begins by tracing the UI territory as one knot before breaking any
+edge: scene, view, widget, layout, composition, interaction, session, table,
+virtualization, selection, draft, popup, overlay, theme, pointer, and the four
+surviving forbidden crossings.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
