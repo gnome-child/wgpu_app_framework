@@ -371,10 +371,13 @@ materializes the keyed row and only then transfers focus. V1 virtualization is
 synchronous, flat, uniform-height, and bounded to visible rows plus overscan
 and pins; it has no variable-height, streaming, or async provider policy.
 
-Interaction pruning returns one receipt species: unchanged, changed, or
-capture removed. Capture removal necessarily implies interaction change and
-additionally cancels the runtime-owned gesture; parallel booleans must not
-represent capture removal without change.
+Interaction pruning returns either unchanged or changed. A changed receipt
+owns the independent downstream consequences discovered during the same pass:
+capture removal and contextual-menu removal. Either consequence necessarily
+implies interaction change, and both may coexist. Capture removal cancels the
+runtime-owned gesture; contextual-menu removal retires the session-owned focus
+capture so stale menu focus cannot outrank live focus after the surface is
+gone.
 
 `Table` is the record-table species of provided container. It composes one
 ordinary sticky header with one selectable `VirtualList`; its provider returns

@@ -79,11 +79,11 @@ fn interaction_pruning_receipt_encodes_capture_implication() {
     assert!(
         interaction.contains("enum PruneOutcome {")
             && interaction.contains("Unchanged,")
-            && interaction.contains("Changed,")
-            && interaction.contains("CaptureRemoved,")
+            && interaction.contains("Changed {")
+            && interaction.contains("capture_removed: bool,")
+            && interaction.contains("menu_removed: bool,")
             && interaction.contains("outcome: PruneOutcome,")
     );
-    assert!(!interaction.contains("capture_removed: bool"));
     assert!(!interaction.contains("changed: bool"));
 }
 

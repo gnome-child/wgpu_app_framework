@@ -381,9 +381,14 @@ impl Session {
             return interaction::Pruned::default();
         };
 
-        window
-            .interaction
-            .prune_removed(removed_nodes, removed_elements, removed_table_cells)
+        let pruned =
+            window
+                .interaction
+                .prune_removed(removed_nodes, removed_elements, removed_table_cells);
+        if pruned.menu_removed() {
+            window.menu_restore_focus = None;
+        }
+        pruned
     }
 
     pub fn windows(&self) -> &[Window] {

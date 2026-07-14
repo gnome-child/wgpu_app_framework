@@ -408,8 +408,12 @@ fn removing_a_context_owner_prunes_the_shared_menu_session() {
     let size = geometry::Size::new(320, 180);
     let initial = app.show_scene(window, size).expect("view should render");
     let owner = labeled_frame(initial.layout(), view::Role::Binding, "Set level");
+    let captured_focus = session::Focus::text("captured-before-context-menu");
+    app.handle_input(window, Input::focus(captured_focus))
+        .expect("focus should be captured before the context menu opens");
     app.open_context_menu_at(window, size, frame_point(owner))
         .expect("context menu should open");
+    assert_eq!(app.session().command_focus(window), Some(captured_focus));
 
     app.change(
         state::Reason::programmatic("remove-context-owner"),
@@ -425,6 +429,14 @@ fn removing_a_context_owner_prunes_the_shared_menu_session() {
             .interaction(window)
             .and_then(Interaction::open_menu),
         None
+    );
+    let live_focus = session::Focus::text("live-after-context-menu");
+    app.handle_input(window, Input::focus(live_focus))
+        .expect("live focus should be accepted after the menu is pruned");
+    assert_eq!(
+        app.session().command_focus(window),
+        Some(live_focus),
+        "pruning a contextual menu must retire its captured command focus"
     );
 }
 

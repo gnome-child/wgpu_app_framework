@@ -46,17 +46,35 @@ pub(crate) struct Pruned {
 enum PruneOutcome {
     #[default]
     Unchanged,
-    Changed,
-    CaptureRemoved,
+    Changed {
+        capture_removed: bool,
+        menu_removed: bool,
+    },
 }
 
 impl Pruned {
     pub(crate) fn changed(self) -> bool {
-        !matches!(self.outcome, PruneOutcome::Unchanged)
+        matches!(self.outcome, PruneOutcome::Changed { .. })
     }
 
     pub(crate) fn capture_removed(self) -> bool {
-        matches!(self.outcome, PruneOutcome::CaptureRemoved)
+        matches!(
+            self.outcome,
+            PruneOutcome::Changed {
+                capture_removed: true,
+                ..
+            }
+        )
+    }
+
+    pub(crate) fn menu_removed(self) -> bool {
+        matches!(
+            self.outcome,
+            PruneOutcome::Changed {
+                menu_removed: true,
+                ..
+            }
+        )
     }
 }
 
@@ -439,10 +457,11 @@ impl Interaction {
 
         let changed =
             hovered_changed || press_changed || scroll_changed || text_changed || menu_changed;
-        let outcome = if capture_changed {
-            PruneOutcome::CaptureRemoved
-        } else if changed {
-            PruneOutcome::Changed
+        let outcome = if changed {
+            PruneOutcome::Changed {
+                capture_removed: capture_changed,
+                menu_removed: menu_changed,
+            }
         } else {
             PruneOutcome::Unchanged
         };
