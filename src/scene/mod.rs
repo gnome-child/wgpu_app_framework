@@ -211,7 +211,7 @@ impl Scene {
         ghost.primitives = ghost
             .primitives
             .iter()
-            .map(ghost_primitive)
+            .map(Primitive::without_backdrop_sampling)
             .collect::<Vec<_>>();
         ghost.material_regions.clear();
         self.append_scene_with_opacity(&ghost, opacity);
@@ -581,19 +581,6 @@ fn collect_clips<'a>(primitives: &'a [Primitive], clips: &mut Vec<&'a Clip>) {
     }
 }
 
-fn ghost_primitive(primitive: &Primitive) -> Primitive {
-    match primitive {
-        Primitive::Pane(pane) => Primitive::Pane(pane.without_backdrop_sampling()),
-        Primitive::Group(group) => {
-            let primitives = group.primitives().iter().map(ghost_primitive).collect();
-            Primitive::Group(
-                Group::new(primitives, group.opacity()).expect("existing group is visible"),
-            )
-        }
-        _ => primitive.clone(),
-    }
-}
-
 fn native_popup_fallback_clear(primitives: &[Primitive]) -> Option<Color> {
     primitives.iter().find_map(|primitive| match primitive {
         Primitive::Pane(pane) => match pane.material() {
@@ -958,6 +945,29 @@ mod tests {
             target.material_regions().is_empty(),
             "paint-only ghosts must not retain platform material requests"
         );
+    }
+
+    #[test]
+    fn ghost_overlay_preserves_nested_group_membership_and_opacity() {
+        let mut source = glass_pane_scene();
+        let Some(group) = Group::new(std::mem::take(&mut source.primitives), 0.75) else {
+            panic!("the pane scene should form a visible group");
+        };
+        source.primitives.push(Primitive::Group(group));
+        let mut target = Scene::new(geometry::Size::new(100, 100));
+
+        target.append_ghost_scene_with_opacity(&source, 0.5);
+
+        let [Primitive::Group(outer)] = target.primitives() else {
+            panic!("ghost opacity should form one outer group");
+        };
+        let [Primitive::Group(inner)] = outer.primitives() else {
+            panic!("ghost projection should retain the nested group");
+        };
+        assert_eq!(outer.opacity(), 0.5);
+        assert_eq!(inner.opacity(), 0.75);
+        assert_eq!(target.panes().len(), 1);
+        assert!(target.material_regions().is_empty());
     }
 
     #[test]

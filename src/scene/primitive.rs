@@ -236,6 +236,14 @@ impl Primitive {
             Self::Group(group) => Self::Group(group.translated(dx, dy)),
         }
     }
+
+    pub(in crate::scene) fn without_backdrop_sampling(&self) -> Self {
+        match self {
+            Self::Pane(pane) => Self::Pane(pane.without_backdrop_sampling()),
+            Self::Group(group) => Self::Group(group.without_backdrop_sampling()),
+            _ => self.clone(),
+        }
+    }
 }
 
 fn translate_rect(rect: geometry::Rect, dx: i32, dy: i32) -> geometry::Rect {
@@ -274,6 +282,17 @@ impl Group {
                 .primitives
                 .iter()
                 .map(|primitive| primitive.translated(dx, dy))
+                .collect(),
+            opacity: self.opacity,
+        }
+    }
+
+    fn without_backdrop_sampling(&self) -> Self {
+        Self {
+            primitives: self
+                .primitives
+                .iter()
+                .map(Primitive::without_backdrop_sampling)
                 .collect(),
             opacity: self.opacity,
         }

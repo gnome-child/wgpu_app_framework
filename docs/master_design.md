@@ -928,7 +928,10 @@ not imply model revision changes. A resolved overlay layer carries one of the
 three disjoint lifecycle species; every species owns elapsed time, while only a
 live layer can carry entering/live state. If an in-frame ghost contains a
 material pane, the pane is downgraded to paint-only material layers; ghosts
-keep body, tint, and grain, but they do not backdrop-sample the world.
+keep body, tint, and grain, but they do not backdrop-sample the world. This
+one-for-one primitive projection preserves every existing group's nonempty
+membership and admitted opacity directly; it does not re-enter fallible group
+construction or assert the invariant it started from.
 
 Ghosts capture scene primitives, not paint primitives, so DPI and scale changes
 during a fade still pass through the normal layout-to-paint boundary. Ghost

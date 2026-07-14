@@ -4405,6 +4405,7 @@ fn material_regions_derive_identity_and_provenance_at_pane_emission() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let scene = std::fs::read_to_string(root.join("src").join("scene").join("mod.rs"))
         .expect("scene source should read");
+    let primitive = include_str!("../scene/primitive.rs");
     let region = std::fs::read_to_string(root.join("src").join("scene").join("region.rs"))
         .expect("material region source should read");
     let paint =
@@ -4430,9 +4431,15 @@ fn material_regions_derive_identity_and_provenance_at_pane_emission() {
     );
     assert!(
         scene.contains("ghost.material_regions.clear()")
+            && scene.contains(".map(Primitive::without_backdrop_sampling)")
             && scene.contains("region.with_parent_opacity(opacity)")
             && scene.contains("region.translated(dx, dy)"),
         "ghosting, overlay opacity, and popup localization must project the same retained request"
+    );
+    assert!(
+        primitive.contains("pub(in crate::scene) fn without_backdrop_sampling(&self) -> Self")
+            && !scene.contains("expect(\"existing group is visible\")"),
+        "paint-only ghost projection must preserve an existing group's invariants directly"
     );
 }
 
