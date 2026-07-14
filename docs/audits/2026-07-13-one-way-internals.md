@@ -2985,6 +2985,50 @@ Status: **complete; parallel optional location facts collapsed**. Correction
    sweep continues across the remaining UI state shapes; this cell does not
    close Rung 5.
 
+### R5-11 — valid overlay realization capability species
+
+Status: **complete; contradictory support booleans collapsed**. Correction
+`7c7181d6` (`Make overlay capabilities a valid species`).
+
+1. **Question and complete trace.** The reverse capability sweep traced overlay
+   realization from headless defaults and native backend detection through
+   backend selection, entry/exit animation policy, prepared-frame popup
+   collection, runtime realization, native presentation, and the full overlay
+   lifecycle witnesses.
+2. **Invalid state.** `overlay::Capabilities` carried independent
+   `native_popups` and `native_popup_animation` booleans. Its constructors
+   happened to admit only three combinations, but the representation also
+   admitted animation support without native popup support, a capability that
+   has no realization path.
+3. **Correction.** `Capabilities` is now the closed sum
+   `InFrameOnly | AnimatedNativePopups | ImmediateNativePopups`. Existing
+   constructors and queries remain the crossing API, so every caller and
+   consumer retains its behavior while the impossible fourth combination is
+   unrepresentable.
+4. **Boundary and naming ruling.** No helper or intermediate type was added,
+   visibility did not widen, and `overlay::Capabilities` remains module
+   qualified at crossings. It has no compound declaration/simple projection or
+   namesake-module parent re-export to collapse.
+5. **Behavior and economics.** Native support detection, DX12 animation policy,
+   in-frame fallback, backend resolution, enter/exit fade timing, retirement,
+   popup surface collection, logging, rendering, allocation, and presentation
+   topology are unchanged. Queries compile to direct enum tests rather than
+   field reads and add no storage or traversal.
+6. **Doctrine and witnesses.** Master design now names the three capability
+   species and forbids animation without native realization. The architecture
+   witness pins the sum and tombstones both support-boolean fields.
+7. **Proof and gauge delta from R5-10.** The architecture witness and all 19
+   overlay lifecycle tests passed; the full library discovered 1,093 tests and
+   passed 1,083 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains
+   unchanged.
+8. **Fixed point and next frontier.** Overlay capability is now one valid
+   realization species from platform detection through presentation. The
+   reverse sweep continues across hit, interaction-receipt, and remaining UI
+   state shapes; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
