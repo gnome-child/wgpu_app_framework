@@ -100,21 +100,21 @@ Reject or redraw the seam instead.
 ### Naming follows the established house law
 
 - Names describe the domain concept, not its implementation trick.
-- **Canonical declaration spelling.** A type is declared with the simple name
-  by which the API exposes it. If any projection would otherwise spell
-  `CompoundName as Name`, collapse the declaration itself to `Name`. This is
-  required at every re-export layer, including immediate and higher parent
-  modules: write `pub use module::Name`, never
-  `pub use module::CompoundName as Name`.
-- **Namesake parent projection.** When public module `module` owns the central
-  public type `Module`, its parent publicly re-exports only `Module` from that
-  module. Supporting declarations keep simple names inside `module` and are
-  not flattened into any parent namespace.
-- **Call-site qualification.** Call sites that need both import them as
-  `use parent::{module, Module};`. They use `Module` for the central type and
-  `module::Type` for every supporting type. Name collisions are solved by that
-  module qualification; they never justify compound declarations, aliased
-  projections, or flattened supporting re-exports.
+- **One canonical spelling through every projection.** A type is declared with
+  the simple name exposed by the API. If a re-export would otherwise require
+  `CompoundName as Name`, rename the declaration itself to `Name`; do not keep
+  the compound declaration behind an alias. The same spelling must survive
+  every projection depth, including parent and higher-parent re-exports: write
+  `pub use module::Name`, never `pub use module::CompoundName as Name`.
+- **Namesake modules flatten only their central type.** When public module
+  `module` owns the central public type `Module`, its parent publicly
+  re-exports only `Module` from that module. Supporting declarations retain
+  simple names inside `module` and are never flattened into a parent namespace.
+- **Call sites qualify namesake-module support.** A call site needing the
+  module and its central type imports `use parent::{module, Module};`, uses
+  `Module` for the central type, and uses `module::Type` for every supporting
+  type. Namespace qualification resolves collisions; compound declarations,
+  aliased projections, and flattened supporting re-exports do not.
 - No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
 - Moving or re-housing a concept does not authorize renaming it.
 - Existing overloaded-name cleanup remains under its established census and
