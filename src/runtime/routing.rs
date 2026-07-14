@@ -1,5 +1,5 @@
 use super::super::{
-    context as command_context, error::Error, input, interaction, response, state, view, window,
+    context as command_context, error::Error, input, response, state, view, window,
 };
 use super::Runtime;
 
@@ -102,15 +102,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::PointerMove(target) => {
                 self.handle_input(window, input::Input::pointer_move(target))
             }
-            view::Action::PointerDown { target, intent } => {
-                let input = match intent {
-                    interaction::PressIntent::Activate => input::Input::pointer_down(target),
-                    interaction::PressIntent::Manipulate => {
-                        input::Input::pointer_manipulate(target)
-                    }
-                };
-                self.handle_input(window, input)
-            }
+            view::Action::PointerDown {
+                target,
+                intent,
+                cursor,
+            } => self.handle_pointer_down_input(window, target, intent, cursor),
             view::Action::PointerDrag {
                 hovered,
                 target,

@@ -70,44 +70,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
                 Ok(self.window_outcome(window, false, effect))
             }
-            input::Input::PointerDown(target) => {
-                let hover_tip_was_visible = self.session.hover_tip_visible(window);
-                self.begin_pointer_gesture(window, &target);
-                let effect =
-                    if self
-                        .session
-                        .pointer_down(window, target, interaction::PressIntent::Activate)
-                    {
-                        if hover_tip_was_visible {
-                            response::Effect::Rebuild
-                        } else {
-                            response::Effect::Paint
-                        }
-                    } else {
-                        response::Effect::None
-                    };
-
-                Ok(self.window_outcome(window, false, effect))
-            }
-            input::Input::PointerManipulate(target) => {
-                let hover_tip_was_visible = self.session.hover_tip_visible(window);
-                self.begin_pointer_gesture(window, &target);
-                let effect = if self.session.pointer_down(
-                    window,
-                    target,
-                    interaction::PressIntent::Manipulate,
-                ) {
-                    if hover_tip_was_visible {
-                        response::Effect::Rebuild
-                    } else {
-                        response::Effect::Paint
-                    }
-                } else {
-                    response::Effect::None
-                };
-
-                Ok(self.window_outcome(window, false, effect))
-            }
+            input::Input::PointerDown(target) => self.handle_pointer_down_input(
+                window,
+                target,
+                interaction::PressIntent::Activate,
+                crate::pointer::Cursor::Default,
+            ),
+            input::Input::PointerManipulate(target) => self.handle_pointer_down_input(
+                window,
+                target,
+                interaction::PressIntent::Manipulate,
+                crate::pointer::Cursor::Default,
+            ),
             input::Input::PointerDrag(hovered) => {
                 let hover_tip_was_visible = self.session.hover_tip_visible(window);
                 let effect = if self.session.pointer_move(window, hovered) {

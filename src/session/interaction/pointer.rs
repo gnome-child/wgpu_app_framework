@@ -95,12 +95,13 @@ impl Session {
         id: app_window::Id,
         target: interaction::Target,
         intent: interaction::PressIntent,
+        cursor: crate::pointer::Cursor,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
 
-        window.interaction.pointer_down(target, intent)
+        window.interaction.pointer_down(target, intent, cursor)
     }
 
     pub fn pointer_up(&mut self, id: app_window::Id, target: Option<interaction::Target>) -> bool {

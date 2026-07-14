@@ -65,7 +65,7 @@ and pointer execution consume that one result.
 |---|---|---|
 | 0. Reductions, naming census, and baseline pins | Complete | Ledger, roadmap, current failures, behavior matrix, and structural absences before production edits |
 | 1. Name and migrate one resolved press | Complete | Private `ResolvedPress` / `PressAdmission`; current behavior preserved; scattered cursor helpers retired |
-| 2. Pointer execution consumes the resolved press | Pending | Target, task focus, row gesture, admission, intent, overlay relationship, and capture share the one answer |
+| 2. Pointer execution consumes the resolved press | Complete | Target, task focus, row gesture, admission, intent, overlay relationship, and capture share the one answer |
 | 3. Modifiers become pointer truth | Pending | Retained modifiers and stationary parent/popup re-resolution without presentation |
 | 4. Cursor consumes press admission | Pending | Selection-only rows project Default; focal admitted selectable text projects Text |
 | 5. Future seam, doctrine, and closure | Pending | Architecture witnesses, master doctrine, full ritual, roadmap close-out |
@@ -134,6 +134,28 @@ and pointer execution consume that one result.
   capture consume the resolved press.
 - `cargo check --all-targets` passed. Five focused cursor tests and the captured
   text-drag cursor witness passed with identical update behavior.
+
+### Checkpoint 2 receipts
+
+- `ResolvedPress` now carries exact target, task-focus destination,
+  `VirtualRowGesture`, `PressAdmission`, `PressIntent`, overlay relationship,
+  hit truth, captured cursor, and the cursor to project after release.
+- Pointer-down consumes those fields in the pinned order: resolve, attempt task
+  departure, reject as a whole, apply row selection, stop on `SelectionOnly`,
+  classify the click, construct the ordinary target action, then establish
+  press/capture state.
+- The one resolved row gesture supplies both selection mutation and admission;
+  no second participation computation was introduced.
+- Crate-private pointer actions carry the resolved cursor into the session.
+  `Capture` retains that value beside target identity. Drag and pointer-leave no
+  longer infer Text or ResizeHorizontal from `Target::kind`; pointer-up projects
+  the same resolver's post-release cursor.
+- Existing public raw `input::Input` pointer helpers receive Default and cannot
+  assign an application-selected cursor. The logical value remains private to
+  runtime action routing.
+- All-target compilation passed without warnings. Cursor, text-capture,
+  divider-capture, rejected-departure, selection-before-participation, and the
+  full 1,052-pass library suite remained green.
 
 ## Structural-absence contract
 

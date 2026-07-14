@@ -1,5 +1,5 @@
 use super::Target;
-use crate::geometry::Point;
+use crate::{geometry::Point, pointer};
 use std::time::Instant;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -24,6 +24,7 @@ struct HoverTip {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Capture {
     target: Target,
+    cursor: pointer::Cursor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,12 +183,16 @@ impl Pointer {
 }
 
 impl Capture {
-    pub(super) fn new(target: Target) -> Self {
-        Self { target }
+    pub(super) fn new(target: Target, cursor: pointer::Cursor) -> Self {
+        Self { target, cursor }
     }
 
     pub(crate) fn target(&self) -> &Target {
         &self.target
+    }
+
+    pub(crate) fn cursor(&self) -> pointer::Cursor {
+        self.cursor
     }
 }
 

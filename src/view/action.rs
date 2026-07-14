@@ -1,6 +1,6 @@
 use crate::text;
 
-use super::super::{interaction, session};
+use super::super::{interaction, pointer, session};
 use super::Binding;
 
 #[derive(Clone)]
@@ -12,6 +12,7 @@ pub(crate) enum Action {
     PointerDown {
         target: interaction::Target,
         intent: interaction::PressIntent,
+        cursor: pointer::Cursor,
     },
     PointerDrag {
         hovered: Option<interaction::Target>,
@@ -62,17 +63,24 @@ impl Action {
         Self::PointerMove(target)
     }
 
+    #[cfg(test)]
     pub(crate) fn pointer_down(target: interaction::Target) -> Self {
-        Self::PointerDown {
+        Self::pointer_press(
             target,
-            intent: interaction::PressIntent::Activate,
-        }
+            interaction::PressIntent::Activate,
+            pointer::Cursor::Default,
+        )
     }
 
-    pub(crate) fn pointer_manipulate(target: interaction::Target) -> Self {
+    pub(crate) fn pointer_press(
+        target: interaction::Target,
+        intent: interaction::PressIntent,
+        cursor: pointer::Cursor,
+    ) -> Self {
         Self::PointerDown {
             target,
-            intent: interaction::PressIntent::Manipulate,
+            intent,
+            cursor,
         }
     }
 

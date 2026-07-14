@@ -1,10 +1,32 @@
 use super::super::Runtime;
 use crate::{
-    context as command_context, error::Error, input, interaction, response, session, state, view,
-    window,
+    context as command_context, error::Error, input, interaction, pointer, response, session,
+    state, view, window,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
+    pub(in crate::runtime) fn handle_pointer_down_input(
+        &mut self,
+        window: window::Id,
+        target: interaction::Target,
+        intent: interaction::PressIntent,
+        cursor: pointer::Cursor,
+    ) -> std::result::Result<input::Outcome, Error> {
+        let hover_tip_was_visible = self.session.hover_tip_visible(window);
+        self.begin_pointer_gesture(window, &target);
+        let effect = if self.session.pointer_down(window, target, intent, cursor) {
+            if hover_tip_was_visible {
+                response::Effect::Rebuild
+            } else {
+                response::Effect::Paint
+            }
+        } else {
+            response::Effect::None
+        };
+
+        Ok(self.window_outcome(window, false, effect))
+    }
+
     pub(in crate::runtime) fn handle_pointer_up_input(
         &mut self,
         window: window::Id,

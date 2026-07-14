@@ -202,15 +202,22 @@ impl Interaction {
             .update_projected_hover(target, tip_eligible, std::time::Instant::now())
     }
 
-    pub(super) fn pointer_down(&mut self, target: Target, intent: PressIntent) -> bool {
+    pub(super) fn pointer_down(
+        &mut self,
+        target: Target,
+        intent: PressIntent,
+        cursor: crate::pointer::Cursor,
+    ) -> bool {
         let changed = self.pointer.hovered.as_ref() != Some(&target)
             || self.pointer.pressed.as_ref() != Some(&target)
             || self.pointer.capture.as_ref().map(Capture::target)
                 != target.captures().then_some(&target)
+            || self.pointer.capture.as_ref().map(Capture::cursor)
+                != target.captures().then_some(cursor)
             || self.pointer.press_intent != Some(intent);
         self.pointer.hovered = Some(target.clone());
         self.pointer.pressed = Some(target.clone());
-        self.pointer.capture = target.captures().then(|| Capture::new(target));
+        self.pointer.capture = target.captures().then(|| Capture::new(target, cursor));
         self.pointer.press_intent = Some(intent);
         changed | self.pointer.dismiss_hover_tip()
     }

@@ -220,8 +220,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         layout: std::sync::Arc::new(layout.clone()),
                     },
                 );
+                let point = self
+                    .session
+                    .interaction(window)
+                    .and_then(|interaction| interaction.pointer().position());
                 let hit = self.session.interaction(window).and_then(|interaction| {
-                    interaction.pointer().position().and_then(|point| {
+                    point.and_then(|point| {
                         layout.hit_test_on_surface(point, interaction.pointer().surface())
                     })
                 });
@@ -253,8 +257,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         current.merge(crate::animation::Schedule::At(deadline)),
                     );
                 }
-                self.session
-                    .set_cursor(window, super::pointer::ResolvedPress::new(hit).cursor());
+                let resolved = self.resolve_press(
+                    window,
+                    point.unwrap_or_else(|| super::super::geometry::Point::new(0, 0)),
+                    super::super::input::Modifiers::default(),
+                    hit,
+                );
+                self.session.set_cursor(window, resolved.cursor());
             }
         } else {
             self.session.retry_invalidation(window, invalidation);

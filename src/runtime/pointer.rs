@@ -7,23 +7,134 @@ use super::Runtime;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PressAdmission {
     Inert,
+    SelectionOnly,
     Target,
 }
 
 pub(super) struct ResolvedPress {
     hit: Option<layout::Hit>,
+    target: Option<interaction::Target>,
+    row: Option<VirtualRowGesture>,
+    task_focus: Option<session::Focus>,
     admission: PressAdmission,
+    intent: Option<interaction::PressIntent>,
     cursor: pointer::Cursor,
+    cursor_after_release: pointer::Cursor,
+    inside_palette: bool,
+    inside_menu: bool,
 }
 
 impl ResolvedPress {
-    pub(super) fn new(hit: Option<layout::Hit>) -> Self {
-        let admission = if hit.as_ref().and_then(layout::Hit::target).is_some() {
-            PressAdmission::Target
-        } else {
+    fn hit(&self) -> Option<&layout::Hit> {
+        self.hit.as_ref()
+    }
+
+    fn target(&self) -> Option<&interaction::Target> {
+        self.target.as_ref()
+    }
+
+    fn row(&self) -> Option<&VirtualRowGesture> {
+        self.row.as_ref()
+    }
+
+    fn task_focus(&self) -> Option<session::Focus> {
+        self.task_focus.clone()
+    }
+
+    fn admission(&self) -> PressAdmission {
+        self.admission
+    }
+
+    pub(super) fn cursor(&self) -> pointer::Cursor {
+        self.cursor
+    }
+
+    fn cursor_after_release(&self) -> pointer::Cursor {
+        self.cursor_after_release
+    }
+
+    fn press_action(&self, target: interaction::Target) -> view::Action {
+        view::Action::pointer_press(
+            target,
+            self.intent
+                .expect("a resolved target press must carry its intent"),
+            self.cursor_after_release,
+        )
+    }
+}
+
+#[derive(Clone)]
+struct VirtualRowGesture {
+    model: virtual_list::Model,
+    key: virtual_list::Key,
+    index: usize,
+    cell: Option<crate::table::Cell>,
+    was_focal: bool,
+}
+
+impl VirtualRowGesture {
+    fn permits_participation(&self, modifiers: input::Modifiers) -> bool {
+        self.was_focal && !modifiers.shift() && !modifiers.control() && !modifiers.super_key()
+    }
+}
+
+impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
+    pub(super) fn resolve_press(
+        &self,
+        window: window::Id,
+        point: geometry::Point,
+        modifiers: input::Modifiers,
+        hit: Option<layout::Hit>,
+    ) -> ResolvedPress {
+        let target = hit.as_ref().and_then(layout::Hit::target).cloned();
+        let row = hit
+            .as_ref()
+            .and_then(|hit| self.virtual_row_gesture_for_hit(window, hit, point));
+        let admission = if target.is_none() {
             PressAdmission::Inert
+        } else if row
+            .as_ref()
+            .is_some_and(|row| !row.permits_participation(modifiers))
+        {
+            PressAdmission::SelectionOnly
+        } else {
+            PressAdmission::Target
         };
-        let cursor = hit
+        let task_focus = hit.as_ref().and_then(|hit| {
+            let target = target.as_ref()?;
+            if target.kind() == interaction::Kind::TableDivider || hit.is_chrome() {
+                None
+            } else if matches!(
+                hit.frame().role(),
+                view::Role::TextArea | view::Role::TextBox
+            ) {
+                hit.frame().text_task_focus().map(session::Focus::pointer)
+            } else if hit.frame().role() == view::Role::Slider
+                || is_pointer_focusable(hit.frame())
+                || (row.is_some() && hit.frame().role() == view::Role::VirtualList)
+            {
+                Some(session::Focus::control(target).pointer())
+            } else {
+                None
+            }
+        });
+        let intent = hit.as_ref().and_then(|hit| {
+            target.as_ref()?;
+            Some(
+                if hit.is_chrome() || hit.frame().role() == view::Role::Slider {
+                    interaction::PressIntent::Manipulate
+                } else if matches!(
+                    hit.frame().role(),
+                    view::Role::TextArea | view::Role::TextBox
+                ) && hit.frame().is_focused()
+                {
+                    interaction::PressIntent::Manipulate
+                } else {
+                    interaction::PressIntent::Activate
+                },
+            )
+        });
+        let cursor_after_release = hit
             .as_ref()
             .map(|hit| {
                 if !hit.is_chrome()
@@ -47,40 +158,110 @@ impl ResolvedPress {
                 }
             })
             .unwrap_or(pointer::Cursor::Default);
+        let cursor = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::Capture::cursor)
+            .unwrap_or(cursor_after_release);
+        let inside_palette = hit
+            .as_ref()
+            .is_some_and(|hit| self.hit_is_command_palette_surface(window, hit));
+        let inside_menu = hit
+            .as_ref()
+            .is_some_and(|hit| self.hit_is_menu_surface(window, hit));
 
-        Self {
+        ResolvedPress {
             hit,
+            target,
+            row,
+            task_focus,
             admission,
+            intent,
             cursor,
+            cursor_after_release,
+            inside_palette,
+            inside_menu,
         }
     }
 
-    fn hit(&self) -> Option<&layout::Hit> {
-        self.hit.as_ref()
+    fn virtual_row_gesture_for_hit(
+        &self,
+        window: window::Id,
+        hit: &layout::Hit,
+        point: geometry::Point,
+    ) -> Option<VirtualRowGesture> {
+        let table_cell = hit.table_cell();
+        let composition = self.composition.get(window)?;
+        let row = composition.provided_row_for_node(hit.frame().node_id());
+        let (list, key, index) = if let Some(row) = row {
+            (row.list(), row.key(), row.index())
+        } else {
+            let list = hit.frame().target()?.element_id()?;
+            let model = composition.virtual_list_model(list)?;
+            if !model.is_selectable() {
+                return None;
+            }
+            let index = hit.frame().virtual_row_index_at(point)?;
+            let key = model.key_at(index)?;
+            (list, key, index)
+        };
+        let model = composition.virtual_list_model(list)?.clone();
+        if !model.is_selectable() {
+            return None;
+        }
+        let was_focal = self
+            .session
+            .selection(window, model.id())
+            .is_some_and(|selection| selection.active() == Some(key));
+        Some(VirtualRowGesture {
+            model,
+            key,
+            index,
+            cell: table_cell,
+            was_focal,
+        })
     }
 
-    fn target(&self) -> Option<&interaction::Target> {
-        (self.admission == PressAdmission::Target)
-            .then(|| self.hit()?.target())
-            .flatten()
+    fn hit_is_command_palette_surface(&self, window: window::Id, hit: &layout::Hit) -> bool {
+        hit.target()
+            .is_some_and(interaction::Target::is_command_palette_surface)
+            || self.hit_owner_is_descendant_of_element(
+                window,
+                hit,
+                interaction::CommandPalette::panel_id(),
+            )
     }
 
-    pub(super) fn cursor(&self) -> pointer::Cursor {
-        self.cursor
+    fn hit_is_menu_surface(&self, window: window::Id, hit: &layout::Hit) -> bool {
+        if hit
+            .target()
+            .is_some_and(interaction::Target::is_menu_surface)
+        {
+            return true;
+        }
+
+        let Some(menu_id) = self
+            .session
+            .interaction(window)
+            .and_then(|interaction| interaction.open_menu())
+            .map(interaction::Menu::id)
+        else {
+            return false;
+        };
+
+        self.hit_owner_is_descendant_of_element(window, hit, menu_id)
     }
-}
 
-struct VirtualRowGesture {
-    model: virtual_list::Model,
-    key: virtual_list::Key,
-    index: usize,
-    cell: Option<crate::table::Cell>,
-    was_focal: bool,
-}
-
-impl VirtualRowGesture {
-    fn permits_participation(&self, modifiers: input::Modifiers) -> bool {
-        self.was_focal && !modifiers.shift() && !modifiers.control() && !modifiers.super_key()
+    fn hit_owner_is_descendant_of_element(
+        &self,
+        window: window::Id,
+        hit: &layout::Hit,
+        element_id: interaction::Id,
+    ) -> bool {
+        self.composition.get(window).is_some_and(|composition| {
+            composition.node_is_self_or_descendant_of_element(hit.frame().node_id(), element_id)
+        })
     }
 }
 
@@ -112,7 +293,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return self.pointer_drag_on_surface(window, size, point, surface);
         }
 
-        let resolved = ResolvedPress::new(self.hit_test_on_surface(window, size, point, surface));
+        let hit = self.hit_test_on_surface(window, size, point, surface);
+        let resolved = self.resolve_press(window, point, input::Modifiers::default(), hit);
         self.set_pointer_cursor(window, resolved.cursor());
         let target = resolved.target().cloned();
         if target.is_none() {
@@ -157,13 +339,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         self.session
             .set_pointer_position(window, Some(point), surface);
-        let resolved = ResolvedPress::new(self.hit_test_on_surface(window, size, point, surface));
+        let hit = self.hit_test_on_surface(window, size, point, surface);
+        let resolved = self.resolve_press(window, point, modifiers, hit);
         self.set_pointer_cursor(window, resolved.cursor());
         let Some(hit) = resolved.hit() else {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
-        let selection = self.virtual_row_gesture_for_hit(window, &hit, point);
+        let selection = resolved.row();
         let selection_row = selection.is_some();
         let Some(target) = resolved.target().cloned() else {
             let transition = self.attempt_clear_focus_transition(window)?;
@@ -187,7 +370,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         if target.kind() == interaction::Kind::Indicator {
             self.session.cancel_click_sequence(window);
-            let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
+            let dismissed_overlays = self.dismiss_overlays_for_press(window, &resolved);
             return Ok(self.with_overlay_dismissal(
                 window,
                 input::Outcome::handled(false, response::Effect::None),
@@ -195,22 +378,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             ));
         }
 
-        let task_focus = if target.kind() == interaction::Kind::TableDivider || hit.is_chrome() {
-            None
-        } else if matches!(
-            hit.frame().role(),
-            view::Role::TextArea | view::Role::TextBox
-        ) {
-            hit.frame().text_task_focus().map(session::Focus::pointer)
-        } else if hit.frame().role() == view::Role::Slider
-            || is_pointer_focusable(hit.frame())
-            || (selection_row && hit.frame().role() == view::Role::VirtualList)
-        {
-            Some(session::Focus::control(&target).pointer())
-        } else {
-            None
-        };
-        let transition = task_focus
+        let transition = resolved
+            .task_focus()
             .map(|focus| self.attempt_focus_transition(window, focus))
             .transpose()?;
         if transition
@@ -227,11 +396,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .as_ref()
             .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
             .unwrap_or(false);
-        let participates = selection
-            .as_ref()
-            .is_none_or(|selection| selection.permits_participation(modifiers));
-        let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
-        if !participates {
+        let dismissed_overlays = self.dismiss_overlays_for_press(window, &resolved);
+        if resolved.admission() == PressAdmission::SelectionOnly {
             self.session.cancel_click_sequence(window);
             let mut outcome = transition
                 .map(|transition| transition.into_outcome())
@@ -255,14 +421,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
 
         let action = if target.kind() == interaction::Kind::TableDivider {
-            view::Action::pointer_down(target)
+            resolved.press_action(target)
         } else if hit.is_chrome() {
-            view::Action::pointer_manipulate(target)
+            resolved.press_action(target)
         } else if matches!(
             hit.frame().role(),
             view::Role::TextArea | view::Role::TextBox
         ) {
-            let pointer_down = text_pointer_down_action(hit.frame(), target.clone());
+            let pointer_down = resolved.press_action(target.clone());
             hit.text_action_at_with_engine(point, text_click, &mut self.layout)
                 .map(|action| view::Action::sequence([pointer_down.clone(), action]))
                 .unwrap_or(pointer_down)
@@ -271,14 +437,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 .map(|action| {
                     view::Action::sequence([
                         view::Action::focus(session::Focus::control(&target).pointer()),
-                        view::Action::pointer_manipulate(target.clone()),
+                        resolved.press_action(target.clone()),
                         action,
                     ])
                 })
                 .unwrap_or_else(|| {
                     view::Action::sequence([
                         view::Action::focus(session::Focus::control(&target).pointer()),
-                        view::Action::pointer_manipulate(target),
+                        resolved.press_action(target),
                     ])
                 })
         } else if is_pointer_focusable(hit.frame())
@@ -286,10 +452,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         {
             view::Action::sequence([
                 view::Action::focus(session::Focus::control(&target).pointer()),
-                view::Action::pointer_down(target),
+                resolved.press_action(target),
             ])
         } else {
-            view::Action::pointer_down(target)
+            resolved.press_action(target)
         };
 
         let mut outcome = self.handle_view(window, action)?;
@@ -305,44 +471,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             );
         }
         Ok(self.with_overlay_dismissal(window, outcome, dismissed_overlays))
-    }
-
-    fn virtual_row_gesture_for_hit(
-        &self,
-        window: window::Id,
-        hit: &layout::Hit,
-        point: geometry::Point,
-    ) -> Option<VirtualRowGesture> {
-        let table_cell = hit.table_cell();
-        let composition = self.composition.get(window)?;
-        let row = composition.provided_row_for_node(hit.frame().node_id());
-        let (list, key, index) = if let Some(row) = row {
-            (row.list(), row.key(), row.index())
-        } else {
-            let list = hit.frame().target()?.element_id()?;
-            let model = composition.virtual_list_model(list)?;
-            if !model.is_selectable() {
-                return None;
-            }
-            let index = hit.frame().virtual_row_index_at(point)?;
-            let key = model.key_at(index)?;
-            (list, key, index)
-        };
-        let model = composition.virtual_list_model(list)?.clone();
-        if !model.is_selectable() {
-            return None;
-        }
-        let was_focal = self
-            .session
-            .selection(window, model.id())
-            .is_some_and(|selection| selection.active() == Some(key));
-        Some(VirtualRowGesture {
-            model,
-            key,
-            index,
-            cell: table_cell,
-            was_focal,
-        })
     }
 
     fn apply_virtual_row_gesture(
@@ -404,8 +532,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         self.session
             .set_pointer_position(window, Some(point), surface);
-        let resolved = ResolvedPress::new(self.hit_test_on_surface(window, size, point, surface));
-        self.set_pointer_cursor(window, resolved.cursor());
+        let hit = self.hit_test_on_surface(window, size, point, surface);
+        let resolved = self.resolve_press(window, point, input::Modifiers::default(), hit);
+        self.set_pointer_cursor(window, resolved.cursor_after_release());
         let target = resolved.target().cloned();
         let action = resolved.hit().and_then(|hit| {
             (!hit.is_chrome()
@@ -442,25 +571,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
-        let resolved = ResolvedPress::new(layout.hit_test_on_surface(point, surface));
-        let captured_target = self
-            .session
-            .interaction(window)
-            .and_then(|interaction| {
-                interaction
-                    .pointer()
-                    .capture()
-                    .map(|capture| capture.target())
-                    .or_else(|| interaction.pointer().pressed())
-            })
-            .map(interaction::Target::kind);
-        if captured_target == Some(interaction::Kind::TextArea) {
-            self.set_pointer_cursor(window, pointer::Cursor::Text);
-        } else if captured_target == Some(interaction::Kind::TableDivider) {
-            self.set_pointer_cursor(window, pointer::Cursor::ResizeHorizontal);
-        } else {
-            self.set_pointer_cursor(window, resolved.cursor());
-        }
+        let resolved = self.resolve_press(
+            window,
+            point,
+            input::Modifiers::default(),
+            layout.hit_test_on_surface(point, surface),
+        );
+        self.set_pointer_cursor(window, resolved.cursor());
         let hovered = resolved.target().cloned();
         let active = self.session.interaction(window).and_then(|interaction| {
             interaction
@@ -499,19 +616,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
     ) -> std::result::Result<input::Outcome, Error> {
-        let captured_kind = self
+        let point = self
             .session
             .interaction(window)
-            .and_then(|interaction| interaction.pointer().capture())
-            .map(|capture| capture.target().kind());
-        self.set_pointer_cursor(
-            window,
-            match captured_kind {
-                Some(interaction::Kind::TextArea) => pointer::Cursor::Text,
-                Some(interaction::Kind::TableDivider) => pointer::Cursor::ResizeHorizontal,
-                _ => pointer::Cursor::Default,
-            },
-        );
+            .and_then(|interaction| interaction.pointer().position())
+            .unwrap_or_else(|| geometry::Point::new(0, 0));
+        let resolved = self.resolve_press(window, point, input::Modifiers::default(), None);
+        self.set_pointer_cursor(window, resolved.cursor());
 
         self.handle_view(window, view::Action::pointer_left())
     }
@@ -551,57 +662,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.handle_view(window, view::Action::scroll(target, delta))
     }
 
-    fn dismiss_overlays_for_hit(&mut self, window: window::Id, hit: Option<&layout::Hit>) -> bool {
-        let inside_palette =
-            hit.is_some_and(|hit| self.hit_is_command_palette_surface(window, hit));
-        let inside_menu = hit.is_some_and(|hit| self.hit_is_menu_surface(window, hit));
+    fn dismiss_overlays_for_press(&mut self, window: window::Id, resolved: &ResolvedPress) -> bool {
         let dismissed_palette = self
             .session
-            .dismiss_command_palette_for_surface(window, inside_palette);
-        let dismissed_menu = self.session.dismiss_menu_for_surface(window, inside_menu);
+            .dismiss_command_palette_for_surface(window, resolved.inside_palette);
+        let dismissed_menu = self
+            .session
+            .dismiss_menu_for_surface(window, resolved.inside_menu);
 
         dismissed_palette || dismissed_menu
-    }
-
-    fn hit_is_command_palette_surface(&self, window: window::Id, hit: &layout::Hit) -> bool {
-        hit.target()
-            .is_some_and(interaction::Target::is_command_palette_surface)
-            || self.hit_owner_is_descendant_of_element(
-                window,
-                hit,
-                interaction::CommandPalette::panel_id(),
-            )
-    }
-
-    fn hit_is_menu_surface(&self, window: window::Id, hit: &layout::Hit) -> bool {
-        if hit
-            .target()
-            .is_some_and(interaction::Target::is_menu_surface)
-        {
-            return true;
-        }
-
-        let Some(menu_id) = self
-            .session
-            .interaction(window)
-            .and_then(|interaction| interaction.open_menu())
-            .map(interaction::Menu::id)
-        else {
-            return false;
-        };
-
-        self.hit_owner_is_descendant_of_element(window, hit, menu_id)
-    }
-
-    fn hit_owner_is_descendant_of_element(
-        &self,
-        window: window::Id,
-        hit: &layout::Hit,
-        element_id: interaction::Id,
-    ) -> bool {
-        self.composition.get(window).is_some_and(|composition| {
-            composition.node_is_self_or_descendant_of_element(hit.frame().node_id(), element_id)
-        })
     }
 
     fn with_overlay_dismissal(
@@ -626,14 +695,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     fn set_pointer_cursor(&mut self, window: window::Id, cursor: pointer::Cursor) {
         self.session.set_cursor(window, cursor);
-    }
-}
-
-fn text_pointer_down_action(frame: &layout::Frame, target: interaction::Target) -> view::Action {
-    if frame.is_focused() {
-        view::Action::pointer_manipulate(target)
-    } else {
-        view::Action::pointer_down(target)
     }
 }
 
