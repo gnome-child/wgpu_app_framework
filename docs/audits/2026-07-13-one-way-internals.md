@@ -3560,6 +3560,58 @@ Correction `efa2168d` (`Make command surface exclusive`).
    the remaining visibility/failure inventories. This cell does not close
    Rung 5.
 
+### R5-24 — atomic active text-input composition
+
+Status: **complete; preedit lifetime nested beneath its active target**.
+Correction `1465344a` (`Make draft preedit target atomic`).
+
+1. **Question and complete trace.** The reverse draft-input sweep traced active
+   targets, retained drafts, IME preedit/commit/disable, ordinary edits and
+   selection, undo/redo, caret-blink epochs, TextBox and TextArea projection,
+   table and palette text tasks, focus transfer, cancellation, snapshot restore,
+   draft eviction, identity pruning, and window destruction.
+2. **Invalid state and retained distinctions.** `draft::Input` stored an optional
+   active target and optional preedit independently even though every preedit
+   producer installed a target and every target-retirement path cleared
+   preedit. Composition without a target had no producer or consumer meaning.
+   A target without composition remains valid, and independently keyed drafts
+   may lawfully outlive their active target, so neither distinction was merged.
+3. **Correction.** One private optional `Active { target, preedit }` now owns the
+   live text-input unit. Target and preedit queries project from it; activation,
+   editing, selection, undo/redo, empty-preedit handling, deactivation, draft
+   removal, pruning, and full clearing transition that unit atomically. The
+   parallel top-level options and redundant two-field clearing protocol are
+   deleted, while the draft store and caret epochs remain separately keyed.
+4. **Boundary and naming ruling.** `Active` is a simple private supporting
+   concept inside private `draft::input` housing. It receives no parent
+   projection, alias, or visibility widening. Existing `draft::Input`, target,
+   preedit, draft, feedback, and caret-epoch crossings retain their exact
+   spellings.
+5. **Behavior and economics.** IME routing, composition replacement and
+   clearing, target switching, draft retention/eviction, feedback lifetime,
+   selection history exclusion, caret blink resets, layout projection,
+   invalidation, allocation, shaping, renderer topology, batching/pass fusion,
+   and presentation clocks are unchanged. The same target and optional preedit
+   values occupy one nested aggregate without a heap object, lookup, callback,
+   or additional traversal.
+6. **Doctrine and witnesses.** Master design now states that preedit is nested
+   beneath the one active text target while retained drafts remain independent.
+   The architecture witness requires the private active unit and tombstones the
+   former optional target field. A new owner witness covers both preedit-only
+   retirement and draft-backed target retention after composition clears.
+7. **Proof and gauge delta from R5-23.** All fifteen preedit-focused journeys
+   passed; the full library discovered 1,106 tests and passed 1,096 with 10
+   ignored; all targets compiled without warnings. All nine census parser
+   witnesses, the full census, formatting, diff, and protected-state checks
+   passed. Every graph, visibility, test-edge, source-root, filesystem,
+   allowance, panic, and expect gauge remains unchanged.
+8. **Fixed point and next frontier.** Active text input now cannot carry
+   composition without its target, while inactive retained drafts remain
+   untouched. The reverse sweep continues through interaction target capture,
+   pointer/session lifecycles, view/layout role facts, widget/theme state, and
+   the remaining visibility/failure inventories. This cell does not close
+   Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
