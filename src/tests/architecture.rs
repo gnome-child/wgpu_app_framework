@@ -102,6 +102,22 @@ fn realized_material_parts_encode_tint_inside_frost() {
 }
 
 #[test]
+fn composition_key_has_one_structural_identity_species() {
+    let tree = include_str!("../composition/tree.rs");
+
+    assert!(
+        tree.contains("enum Key {")
+            && tree.contains("Ordinary {")
+            && tree.contains("ProvidedRow {")
+            && tree.contains("TableCell {")
+            && tree.contains("TableHeaderCell {")
+    );
+    assert!(!tree.contains("provided: Option<crate::virtual_list::Key>"));
+    assert!(!tree.contains("table_cell: Option<crate::table::Cell>"));
+    assert!(!tree.contains("table_header_cell: Option<crate::table::HeaderCell>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))

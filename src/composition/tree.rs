@@ -56,12 +56,26 @@ enum Identity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct Key {
-    role: view::Role,
-    axis: Option<view::Axis>,
-    provided: Option<crate::virtual_list::Key>,
-    table_cell: Option<crate::table::Cell>,
-    table_header_cell: Option<crate::table::HeaderCell>,
+enum Key {
+    Ordinary {
+        role: view::Role,
+        axis: Option<view::Axis>,
+    },
+    ProvidedRow {
+        role: view::Role,
+        axis: Option<view::Axis>,
+        key: crate::virtual_list::Key,
+    },
+    TableCell {
+        role: view::Role,
+        axis: Option<view::Axis>,
+        cell: crate::table::Cell,
+    },
+    TableHeaderCell {
+        role: view::Role,
+        axis: Option<view::Axis>,
+        cell: crate::table::HeaderCell,
+    },
 }
 
 impl NodeId {
@@ -150,7 +164,7 @@ impl Changes {
         if let Some(id) = node.element_id {
             self.removed_elements.push(id);
         }
-        if let Some(cell) = node.key.table_cell {
+        if let Some(cell) = node.key.table_cell() {
             self.removed_table_cells.push(cell);
         }
         for child in &node.children {
@@ -286,7 +300,7 @@ impl Node {
                 .collect::<HashSet<_>>();
             for child in &old.children {
                 if !used_old.contains(&child.id) {
-                    let dematerialized = child.key.provided.is_some_and(|key| {
+                    let dematerialized = child.key.provided_row().is_some_and(|key| {
                         !materialized_keys.contains(&key)
                             && view
                                 .virtual_list_model()
@@ -330,21 +344,21 @@ impl Node {
                 .children
                 .iter()
                 .filter(|child| !used.contains(&child.id))
-                .find(|child| child.key.table_cell == Some(cell) && child.matches(view));
+                .find(|child| child.key.table_cell() == Some(cell) && child.matches(view));
         }
         if let Some(cell) = view.table_header_cell() {
             return self
                 .children
                 .iter()
                 .filter(|child| !used.contains(&child.id))
-                .find(|child| child.key.table_header_cell == Some(cell) && child.matches(view));
+                .find(|child| child.key.table_header_cell() == Some(cell) && child.matches(view));
         }
         if let Some(row) = view.provided_row() {
             return self
                 .children
                 .iter()
                 .filter(|child| !used.contains(&child.id))
-                .find(|child| child.key.provided == Some(row.key()) && child.matches(view));
+                .find(|child| child.key.provided_row() == Some(row.key()) && child.matches(view));
         }
 
         if let Some(id) = element_id_for(view) {
@@ -398,7 +412,7 @@ impl Node {
     }
 
     fn contains_table_cell(&self, cell: crate::table::Cell) -> bool {
-        self.key.table_cell == Some(cell)
+        self.key.table_cell() == Some(cell)
             || self
                 .children
                 .iter()
@@ -422,12 +436,41 @@ fn element_id_for(view: &view::Node) -> Option<interaction::Id> {
 
 impl Key {
     fn for_view(view: &view::Node) -> Self {
-        Self {
-            role: view.role(),
-            axis: view.axis(),
-            provided: view.provided_row().map(view::ProvidedRow::key),
-            table_cell: view.table_cell(),
-            table_header_cell: view.table_header_cell(),
+        let role = view.role();
+        let axis = view.axis();
+        if let Some(cell) = view.table_cell() {
+            Self::TableCell { role, axis, cell }
+        } else if let Some(cell) = view.table_header_cell() {
+            Self::TableHeaderCell { role, axis, cell }
+        } else if let Some(row) = view.provided_row() {
+            Self::ProvidedRow {
+                role,
+                axis,
+                key: row.key(),
+            }
+        } else {
+            Self::Ordinary { role, axis }
+        }
+    }
+
+    fn provided_row(self) -> Option<crate::virtual_list::Key> {
+        match self {
+            Self::ProvidedRow { key, .. } => Some(key),
+            Self::Ordinary { .. } | Self::TableCell { .. } | Self::TableHeaderCell { .. } => None,
+        }
+    }
+
+    fn table_cell(self) -> Option<crate::table::Cell> {
+        match self {
+            Self::TableCell { cell, .. } => Some(cell),
+            Self::Ordinary { .. } | Self::ProvidedRow { .. } | Self::TableHeaderCell { .. } => None,
+        }
+    }
+
+    fn table_header_cell(self) -> Option<crate::table::HeaderCell> {
+        match self {
+            Self::TableHeaderCell { cell, .. } => Some(cell),
+            Self::Ordinary { .. } | Self::ProvidedRow { .. } | Self::TableCell { .. } => None,
         }
     }
 }

@@ -336,6 +336,11 @@ collide with retained composition identity. Subject segment names are strings
 for grouping, display/debug output, and future serialization, not routing
 identity.
 
+Within a parent, one structural reconciliation key is ordinary, a provided row,
+a table cell, or a table header cell. Role and axis participate inside each
+species; the stable row/cell/header identities are alternatives rather than
+parallel optional keys.
+
 Provided containers derive a bounded public child composition from application
 data rather than requiring the application to declare every logical child.
 `virtual_list::Provider` is the first species: it supplies a logical length,
