@@ -2605,6 +2605,14 @@ fn resolved_press_is_the_one_cursor_semantics_owner() {
         "horizontal resize must have one logical selection site"
     );
     assert!(
+        runtime_pointer.contains(
+            "hit.is_chrome()\n                        || hit.frame().role() == view::Role::Slider"
+        ) && runtime_pointer
+            .contains("target.kind() == interaction::Kind::TableDivider || hit.is_chrome()")
+            && !runtime_pointer.contains("} else if hit.as_ref().is_some_and(|hit|"),
+        "peer predicates that select the same pointer outcome must share one admission branch"
+    );
+    assert!(
         interaction_pointer.contains("cursor: pointer::Cursor")
             && interaction_pointer.contains("pub(crate) fn cursor(&self) -> pointer::Cursor")
             && runtime_pointer.contains(".map(interaction::pointer::Capture::cursor)")

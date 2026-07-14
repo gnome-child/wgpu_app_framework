@@ -44,7 +44,7 @@ impl ResolvedPress {
     }
 
     fn task_focus(&self) -> Option<session::Focus> {
-        self.task_focus.clone()
+        self.task_focus
     }
 
     pub(super) fn cursor(&self) -> pointer::Cursor {
@@ -111,16 +111,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 PressAdmission::SelectionOnly(target)
             }
             Some(target) => {
-                let intent = if hit
-                    .as_ref()
-                    .is_some_and(|hit| hit.is_chrome() || hit.frame().role() == view::Role::Slider)
-                {
-                    interaction::pointer::PressIntent::Manipulate
-                } else if hit.as_ref().is_some_and(|hit| {
-                    matches!(
-                        hit.frame().role(),
-                        view::Role::TextArea | view::Role::TextBox
-                    ) && hit.frame().is_focused()
+                let intent = if hit.as_ref().is_some_and(|hit| {
+                    hit.is_chrome()
+                        || hit.frame().role() == view::Role::Slider
+                        || (matches!(
+                            hit.frame().role(),
+                            view::Role::TextArea | view::Role::TextBox
+                        ) && hit.frame().is_focused())
                 }) {
                     interaction::pointer::PressIntent::Manipulate
                 } else {
@@ -456,9 +453,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             resolved.cursor_after_release(),
         );
 
-        let action = if target.kind() == interaction::Kind::TableDivider {
-            pointer_down
-        } else if hit.is_chrome() {
+        let action = if target.kind() == interaction::Kind::TableDivider || hit.is_chrome() {
             pointer_down
         } else if matches!(
             hit.frame().role(),
