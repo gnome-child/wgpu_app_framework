@@ -444,6 +444,11 @@ hits still respect the owner's inherited ancestor clip. Rounded panel corners
 remain rectangular for both paint clipping and hit testing until rounded clip
 support exists.
 
+A resolved hit has exactly one action source: its frame, late chrome, or an
+explicit synthetic target such as a table divider or input indicator. Those
+sources are alternatives, never parallel optional claims; cell provenance may
+accompany any of them independently.
+
 Hit testing v1 reads layout truth. At fractional scale, painted device-snapped
 edges and integer layout hit edges may differ by less than one device pixel;
 that tolerance is accepted until a real spatial-presentation animation needs

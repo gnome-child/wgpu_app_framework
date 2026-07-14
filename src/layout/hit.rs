@@ -4,17 +4,22 @@ use super::{chrome, engine, frame::Frame};
 #[derive(Clone)]
 pub(crate) struct Hit {
     frame: Frame,
-    chrome: Option<chrome::Chrome>,
-    target: Option<interaction::Target>,
+    kind: Kind,
     table_cell: Option<crate::table::Cell>,
+}
+
+#[derive(Clone)]
+enum Kind {
+    Frame,
+    Chrome(chrome::Chrome),
+    Target(interaction::Target),
 }
 
 impl Hit {
     pub(super) fn new(frame: Frame) -> Self {
         Self {
             frame,
-            chrome: None,
-            target: None,
+            kind: Kind::Frame,
             table_cell: None,
         }
     }
@@ -22,8 +27,7 @@ impl Hit {
     pub(super) fn chrome(frame: Frame, chrome: chrome::Chrome) -> Self {
         Self {
             frame,
-            chrome: Some(chrome),
-            target: None,
+            kind: Kind::Chrome(chrome),
             table_cell: None,
         }
     }
@@ -31,8 +35,7 @@ impl Hit {
     pub(super) fn table_divider(frame: Frame, target: interaction::Target) -> Self {
         Self {
             frame,
-            chrome: None,
-            target: Some(target),
+            kind: Kind::Target(target),
             table_cell: None,
         }
     }
@@ -40,8 +43,7 @@ impl Hit {
     pub(super) fn indicator(frame: Frame, target: interaction::Target) -> Self {
         Self {
             frame,
-            chrome: None,
-            target: Some(target),
+            kind: Kind::Target(target),
             table_cell: None,
         }
     }
@@ -60,36 +62,30 @@ impl Hit {
     }
 
     pub(crate) fn is_chrome(&self) -> bool {
-        self.chrome.is_some()
+        matches!(&self.kind, Kind::Chrome(_))
     }
 
     pub(crate) fn target(&self) -> Option<&interaction::Target> {
-        if let Some(chrome) = &self.chrome {
-            return Some(chrome.target());
+        match &self.kind {
+            Kind::Frame => self.frame.target(),
+            Kind::Chrome(chrome) => Some(chrome.target()),
+            Kind::Target(target) => Some(target),
         }
-
-        if let Some(target) = &self.target {
-            return Some(target);
-        }
-
-        self.frame.target()
     }
 
     #[cfg(test)]
     pub(crate) fn action(&self) -> Option<&view::Action> {
-        if self.chrome.is_some() || self.target.is_some() {
-            return None;
+        match &self.kind {
+            Kind::Frame => self.frame.action(),
+            Kind::Chrome(_) | Kind::Target(_) => None,
         }
-
-        self.frame.action()
     }
 
     pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
-        if self.chrome.is_some() || self.target.is_some() {
-            return None;
+        match &self.kind {
+            Kind::Frame => self.frame.action_at(point),
+            Kind::Chrome(_) | Kind::Target(_) => None,
         }
-
-        self.frame.action_at(point)
     }
 
     pub(crate) fn action_at_with_engine(
@@ -97,11 +93,10 @@ impl Hit {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.chrome.is_some() || self.target.is_some() {
-            return None;
+        match &self.kind {
+            Kind::Frame => self.frame.action_at_with_engine(point, engine),
+            Kind::Chrome(_) | Kind::Target(_) => None,
         }
-
-        self.frame.action_at_with_engine(point, engine)
     }
 
     pub(crate) fn text_action_at_with_engine(
@@ -110,9 +105,9 @@ impl Hit {
         kind: crate::text::selection::PointerKind,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
-        if self.chrome.is_some() || self.target.is_some() {
-            return None;
+        match &self.kind {
+            Kind::Frame => self.frame.text_action_at_with_engine(point, kind, engine),
+            Kind::Chrome(_) | Kind::Target(_) => None,
         }
-        self.frame.text_action_at_with_engine(point, kind, engine)
     }
 }

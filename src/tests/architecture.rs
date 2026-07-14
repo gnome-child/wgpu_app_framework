@@ -58,6 +58,21 @@ fn overlay_capabilities_are_one_valid_realization_species() {
 }
 
 #[test]
+fn layout_hit_has_one_action_source() {
+    let hit = include_str!("../layout/hit.rs");
+
+    assert!(
+        hit.contains("enum Kind {")
+            && hit.contains("Frame,")
+            && hit.contains("Chrome(chrome::Chrome),")
+            && hit.contains("Target(interaction::Target),")
+            && hit.contains("kind: Kind,")
+    );
+    assert!(!hit.contains("chrome: Option<chrome::Chrome>"));
+    assert!(!hit.contains("target: Option<interaction::Target>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
