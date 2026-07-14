@@ -2830,6 +2830,64 @@ Status: **complete; flattened invalid lifecycle states replaced**. Correction
    the popup-realization and variable-list argument aggregates, followed by a
    reverse sweep over the full UI owner.
 
+### R5-08 — retained popup realization geometry contract
+
+Status: **complete; flattened boundary aggregated and suppression removed**.
+Correction `e6b8af93` (`Aggregate realized popup geometry`).
+
+1. **Question and complete trace.** The remaining popup allowance was traced
+   from selected-host placement and scale-resolved renderer projection through
+   generation staging, native presentation, visible clipping, panel/visual
+   offsets, hit geometry, retained-coordinate event translation, IME and
+   retiring paint-only behavior. `Realization::native` accepted nine positional
+   values even though six of them are the one resolved geometry fact that every
+   downstream path must consume consistently.
+2. **Boundary ruling.** Popup identity, parent, and presentation generation are
+   realization identity. Local, host, visible-clip and visual bounds, panel
+   offset, and host scale are one geometry value resolved once by the selected
+   platform host. This is a deliberate popup/platform crossing contract, not a
+   generic argument bag or a renderer type; placement intent and the
+   platform-private applied-HWND geometry remain distinct.
+3. **Reduction and rewire.** Added `popup::Geometry`, nested it in
+   `popup::Realization`, and changed `Realization::native` to consume identity,
+   generation, and that one value. All four construction paths now form the
+   geometry at the resolving host/test boundary. Existing realization accessors
+   delegate to the nested fact. The nine-argument constructor and its
+   `too_many_arguments` suppression are deleted.
+4. **Naming and visibility ruling.** The supporting concept is declared simply
+   as `Geometry` inside `popup` and used as `popup::Geometry` at sibling call
+   sites. It receives no compound declaration, alias, root projection, or
+   parent re-export. The type and its constructor are the two narrowly widened
+   receipts required for the real cross-module contract; fields remain private.
+5. **Doctrine and ratchet.** Master design now names the one retained
+   `popup::Geometry` value consumed by paint, hit testing, event translation,
+   IME, accessibility, clipping, and material projection. The native-position
+   architecture witness requires the namespaced aggregate, nested realization
+   storage, and absence of the former suppression/flattened boundary.
+6. **Behavior and economics.** Every coordinate, scale, generation, clip,
+   offset, native position, hit rectangle, retained point, and log value is
+   unchanged. The same `Copy` fields occupy the realization without heap
+   allocation, clone, callback, lookup, layout, renderer, presentation-clock,
+   or platform-operation changes.
+7. **Proof and gauge delta from R5-07.** The library discovered 1,091 tests:
+   1,081 passed, 10 standing ignores, and 0 failed. All targets and all five
+   examples compiled without warnings; thirteen focused popup/native witnesses,
+   the strengthened architecture witness, all nine census parser witnesses,
+   the full census, formatting, diff, and protected-state checks passed. A
+   repository-wide `-D warnings` Clippy probe confirmed the popup constructor no
+   longer reports `too_many_arguments`; that probe remains non-gating because it
+   also exposed the standing unrelated Clippy backlog. Production/test edges,
+   split responsibilities, slot edges, forbidden/external/SCC counts, and
+   cross-slot test edges remain 325/109, 3, 54, 0/0/0, and 90. The two admitted
+   contract receipts raise production `pub(crate)` declarations 1,806 -> 1,808
+   and the cross-slot upper bound 1,759 -> 1,761. The strengthened witness raises
+   filesystem reads 360 -> 361; source-root mentions remain 118. Removing the
+   suppression lowers allowances 8 -> 7; panics and expects remain 7 and 90.
+8. **Fixed point and next frontier.** Realized popup geometry now crosses the
+   native seam once as one named fact; no flattened constructor or suppression
+   remains. Rung 5 continues with the variable-list layout allowance and then a
+   complete reverse sweep over the UI owner.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
