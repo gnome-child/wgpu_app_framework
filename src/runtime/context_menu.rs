@@ -18,7 +18,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .context_owner()?;
         let path = self.composition.get(window)?.context_path_for_node(owner);
         (!path.is_empty()).then(|| {
-            let traversal = context_traversal(&path, active_table_text_cell(&self.session, window));
+            let traversal = context_traversal(&path, &self.session, window);
             (path, traversal)
         })
     }
@@ -73,7 +73,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if path.is_empty() {
             return Ok(crate::input::Outcome::ignored());
         }
-        let traversal = context_traversal(&path, active_table_text_cell(&self.session, window));
+        let traversal = context_traversal(&path, &self.session, window);
         if self.context_sections(window, &path, traversal).is_empty() {
             return Ok(crate::input::Outcome::ignored());
         }
@@ -121,9 +121,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 })
                 .collect::<Vec<_>>();
             targets.extend(services::contextual_targets(
-                &self.session,
                 &self.composition,
                 window,
+                owner.service(),
                 owner.focus(),
                 owner.table(),
             ));
@@ -160,23 +160,19 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
 fn context_traversal(
     path: &[view::ContextOwner],
-    editing_cell: Option<crate::table::Cell>,
-) -> responder::Traversal {
-    editing_cell
-        .is_some_and(|cell| path.iter().any(|owner| owner.cell() == Some(cell)))
-        .then_some(responder::Traversal::Task)
-        .unwrap_or(responder::Traversal::Inspection)
-}
-
-fn active_table_text_cell(
     session: &crate::session::Session,
     window: window::Id,
-) -> Option<crate::table::Cell> {
-    session
-        .interaction(window)?
-        .text_input()
-        .target()?
-        .table_cell()
+) -> responder::Traversal {
+    let active = session
+        .interaction(window)
+        .and_then(|interaction| interaction.text_input().target());
+    path.last()
+        .and_then(view::ContextOwner::focus)
+        .and_then(crate::session::Focus::text_target)
+        .as_ref()
+        .is_some_and(|target| Some(target) == active)
+        .then_some(responder::Traversal::Task)
+        .unwrap_or(responder::Traversal::Inspection)
 }
 
 fn scope_for(owner: &view::ContextOwner) -> responder::Scope {
@@ -185,7 +181,10 @@ fn scope_for(owner: &view::ContextOwner) -> responder::Scope {
     } else {
         owner.responder()
     };
-    responder::Scope::contextual_table(responder, owner.focus(), owner.table())
+    let table = owner
+        .table()
+        .or_else(|| owner.cell().map(crate::table::Cell::table));
+    responder::Scope::contextual_table(responder, owner.focus(), table)
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
@@ -255,7 +254,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             }
         }
 
-        let traversal = context_traversal(&path, active_table_text_cell(&self.session, window));
+        let traversal = context_traversal(&path, &self.session, window);
         if self.context_sections(window, &path, traversal).is_empty() {
             let outcome = if selection_changed {
                 self.window_outcome(window, false, response::Effect::Rebuild)

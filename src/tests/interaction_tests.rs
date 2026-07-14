@@ -725,6 +725,47 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
         .iter()
         .find(|frame| frame.table_cell() == Some(name) && frame.role() == view::Role::TextBox)
         .expect("text cell should be laid out");
+    let context_node = initial
+        .layout()
+        .context_node_at(frame_point(name_frame))
+        .expect("text cell should expose context geometry");
+    let context_path = app
+        .composition(window)
+        .expect("table composition should exist")
+        .context_path_for_node(context_node);
+    let table_layer = context_path
+        .iter()
+        .position(|owner| owner.service() == view::ContextService::Table)
+        .expect("table domain should own one service layer");
+    let row_layer = context_path
+        .iter()
+        .position(|owner| owner.row().is_some())
+        .expect("focal row should own one semantic layer");
+    let cell_layer = context_path
+        .iter()
+        .position(|owner| owner.cell() == Some(name))
+        .expect("cell identity should own one semantic layer");
+    let member_layer = context_path
+        .iter()
+        .position(|owner| {
+            owner.focus() == Some(session::Focus::table_cell(name))
+                && owner.service() == view::ContextService::Text
+        })
+        .expect("exact text member should own one service layer");
+    assert!(table_layer < row_layer && row_layer < cell_layer && cell_layer < member_layer);
+    assert_eq!(context_path[table_layer].row(), None);
+    assert_eq!(context_path[table_layer].cell(), None);
+    assert_eq!(context_path[row_layer].cell(), None);
+    assert_eq!(
+        context_path[row_layer].service(),
+        view::ContextService::None
+    );
+    assert_eq!(context_path[cell_layer].focus(), None);
+    assert_eq!(
+        context_path[cell_layer].service(),
+        view::ContextService::None
+    );
+    assert_eq!(context_path[member_layer].cell(), None);
 
     app.open_context_menu_at(window, size, frame_point(name_frame))
         .expect("row context should open through an unmarked cell");
@@ -873,6 +914,21 @@ fn active_table_editor_uses_task_order_and_owns_select_all() {
         .find(|frame| frame.role() == view::Role::TextBox && frame.table_cell() == Some(cell))
         .expect("active table editor should be laid out");
 
+    app.handle_input(window, Input::shortcut("Ctrl+A"))
+        .expect("live keyboard routing should reach the active text task");
+    assert_eq!(
+        text_draft(&app, window, session::Focus::table_cell(cell))
+            .selected_text()
+            .as_deref(),
+        Some("Seventeen")
+    );
+    assert!(
+        !app.session()
+            .selection(window, "context.table".into())
+            .is_some_and(crate::selection::Selection::is_all),
+        "the live text task consumes the keyboard command before the table"
+    );
+
     app.open_context_menu_at(window, size, frame_point(editor))
         .expect("active editor context should open");
     let projected = app.present(window).expect("editor context should project");
@@ -887,6 +943,26 @@ fn active_table_editor_uses_task_order_and_owns_select_all() {
         std::any::TypeId::of::<document::SelectAll>(),
         "Task traversal starts at the active editor"
     );
+    let row_position = actions
+        .iter()
+        .position(|binding| binding.command_type() == std::any::TypeId::of::<ContextRow>())
+        .expect("the focal row remains in the active task path");
+    for command_type in [
+        std::any::TypeId::of::<document::SelectAll>(),
+        std::any::TypeId::of::<document::Copy>(),
+        std::any::TypeId::of::<document::Cut>(),
+        std::any::TypeId::of::<document::Delete>(),
+        std::any::TypeId::of::<document::Paste>(),
+    ] {
+        let position = actions
+            .iter()
+            .position(|binding| binding.command_type() == command_type)
+            .expect("the active text task should expose every standard edit command");
+        assert!(
+            position < row_position,
+            "the exact text task must precede broader row commands"
+        );
+    }
     assert!(
         actions
             .iter()

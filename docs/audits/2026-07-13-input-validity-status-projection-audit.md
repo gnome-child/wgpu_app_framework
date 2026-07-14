@@ -20,7 +20,7 @@ are both present. Checkpoint 7 is the severable status tail.
 | 0 — reductions and absence pins | Complete | Named reductions, current source census, baseline ritual, roadmap ignition |
 | 1 — accepted task transitions | Complete | Rejected departure admits no dependent action or click-chain contribution |
 | 2 — one TextBox and row participation | Complete | Pre-gesture focal row gates every member; table edit identity is deleted |
-| 3 — one responder path | Pending | Semantic table/row/cell/member layers replace editing-scope suppression |
+| 3 — one responder path | Complete | Semantic table/row/cell/member layers replace editing-scope suppression |
 | 4 — one current commit recipe | Pending | One current draft produces one trigger or one formatted rejection |
 | 5 — draft-owned validity | Pending | Rejection lifetime is structurally bounded by its draft entry |
 | 6 — inline validity and explanation | Pending | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
@@ -155,6 +155,35 @@ draft-owned validity, one TextBox surface, and the one panel path.
 - Formatting, diff hygiene, all-target compilation, 1,047 passing library
   tests with 10 intentional deep-tier ignores, all 4 doctests, and all three
   application smokes passed. `comparison_open: true` remains protected.
+
+### Checkpoint 3 — one responder path
+
+- Context ownership now projects table domain, focal row, cell identity, and
+  exact member as distinct broad-to-exact layers. A service facet is explicit:
+  the table layer contributes table selection commands, the exact text member
+  contributes ordinary text commands, and the row/cell layers contribute only
+  their own bindings or identity.
+- `Inspection` walks that path table-first. First-claim consumption therefore
+  leaves one table-owned `Select All`, keeps row commands between the table and
+  text sections, and still exposes resting selectable-text operations.
+  `Task` walks from the active member outward, so Select All, Copy, Cut, Delete,
+  and Paste precede the row/table layers without table-target suppression.
+- Context traversal compares the exact member's ordinary text target with the
+  active input target. The editing-cell probe and `active_table_text_cell`
+  helper are deleted. Context candidates no longer inspect session edit state,
+  reorder table/text targets, or deduplicate a collapsed owner.
+- Captured row and exact-member actions continue to invoke through their
+  captured routes after projection. Live keyboard routing remains independent
+  of the menu snapshot; Ctrl+A is claimed by the active text task and leaves
+  table multiselection untouched.
+- `table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu`
+  now pins all four semantic layers, resting section order, conflict
+  consumption, captured row/member invocation, and removal pruning.
+  `active_table_editor_uses_task_order_and_owns_select_all` pins the full
+  standard edit-command family before broader owners and live task ownership.
+- Formatting, diff hygiene, warning-free all-target compilation, 1,047 passing
+  library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
+  three application smokes passed. `comparison_open: true` remains protected.
 
 ## Mission
 

@@ -103,9 +103,7 @@ impl Node {
         path: &mut Vec<super::super::ContextOwner>,
     ) -> bool {
         if retained.node_id() == target {
-            if self.is_context_layer() {
-                path.push(self.context_owner(retained, self.context_focus()));
-            }
+            path.extend(self.context_owners(retained));
             return true;
         }
 
@@ -113,9 +111,7 @@ impl Node {
             let child_retained = retained_child(retained, index);
             let start = path.len();
             if child.context_path_retained(child_retained, target, path) {
-                if self.is_context_layer() {
-                    path.insert(start, self.context_owner(retained, self.context_focus()));
-                }
+                path.splice(start..start, self.context_owners(retained));
                 return true;
             }
         }
@@ -145,25 +141,84 @@ impl Node {
             .or_else(|| self.table_cell().map(session::Focus::table_cell))
     }
 
-    fn context_owner(
-        &self,
-        retained: &composition::Node,
-        focus: Option<session::Focus>,
-    ) -> super::super::ContextOwner {
+    fn context_owners(&self, retained: &composition::Node) -> Vec<super::super::ContextOwner> {
+        if !self.is_context_layer() {
+            return Vec::new();
+        }
         let table = self
             .table_model()
             .map(crate::table::Model::id)
             .or_else(|| self.table_row().map(crate::table::Row::table))
             .or_else(|| self.table_cell().map(crate::table::Cell::table));
-        super::super::ContextOwner::new(
+        if self.table_model().is_some() {
+            return vec![super::super::ContextOwner::new(
+                retained.element_id(),
+                self.context_focus(),
+                self.context_command_binding().cloned(),
+                false,
+                table,
+                None,
+                None,
+                super::super::ContextService::Table,
+            )];
+        }
+        if let Some(row) = self.table_row() {
+            return vec![super::super::ContextOwner::new(
+                retained.element_id(),
+                None,
+                self.context_command_binding().cloned(),
+                false,
+                table,
+                Some(row),
+                None,
+                super::super::ContextService::None,
+            )];
+        }
+        if let Some(cell) = self.table_cell() {
+            let focus = self.context_focus();
+            let text_member = self.text_area_model().is_some() || self.text_box_model().is_some();
+            return vec![
+                super::super::ContextOwner::new(
+                    None,
+                    None,
+                    None,
+                    false,
+                    table,
+                    None,
+                    Some(cell),
+                    super::super::ContextService::None,
+                ),
+                super::super::ContextOwner::new(
+                    retained.element_id(),
+                    focus,
+                    self.context_command_binding().cloned(),
+                    false,
+                    table,
+                    None,
+                    None,
+                    if text_member {
+                        super::super::ContextService::Text
+                    } else {
+                        super::super::ContextService::None
+                    },
+                ),
+            ];
+        }
+        let focus = self.context_focus();
+        vec![super::super::ContextOwner::new(
             retained.element_id(),
             focus,
             self.context_command_binding().cloned(),
             self.role == Role::Root,
             table,
-            self.table_row(),
-            self.table_cell(),
-        )
+            None,
+            None,
+            if focus.is_some() {
+                super::super::ContextService::Text
+            } else {
+                super::super::ContextService::None
+            },
+        )]
     }
 
     pub(in crate::view) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {

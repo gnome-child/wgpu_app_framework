@@ -48,6 +48,14 @@ pub(crate) struct ContextOwner {
     table: Option<interaction::Id>,
     row: Option<crate::table::Row>,
     cell: Option<crate::table::Cell>,
+    service: ContextService,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextService {
+    None,
+    Table,
+    Text,
 }
 
 impl ContextOwner {
@@ -59,6 +67,7 @@ impl ContextOwner {
         table: Option<interaction::Id>,
         row: Option<crate::table::Row>,
         cell: Option<crate::table::Cell>,
+        service: ContextService,
     ) -> Self {
         Self {
             responder,
@@ -68,6 +77,7 @@ impl ContextOwner {
             table,
             row,
             cell,
+            service,
         }
     }
 
@@ -97,6 +107,10 @@ impl ContextOwner {
 
     pub(crate) fn cell(&self) -> Option<crate::table::Cell> {
         self.cell
+    }
+
+    pub(crate) fn service(&self) -> ContextService {
+        self.service
     }
 }
 

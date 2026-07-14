@@ -294,51 +294,35 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
 }
 
 pub(super) fn contextual_targets(
-    session: &session::Session,
     composition: &composition::Store,
     window: window::Id,
+    service: crate::view::ContextService,
     focus: Option<session::Focus>,
     table_id: Option<interaction::Id>,
 ) -> Vec<(TypeId, responder::Route)> {
-    let active_text = focus
-        .and_then(session::Focus::text_target)
-        .is_some_and(|target| {
-            session
-                .interaction(window)
-                .and_then(|interaction| interaction.text_input().target())
-                == Some(&target)
-        });
-    let table_targets = || {
-        table::contextual_target_types(composition, Some(window), table_id)
-            .into_iter()
-            .map(|command_type| {
-                (
-                    command_type,
-                    responder::Route::Service(table::RESPONDER_NAME),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
-    let text_targets = || {
-        text::contextual_target_types(composition, Some(window), focus)
-            .into_iter()
-            .map(|command_type| {
-                (
-                    command_type,
-                    responder::Route::Service(text::RESPONDER_NAME),
-                )
-            })
-            .collect::<Vec<_>>()
-    };
-    let mut targets = if active_text {
-        let mut targets = text_targets();
-        targets.extend(table_targets());
-        targets
-    } else {
-        let mut targets = table_targets();
-        targets.extend(text_targets());
-        targets
-    };
-    targets.dedup();
-    targets
+    match service {
+        crate::view::ContextService::None => Vec::new(),
+        crate::view::ContextService::Table => {
+            table::contextual_target_types(composition, Some(window), table_id)
+                .into_iter()
+                .map(|command_type| {
+                    (
+                        command_type,
+                        responder::Route::Service(table::RESPONDER_NAME),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+        crate::view::ContextService::Text => {
+            text::contextual_target_types(composition, Some(window), focus)
+                .into_iter()
+                .map(|command_type| {
+                    (
+                        command_type,
+                        responder::Route::Service(text::RESPONDER_NAME),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+    }
 }
