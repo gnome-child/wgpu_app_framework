@@ -193,7 +193,7 @@ impl Interaction {
         changed
     }
 
-    pub(crate) fn set_pointer_modifiers(&mut self, modifiers: crate::input::Modifiers) -> bool {
+    pub(crate) fn set_pointer_modifiers(&mut self, modifiers: crate::keyboard::Modifiers) -> bool {
         let changed = self.pointer.modifiers != modifiers;
         self.pointer.modifiers = modifiers;
         changed

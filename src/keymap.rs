@@ -1,6 +1,6 @@
 use crate::text;
 
-use super::{command, input};
+use super::{command, keyboard};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
@@ -23,8 +23,8 @@ pub struct Profile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConcreteChord {
-    key: input::Key,
-    modifiers: input::Modifiers,
+    key: keyboard::Key,
+    modifiers: keyboard::Modifiers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,8 +115,8 @@ impl Profile {
     pub fn matches(
         self,
         chord: command::KeyChord,
-        key: input::Key,
-        modifiers: input::Modifiers,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
     ) -> bool {
         self.chords(chord)
             .into_iter()
@@ -152,8 +152,8 @@ impl Profile {
 
     pub(crate) fn text_operation_for_key(
         self,
-        key: input::Key,
-        modifiers: input::Modifiers,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
     ) -> Option<TextOperation> {
         match self.platform {
             Platform::Mac => mac_text_operation_for_key(key, modifiers),
@@ -163,28 +163,28 @@ impl Profile {
 
     pub fn text_box_shortcut_for_key(
         self,
-        key: input::Key,
-        modifiers: input::Modifiers,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
     ) -> Option<TextBoxShortcut> {
         let clear = match self.platform {
             Platform::Mac => [
                 ConcreteChord::new(
-                    input::Key::Character('a'),
-                    input::Modifiers::new(true, false, false, true),
+                    keyboard::Key::Character('a'),
+                    keyboard::Modifiers::new(true, false, false, true),
                 ),
                 ConcreteChord::new(
-                    input::Key::Character('\\'),
-                    input::Modifiers::new(false, true, false, false),
+                    keyboard::Key::Character('\\'),
+                    keyboard::Modifiers::new(false, true, false, false),
                 ),
             ],
             Platform::Windows | Platform::Linux => [
                 ConcreteChord::new(
-                    input::Key::Character('a'),
-                    input::Modifiers::new(true, true, false, false),
+                    keyboard::Key::Character('a'),
+                    keyboard::Modifiers::new(true, true, false, false),
                 ),
                 ConcreteChord::new(
-                    input::Key::Character('\\'),
-                    input::Modifiers::new(false, true, false, false),
+                    keyboard::Key::Character('\\'),
+                    keyboard::Modifiers::new(false, true, false, false),
                 ),
             ],
         };
@@ -203,19 +203,19 @@ impl Profile {
 
     fn standard_chords(self, standard: command::Standard) -> Vec<ConcreteChord> {
         use command::Standard;
-        use input::Key;
+        use keyboard::Key;
 
         let primary = self.primary_modifier();
         let primary_shift = with_shift(primary);
         match (self.platform, standard) {
             (Platform::Mac, Standard::CloseWindow) => vec![ConcreteChord::new(
                 Key::Character('w'),
-                input::Modifiers::new(false, false, false, true),
+                keyboard::Modifiers::new(false, false, false, true),
             )],
             (Platform::Windows | Platform::Linux, Standard::CloseWindow) => {
                 vec![ConcreteChord::new(
                     Key::F4,
-                    input::Modifiers::new(false, false, true, false),
+                    keyboard::Modifiers::new(false, false, true, false),
                 )]
             }
             (Platform::Windows | Platform::Linux, Standard::Redo) => vec![
@@ -231,7 +231,7 @@ impl Profile {
             (_, Standard::Paste) => vec![ConcreteChord::new(Key::Character('v'), primary)],
             (_, Standard::Delete) => vec![ConcreteChord::new(
                 Key::Delete,
-                input::Modifiers::new(false, false, false, false),
+                keyboard::Modifiers::new(false, false, false, false),
             )],
             (_, Standard::SelectAll) => vec![ConcreteChord::new(Key::Character('a'), primary)],
             (_, Standard::New) => vec![ConcreteChord::new(Key::Character('n'), primary)],
@@ -244,10 +244,12 @@ impl Profile {
         }
     }
 
-    fn primary_modifier(self) -> input::Modifiers {
+    fn primary_modifier(self) -> keyboard::Modifiers {
         match self.platform {
-            Platform::Mac => input::Modifiers::new(false, false, false, true),
-            Platform::Windows | Platform::Linux => input::Modifiers::new(false, true, false, false),
+            Platform::Mac => keyboard::Modifiers::new(false, false, false, true),
+            Platform::Windows | Platform::Linux => {
+                keyboard::Modifiers::new(false, true, false, false)
+            }
         }
     }
 }
@@ -259,19 +261,19 @@ impl Default for Profile {
 }
 
 impl ConcreteChord {
-    pub const fn new(key: input::Key, modifiers: input::Modifiers) -> Self {
+    pub const fn new(key: keyboard::Key, modifiers: keyboard::Modifiers) -> Self {
         Self { key, modifiers }
     }
 
-    pub const fn key(self) -> input::Key {
+    pub const fn key(self) -> keyboard::Key {
         self.key
     }
 
-    pub const fn modifiers(self) -> input::Modifiers {
+    pub const fn modifiers(self) -> keyboard::Modifiers {
         self.modifiers
     }
 
-    pub fn matches_key(self, key: input::Key, modifiers: input::Modifiers) -> bool {
+    pub fn matches_key(self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> bool {
         self.key.normalized() == key.normalized() && self.modifiers == modifiers
     }
 
@@ -316,7 +318,7 @@ impl ConcreteChord {
             }
         }
         match self.key.normalized() {
-            input::Key::Delete => runs.push(ShortcutRun::Icon(ShortcutIcon::Delete)),
+            keyboard::Key::Delete => runs.push(ShortcutRun::Icon(ShortcutIcon::Delete)),
             _ => runs.push(ShortcutRun::Text(key_text(self.key, true))),
         }
 
@@ -390,8 +392,8 @@ impl ShortcutIcon {
     }
 }
 
-fn with_shift(modifiers: input::Modifiers) -> input::Modifiers {
-    input::Modifiers::new(
+fn with_shift(modifiers: keyboard::Modifiers) -> keyboard::Modifiers {
+    keyboard::Modifiers::new(
         true,
         modifiers.control(),
         modifiers.alt(),
@@ -399,75 +401,75 @@ fn with_shift(modifiers: input::Modifiers) -> input::Modifiers {
     )
 }
 
-fn key_symbol(key: input::Key) -> String {
+fn key_symbol(key: keyboard::Key) -> String {
     match key.normalized() {
-        input::Key::Tab => "⇥".to_owned(),
-        input::Key::Enter => "↩".to_owned(),
-        input::Key::Space => "Space".to_owned(),
-        input::Key::Escape => "⎋".to_owned(),
-        input::Key::Backspace => "⌫".to_owned(),
-        input::Key::Delete => "⌦".to_owned(),
-        input::Key::ArrowLeft => "←".to_owned(),
-        input::Key::ArrowRight => "→".to_owned(),
-        input::Key::ArrowUp => "↑".to_owned(),
-        input::Key::ArrowDown => "↓".to_owned(),
-        input::Key::Home => "↖".to_owned(),
-        input::Key::End => "↘".to_owned(),
-        input::Key::PageUp => "⇞".to_owned(),
-        input::Key::PageDown => "⇟".to_owned(),
-        input::Key::F2 => "F2".to_owned(),
-        input::Key::F4 => "F4".to_owned(),
-        input::Key::F10 => "F10".to_owned(),
-        input::Key::ContextMenu => "Menu".to_owned(),
-        input::Key::Character(' ') => "Space".to_owned(),
-        input::Key::Character(character) => character.to_uppercase().collect(),
-        input::Key::Other => "?".to_owned(),
+        keyboard::Key::Tab => "⇥".to_owned(),
+        keyboard::Key::Enter => "↩".to_owned(),
+        keyboard::Key::Space => "Space".to_owned(),
+        keyboard::Key::Escape => "⎋".to_owned(),
+        keyboard::Key::Backspace => "⌫".to_owned(),
+        keyboard::Key::Delete => "⌦".to_owned(),
+        keyboard::Key::ArrowLeft => "←".to_owned(),
+        keyboard::Key::ArrowRight => "→".to_owned(),
+        keyboard::Key::ArrowUp => "↑".to_owned(),
+        keyboard::Key::ArrowDown => "↓".to_owned(),
+        keyboard::Key::Home => "↖".to_owned(),
+        keyboard::Key::End => "↘".to_owned(),
+        keyboard::Key::PageUp => "⇞".to_owned(),
+        keyboard::Key::PageDown => "⇟".to_owned(),
+        keyboard::Key::F2 => "F2".to_owned(),
+        keyboard::Key::F4 => "F4".to_owned(),
+        keyboard::Key::F10 => "F10".to_owned(),
+        keyboard::Key::ContextMenu => "Menu".to_owned(),
+        keyboard::Key::Character(' ') => "Space".to_owned(),
+        keyboard::Key::Character(character) => character.to_uppercase().collect(),
+        keyboard::Key::Other => "?".to_owned(),
     }
 }
 
-fn key_text(key: input::Key, glyph_keys: bool) -> String {
+fn key_text(key: keyboard::Key, glyph_keys: bool) -> String {
     if glyph_keys {
         match key.normalized() {
-            input::Key::ArrowLeft
-            | input::Key::ArrowRight
-            | input::Key::ArrowUp
-            | input::Key::ArrowDown
-            | input::Key::Home
-            | input::Key::End
-            | input::Key::PageUp
-            | input::Key::PageDown => return key_symbol(key),
+            keyboard::Key::ArrowLeft
+            | keyboard::Key::ArrowRight
+            | keyboard::Key::ArrowUp
+            | keyboard::Key::ArrowDown
+            | keyboard::Key::Home
+            | keyboard::Key::End
+            | keyboard::Key::PageUp
+            | keyboard::Key::PageDown => return key_symbol(key),
             _ => {}
         }
     }
 
     match key.normalized() {
-        input::Key::Tab => "Tab".to_owned(),
-        input::Key::Enter => "Enter".to_owned(),
-        input::Key::Space => "Space".to_owned(),
-        input::Key::Escape => "Esc".to_owned(),
-        input::Key::Backspace => "Backspace".to_owned(),
-        input::Key::Delete => "Delete".to_owned(),
-        input::Key::ArrowLeft => "Left".to_owned(),
-        input::Key::ArrowRight => "Right".to_owned(),
-        input::Key::ArrowUp => "Up".to_owned(),
-        input::Key::ArrowDown => "Down".to_owned(),
-        input::Key::Home => "Home".to_owned(),
-        input::Key::End => "End".to_owned(),
-        input::Key::PageUp => "PageUp".to_owned(),
-        input::Key::PageDown => "PageDown".to_owned(),
-        input::Key::F2 => "F2".to_owned(),
-        input::Key::F4 => "F4".to_owned(),
-        input::Key::F10 => "F10".to_owned(),
-        input::Key::ContextMenu => "Menu".to_owned(),
-        input::Key::Character(' ') => "Space".to_owned(),
-        input::Key::Character(character) => character.to_uppercase().collect(),
-        input::Key::Other => "?".to_owned(),
+        keyboard::Key::Tab => "Tab".to_owned(),
+        keyboard::Key::Enter => "Enter".to_owned(),
+        keyboard::Key::Space => "Space".to_owned(),
+        keyboard::Key::Escape => "Esc".to_owned(),
+        keyboard::Key::Backspace => "Backspace".to_owned(),
+        keyboard::Key::Delete => "Delete".to_owned(),
+        keyboard::Key::ArrowLeft => "Left".to_owned(),
+        keyboard::Key::ArrowRight => "Right".to_owned(),
+        keyboard::Key::ArrowUp => "Up".to_owned(),
+        keyboard::Key::ArrowDown => "Down".to_owned(),
+        keyboard::Key::Home => "Home".to_owned(),
+        keyboard::Key::End => "End".to_owned(),
+        keyboard::Key::PageUp => "PageUp".to_owned(),
+        keyboard::Key::PageDown => "PageDown".to_owned(),
+        keyboard::Key::F2 => "F2".to_owned(),
+        keyboard::Key::F4 => "F4".to_owned(),
+        keyboard::Key::F10 => "F10".to_owned(),
+        keyboard::Key::ContextMenu => "Menu".to_owned(),
+        keyboard::Key::Character(' ') => "Space".to_owned(),
+        keyboard::Key::Character(character) => character.to_uppercase().collect(),
+        keyboard::Key::Other => "?".to_owned(),
     }
 }
 
 fn windows_text_operation_for_key(
-    key: input::Key,
-    modifiers: input::Modifiers,
+    key: keyboard::Key,
+    modifiers: keyboard::Modifiers,
 ) -> Option<TextOperation> {
     if modifiers.alt() || modifiers.super_key() {
         return None;
@@ -478,16 +480,18 @@ fn windows_text_operation_for_key(
     let extend = modifiers.shift();
 
     match key {
-        input::Key::Backspace if control => {
+        keyboard::Key::Backspace if control => {
             Some(TextOperation::Edit(text::Edit::delete_word_backward()))
         }
-        input::Key::Backspace => Some(TextOperation::Edit(text::Edit::backspace())),
-        input::Key::Delete if control => {
+        keyboard::Key::Backspace => Some(TextOperation::Edit(text::Edit::backspace())),
+        keyboard::Key::Delete if control => {
             Some(TextOperation::Edit(text::Edit::delete_word_forward()))
         }
-        input::Key::Delete => Some(TextOperation::Edit(text::Edit::delete())),
-        input::Key::Enter if !control => Some(TextOperation::Edit(text::Edit::insert_line_break())),
-        input::Key::ArrowLeft => Some(motion_operation(
+        keyboard::Key::Delete => Some(TextOperation::Edit(text::Edit::delete())),
+        keyboard::Key::Enter if !control => {
+            Some(TextOperation::Edit(text::Edit::insert_line_break()))
+        }
+        keyboard::Key::ArrowLeft => Some(motion_operation(
             if control {
                 text::selection::Motion::WordPrevious
             } else {
@@ -495,7 +499,7 @@ fn windows_text_operation_for_key(
             },
             extend,
         )),
-        input::Key::ArrowRight => Some(motion_operation(
+        keyboard::Key::ArrowRight => Some(motion_operation(
             if control {
                 text::selection::Motion::WordNext
             } else {
@@ -503,14 +507,14 @@ fn windows_text_operation_for_key(
             },
             extend,
         )),
-        input::Key::ArrowUp if !control => {
+        keyboard::Key::ArrowUp if !control => {
             Some(motion_operation(text::selection::Motion::VisualUp, extend))
         }
-        input::Key::ArrowDown if !control => Some(motion_operation(
+        keyboard::Key::ArrowDown if !control => Some(motion_operation(
             text::selection::Motion::VisualDown,
             extend,
         )),
-        input::Key::Home => Some(motion_operation(
+        keyboard::Key::Home => Some(motion_operation(
             if control {
                 text::selection::Motion::DocumentStart
             } else {
@@ -518,7 +522,7 @@ fn windows_text_operation_for_key(
             },
             extend,
         )),
-        input::Key::End => Some(motion_operation(
+        keyboard::Key::End => Some(motion_operation(
             if control {
                 text::selection::Motion::DocumentEnd
             } else {
@@ -526,32 +530,32 @@ fn windows_text_operation_for_key(
             },
             extend,
         )),
-        input::Key::PageUp if !control => {
+        keyboard::Key::PageUp if !control => {
             Some(motion_operation(text::selection::Motion::PageUp, extend))
         }
-        input::Key::PageDown if !control => {
+        keyboard::Key::PageDown if !control => {
             Some(motion_operation(text::selection::Motion::PageDown, extend))
         }
-        input::Key::Tab
-        | input::Key::Space
-        | input::Key::Escape
-        | input::Key::Enter
-        | input::Key::ArrowUp
-        | input::Key::ArrowDown
-        | input::Key::PageUp
-        | input::Key::PageDown
-        | input::Key::F2
-        | input::Key::F4
-        | input::Key::F10
-        | input::Key::ContextMenu
-        | input::Key::Character(_)
-        | input::Key::Other => None,
+        keyboard::Key::Tab
+        | keyboard::Key::Space
+        | keyboard::Key::Escape
+        | keyboard::Key::Enter
+        | keyboard::Key::ArrowUp
+        | keyboard::Key::ArrowDown
+        | keyboard::Key::PageUp
+        | keyboard::Key::PageDown
+        | keyboard::Key::F2
+        | keyboard::Key::F4
+        | keyboard::Key::F10
+        | keyboard::Key::ContextMenu
+        | keyboard::Key::Character(_)
+        | keyboard::Key::Other => None,
     }
 }
 
 fn mac_text_operation_for_key(
-    key: input::Key,
-    modifiers: input::Modifiers,
+    key: keyboard::Key,
+    modifiers: keyboard::Modifiers,
 ) -> Option<TextOperation> {
     if modifiers.control() || (modifiers.alt() && modifiers.super_key()) {
         return None;
@@ -563,18 +567,18 @@ fn mac_text_operation_for_key(
     let extend = modifiers.shift();
 
     match key {
-        input::Key::Backspace if option => {
+        keyboard::Key::Backspace if option => {
             Some(TextOperation::Edit(text::Edit::delete_word_backward()))
         }
-        input::Key::Backspace => Some(TextOperation::Edit(text::Edit::backspace())),
-        input::Key::Delete if option => {
+        keyboard::Key::Backspace => Some(TextOperation::Edit(text::Edit::backspace())),
+        keyboard::Key::Delete if option => {
             Some(TextOperation::Edit(text::Edit::delete_word_forward()))
         }
-        input::Key::Delete => Some(TextOperation::Edit(text::Edit::delete())),
-        input::Key::Enter if !option && !command => {
+        keyboard::Key::Delete => Some(TextOperation::Edit(text::Edit::delete())),
+        keyboard::Key::Enter if !option && !command => {
             Some(TextOperation::Edit(text::Edit::insert_line_break()))
         }
-        input::Key::ArrowLeft => Some(motion_operation(
+        keyboard::Key::ArrowLeft => Some(motion_operation(
             if command {
                 text::selection::Motion::LineStart
             } else if option {
@@ -584,7 +588,7 @@ fn mac_text_operation_for_key(
             },
             extend,
         )),
-        input::Key::ArrowRight => Some(motion_operation(
+        keyboard::Key::ArrowRight => Some(motion_operation(
             if command {
                 text::selection::Motion::LineEnd
             } else if option {
@@ -594,42 +598,42 @@ fn mac_text_operation_for_key(
             },
             extend,
         )),
-        input::Key::ArrowUp if command => Some(motion_operation(
+        keyboard::Key::ArrowUp if command => Some(motion_operation(
             text::selection::Motion::DocumentStart,
             extend,
         )),
-        input::Key::ArrowDown if command => Some(motion_operation(
+        keyboard::Key::ArrowDown if command => Some(motion_operation(
             text::selection::Motion::DocumentEnd,
             extend,
         )),
-        input::Key::ArrowUp if !option => {
+        keyboard::Key::ArrowUp if !option => {
             Some(motion_operation(text::selection::Motion::VisualUp, extend))
         }
-        input::Key::ArrowDown if !option => Some(motion_operation(
+        keyboard::Key::ArrowDown if !option => Some(motion_operation(
             text::selection::Motion::VisualDown,
             extend,
         )),
-        input::Key::Home | input::Key::End => None,
-        input::Key::PageUp if !option && !command => {
+        keyboard::Key::Home | keyboard::Key::End => None,
+        keyboard::Key::PageUp if !option && !command => {
             Some(motion_operation(text::selection::Motion::PageUp, extend))
         }
-        input::Key::PageDown if !option && !command => {
+        keyboard::Key::PageDown if !option && !command => {
             Some(motion_operation(text::selection::Motion::PageDown, extend))
         }
-        input::Key::Tab
-        | input::Key::Space
-        | input::Key::Escape
-        | input::Key::Enter
-        | input::Key::ArrowUp
-        | input::Key::ArrowDown
-        | input::Key::PageUp
-        | input::Key::PageDown
-        | input::Key::F2
-        | input::Key::F4
-        | input::Key::F10
-        | input::Key::ContextMenu
-        | input::Key::Character(_)
-        | input::Key::Other => None,
+        keyboard::Key::Tab
+        | keyboard::Key::Space
+        | keyboard::Key::Escape
+        | keyboard::Key::Enter
+        | keyboard::Key::ArrowUp
+        | keyboard::Key::ArrowDown
+        | keyboard::Key::PageUp
+        | keyboard::Key::PageDown
+        | keyboard::Key::F2
+        | keyboard::Key::F4
+        | keyboard::Key::F10
+        | keyboard::Key::ContextMenu
+        | keyboard::Key::Character(_)
+        | keyboard::Key::Other => None,
     }
 }
 
@@ -651,18 +655,18 @@ mod tests {
         let chord = KeyChord::new("Primary+Z");
         assert!(Profile::windows().matches(
             chord,
-            input::Key::Character('z'),
-            input::Modifiers::new(false, true, false, false)
+            keyboard::Key::Character('z'),
+            keyboard::Modifiers::new(false, true, false, false)
         ));
         assert!(!Profile::windows().matches(
             chord,
-            input::Key::Character('z'),
-            input::Modifiers::new(false, false, false, true)
+            keyboard::Key::Character('z'),
+            keyboard::Modifiers::new(false, false, false, true)
         ));
         assert!(Profile::mac().matches(
             chord,
-            input::Key::Character('z'),
-            input::Modifiers::new(false, false, false, true)
+            keyboard::Key::Character('z'),
+            keyboard::Modifiers::new(false, false, false, true)
         ));
     }
 
@@ -671,13 +675,13 @@ mod tests {
         let chord = KeyChord::standard(Standard::Redo);
         assert!(Profile::windows().matches(
             chord,
-            input::Key::Character('y'),
-            input::Modifiers::new(false, true, false, false)
+            keyboard::Key::Character('y'),
+            keyboard::Modifiers::new(false, true, false, false)
         ));
         assert!(Profile::windows().matches(
             chord,
-            input::Key::Character('z'),
-            input::Modifiers::new(true, true, false, false)
+            keyboard::Key::Character('z'),
+            keyboard::Modifiers::new(true, true, false, false)
         ));
         assert_eq!(
             Profile::windows().display(chord, DisplayStyle::Default),
@@ -783,8 +787,8 @@ mod tests {
     fn text_operation_motion_mapping_is_profile_owned() {
         assert_eq!(
             Profile::windows().text_operation_for_key(
-                input::Key::ArrowLeft,
-                input::Modifiers::new(false, true, false, false),
+                keyboard::Key::ArrowLeft,
+                keyboard::Modifiers::new(false, true, false, false),
             ),
             Some(TextOperation::Selection(
                 text::selection::Operation::move_position(text::selection::Motion::WordPrevious)
@@ -792,8 +796,8 @@ mod tests {
         );
         assert_eq!(
             Profile::mac().text_operation_for_key(
-                input::Key::ArrowLeft,
-                input::Modifiers::new(false, false, true, false),
+                keyboard::Key::ArrowLeft,
+                keyboard::Modifiers::new(false, false, true, false),
             ),
             Some(TextOperation::Selection(
                 text::selection::Operation::move_position(text::selection::Motion::WordPrevious)
@@ -801,15 +805,16 @@ mod tests {
         );
         assert_eq!(
             Profile::mac().text_operation_for_key(
-                input::Key::ArrowLeft,
-                input::Modifiers::new(false, false, false, true),
+                keyboard::Key::ArrowLeft,
+                keyboard::Modifiers::new(false, false, false, true),
             ),
             Some(TextOperation::Selection(
                 text::selection::Operation::move_position(text::selection::Motion::LineStart)
             ))
         );
         assert_eq!(
-            Profile::mac().text_operation_for_key(input::Key::Home, input::Modifiers::default()),
+            Profile::mac()
+                .text_operation_for_key(keyboard::Key::Home, keyboard::Modifiers::default()),
             None
         );
     }

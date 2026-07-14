@@ -1107,6 +1107,51 @@ fn responder_scope_contains_routing_facts_not_ui_service_state() {
 }
 
 #[test]
+fn runtime_input_projects_lower_keyboard_vocabulary() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let lib = std::fs::read_to_string(src.join("lib.rs")).expect("crate root should read");
+    let keyboard =
+        std::fs::read_to_string(src.join("keyboard.rs")).expect("keyboard source should read");
+    let input =
+        std::fs::read_to_string(src.join("input/mod.rs")).expect("input source should read");
+
+    assert!(
+        keyboard.contains("pub enum Key")
+            && keyboard.contains("pub struct Modifiers")
+            && lib.contains("mod keyboard;")
+            && !lib.contains("pub mod keyboard;")
+            && input.contains("pub use crate::keyboard::{Key, Modifiers};")
+            && !src.join("input/key.rs").exists(),
+        "input must preserve its public key projection while one private lower owner declares keyboard facts"
+    );
+    assert!(
+        input.contains("pub enum Input")
+            && input.contains("Focus(session::Focus)")
+            && input.contains("PointerDown(interaction::Target)")
+            && input.contains("pub use outcome::Outcome;")
+            && input.contains("pub use text_drop::TextDrop;"),
+        "the remaining input module must describe runtime ingress and its outcome payloads"
+    );
+
+    for relative in [
+        "command/registry.rs",
+        "command/spec.rs",
+        "keymap.rs",
+        "interaction/mod.rs",
+        "interaction/pointer.rs",
+        "session/interaction/pointer.rs",
+    ] {
+        let source = std::fs::read_to_string(src.join(relative))
+            .unwrap_or_else(|_| panic!("{relative} should read"));
+        assert!(
+            !source.contains("input::Key") && !source.contains("input::Modifiers"),
+            "{relative} must consume lower keyboard facts without depending on runtime input"
+        );
+    }
+}
+
+#[test]
 fn fuzzy_matching_stays_with_palette_runtime() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");

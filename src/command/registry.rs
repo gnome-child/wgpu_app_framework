@@ -5,7 +5,7 @@ use std::{
 
 use super::super::{
     context::Context,
-    input, keymap, responder,
+    keyboard, keymap, responder,
     response::{AnyResponse, Response},
     state,
 };
@@ -289,8 +289,8 @@ impl Registry {
 
     pub(crate) fn shortcut_for_key(
         &self,
-        key: input::Key,
-        modifiers: input::Modifiers,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
         profile: keymap::Profile,
     ) -> Result<Option<KeyChord>> {
         let matching = self

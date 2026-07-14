@@ -4,11 +4,10 @@ use crate::text;
 
 use super::{command, interaction, session};
 
-mod key;
 mod outcome;
 mod text_drop;
 
-pub use key::{Key, Modifiers};
+pub use crate::keyboard::{Key, Modifiers};
 pub use outcome::Outcome;
 pub use text_drop::TextDrop;
 

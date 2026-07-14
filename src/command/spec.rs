@@ -1,4 +1,4 @@
-use super::super::{input, keymap};
+use super::super::{keyboard, keymap};
 use super::menu;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyChord {
@@ -64,8 +64,8 @@ impl KeyChord {
 
     pub(in crate::command) fn matches_key(
         self,
-        key: input::Key,
-        modifiers: input::Modifiers,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
         profile: keymap::Profile,
     ) -> bool {
         profile.matches(self, key, modifiers)
@@ -325,22 +325,22 @@ impl ParsedKeyChord {
 
     pub(crate) fn resolve(self, platform: keymap::Platform) -> Option<keymap::ConcreteChord> {
         let key = match self.key {
-            ParsedKey::Character(value) => input::Key::Character(value),
-            ParsedKey::Tab => input::Key::Tab,
-            ParsedKey::Enter => input::Key::Enter,
-            ParsedKey::Space => input::Key::Space,
-            ParsedKey::Escape => input::Key::Escape,
-            ParsedKey::Backspace => input::Key::Backspace,
-            ParsedKey::Delete => input::Key::Delete,
-            ParsedKey::ArrowLeft => input::Key::ArrowLeft,
-            ParsedKey::ArrowRight => input::Key::ArrowRight,
-            ParsedKey::ArrowUp => input::Key::ArrowUp,
-            ParsedKey::ArrowDown => input::Key::ArrowDown,
-            ParsedKey::Home => input::Key::Home,
-            ParsedKey::End => input::Key::End,
-            ParsedKey::PageUp => input::Key::PageUp,
-            ParsedKey::PageDown => input::Key::PageDown,
-            ParsedKey::F4 => input::Key::F4,
+            ParsedKey::Character(value) => keyboard::Key::Character(value),
+            ParsedKey::Tab => keyboard::Key::Tab,
+            ParsedKey::Enter => keyboard::Key::Enter,
+            ParsedKey::Space => keyboard::Key::Space,
+            ParsedKey::Escape => keyboard::Key::Escape,
+            ParsedKey::Backspace => keyboard::Key::Backspace,
+            ParsedKey::Delete => keyboard::Key::Delete,
+            ParsedKey::ArrowLeft => keyboard::Key::ArrowLeft,
+            ParsedKey::ArrowRight => keyboard::Key::ArrowRight,
+            ParsedKey::ArrowUp => keyboard::Key::ArrowUp,
+            ParsedKey::ArrowDown => keyboard::Key::ArrowDown,
+            ParsedKey::Home => keyboard::Key::Home,
+            ParsedKey::End => keyboard::Key::End,
+            ParsedKey::PageUp => keyboard::Key::PageUp,
+            ParsedKey::PageDown => keyboard::Key::PageDown,
+            ParsedKey::F4 => keyboard::Key::F4,
             ParsedKey::Invalid => return None,
         };
         Some(keymap::ConcreteChord::new(
@@ -368,9 +368,9 @@ impl ParsedModifiers {
         }
     }
 
-    fn resolve(self, platform: keymap::Platform) -> input::Modifiers {
+    fn resolve(self, platform: keymap::Platform) -> keyboard::Modifiers {
         let primary_is_super = matches!(platform, keymap::Platform::Mac);
-        input::Modifiers::new(
+        keyboard::Modifiers::new(
             self.shift,
             self.control || (self.primary && !primary_is_super),
             self.alt,

@@ -39,7 +39,7 @@ impl Session {
     pub(crate) fn set_pointer_modifiers(
         &mut self,
         id: app_window::Id,
-        modifiers: crate::input::Modifiers,
+        modifiers: crate::keyboard::Modifiers,
     ) -> bool {
         self.window_mut(id)
             .is_some_and(|window| window.interaction.set_pointer_modifiers(modifiers))

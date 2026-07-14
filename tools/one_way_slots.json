@@ -6,6 +6,7 @@
         "color",
         "geometry",
         "identity",
+        "keyboard",
         "subject",
         "window"
       ],
@@ -39,7 +40,6 @@
       "modules": [
         "command",
         "context",
-        "input",
         "keymap",
         "notification",
         "responder",
@@ -79,6 +79,7 @@
         "document",
         "host",
         "ime",
+        "input",
         "runtime",
         "shell"
       ],

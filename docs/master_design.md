@@ -1147,6 +1147,22 @@ current dialog kinds are document-shaped. Future generic dialogs should let the
 opener declare which fact a dialog outcome emits instead of treating that
 placement as load-bearing.
 
+`keyboard`
+
+Owns the dependency-free `Key` and `Modifiers` facts received from a keyboard.
+They contain no shortcut profile, focus, target, session, command, or runtime
+policy. The lower housing is private; `input::Key` and `input::Modifiers` are
+the established exact public projections of those declarations.
+
+`input`
+
+Owns runtime ingress: the public `Input` event sum, handling `Outcome`, and
+`TextDrop` payload. Those values may name session focus, interaction targets,
+commands, and text operations because Runtime is their consumer and executor.
+Command, keymap, and interaction state consume the lower keyboard facts
+directly; they do not depend on the runtime ingress module merely to name a key
+or modifier set.
+
 `keymap`
 
 Owns platform keymap profiles, shortcut resolution, shortcut formatting, and

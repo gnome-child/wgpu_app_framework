@@ -6,7 +6,7 @@ use std::time::Instant;
 pub(crate) struct Pointer {
     pub(super) position: Option<Point>,
     pub(super) surface: crate::popup::Surface,
-    pub(super) modifiers: crate::input::Modifiers,
+    pub(super) modifiers: crate::keyboard::Modifiers,
     pub(super) hovered: Option<Target>,
     pub(super) pressed: Option<Target>,
     pub(super) capture: Option<Capture>,
@@ -168,7 +168,7 @@ impl Pointer {
         self.surface
     }
 
-    pub(crate) fn modifiers(&self) -> crate::input::Modifiers {
+    pub(crate) fn modifiers(&self) -> crate::keyboard::Modifiers {
         self.modifiers
     }
 

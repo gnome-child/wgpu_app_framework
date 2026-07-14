@@ -78,6 +78,11 @@ narrows the bundle before registration. `Member` exposes each command's stable
 name and `Spec` for inspection without exposing the registry's erased dispatch
 storage.
 
+Command shortcut matching consumes the lower keyboard `Key` and `Modifiers`
+facts. The established public spellings remain `input::Key` and
+`input::Modifiers`, but command does not depend on the runtime-owned `Input`
+event sum to name that vocabulary.
+
 `command::Registry`
 
 Stores registered command types, specs, shortcut bindings, and registration

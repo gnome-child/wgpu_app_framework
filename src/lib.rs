@@ -42,6 +42,7 @@ mod composition;
 mod draft;
 mod identity;
 mod ime;
+mod keyboard;
 mod layout;
 mod overlay;
 mod paint;
