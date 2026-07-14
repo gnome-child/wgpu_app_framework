@@ -6014,6 +6014,69 @@ Status: **complete; flattened compound aliases removed**. Correction
    naming is at fixed point. The rung-closing alias inventory continues through
    remaining touched UI parent projections before Rung 5 can close.
 
+### R5-64 — central layout chrome without a one-variant support surface
+
+Status: **complete; redundant species and flattened support projections
+removed**. Correction `4ce4c644` (`Collapse scrollbar chrome support`).
+
+1. **Question and complete trace.** The touched-parent naming sweep traced
+   layout chrome production from viewport/frame eligibility through vertical
+   and horizontal geometry, owner clips, hit testing, drag offsets, runtime
+   activity/fade state, scene late-chrome projection, theme thickness, table
+   gutters, nested text areas, palettes, and every integration-test inspection
+   of projected scrollbar geometry.
+2. **Compensating surface.** Private `chrome` declared central `Chrome`, a
+   single-variant `Kind::Scrollbar`, and `Scrollbar`. The layout parent
+   re-exported `Chrome`, renamed `Kind as ChromeKind`, and flattened
+   `Scrollbar`; runtime and scene then matched the only possible variant to
+   recover scrollbar facts. The compound alias and flattened support type were
+   symptoms of a redundant species wrapper, not evidence that the private
+   layout-inspection module should become a crate namespace.
+3. **Challenge and privacy ruling.** A first namespace-only sketch made
+   `layout::chrome` crate-visible. The full suite correctly rejected it through
+   the standing layout-inspection privacy witness. The live consumers already
+   need only resolved scroll and projected track/thumb geometry, not the
+   internal support types. The campaign therefore retained the private module
+   and reduced the boundary instead of weakening the witness or widening a
+   module to satisfy naming mechanically.
+4. **Correction and deletion.** `Chrome` now contains its private scrollbar
+   geometry directly and projects resolved scroll, hit/drag behavior, and
+   thickness-adjusted track/thumb rectangles through central-type methods.
+   Runtime and scene consume those total projections without matching a
+   species. `Kind`, `Chrome::kind`, crate-visible `Axis`/`Scrollbar`,
+   `ChromeKind`, the flattened `Scrollbar` export, every external match, and
+   the associated support methods are deleted. Private `Scrollbar` remains a
+   bounded construction/geometry value inside its owner.
+5. **Naming and visibility.** The namesake parent now re-exports only
+   `chrome::Chrome`; supporting declarations do not leave the private module.
+   No alias, alternate spelling, or public API remains. Effective visibility
+   narrows: production `pub(crate)` declarations fall by four, and the
+   existing ban on crate-visible layout inspection submodules stays intact.
+6. **Behavior and economics.** Chrome creation order, vertical/horizontal
+   eligibility, clip scope, targets, scroll offsets, fade activity, theme
+   policy, track/thumb resizing, hit precedence, late paint order, allocation,
+   layout invalidation, renderer topology, batching/pass fusion, and
+   presentation clocks are unchanged. Runtime and paint each avoid one
+   exhaustive match and no longer copy a support value across the owner
+   boundary.
+7. **Ratchet and proof.** A new architecture witness pins a private chrome
+   module, the sole central parent projection, extinction of `Kind` and
+   `ChromeKind`, and retention of private scrollbar construction. The standing
+   layout-inspection privacy witness and all twelve focused scrollbar tests
+   passed. The full library discovered 1,139 tests and passed 1,129 with ten
+   standing ignores. All targets and all five examples compiled without
+   warnings; all ten census parser tests, the full census, formatting, diff
+   hygiene, and protected `comparison_open: true` check passed.
+8. **Gauge and next frontier.** Production `pub(crate)` declarations fall
+   1,825 -> 1,821 and the cross-slot-provider upper bound falls 1,778 -> 1,774.
+   Every other gauge remains unchanged: production/test edges 325/109, split
+   responsibilities 3, slot edges 54, forbidden/external/SCC counts 0/0/0,
+   192 visibility-bearing files, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 363, allowances 6, panics 5, and expects 44. Layout
+   chrome is at fixed point; the touched-parent naming sweep continues through
+   table tracks, layout text, scene visuals, and command-palette support before
+   Rung 5 closes.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
