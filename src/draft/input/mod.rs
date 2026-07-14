@@ -29,11 +29,7 @@ impl Input {
     }
 
     pub fn feedback_for(&self, target: &Target) -> Option<(feedback::Severity, &str)> {
-        self.drafts
-            .get(target)?
-            .feedback()
-            .winner()
-            .map(|entry| (entry.severity(), entry.text()))
+        self.drafts.get(target)?.feedback().winner()
     }
 
     pub(crate) fn report_feedback(

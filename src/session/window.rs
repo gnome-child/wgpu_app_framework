@@ -126,9 +126,7 @@ impl Window {
     }
 
     pub fn feedback(&self) -> Option<(feedback::Severity, &str)> {
-        self.feedback
-            .winner()
-            .map(|entry| (entry.severity(), entry.text()))
+        self.feedback.winner()
     }
 }
 

@@ -4,7 +4,6 @@
       "modules": [
         "animation",
         "color",
-        "feedback",
         "geometry",
         "subject",
         "window"
@@ -13,6 +12,10 @@
     },
     "icons": {
       "modules": ["icon"],
+      "may_depend_on": []
+    },
+    "feedback": {
+      "modules": ["feedback"],
       "may_depend_on": []
     },
     "tasks": {
@@ -60,7 +63,7 @@
         "virtual_list",
         "widget"
       ],
-      "may_depend_on": ["foundation", "icons", "state", "tasks", "text", "command"]
+      "may_depend_on": ["foundation", "icons", "feedback", "state", "tasks", "text", "command"]
     },
     "renderer": {
       "modules": ["paint", "render"],
@@ -76,7 +79,7 @@
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "icons", "state", "tasks", "text", "command", "ui"]
+      "may_depend_on": ["foundation", "icons", "feedback", "state", "tasks", "text", "command", "ui"]
     },
     "platform": {
       "modules": ["platform"],
@@ -97,6 +100,7 @@
       "may_depend_on": [
         "foundation",
         "icons",
+        "feedback",
         "state",
         "tasks",
         "text",

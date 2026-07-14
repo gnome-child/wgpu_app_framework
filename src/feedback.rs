@@ -11,55 +11,22 @@ pub enum Severity {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Entry {
-    severity: Severity,
-    text: String,
-}
-
-impl Entry {
-    pub(crate) fn new(severity: Severity, message: impl fmt::Display) -> Self {
-        Self {
-            severity,
-            text: message.to_string(),
-        }
-    }
-
-    pub(crate) fn severity(&self) -> Severity {
-        self.severity
-    }
-
-    pub(crate) fn from_text(severity: Severity, text: String) -> Self {
-        Self { severity, text }
-    }
-
-    pub(crate) fn text(&self) -> &str {
-        &self.text
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Stack {
-    entries: [Option<Entry>; 3],
+    entries: [Option<String>; 3],
 }
 
 impl Stack {
     pub(crate) fn report(&mut self, severity: Severity, message: impl fmt::Display) -> bool {
-        let entry = Entry::new(severity, message);
-        self.replace(entry)
+        self.report_text(severity, message.to_string())
     }
 
     pub(crate) fn report_text(&mut self, severity: Severity, text: String) -> bool {
-        self.replace(Entry::from_text(severity, text))
-    }
-
-    fn replace(&mut self, entry: Entry) -> bool {
-        let severity = entry.severity();
         let slot = &mut self.entries[severity.index()];
-        if slot.as_ref() == Some(&entry) {
+        if slot.as_ref() == Some(&text) {
             return false;
         }
-        *slot = Some(entry);
+        *slot = Some(text);
         true
     }
 
@@ -73,10 +40,14 @@ impl Stack {
         changed
     }
 
-    pub(crate) fn winner(&self) -> Option<&Entry> {
+    pub(crate) fn winner(&self) -> Option<(Severity, &str)> {
         [Severity::Error, Severity::Warning, Severity::Info]
             .into_iter()
-            .find_map(|severity| self.entries[severity.index()].as_ref())
+            .find_map(|severity| {
+                self.entries[severity.index()]
+                    .as_deref()
+                    .map(|text| (severity, text))
+            })
     }
 }
 
@@ -108,11 +79,11 @@ mod tests {
         }
 
         let calls = Cell::new(0);
-        let entry = Entry::new(Severity::Warning, CountingDisplay(&calls));
+        let mut stack = Stack::default();
 
+        assert!(stack.report(Severity::Warning, CountingDisplay(&calls)));
         assert_eq!(calls.get(), 1);
-        assert_eq!(entry.severity(), Severity::Warning);
-        assert_eq!(entry.text(), "current fact");
+        assert_eq!(stack.winner(), Some((Severity::Warning, "current fact")));
         assert_eq!(calls.get(), 1);
     }
 
@@ -123,10 +94,13 @@ mod tests {
         assert!(stack.report(Severity::Warning, "not synchronized"));
         assert!(stack.report(Severity::Error, "save failed"));
 
-        assert_eq!(stack.winner().map(Entry::text), Some("save failed"));
+        assert_eq!(stack.winner(), Some((Severity::Error, "save failed")));
         assert!(stack.clear(Severity::Error));
-        assert_eq!(stack.winner().map(Entry::text), Some("not synchronized"));
+        assert_eq!(
+            stack.winner(),
+            Some((Severity::Warning, "not synchronized"))
+        );
         assert!(stack.clear(Severity::Warning));
-        assert_eq!(stack.winner().map(Entry::text), Some("saved locally"));
+        assert_eq!(stack.winner(), Some((Severity::Info, "saved locally")));
     }
 }
