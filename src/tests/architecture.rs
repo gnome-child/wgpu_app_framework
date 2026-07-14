@@ -2291,6 +2291,10 @@ fn per_window_state_owns_departed_cleanup() {
     let src = root.join("src");
     let departed = std::fs::read_to_string(src.join("runtime").join("departed.rs"))
         .expect("runtime departed source should read");
+    let window_departed = std::fs::read_to_string(src.join("window").join("departed.rs"))
+        .expect("window departed source should read");
+    let notification_window = std::fs::read_to_string(src.join("notification").join("window.rs"))
+        .expect("window notification binding should read");
     let session_service = std::fs::read_to_string(src.join("session").join("service.rs"))
         .expect("session service should read");
     let runtime_context = std::fs::read_to_string(src.join("runtime").join("context.rs"))
@@ -2318,6 +2322,14 @@ fn per_window_state_owns_departed_cleanup() {
     assert!(
         native_adapter.contains("Listener<app_window::Departed> for Native"),
         "the native popup manager must own its Departed purge"
+    );
+    assert!(
+        window_departed.contains("pub struct Departed;")
+            && !window_departed.contains("notification")
+            && notification_window.contains("impl super::Notification for app_window::Departed")
+            && notification_window.contains("type Payload = app_window::Id;")
+            && notification_window.contains("const NAME: &'static str = \"window.departed\";"),
+        "window must own the fact while notification owns its generic delivery binding"
     );
     assert!(
         !session_service.contains("remove_window") && !runtime_context.contains("remove_window"),

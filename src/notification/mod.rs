@@ -2,6 +2,8 @@ use std::any::{Any, TypeId};
 
 use crate::{response, state, target::Selector};
 
+mod window;
+
 /// A past-tense framework fact.
 ///
 /// Notifications are not commands: they have no availability, no undo policy,

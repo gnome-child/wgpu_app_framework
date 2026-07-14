@@ -1131,10 +1131,13 @@ description may use DescribedBy; validation uses Invalid plus ErrorMessage;
 runtime dialogue may later use Live when its caller proves an announcement
 policy. `State::hint` remains contextual and never replaces description.
 
-`window::Departed` is the single past-tense close fact. Runtime publication is
-only a listener registry: layout caches, overlay entries and ghosts, animation
-schedules, visual animations, composition, diagnostics, pointer gestures, and
-the native popup manager each own their own purge.
+`window::Departed` is the single past-tense close fact. Window owns the pure
+fact declaration and payload meaning; the notification owner supplies its
+generic `Notification` binding so lower window vocabulary does not import
+command routing. Runtime publication is only a listener registry: layout
+caches, overlay entries and ghosts, animation schedules, visual animations,
+composition, diagnostics, pointer gestures, and the native popup manager each
+own their own purge.
 Per-window state subscribes to `window::Departed` or documents why not.
 Close paths must not grow local
 cleanup checklists; a new per-window store joins the notification instead.

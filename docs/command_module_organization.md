@@ -120,6 +120,13 @@ data; user-facing palette labels come from subject ancestry. The lower
 private `CommandScope` pairs that route with focus and table facts when runtime
 must realize services; those UI facts do not enter responder vocabulary.
 
+`notification`
+
+Owns the generic past-tense fact and listener contracts. A lower domain may
+own a concrete fact without importing command machinery: `window::Departed`
+remains window vocabulary, while notification privately supplies its trait
+binding and depends downward on the window fact.
+
 `context::Context`
 
 Carries the invocation source and the narrow capabilities available during one
