@@ -942,6 +942,155 @@ fn press_intent_stays_runtime_interaction_detail() {
 }
 
 #[test]
+fn resolved_press_is_the_one_cursor_semantics_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let runtime_pointer = std::fs::read_to_string(src.join("runtime").join("pointer.rs"))
+        .expect("runtime pointer source should read");
+    let runtime_access = std::fs::read_to_string(src.join("runtime").join("access.rs"))
+        .expect("runtime access source should read");
+    let interaction_pointer = std::fs::read_to_string(src.join("interaction").join("pointer.rs"))
+        .expect("interaction pointer source should read");
+    let platform_event = std::fs::read_to_string(src.join("platform").join("event.rs"))
+        .expect("platform event source should read");
+    let host_event = std::fs::read_to_string(src.join("host").join("event.rs"))
+        .expect("host event source should read");
+    let shell_event = std::fs::read_to_string(src.join("shell").join("event.rs"))
+        .expect("shell event source should read");
+    let pointer_vocabulary = std::fs::read_to_string(src.join("pointer").join("mod.rs"))
+        .expect("pointer vocabulary should read");
+    let native_window_path = src.join("platform").join("native").join("window.rs");
+    let native_window =
+        std::fs::read_to_string(&native_window_path).expect("native window source should read");
+    let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
+        .expect("master design should read");
+
+    assert!(
+        runtime_pointer.contains("struct ResolvedPress")
+            && runtime_pointer.contains("enum PressAdmission")
+            && runtime_pointer.contains("pub(super) fn resolve_press(")
+            && runtime_pointer.contains("if admission == PressAdmission::Target")
+            && runtime_pointer.matches(".resolve_press(").count() >= 6
+            && runtime_access.contains("self.resolve_press("),
+        "move, down, up, drag, leave, modifiers, and presentation must share one prospective press resolver"
+    );
+    assert_eq!(
+        runtime_pointer.matches("pointer::Cursor::Text").count(),
+        1,
+        "Text must have one logical selection site"
+    );
+    assert_eq!(
+        runtime_pointer
+            .matches("pointer::Cursor::ResizeHorizontal")
+            .count(),
+        1,
+        "horizontal resize must have one logical selection site"
+    );
+    assert!(
+        interaction_pointer.contains("cursor: pointer::Cursor")
+            && interaction_pointer.contains("pub(crate) fn cursor(&self) -> pointer::Cursor")
+            && runtime_pointer.contains(".map(interaction::Capture::cursor)")
+            && !runtime_pointer.contains("captured_kind")
+            && !runtime_pointer.contains("capture.target().kind"),
+        "capture must preserve resolved cursor meaning instead of inferring it from target kind"
+    );
+
+    let modifier_body = runtime_pointer
+        .split("pub(crate) fn pointer_modifiers_changed(")
+        .nth(1)
+        .and_then(|source| source.split("pub fn pointer_down_at(").next())
+        .expect("stationary modifier handler should have a bounded body");
+    assert!(
+        modifier_body.contains("self.resolve_press(")
+            && modifier_body.contains("self.set_pointer_cursor(")
+            && modifier_body.contains("presented_layout(window)")
+            && !modifier_body.contains("request_invalidation")
+            && !modifier_body.contains("handle_view")
+            && !modifier_body.contains("apply_window_update"),
+        "modifier changes may update cursor truth but must not request or prepare a frame"
+    );
+    assert!(
+        platform_event
+            .matches("WinitWindowEvent::ModifiersChanged")
+            .count()
+            == 2
+            && host_event.contains("shell::Event::PopupModifiersChanged")
+            && shell_event.contains("self.pointer_modifiers_changed(window, modifiers)"),
+        "parent and popup modifier events must reach the retained pointer clock"
+    );
+    assert!(
+        runtime_pointer.contains("self.presented_layout(window)")
+            && runtime_access.contains("self.presented_geometry.insert(")
+            && runtime_access.contains("self.resolve_press("),
+        "cursor resolution must consume last-presented geometry, including after a successful receipt"
+    );
+
+    assert!(
+        pointer_vocabulary.contains("Default,")
+            && pointer_vocabulary.contains("Text,")
+            && pointer_vocabulary.contains("ResizeHorizontal,")
+            && pointer_vocabulary
+                .split("pub enum Cursor")
+                .nth(1)
+                .and_then(|source| source.split('}').next())
+                .is_some_and(|body| body
+                    .lines()
+                    .filter(|line| line.trim().ends_with(','))
+                    .count()
+                    == 3),
+        "cursor vocabulary must contain only demonstrated resolved-press species"
+    );
+    assert!(
+        native_window.contains("pointer::Cursor::Default => CursorIcon::Default")
+            && native_window.contains("pointer::Cursor::Text => CursorIcon::Text")
+            && native_window.contains("pointer::Cursor::ResizeHorizontal => CursorIcon::EwResize"),
+        "the native window adapter must exhaustively map the semantic cursor vocabulary"
+    );
+    assert_pattern_only_in(&src.join("platform"), "CursorIcon::", &native_window_path);
+
+    for path in [
+        src.join("view").join("node"),
+        src.join("widget"),
+        src.join("scene"),
+    ] {
+        assert_source_patterns_absent(&path, &["pointer::Cursor".to_owned()]);
+    }
+    for path in [
+        src.join("layout").join("frame.rs"),
+        src.join("interaction").join("target.rs"),
+    ] {
+        let source = std::fs::read_to_string(&path).expect("semantic data source should read");
+        assert!(
+            !source.contains("pointer::Cursor"),
+            "{} must retain meaning rather than application cursor assignment",
+            path.display()
+        );
+    }
+    assert_source_patterns_absent(
+        &src,
+        &[
+            format!("{}{}", "Pointer", "Plan"),
+            format!("{}{}", "ResolvedPointer", "Plan"),
+            format!("{}{}", "Pointer", "Capability"),
+            format!("{}{}", "Pointer", "Affordance"),
+            format!("{}{}", "Cursor", "Cue"),
+            format!("{}{}", "Pointer", "Behavior"),
+            format!("{}{}", "Cursor", "Policy"),
+            format!("{}{}", "hit_promises_", "text_edit"),
+            format!("{}{}", "pointer_cursor_", "for_hit"),
+        ],
+    );
+    assert!(
+        master.contains("one private `ResolvedPress`")
+            && master.contains("`PressAdmission` determines")
+            && master.contains("Applications do not assign cursors")
+            && master.contains("does not parse, validate, resolve commands")
+            && master.contains("physical surface, and modifiers as truth"),
+        "master doctrine must retain press admission, pure hover, application boundaries, and pointer clocks"
+    );
+}
+
+#[test]
 fn retained_node_identity_replaces_structural_command_fallbacks() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
 
@@ -3525,6 +3674,29 @@ fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
                 !source.contains(pattern),
                 "{} must not contain stale routing concept {pattern}",
                 path.display()
+            );
+        }
+    }
+}
+
+fn assert_pattern_only_in(path: &std::path::Path, pattern: &str, allowed: &std::path::Path) {
+    for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
+        let path = entry
+            .expect("framework source entry should be readable")
+            .path();
+        if path.is_dir() {
+            assert_pattern_only_in(&path, pattern, allowed);
+            continue;
+        }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+
+        let source = std::fs::read_to_string(&path).expect("framework source file should read");
+        if source.contains(pattern) {
+            assert_eq!(
+                path, allowed,
+                "{pattern} must appear only in the named platform adaptation site"
             );
         }
     }

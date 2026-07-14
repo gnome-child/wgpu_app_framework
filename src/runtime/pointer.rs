@@ -308,9 +308,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let resolved = self.resolve_press(window, point, modifiers, hit);
         self.set_pointer_cursor(window, resolved.cursor());
         let target = resolved.target().cloned();
-        if target.is_none() {
-            self.set_pointer_cursor(window, pointer::Cursor::Default);
-        }
 
         self.handle_view(window, view::Action::pointer_move(target))
     }
@@ -386,7 +383,6 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let resolved = self.resolve_press(window, point, modifiers, hit);
         self.set_pointer_cursor(window, resolved.cursor());
         let Some(hit) = resolved.hit() else {
-            self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
         let selection = resolved.row();

@@ -389,12 +389,33 @@ presentation-space hit acquisition. When that caller exists, pointer hits
 should follow the visible presentation position, while keyboard focus, reveal,
 caret geometry, and scroll remain layout-space concepts.
 
-The OS pointer cursor is a promise about what a click would do. Editable text
-surfaces use the text cursor only where a click can place or drag a caret or
-selection; painted labels, menu rows, buttons, palette rows, chrome, and
-disabled fields keep the default cursor. Cursor resolution consumes the same
-clip-aware hit truth as pointer clicks, wheel targeting, and paint, so hidden
-or occluded text must not leak an I-beam through overlays.
+The OS pointer cursor is a promise about what an ordinary primary press would
+do now. Runtime resolves one private `ResolvedPress` from last-presented,
+clip-aware hit truth, retained pointer point/surface/modifiers, capture, target
+meaning, task focus, and selectable-row pre-gesture focality. Its
+`PressAdmission` determines whether the exact target is inert, selection-only,
+or admitted; cursor projection and pointer-down consume that same answer.
+Selection-only members keep the default cursor. After a first click focalizes a
+row, only successful presentation of that new truth may re-resolve a stationary
+pointer to the member cursor.
+
+Selectable text surfaces use the text cursor only where the admitted press can
+place or drag a caret or selection. Read-only selectable text qualifies;
+painted labels, menu rows, buttons, palette rows, chrome, indicators, and
+disabled fields keep the default cursor. Hidden or occluded text cannot leak an
+I-beam through overlays. Capture retains the cursor meaning resolved at press
+time rather than reconstructing it from target identity. Modifier changes
+re-resolve the stationary pointer and may emit a deduplicated cursor update,
+but never require redraw or view reconstruction. Hover resolution is purely
+deterministic: it does not parse, validate, resolve commands, or preflight the
+fallible task departure that the real gesture attempts once.
+
+Cursor vocabulary follows interaction meaning, not the platform's catalog. A
+new `pointer::Cursor` variant requires a real resolved-press species with a
+precise semantic criterion plus execution, capture, and platform witnesses.
+Applications do not assign cursors to nodes or primitives; a new application
+need earns a semantic framework interaction slot rather than a numeric or raw
+cursor override.
 
 Viewport reveal is rect-shaped. A reveal request names a viewport and layout
 resolves the actual descendant frame rect after composition. The operation is
@@ -500,7 +521,7 @@ window managers may still need user ignore rules; the framework's duty is to
 emit correct popup/tool-window signals before documenting that limitation.
 
 Native popup input is a coordinate adapter into the parent interaction truth,
-not a second interaction model. Pointer movement, buttons, and wheel events
+not a second interaction model. Pointer movement, buttons, modifiers, and wheel events
 from a popup window are converted from popup-local physical coordinates to the
 parent window's logical overlay coordinates by using the popup window scale
 factor and the entry bounds. The parent window remains authoritative for focus,
@@ -1213,10 +1234,12 @@ attempts leave the previously visible geometry authoritative.
 
 Pointer input is interpreted through last-presented geometry, because the user
 cannot target a private candidate they never saw. Interaction retains logical
-pointer position as truth; hover and cursor are projections of that point
-through visible geometry and are rederived before changed geometry paints.
-Capture continues to route gestures to retained identity independently of
-ordinary hover. With no presented geometry, geometry-dependent input is inert.
+pointer position, physical surface, and modifiers as truth; hover is a
+projection of that point through visible geometry, while cursor is a projection
+of the one prospective primary press. Both are rederived before changed
+geometry paints. Capture continues to route gestures to retained identity and
+preserves its resolved cursor independently of ordinary hover. With no
+presented geometry, geometry-dependent input is inert.
 
 Direct manipulation updates its session sources. In particular, table column
 width overrides project into retained composition before layout, so divider
