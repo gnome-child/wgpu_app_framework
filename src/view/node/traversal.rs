@@ -748,12 +748,19 @@ impl Node {
         focus: Option<&session::Focus>,
         retained: &composition::Node,
     ) {
-        self.focused = self
+        let focused = self
             .focus_at_retained(retained, true)
             .as_ref()
             .is_some_and(|node_focus| focus.is_some_and(|focus| node_focus.same_target(focus)));
-        self.focus_visible =
-            self.focused && focus.is_some_and(|focus| focus.shows_focus_indicator());
+        let text_owns_presentation =
+            self.text_area_model().is_some() || self.text_box_model().is_some();
+        self.focus_presentation = if focused && !text_owns_presentation {
+            super::super::focus::Presentation::focused(
+                focus.is_some_and(|focus| focus.shows_focus_indicator()),
+            )
+        } else {
+            super::super::focus::Presentation::default()
+        };
 
         if let Some(text_area) = self.text_area_model_mut() {
             text_area.project_focus(focus);

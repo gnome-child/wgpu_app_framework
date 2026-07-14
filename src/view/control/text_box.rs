@@ -1,7 +1,6 @@
 use crate::text;
 
-use super::super::Hint;
-use super::super::action::Action;
+use super::super::{Hint, action::Action, focus};
 use crate::{interaction, session};
 use std::ops::Range;
 use std::time::Instant;
@@ -15,8 +14,7 @@ pub struct TextBox {
     focus: Option<session::Focus>,
     active: bool,
     inactive_display: bool,
-    focused: bool,
-    focus_visible: bool,
+    focus_presentation: focus::Presentation,
     caret: Option<Caret>,
     preedit: Option<text::Preedit>,
     caret_epoch: Option<Instant>,
@@ -39,8 +37,7 @@ impl TextBox {
             focus: None,
             active: false,
             inactive_display: false,
-            focused: false,
-            focus_visible: false,
+            focus_presentation: focus::Presentation::default(),
             caret: None,
             preedit: None,
             caret_epoch: None,
@@ -97,7 +94,7 @@ impl TextBox {
     }
 
     pub fn is_focused(&self) -> bool {
-        self.focused
+        self.focus_presentation.is_focused()
     }
 
     pub(crate) fn is_active(&self) -> bool {
@@ -109,7 +106,11 @@ impl TextBox {
     }
 
     pub fn focus_visible(&self) -> bool {
-        self.focus_visible
+        self.focus_presentation.is_visible()
+    }
+
+    pub(in crate::view) fn focus_presentation(&self) -> focus::Presentation {
+        self.focus_presentation
     }
 
     pub fn cursor(&self) -> Option<usize> {
@@ -232,22 +233,25 @@ impl TextBox {
     }
 
     pub(in crate::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
-        self.focused = self
+        let focused = self
             .focus
             .as_ref()
             .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
-        self.focus_visible = self.focused
-            && focus.is_some_and(|focus| {
+        self.focus_presentation = if focused {
+            focus::Presentation::focused(focus.is_some_and(|focus| {
                 focus.shows_focus_indicator()
                     || (self.mode.is_editable() && (!self.inactive_display || self.active))
-            });
-        if self.focused && self.caret.is_none() {
+            }))
+        } else {
+            focus::Presentation::default()
+        };
+        if self.is_focused() && self.caret.is_none() {
             self.caret = Some(Caret {
                 cursor: self.text.len(),
                 selection: None,
             });
         }
-        if !self.focused {
+        if !self.is_focused() {
             self.caret = None;
             self.preedit = None;
             self.caret_epoch = None;

@@ -187,8 +187,7 @@ pub(crate) struct Frame {
     rect: Rect,
     active_rect: Rect,
     label: Option<LabelContent>,
-    focused: bool,
-    focus_visible: bool,
+    focus_presentation: view::focus::Presentation,
     selected: bool,
     active_item: bool,
     provided_row: Option<view::ProvidedRow>,
@@ -431,8 +430,7 @@ impl Frame {
             rect,
             active_rect,
             label,
-            focused: node.is_focused(),
-            focus_visible: node.focus_visible(),
+            focus_presentation: node.focus_presentation(),
             selected: node.is_selected(),
             active_item: node.is_active_item(),
             provided_row: node.provided_row(),
@@ -621,7 +619,7 @@ impl Frame {
     }
 
     pub(crate) fn is_focused(&self) -> bool {
-        self.focused
+        self.focus_presentation.is_focused()
     }
 
     pub(crate) fn text_task_focus(&self) -> Option<crate::session::Focus> {
@@ -647,7 +645,7 @@ impl Frame {
     }
 
     pub(crate) fn focus_visible(&self) -> bool {
-        self.focus_visible
+        self.focus_presentation.is_visible()
     }
 
     pub(crate) fn is_selected(&self) -> bool {

@@ -285,6 +285,13 @@ visible text, bindings, focus/selection projection, provided/table identity,
 participation, context-menu eligibility, and children remain on the common
 envelope because live nodes combine them independently of role.
 
+Resolved focus presentation is one `view::focus::Presentation` species:
+unfocused, focused without a visible affordance, or visibly focused. Visible
+focus cannot exist without focus. TextArea and TextBox own that projection for
+their nodes because their editability and inactive-display rules decide visible
+focus; other nodes use the node envelope. Layout frames carry the same resolved
+receipt rather than copying focused/visible booleans.
+
 Floating-panel attachment is one species: geometry may optionally carry the
 available rectangle in which it must resolve, while pointer and element
 attachments cannot. Panel policy is likewise structural. An interactive panel

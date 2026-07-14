@@ -111,15 +111,21 @@ impl Node {
     }
 
     pub fn is_focused(&self) -> bool {
-        self.focused
-            || self.text_area_model().is_some_and(TextArea::is_focused)
-            || self.text_box_model().is_some_and(TextBox::is_focused)
+        self.focus_presentation().is_focused()
     }
 
     pub fn focus_visible(&self) -> bool {
-        self.focus_visible
-            || self.text_area_model().is_some_and(TextArea::focus_visible)
-            || self.text_box_model().is_some_and(TextBox::focus_visible)
+        self.focus_presentation().is_visible()
+    }
+
+    pub(crate) fn focus_presentation(&self) -> super::super::focus::Presentation {
+        if let Some(text_area) = self.text_area_model() {
+            return text_area.focus_presentation();
+        }
+        if let Some(text_box) = self.text_box_model() {
+            return text_box.focus_presentation();
+        }
+        self.focus_presentation
     }
 
     pub fn is_selected(&self) -> bool {

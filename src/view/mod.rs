@@ -15,6 +15,7 @@ mod context;
 mod context_menu;
 mod control;
 mod feedback;
+pub(crate) mod focus;
 mod hint;
 mod node;
 #[cfg(test)]

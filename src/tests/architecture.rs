@@ -2376,6 +2376,47 @@ fn widget_label_text_species_are_structural() {
 }
 
 #[test]
+fn focus_presentation_species_flow_from_view_to_layout() {
+    let view_mod = include_str!("../view/mod.rs");
+    let focus = include_str!("../view/focus.rs");
+    let text_area = include_str!("../view/control/text_area.rs");
+    let text_box = include_str!("../view/control/text_box.rs");
+    let node = include_str!("../view/node/mod.rs");
+    let access = include_str!("../view/node/access.rs");
+    let traversal = include_str!("../view/node/traversal.rs");
+    let frame = include_str!("../layout/frame.rs");
+
+    assert!(view_mod.contains("pub(crate) mod focus;"));
+    assert!(!view_mod.contains("use focus::Presentation"));
+    for required in [
+        "pub(crate) enum Presentation {",
+        "Unfocused",
+        "Focused",
+        "Visible",
+        "pub(crate) fn is_focused(self) -> bool",
+        "pub(crate) fn is_visible(self) -> bool",
+    ] {
+        assert!(
+            focus.contains(required),
+            "focus presentation must retain its closed species: {required}"
+        );
+    }
+    assert!(text_area.contains("focus_presentation: focus::Presentation"));
+    assert!(text_box.contains("focus_presentation: focus::Presentation"));
+    assert!(node.contains("focus_presentation: super::focus::Presentation"));
+    assert!(frame.contains("focus_presentation: view::focus::Presentation"));
+    assert!(
+        access.contains("return text_area.focus_presentation();")
+            && access.contains("return text_box.focus_presentation();")
+            && traversal.contains("text_owns_presentation")
+    );
+    for source in [text_area, text_box, node, frame] {
+        assert!(!source.contains("focused: bool"));
+        assert!(!source.contains("focus_visible: bool"));
+    }
+}
+
+#[test]
 fn layout_reveal_stays_palette_agnostic() {
     let layout_mod = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

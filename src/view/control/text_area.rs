@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::text;
 
-use super::super::action::Action;
+use super::super::{action::Action, focus};
 use super::Wrap;
 use crate::{interaction, session};
 
@@ -13,8 +13,7 @@ pub struct TextArea {
     wrap: Wrap,
     mode: text::surface::FieldMode,
     focus: Option<session::Focus>,
-    focused: bool,
-    focus_visible: bool,
+    focus_presentation: focus::Presentation,
     scroll: interaction::ScrollOffset,
     reveal: bool,
     preedit: Option<text::Preedit>,
@@ -35,8 +34,7 @@ impl TextArea {
             wrap: Wrap::Word,
             mode: text::surface::FieldMode::Editable,
             focus: None,
-            focused: false,
-            focus_visible: false,
+            focus_presentation: focus::Presentation::default(),
             scroll: interaction::ScrollOffset::default(),
             reveal: false,
             preedit: None,
@@ -98,7 +96,7 @@ impl TextArea {
             .with_state(self.state)
             .with_wrap(wrap);
         match self.mode {
-            text::surface::FieldMode::Editable if self.focused => area,
+            text::surface::FieldMode::Editable if self.is_focused() => area,
             text::surface::FieldMode::Editable | text::surface::FieldMode::ReadOnly => {
                 area.read_only()
             }
@@ -131,11 +129,15 @@ impl TextArea {
     }
 
     pub fn is_focused(&self) -> bool {
-        self.focused
+        self.focus_presentation.is_focused()
     }
 
     pub fn focus_visible(&self) -> bool {
-        self.focus_visible
+        self.focus_presentation.is_visible()
+    }
+
+    pub(in crate::view) fn focus_presentation(&self) -> focus::Presentation {
+        self.focus_presentation
     }
 
     pub fn preedit(&self) -> Option<&text::Preedit> {
@@ -218,11 +220,16 @@ impl TextArea {
     }
 
     pub(in crate::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {
-        self.focused = self
+        let focused = self
             .focus
             .as_ref()
             .is_some_and(|text_focus| focus.is_some_and(|focus| text_focus.same_target(focus)));
-        self.focus_visible = self.focused
-            && focus.is_some_and(|focus| focus.shows_focus_indicator() || self.mode.is_editable());
+        self.focus_presentation = if focused {
+            focus::Presentation::focused(
+                focus.is_some_and(|focus| focus.shows_focus_indicator() || self.mode.is_editable()),
+            )
+        } else {
+            focus::Presentation::default()
+        };
     }
 }
