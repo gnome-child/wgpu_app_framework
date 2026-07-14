@@ -129,6 +129,19 @@ fn pointer_position_and_surface_share_one_location() {
 }
 
 #[test]
+fn session_cursor_state_encodes_pending_publication() {
+    let window = include_str!("../session/window.rs");
+
+    assert!(
+        window.contains("enum Cursor {")
+            && window.contains("Synced(pointer::Cursor)")
+            && window.contains("Pending(pointer::Cursor)")
+            && window.contains("fn take_pending(&mut self) -> Option<pointer::Cursor>")
+    );
+    assert!(!window.contains("cursor_changed: bool"));
+}
+
+#[test]
 fn realized_material_parts_encode_tint_inside_frost() {
     let region = include_str!("../scene/region.rs");
 

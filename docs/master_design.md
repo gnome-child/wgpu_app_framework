@@ -500,6 +500,11 @@ but never require redraw or view reconstruction. Hover resolution is purely
 deterministic: it does not parse, validate, resolve commands, or preflight the
 fallible task departure that the real gesture attempts once.
 
+Session cursor publication has two species: the current cursor is either
+synced with the platform handoff or pending that handoff. Resolving a different
+cursor enters the pending species; draining the update advances that same value
+to synced. A separate dirty flag cannot disagree with the cursor it describes.
+
 A projected `TextBox` caret is one optional unit containing its cursor and
 optional selection. Selection cannot exist without the cursor that owns its
 active endpoint; clearing focus or draft projection clears the unit atomically.

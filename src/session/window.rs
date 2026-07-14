@@ -10,13 +10,18 @@ pub struct Window {
     pub(super) projected_revision: Option<state::Revision>,
     pub(super) desired_presentation_epoch: app_window::PresentationEpoch,
     pub(super) acknowledged_presentation_epoch: Option<app_window::PresentationEpoch>,
-    pub(super) cursor: pointer::Cursor,
-    pub(super) cursor_changed: bool,
+    cursor: Cursor,
     pub(super) focus: Option<Focus>,
     pub(super) menu_restore_focus: Option<Focus>,
     pub(super) file_dialog: Option<FileDialog>,
     pub(super) feedback: feedback::Stack,
     pub(super) interaction: interaction::Interaction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cursor {
+    Synced(pointer::Cursor),
+    Pending(pointer::Cursor),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,8 +41,7 @@ impl Window {
             projected_revision: None,
             desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             acknowledged_presentation_epoch: None,
-            cursor: pointer::Cursor::Default,
-            cursor_changed: false,
+            cursor: Cursor::default(),
             focus: None,
             menu_restore_focus: None,
             file_dialog: None,
@@ -58,8 +62,7 @@ impl Window {
             projected_revision: None,
             desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             acknowledged_presentation_epoch: None,
-            cursor: pointer::Cursor::Default,
-            cursor_changed: false,
+            cursor: Cursor::default(),
             focus: snapshot.focus,
             menu_restore_focus: None,
             file_dialog: None,
@@ -114,7 +117,7 @@ impl Window {
     }
 
     pub fn cursor(&self) -> pointer::Cursor {
-        self.cursor
+        self.cursor.value()
     }
 
     pub fn focus(&self) -> Option<Focus> {
@@ -127,6 +130,36 @@ impl Window {
 
     pub fn feedback(&self) -> Option<(feedback::Severity, &str)> {
         self.feedback.winner()
+    }
+}
+
+impl Default for Cursor {
+    fn default() -> Self {
+        Self::Synced(pointer::Cursor::Default)
+    }
+}
+
+impl Cursor {
+    fn value(self) -> pointer::Cursor {
+        match self {
+            Self::Synced(cursor) | Self::Pending(cursor) => cursor,
+        }
+    }
+
+    fn set(&mut self, next: pointer::Cursor) -> bool {
+        if self.value() == next {
+            return false;
+        }
+        *self = Self::Pending(next);
+        true
+    }
+
+    fn take_pending(&mut self) -> Option<pointer::Cursor> {
+        let Self::Pending(cursor) = *self else {
+            return None;
+        };
+        *self = Self::Synced(cursor);
+        Some(cursor)
     }
 }
 
@@ -321,22 +354,18 @@ impl Session {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
-        let changed = window.cursor != cursor;
-        if changed {
-            window.cursor = cursor;
-            window.cursor_changed = true;
-        }
-        changed
+        window.cursor.set(cursor)
     }
 
     pub(crate) fn take_cursor_updates(&mut self) -> Vec<pointer::Update> {
         self.windows
             .iter_mut()
             .filter_map(|window| {
-                window.cursor_changed.then(|| {
-                    window.cursor_changed = false;
-                    pointer::Update::new(window.id(), window.cursor)
-                })
+                let id = window.id();
+                window
+                    .cursor
+                    .take_pending()
+                    .map(|cursor| pointer::Update::new(id, cursor))
             })
             .collect()
     }
@@ -408,6 +437,29 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cursor_publication_advances_from_pending_to_synced() {
+        let mut session = Session::default();
+        let window = session.open_window(app_window::Options::new("Cursor"));
+
+        assert_eq!(
+            session.window(window).map(Window::cursor),
+            Some(pointer::Cursor::Default)
+        );
+        assert!(session.take_cursor_updates().is_empty());
+        assert!(session.set_cursor(window, pointer::Cursor::Text));
+        assert_eq!(
+            session.window(window).map(Window::cursor),
+            Some(pointer::Cursor::Text)
+        );
+        assert_eq!(
+            session.take_cursor_updates(),
+            vec![pointer::Update::new(window, pointer::Cursor::Text)]
+        );
+        assert!(session.take_cursor_updates().is_empty());
+        assert!(!session.set_cursor(window, pointer::Cursor::Text));
+    }
 
     #[test]
     fn window_feedback_is_ephemeral_ranked_session_truth() {
