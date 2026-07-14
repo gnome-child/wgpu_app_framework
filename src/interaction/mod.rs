@@ -23,13 +23,18 @@ use super::draft;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Interaction {
-    open_menu: Option<Menu>,
-    command_palette: Option<CommandPalette>,
+    surface: Option<Surface>,
     pointer: Pointer,
     scroll: Scroll,
     text_input: draft::Input,
     selections: Selections,
     tables: Tables,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Surface {
+    Menu(Menu),
+    CommandPalette(CommandPalette),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -77,11 +82,17 @@ impl Interaction {
     }
 
     pub(crate) fn open_menu(&self) -> Option<&Menu> {
-        self.open_menu.as_ref()
+        match &self.surface {
+            Some(Surface::Menu(menu)) => Some(menu),
+            Some(Surface::CommandPalette(_)) | None => None,
+        }
     }
 
     pub(crate) fn command_palette(&self) -> Option<&CommandPalette> {
-        self.command_palette.as_ref()
+        match &self.surface {
+            Some(Surface::CommandPalette(palette)) => Some(palette),
+            Some(Surface::Menu(_)) | None => None,
+        }
     }
 
     pub(crate) fn pointer(&self) -> &Pointer {
@@ -113,24 +124,26 @@ impl Interaction {
     }
 
     pub(super) fn open_menu_with(&mut self, menu: Menu) -> bool {
-        let changed = self.open_menu.as_ref() != Some(&menu);
-        self.open_menu = Some(menu);
+        let changed = self.open_menu() != Some(&menu);
+        self.surface = Some(Surface::Menu(menu));
         changed
     }
 
     pub(super) fn toggle_menu(&mut self, menu: Menu) -> bool {
-        if self.open_menu.as_ref() == Some(&menu) {
-            self.open_menu = None;
+        if self.open_menu() == Some(&menu) {
+            self.surface = None;
         } else {
-            self.open_menu = Some(menu);
+            self.surface = Some(Surface::Menu(menu));
         }
 
         true
     }
 
     pub(super) fn close_menu(&mut self) -> bool {
-        let changed = self.open_menu.is_some();
-        self.open_menu = None;
+        let changed = self.open_menu().is_some();
+        if changed {
+            self.surface = None;
+        }
         changed
     }
 
@@ -139,46 +152,50 @@ impl Interaction {
         captured_focus: Option<super::session::Focus>,
     ) -> bool {
         let palette = CommandPalette::open(captured_focus);
-        let changed = self.command_palette.as_ref() != Some(&palette);
-        self.command_palette = Some(palette);
+        let changed = self.command_palette() != Some(&palette);
+        self.surface = Some(Surface::CommandPalette(palette));
         changed
     }
 
     pub(super) fn close_command_palette(&mut self) -> bool {
-        let changed = self.command_palette.is_some();
-        self.command_palette = None;
+        let changed = self.command_palette().is_some();
+        if changed {
+            self.surface = None;
+        }
         let query = CommandPalette::query_target();
         self.clear_text_draft(&query) || changed
     }
 
     pub(super) fn reset_command_palette_selection(&mut self) -> bool {
-        self.command_palette
-            .as_mut()
+        self.command_palette_mut()
             .is_some_and(CommandPalette::reset_selection)
     }
 
     pub(super) fn select_command_palette_next(&mut self, len: usize) -> bool {
-        self.command_palette
-            .as_mut()
+        self.command_palette_mut()
             .is_some_and(|palette| palette.select_next(len))
     }
 
     pub(super) fn select_command_palette_previous(&mut self, len: usize) -> bool {
-        self.command_palette
-            .as_mut()
+        self.command_palette_mut()
             .is_some_and(|palette| palette.select_previous(len))
     }
 
     pub(super) fn select_command_palette_page_next(&mut self, len: usize, page: usize) -> bool {
-        self.command_palette
-            .as_mut()
+        self.command_palette_mut()
             .is_some_and(|palette| palette.select_page_next(len, page))
     }
 
     pub(super) fn select_command_palette_page_previous(&mut self, len: usize, page: usize) -> bool {
-        self.command_palette
-            .as_mut()
+        self.command_palette_mut()
             .is_some_and(|palette| palette.select_page_previous(len, page))
+    }
+
+    fn command_palette_mut(&mut self) -> Option<&mut CommandPalette> {
+        match &mut self.surface {
+            Some(Surface::CommandPalette(palette)) => Some(palette),
+            Some(Surface::Menu(_)) | None => None,
+        }
     }
 
     pub(super) fn pointer_move(&mut self, target: Option<Target>) -> bool {
@@ -419,12 +436,11 @@ impl Interaction {
             self.text_input
                 .prune_removed(removed_nodes, removed_elements, removed_table_cells);
         let menu_changed = self
-            .open_menu
-            .as_ref()
+            .open_menu()
             .and_then(Menu::context_owner)
             .is_some_and(|owner| removed_nodes.contains(&owner));
         if menu_changed {
-            self.open_menu = None;
+            self.surface = None;
         }
 
         let changed = hovered_changed

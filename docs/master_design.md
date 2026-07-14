@@ -1028,6 +1028,11 @@ descendant operated on by navigation while focus remains elsewhere, such as a
 command palette result while the query text box keeps focus. Active items may
 request viewport reveal; they do not become focus.
 
+Each window has at most one active command surface: an open menu or the command
+palette. Opening either replaces the other structurally; menu focus restoration
+and palette captured-focus restoration retain their distinct session-owned
+lifecycles around that one interaction species.
+
 Provided-list selection is window-local interaction state keyed by list id and
 `virtual_list::Key`; it is not application data, does not dirty documents, and
 does not enter application history. `selection::Selection` exposes read-only

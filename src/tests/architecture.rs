@@ -251,6 +251,25 @@ fn hover_tip_lifecycle_is_idle_waiting_or_visible() {
 }
 
 #[test]
+fn interaction_command_surface_is_exclusive() {
+    let interaction = include_str!("../interaction/mod.rs");
+    let owner = interaction
+        .split("pub(crate) struct Interaction")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) struct Pruned").next())
+        .expect("interaction command surface precedes prune receipt");
+
+    assert!(
+        owner.contains("surface: Option<Surface>,")
+            && owner.contains("enum Surface {")
+            && owner.contains("Menu(Menu),")
+            && owner.contains("CommandPalette(CommandPalette),")
+    );
+    assert!(!owner.contains("open_menu: Option<Menu>"));
+    assert!(!owner.contains("command_palette: Option<CommandPalette>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
