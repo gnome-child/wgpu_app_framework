@@ -254,7 +254,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     );
                 }
                 self.session
-                    .set_cursor(window, super::pointer::pointer_cursor_for_hit(hit.as_ref()));
+                    .set_cursor(window, super::pointer::ResolvedPress::new(hit).cursor());
             }
         } else {
             self.session.retry_invalidation(window, invalidation);

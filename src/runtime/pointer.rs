@@ -4,6 +4,72 @@ use super::super::{
 };
 use super::Runtime;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PressAdmission {
+    Inert,
+    Target,
+}
+
+pub(super) struct ResolvedPress {
+    hit: Option<layout::Hit>,
+    admission: PressAdmission,
+    cursor: pointer::Cursor,
+}
+
+impl ResolvedPress {
+    pub(super) fn new(hit: Option<layout::Hit>) -> Self {
+        let admission = if hit.as_ref().and_then(layout::Hit::target).is_some() {
+            PressAdmission::Target
+        } else {
+            PressAdmission::Inert
+        };
+        let cursor = hit
+            .as_ref()
+            .map(|hit| {
+                if !hit.is_chrome()
+                    && hit
+                        .target()
+                        .is_none_or(|target| target.kind() != interaction::Kind::Indicator)
+                    && hit.frame().is_enabled()
+                    && matches!(
+                        hit.frame().role(),
+                        view::Role::TextArea | view::Role::TextBox
+                    )
+                {
+                    pointer::Cursor::Text
+                } else if hit
+                    .target()
+                    .is_some_and(|target| target.kind() == interaction::Kind::TableDivider)
+                {
+                    pointer::Cursor::ResizeHorizontal
+                } else {
+                    pointer::Cursor::Default
+                }
+            })
+            .unwrap_or(pointer::Cursor::Default);
+
+        Self {
+            hit,
+            admission,
+            cursor,
+        }
+    }
+
+    fn hit(&self) -> Option<&layout::Hit> {
+        self.hit.as_ref()
+    }
+
+    fn target(&self) -> Option<&interaction::Target> {
+        (self.admission == PressAdmission::Target)
+            .then(|| self.hit()?.target())
+            .flatten()
+    }
+
+    pub(super) fn cursor(&self) -> pointer::Cursor {
+        self.cursor
+    }
+}
+
 struct VirtualRowGesture {
     model: virtual_list::Model,
     key: virtual_list::Key,
@@ -46,10 +112,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return self.pointer_drag_on_surface(window, size, point, surface);
         }
 
-        let target = self
-            .hit_test_on_surface(window, size, point, surface)
-            .inspect(|hit| self.set_cursor_for_hit(window, Some(hit)))
-            .and_then(|hit| hit.target().cloned());
+        let resolved = ResolvedPress::new(self.hit_test_on_surface(window, size, point, surface));
+        self.set_pointer_cursor(window, resolved.cursor());
+        let target = resolved.target().cloned();
         if target.is_none() {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
         }
@@ -92,14 +157,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         self.session
             .set_pointer_position(window, Some(point), surface);
-        let Some(hit) = self.hit_test_on_surface(window, size, point, surface) else {
+        let resolved = ResolvedPress::new(self.hit_test_on_surface(window, size, point, surface));
+        self.set_pointer_cursor(window, resolved.cursor());
+        let Some(hit) = resolved.hit() else {
             self.set_pointer_cursor(window, pointer::Cursor::Default);
             return self.clear_pointer_focus(window);
         };
         let selection = self.virtual_row_gesture_for_hit(window, &hit, point);
         let selection_row = selection.is_some();
-        self.set_cursor_for_hit(window, Some(&hit));
-        let Some(target) = hit.target().cloned() else {
+        let Some(target) = resolved.target().cloned() else {
             let transition = self.attempt_clear_focus_transition(window)?;
             if !transition.is_accepted() {
                 self.session.cancel_click_sequence(window);
@@ -338,10 +404,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         self.session
             .set_pointer_position(window, Some(point), surface);
-        let hit = self.hit_test_on_surface(window, size, point, surface);
-        self.set_cursor_for_hit(window, hit.as_ref());
-        let target = hit.as_ref().and_then(|hit| hit.target().cloned());
-        let action = hit.as_ref().and_then(|hit| {
+        let resolved = ResolvedPress::new(self.hit_test_on_surface(window, size, point, surface));
+        self.set_pointer_cursor(window, resolved.cursor());
+        let target = resolved.target().cloned();
+        let action = resolved.hit().and_then(|hit| {
             (!hit.is_chrome()
                 && !matches!(
                     hit.frame().role(),
@@ -376,7 +442,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let Some(layout) = self.presented_layout(window) else {
             return Ok(input::Outcome::ignored());
         };
-        let hit = layout.hit_test_on_surface(point, surface);
+        let resolved = ResolvedPress::new(layout.hit_test_on_surface(point, surface));
         let captured_target = self
             .session
             .interaction(window)
@@ -393,9 +459,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else if captured_target == Some(interaction::Kind::TableDivider) {
             self.set_pointer_cursor(window, pointer::Cursor::ResizeHorizontal);
         } else {
-            self.set_cursor_for_hit(window, hit.as_ref());
+            self.set_pointer_cursor(window, resolved.cursor());
         }
-        let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
+        let hovered = resolved.target().cloned();
         let active = self.session.interaction(window).and_then(|interaction| {
             interaction
                 .pointer()
@@ -558,41 +624,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
-    fn set_cursor_for_hit(&mut self, window: window::Id, hit: Option<&layout::Hit>) {
-        self.set_pointer_cursor(window, pointer_cursor_for_hit(hit));
-    }
-
     fn set_pointer_cursor(&mut self, window: window::Id, cursor: pointer::Cursor) {
         self.session.set_cursor(window, cursor);
     }
-}
-
-pub(super) fn pointer_cursor_for_hit(hit: Option<&layout::Hit>) -> pointer::Cursor {
-    hit.map(|hit| {
-        if hit_promises_text_edit(hit) {
-            pointer::Cursor::Text
-        } else if hit
-            .target()
-            .is_some_and(|target| target.kind() == interaction::Kind::TableDivider)
-        {
-            pointer::Cursor::ResizeHorizontal
-        } else {
-            pointer::Cursor::Default
-        }
-    })
-    .unwrap_or(pointer::Cursor::Default)
-}
-
-fn hit_promises_text_edit(hit: &layout::Hit) -> bool {
-    !hit.is_chrome()
-        && hit
-            .target()
-            .is_none_or(|target| target.kind() != interaction::Kind::Indicator)
-        && hit.frame().is_enabled()
-        && matches!(
-            hit.frame().role(),
-            view::Role::TextArea | view::Role::TextBox
-        )
 }
 
 fn text_pointer_down_action(frame: &layout::Frame, target: interaction::Target) -> view::Action {

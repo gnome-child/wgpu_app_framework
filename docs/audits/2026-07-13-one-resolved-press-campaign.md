@@ -64,7 +64,7 @@ and pointer execution consume that one result.
 | Checkpoint | State | Boundary |
 |---|---|---|
 | 0. Reductions, naming census, and baseline pins | Complete | Ledger, roadmap, current failures, behavior matrix, and structural absences before production edits |
-| 1. Name and migrate one resolved press | Pending | Private `ResolvedPress` / `PressAdmission`; current behavior preserved; scattered cursor helpers retired |
+| 1. Name and migrate one resolved press | Complete | Private `ResolvedPress` / `PressAdmission`; current behavior preserved; scattered cursor helpers retired |
 | 2. Pointer execution consumes the resolved press | Pending | Target, task focus, row gesture, admission, intent, overlay relationship, and capture share the one answer |
 | 3. Modifiers become pointer truth | Pending | Retained modifiers and stationary parent/popup re-resolution without presentation |
 | 4. Cursor consumes press admission | Pending | Selection-only rows project Default; focal admitted selectable text projects Text |
@@ -119,6 +119,21 @@ and pointer execution consume that one result.
 | table divider | ResizeHorizontal |
 | captured text drag outside hit area | Text |
 | captured divider drag outside hit area | ResizeHorizontal |
+
+### Checkpoint 1 receipts
+
+- Private runtime-owned `ResolvedPress` now owns the hit, deterministic initial
+  `PressAdmission`, and logical cursor projection. Pointer move, pointer-down
+  preliminary interpretation, pointer up, uncaptured drag, and successful
+  presentation refresh all consume it.
+- The platform cursor mapping and physical cursor-host path are unchanged.
+- `pointer_cursor_for_hit` and `hit_promises_text_edit` are deleted. No
+  replacement cursor field was added to view, layout, or target data.
+- This migration deliberately preserves the opening table I-beam error;
+  selectable-row admission becomes cursor data only after execution and
+  capture consume the resolved press.
+- `cargo check --all-targets` passed. Five focused cursor tests and the captured
+  text-drag cursor witness passed with identical update behavior.
 
 ## Structural-absence contract
 
