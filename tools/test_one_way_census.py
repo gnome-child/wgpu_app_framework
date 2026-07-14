@@ -8,9 +8,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from one_way_census import (  # noqa: E402
+    belongs_to_test_only_module,
+    external_module_candidates,
     mask_rust_literals_and_comments,
     partition_test_code,
     referenced_roots,
+    test_only_module_roots,
     uses_dependency,
 )
 
@@ -71,6 +74,41 @@ mod tests {
         test_roots, _ = referenced_roots(tests, ["view"])
         self.assertEqual(production_roots, {"text"})
         self.assertEqual(test_roots, {"platform", "render"})
+
+    def test_resolves_external_cfg_test_modules_and_their_descendants(self) -> None:
+        src = Path("workspace/src")
+        lib = src / "lib.rs"
+        live = src / "live.rs"
+        tests = src / "checks.rs"
+        child = src / "checks" / "child.rs"
+        masked = {
+            lib: mask_rust_literals_and_comments(
+                "mod live;\n#[cfg(test)]\nmod checks;\n"
+            ),
+            live: "",
+            tests: "",
+            child: "",
+        }
+
+        roots = test_only_module_roots(src, masked)
+
+        self.assertEqual(roots, {("checks",)})
+        self.assertTrue(belongs_to_test_only_module(["checks"], roots))
+        self.assertTrue(belongs_to_test_only_module(["checks", "child"], roots))
+        self.assertFalse(belongs_to_test_only_module(["live"], roots))
+
+    def test_external_module_candidates_follow_rust_file_housing(self) -> None:
+        self.assertEqual(
+            external_module_candidates(Path("src/lib.rs"), "tests"),
+            (Path("src/tests.rs"), Path("src/tests/mod.rs")),
+        )
+        self.assertEqual(
+            external_module_candidates(Path("src/render/filter.rs"), "tests"),
+            (
+                Path("src/render/filter/tests.rs"),
+                Path("src/render/filter/tests/mod.rs"),
+            ),
+        )
 
     def test_external_dependency_does_not_match_a_nested_path_segment(self) -> None:
         self.assertTrue(uses_dependency("use windows::Win32;", "windows"))

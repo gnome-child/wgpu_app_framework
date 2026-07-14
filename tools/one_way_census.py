@@ -227,6 +227,38 @@ def module_path(src: Path, path: Path) -> list[str]:
     return parts
 
 
+def external_module_candidates(parent: Path, name: str) -> tuple[Path, Path]:
+    """Return Rust's ordinary file candidates for an external child module."""
+
+    directory = parent.parent if parent.name in {"lib.rs", "mod.rs"} else parent.with_suffix("")
+    return directory / f"{name}.rs", directory / name / "mod.rs"
+
+
+def test_only_module_roots(
+    src: Path, masked_files: dict[Path, str]
+) -> set[tuple[str, ...]]:
+    """Resolve external modules whose declarations live in cfg(test) code."""
+
+    roots: set[tuple[str, ...]] = set()
+    declaration = re.compile(rf"\bmod\s+({IDENT})\s*;")
+    available = set(masked_files)
+    for parent, masked in masked_files.items():
+        _, tests = partition_test_code(masked)
+        for name in declaration.findall(tests):
+            for candidate in external_module_candidates(parent, name):
+                if candidate in available:
+                    roots.add(tuple(module_path(src, candidate)))
+                    break
+    return roots
+
+
+def belongs_to_test_only_module(
+    parts: list[str], roots: set[tuple[str, ...]]
+) -> bool:
+    path = tuple(parts)
+    return any(path[: len(root)] == root for root in roots)
+
+
 def grouped_roots(source: str, prefix: str) -> set[str]:
     roots: set[str] = set()
     pattern = re.compile(rf"\b{re.escape(prefix)}\s*::\s*\{{")
@@ -412,16 +444,19 @@ def run_census(
     if missing or extra:
         raise ValueError(f"slot map mismatch; missing={missing}, extra={extra}")
 
-    masked_files: dict[Path, str] = {}
+    masked_files = {
+        path: mask_rust_literals_and_comments(path.read_text(encoding="utf-8"))
+        for path in rust_files
+    }
+    test_module_roots = test_only_module_roots(src, masked_files)
     production_files: dict[Path, str] = {}
     test_files: dict[Path, str] = {}
     for path in rust_files:
         parts = module_path(src, path)
-        masked = mask_rust_literals_and_comments(path.read_text(encoding="utf-8"))
+        masked = masked_files[path]
         production, tests = partition_test_code(
-            masked, len(parts) > 0 and parts[0] == "tests"
+            masked, belongs_to_test_only_module(parts, test_module_roots)
         )
-        masked_files[path] = masked
         production_files[path] = production
         test_files[path] = tests
 
