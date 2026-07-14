@@ -23,37 +23,20 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 
-                let active_table_cell = self
+                let active_text_focus = self
                     .session
                     .interaction(window)
                     .and_then(|interaction| interaction.text_input().target())
-                    .and_then(interaction::Target::table_cell);
-                if let Some(cell) = active_table_cell {
-                    self.session
-                        .clear_text_draft(window, session::Focus::table_cell(cell));
-                    self.session.clear_table_edit_error(window, cell);
+                    .and_then(session::Focus::from_text_target);
+                if let Some(focus) = active_text_focus {
+                    self.session.clear_text_draft(window, focus);
                     self.session
                         .request_invalidation(window, response::Invalidation::Rebuild);
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 
-                let cancelled_cell = self
-                    .session
-                    .focused(window)
-                    .and_then(crate::session::Focus::table_cell_identity);
                 if self.session.clear_text_input(window) {
-                    if let Some(cell) = cancelled_cell {
-                        self.session.clear_table_edit_error(window, cell);
-                    }
-                    return Ok(self.window_outcome(
-                        window,
-                        false,
-                        if cancelled_cell.is_some() {
-                            response::Effect::Rebuild
-                        } else {
-                            response::Effect::Layout
-                        },
-                    ));
+                    return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 
                 if self.session.cancel_pointer(window) {

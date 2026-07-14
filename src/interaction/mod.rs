@@ -329,6 +329,15 @@ impl Interaction {
         self.text_input.seal(target)
     }
 
+    pub(super) fn report_text_feedback(
+        &mut self,
+        target: &Target,
+        severity: crate::feedback::Severity,
+        text: String,
+    ) -> bool {
+        self.text_input.report_feedback(target, severity, text)
+    }
+
     pub(super) fn clear_text_input(&mut self) -> bool {
         self.text_input.clear()
     }
@@ -384,7 +393,6 @@ impl Interaction {
         let text_changed =
             self.text_input
                 .prune_removed(removed_nodes, removed_elements, removed_table_cells);
-        let tables_changed = self.tables.prune_removed(removed_table_cells);
         let menu_changed = self
             .open_menu
             .as_ref()
@@ -400,7 +408,6 @@ impl Interaction {
                 || capture_changed
                 || scroll_changed
                 || text_changed
-                || tables_changed
                 || menu_changed,
             capture_removed: capture_changed,
         }

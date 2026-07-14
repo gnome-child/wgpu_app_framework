@@ -442,4 +442,22 @@ mod tests {
         assert!(session.close_window(window));
         assert_eq!(session.window(window), None);
     }
+
+    #[test]
+    fn closing_window_destroys_its_text_draft_feedback() {
+        let mut session = Session::default();
+        let window = session.open_window(app_window::Options::new("Draft feedback"));
+        let focus = Focus::text("temporary-draft");
+        assert!(session.focus(window, focus));
+        assert!(session.activate_text_draft(window, focus, "draft"));
+        assert!(session.reject_text_input(window, focus, "invalid".to_owned()));
+        assert_eq!(
+            session.text_input_feedback(window, focus),
+            Some((feedback::Severity::Error, "invalid"))
+        );
+
+        assert!(session.close_window(window));
+        assert_eq!(session.window(window), None);
+        assert_eq!(session.text_input_feedback(window, focus), None);
+    }
 }

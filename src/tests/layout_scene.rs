@@ -1,4 +1,5 @@
 use super::*;
+use crate::feedback;
 
 #[derive(Clone)]
 struct MillionRowProvider {
@@ -3011,10 +3012,15 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
     );
     assert_eq!(app.state().records[0].count, 42);
     assert_eq!(
-        app.session().table_edit_error(window, count),
-        Some("Enter a whole number")
+        app.session()
+            .text_input_feedback(window, session::Focus::table_cell(count)),
+        Some((feedback::Severity::Error, "Enter a whole number"))
     );
-    assert_eq!(app.session().table_edit_error(other_window, count), None);
+    assert_eq!(
+        app.session()
+            .text_input_feedback(other_window, session::Focus::table_cell(count)),
+        None
+    );
     assert_ne!(
         interaction::Target::text_area(session::Focus::table_cell(count)),
         interaction::Target::text_area(session::Focus::table_cell(crate::table::Cell::new(
@@ -3122,7 +3128,8 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
     )
     .expect("correcting a rejected draft should remain editable");
     assert_eq!(
-        app.session().table_edit_error(window, count),
+        app.session()
+            .text_input_feedback(window, session::Focus::table_cell(count)),
         None,
         "a rejection may not outlive the draft that produced it"
     );
@@ -3150,7 +3157,11 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
 
     app.handle_input(window, Input::cancel())
         .expect("Escape should cancel the rejected draft");
-    assert_eq!(app.session().table_edit_error(window, count), None);
+    assert_eq!(
+        app.session()
+            .text_input_feedback(window, session::Focus::table_cell(count)),
+        None
+    );
     let cancelled = app
         .show_scene(window, size)
         .expect("cancelled committed value should render");

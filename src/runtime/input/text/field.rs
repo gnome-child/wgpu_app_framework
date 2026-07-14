@@ -80,9 +80,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let input = self
             .text_draft_input(window, focus)
             .unwrap_or_else(text::Input::unrestricted);
-        let had_table_rejection = focus
-            .table_cell_identity()
-            .is_some_and(|cell| self.session.table_edit_error(window, cell).is_some());
+        let had_input_feedback = self.session.text_input_feedback(window, focus).is_some();
         let Some(change) = self
             .session
             .edit_text_draft(window, focus, base, edit, input)
@@ -98,7 +96,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         let outcome =
-            self.finish_text_box_change(window, focus, change.clone(), had_table_rejection)?;
+            self.finish_text_box_change(window, focus, change.clone(), had_input_feedback)?;
         Ok(Some((change, outcome)))
     }
 
@@ -107,14 +105,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         window: window::Id,
         focus: session::Focus,
         change: draft::Change,
-        had_table_rejection: bool,
+        had_input_feedback: bool,
     ) -> std::result::Result<input::Outcome, Error> {
         let mut handled = change.changed() || change.submit();
         let mut changed_state = false;
         let mut effect = if change.changed() {
             if change.text_changed()
                 && (focus.same_target(&interaction::CommandPalette::query_focus())
-                    || had_table_rejection)
+                    || had_input_feedback)
             {
                 response::Effect::Rebuild
             } else {
@@ -199,6 +197,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
         let base = draft.base_text().to_owned();
         let text = draft.text().to_owned();
+        let had_feedback = self.session.text_input_feedback(window, focus).is_some();
         let Some(commit) = self
             .composition
             .get(window)
@@ -209,9 +208,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let trigger = match commit.build(text.clone()) {
             Ok(trigger) => trigger,
             Err(reason) => {
-                if let Some(cell) = focus.table_cell_identity() {
-                    self.session.reject_table_edit(window, cell, reason);
-                }
+                self.session.reject_text_input(window, focus, reason);
                 return Ok(CommitAttempt::Rejected(self.window_outcome(
                     window,
                     false,
@@ -219,15 +216,19 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 )));
             }
         };
-        if let Some(cell) = focus.table_cell_identity() {
-            self.session.clear_table_edit_error(window, cell);
-        }
 
         if text == base {
+            let sealed = self.session.seal_text_draft(window, focus);
             return Ok(CommitAttempt::Accepted(self.window_outcome(
                 window,
                 false,
-                response::Effect::None,
+                if had_feedback {
+                    response::Effect::Rebuild
+                } else if sealed {
+                    response::Effect::Layout
+                } else {
+                    response::Effect::None
+                },
             )));
         }
 
@@ -235,10 +236,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let outcome = match self.handle_view(window, view::Action::activate(&binding)) {
             Ok(outcome) => outcome,
             Err(error) => {
-                if let Some(cell) = focus.table_cell_identity() {
-                    self.session
-                        .reject_table_edit(window, cell, error.to_string());
-                }
+                self.session
+                    .reject_text_input(window, focus, error.to_string());
                 return Ok(CommitAttempt::Rejected(self.window_outcome(
                     window,
                     false,
@@ -247,7 +246,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
         };
         let sealed = self.session.seal_text_draft(window, focus);
-        let effect = outcome.effect().clone().then(if sealed {
+        let effect = outcome.effect().clone().then(if had_feedback {
+            response::Effect::Rebuild
+        } else if sealed {
             response::Effect::Layout
         } else {
             response::Effect::None

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, time::Instant};
 
-use crate::text;
+use crate::{feedback, text};
 
 use super::{Change, State};
 use crate::interaction::Target;
@@ -25,7 +25,26 @@ impl Input {
     }
 
     pub fn draft_for(&self, target: &Target) -> Option<&State> {
-        self.drafts.get(target)
+        self.drafts.get(target).map(store::Entry::draft)
+    }
+
+    pub fn feedback_for(&self, target: &Target) -> Option<(feedback::Severity, &str)> {
+        self.drafts
+            .get(target)?
+            .feedback()
+            .winner()
+            .map(|entry| (entry.severity(), entry.text()))
+    }
+
+    pub(crate) fn report_feedback(
+        &mut self,
+        target: &Target,
+        severity: feedback::Severity,
+        text: String,
+    ) -> bool {
+        self.drafts
+            .get_mut(target)
+            .is_some_and(|entry| entry.feedback_mut().report_text(severity, text))
     }
 
     pub(crate) fn activate(&mut self, target: Target, base: impl Into<String>) -> bool {
@@ -111,14 +130,15 @@ impl Input {
             && self
                 .drafts
                 .get(&target)
-                .is_some_and(|draft| draft.base_text() != base)
+                .is_some_and(|entry| entry.draft().base_text() != base)
         {
             self.drafts.insert(target.clone(), State::new(base.clone()));
         }
 
-        let draft = self
+        let entry = self
             .drafts
             .get_or_insert_with(target.clone(), || State::new(base));
+        let draft = entry.draft_mut();
         let before_text = draft.text().to_owned();
         let before_cursor = draft.cursor();
         let before_selection = draft.selection();
@@ -130,6 +150,10 @@ impl Input {
         let cursor_changed = before_cursor != cursor;
         let selection_changed = before_selection != selection;
         let preedit_cleared = self.preedit.is_some();
+
+        if text_changed {
+            entry.feedback_mut().clear(feedback::Severity::Error);
+        }
 
         self.preedit = None;
         let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
@@ -156,11 +180,13 @@ impl Input {
     }
 
     pub(crate) fn seal(&mut self, target: &Target) -> bool {
-        let Some(draft) = self.drafts.get_mut(target) else {
+        let Some(entry) = self.drafts.get_mut(target) else {
             return false;
         };
 
-        draft.seal()
+        let draft_changed = entry.draft_mut().seal();
+        let feedback_changed = entry.feedback_mut().clear_all();
+        draft_changed || feedback_changed
     }
 
     fn change_existing(
@@ -176,7 +202,8 @@ impl Input {
         self.target = Some(target.clone());
         self.drafts.touch(target, self.target.as_ref());
 
-        let draft = self.drafts.get_mut(target)?;
+        let entry = self.drafts.get_mut(target)?;
+        let draft = entry.draft_mut();
         let before_text = draft.text().to_owned();
         let before_cursor = draft.cursor();
         let before_selection = draft.selection();
@@ -188,6 +215,10 @@ impl Input {
         let cursor_changed = before_cursor != cursor;
         let selection_changed = before_selection != selection;
         let preedit_cleared = self.preedit.is_some();
+
+        if text_changed {
+            entry.feedback_mut().clear(feedback::Severity::Error);
+        }
 
         self.preedit = None;
         let blink_changed = self.reset_caret_blink(target.clone(), Instant::now());
@@ -295,5 +326,101 @@ impl Input {
         }
 
         store_changed || before_epochs != self.caret_epochs.len() || active_removed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejection_cannot_outlive_its_draft() {
+        let first = Target::text_area_id("first-draft");
+        let second = Target::text_area_id("second-draft");
+        let removed = Target::text_area_id("removed-draft");
+        let mut input = Input::default();
+
+        input.activate(first.clone(), "old");
+        assert!(input.report_feedback(
+            &first,
+            feedback::Severity::Warning,
+            "still local".to_owned(),
+        ));
+        assert!(input.report_feedback(
+            &first,
+            feedback::Severity::Error,
+            "invalid value".to_owned(),
+        ));
+        assert_eq!(
+            input.feedback_for(&first),
+            Some((feedback::Severity::Error, "invalid value")),
+            "an error must win without destroying lower-severity retained feedback"
+        );
+
+        input.edit(
+            first.clone(),
+            "old",
+            text::edit::Edit::replace_range(0..3, "new"),
+            text::Input::unrestricted(),
+        );
+        assert_eq!(
+            input.feedback_for(&first),
+            Some((feedback::Severity::Warning, "still local")),
+            "editing the rejected text clears its error while preserving unrelated feedback"
+        );
+        assert!(input.seal(&first));
+        assert_eq!(
+            input.feedback_for(&first),
+            None,
+            "a successful commit clears every fact owned by the sealed draft"
+        );
+
+        assert!(input.report_feedback(
+            &first,
+            feedback::Severity::Error,
+            "invalid again".to_owned(),
+        ));
+        assert!(input.clear_draft(&first));
+        assert_eq!(input.feedback_for(&first), None);
+
+        input.activate(first.clone(), "first");
+        assert!(input.report_feedback(&first, feedback::Severity::Error, "evict me".to_owned(),));
+        assert!(input.deactivate(&first));
+        input.set_draft_limit(1);
+        input.activate(second, "second");
+        assert_eq!(input.draft_for(&first), None);
+        assert_eq!(input.feedback_for(&first), None);
+
+        input.activate(removed.clone(), "removed");
+        assert!(input.report_feedback(&removed, feedback::Severity::Error, "prune me".to_owned(),));
+        assert!(input.prune_removed(&[], &[crate::interaction::Id::new("removed-draft")], &[]));
+        assert_eq!(input.draft_for(&removed), None);
+        assert_eq!(input.feedback_for(&removed), None);
+
+        let removed_cell = crate::table::Cell::new(
+            crate::interaction::Id::new("removed-table"),
+            crate::virtual_list::Key::new(7),
+            crate::interaction::Id::new("removed-column"),
+        );
+        let removed_cell_target = Target::table_cell_editor(removed_cell);
+        input.activate(removed_cell_target.clone(), "cell");
+        assert!(input.report_feedback(
+            &removed_cell_target,
+            feedback::Severity::Error,
+            "remove the row".to_owned(),
+        ));
+        assert!(input.prune_removed(&[], &[], &[removed_cell]));
+        assert_eq!(input.draft_for(&removed_cell_target), None);
+        assert_eq!(input.feedback_for(&removed_cell_target), None);
+
+        let destroyed = Target::text_area_id("destroyed-draft");
+        input.activate(destroyed.clone(), "destroyed");
+        assert!(input.report_feedback(
+            &destroyed,
+            feedback::Severity::Error,
+            "destroy me".to_owned(),
+        ));
+        assert!(input.clear());
+        assert_eq!(input.feedback_for(&destroyed), None);
     }
 }

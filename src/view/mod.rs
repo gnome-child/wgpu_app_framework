@@ -208,10 +208,11 @@ impl View {
 
     pub(crate) fn project_active_table_cells(
         &mut self,
-        tables: &interaction::Tables,
+        interaction: &interaction::Interaction,
         selections: &[(interaction::Id, crate::selection::Selection)],
     ) {
-        self.root.project_active_table_cells(tables, selections);
+        self.root
+            .project_active_table_cells(interaction, selections);
     }
 
     #[cfg(test)]

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::text;
 
-use crate::{draft, interaction, window as app_window};
+use crate::{draft, feedback, interaction, window as app_window};
 
 use super::super::{Focus, Session};
 
@@ -83,18 +83,12 @@ impl Session {
             return None;
         }
 
-        let change = window.interaction.edit_text_draft(
+        Some(window.interaction.edit_text_draft(
             interaction::Target::text_area(focus),
             base,
             edit,
             input,
-        );
-        if change.text_changed()
-            && let Some(cell) = focus.table_cell_identity()
-        {
-            window.interaction.tables_mut().clear_rejection(cell);
-        }
-        Some(change)
+        ))
     }
 
     pub(crate) fn undo_text_draft(
@@ -111,15 +105,9 @@ impl Session {
             return None;
         }
 
-        let change = window
+        window
             .interaction
-            .undo_text_draft(&interaction::Target::text_area(focus));
-        if change.as_ref().is_some_and(draft::Change::text_changed)
-            && let Some(cell) = focus.table_cell_identity()
-        {
-            window.interaction.tables_mut().clear_rejection(cell);
-        }
-        change
+            .undo_text_draft(&interaction::Target::text_area(focus))
     }
 
     pub(crate) fn redo_text_draft(
@@ -136,15 +124,9 @@ impl Session {
             return None;
         }
 
-        let change = window
+        window
             .interaction
-            .redo_text_draft(&interaction::Target::text_area(focus));
-        if change.as_ref().is_some_and(draft::Change::text_changed)
-            && let Some(cell) = focus.table_cell_identity()
-        {
-            window.interaction.tables_mut().clear_rejection(cell);
-        }
-        change
+            .redo_text_draft(&interaction::Target::text_area(focus))
     }
 
     pub fn seal_text_draft(&mut self, id: app_window::Id, focus: Focus) -> bool {
@@ -152,13 +134,35 @@ impl Session {
             return false;
         };
 
-        let sealed = window
+        window
             .interaction
-            .seal_text_draft(&interaction::Target::text_area(focus));
-        if sealed && let Some(cell) = focus.table_cell_identity() {
-            window.interaction.tables_mut().clear_rejection(cell);
-        }
-        sealed
+            .seal_text_draft(&interaction::Target::text_area(focus))
+    }
+
+    pub fn text_input_feedback(
+        &self,
+        id: app_window::Id,
+        focus: Focus,
+    ) -> Option<(feedback::Severity, &str)> {
+        self.window(id)?
+            .interaction
+            .text_input()
+            .feedback_for(&interaction::Target::text_area(focus))
+    }
+
+    pub(crate) fn reject_text_input(
+        &mut self,
+        id: app_window::Id,
+        focus: Focus,
+        reason: String,
+    ) -> bool {
+        self.window_mut(id).is_some_and(|window| {
+            window.interaction.report_text_feedback(
+                &interaction::Target::text_area(focus),
+                feedback::Severity::Error,
+                reason,
+            )
+        })
     }
 
     pub fn clear_text_input(&mut self, id: app_window::Id) -> bool {
@@ -174,13 +178,9 @@ impl Session {
             return false;
         };
 
-        let cleared = window
+        window
             .interaction
-            .clear_text_draft(&interaction::Target::text_area(focus));
-        if let Some(cell) = focus.table_cell_identity() {
-            window.interaction.tables_mut().clear_rejection(cell);
-        }
-        cleared
+            .clear_text_draft(&interaction::Target::text_area(focus))
     }
 
     pub fn deactivate_text_draft(&mut self, id: app_window::Id, focus: Focus) -> bool {

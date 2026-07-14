@@ -22,7 +22,7 @@ are both present. Checkpoint 7 is the severable status tail.
 | 2 — one TextBox and row participation | Complete | Pre-gesture focal row gates every member; table edit identity is deleted |
 | 3 — one responder path | Complete | Semantic table/row/cell/member layers replace editing-scope suppression |
 | 4 — one current commit recipe | Complete | One current draft produces one trigger or one formatted rejection |
-| 5 — draft-owned validity | Pending | Rejection lifetime is structurally bounded by its draft entry |
+| 5 — draft-owned validity | Complete | Rejection lifetime is structurally bounded by its draft entry |
 | 6 — inline validity and explanation | Pending | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
 | 7 — passive status projection | Pending | General status atom plus thin, virtualized `Column::status` sugar |
 | 8 — doctrine and closeout | Pending | Deletion census, public API review, full/deep ritual, roadmap close |
@@ -217,6 +217,38 @@ draft-owned validity, one TextBox surface, and the one panel path.
   bridge at this independent boundary. Checkpoint 5 moves the rejection under
   the general draft entry and deletes that store; no new table retention was
   introduced here.
+- Formatting, diff hygiene, warning-free all-target compilation, 1,050 passing
+  library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
+  three application smokes passed. `comparison_open: true` remains protected.
+  The independent checkpoint boundary is `4523be4f`.
+
+### Checkpoint 5 — draft-owned validity
+
+- The bounded draft store now retains an entry containing both `draft::State`
+  and its ranked `feedback::Stack`. Rejections are reported only against an
+  existing exact text target, so an attempt outcome cannot create a parallel
+  or ownerless validity record.
+- Failed recipe construction and disabled current command arguments retain one
+  formatted Error with the current draft while leaving its text task active.
+  Editing changed text clears that rejected-attempt Error; Warning remains
+  independently ranked beneath Error. Sealing a successful commit and Escape
+  cancellation clear the feedback with the draft lifecycle.
+- Explicit clearing, bounded-store eviction, removed element identity,
+  provider-row/cell pruning, and window destruction remove the whole entry and
+  therefore retire its feedback structurally. The platform `Focused(false)`
+  mapping remains absent, so system deactivation cannot become a trapped
+  deliberate departure.
+- `interaction::Tables.feedback`, its rejection methods, table-specific
+  session accessors, and the former clearing checklist are deleted. The
+  temporary Checkpoint 5 table presentation bridge reads the exact TextBox
+  draft feedback directly; it owns no rejection copy and is removed by the
+  inline projection in Checkpoint 6.
+- `rejection_cannot_outlive_its_draft` covers edit, success, explicit clear,
+  eviction, identity pruning, and provider-cell removal.
+  `closing_window_destroys_its_text_draft_feedback` covers destruction, and
+  the editable-table journey covers failed departure, correction, and cancel.
+  `text_commit_state_uses_current_draft_arguments` now also proves that the
+  inverse current-argument rejection retains one nonempty issue.
 - Formatting, diff hygiene, warning-free all-target compilation, 1,050 passing
   library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
   three application smokes passed. `comparison_open: true` remains protected.

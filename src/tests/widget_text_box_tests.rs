@@ -94,6 +94,10 @@ fn text_commit_state_uses_current_draft_arguments() {
     assert_eq!(app.state().text, "valid");
     assert_eq!(app.state().invocations, 1);
     assert_eq!(text_draft(&app, window, focus).text(), "invalid");
+    assert!(matches!(
+        app.session().text_input_feedback(window, focus),
+        Some((crate::feedback::Severity::Error, reason)) if !reason.is_empty()
+    ));
     assert!(
         app.session()
             .focused(window)

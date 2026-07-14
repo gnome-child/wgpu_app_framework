@@ -1,12 +1,43 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::{draft::State, interaction::Target};
+use crate::{draft::State, feedback, interaction::Target};
 
 pub(crate) const DEFAULT_DRAFT_LIMIT: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Entry {
+    draft: State,
+    feedback: feedback::Stack,
+}
+
+impl Entry {
+    pub(super) fn new(draft: State) -> Self {
+        Self {
+            draft,
+            feedback: feedback::Stack::default(),
+        }
+    }
+
+    pub(super) fn draft(&self) -> &State {
+        &self.draft
+    }
+
+    pub(super) fn draft_mut(&mut self) -> &mut State {
+        &mut self.draft
+    }
+
+    pub(super) fn feedback(&self) -> &feedback::Stack {
+        &self.feedback
+    }
+
+    pub(super) fn feedback_mut(&mut self) -> &mut feedback::Stack {
+        &mut self.feedback
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Store {
-    drafts: HashMap<Target, State>,
+    drafts: HashMap<Target, Entry>,
     order: VecDeque<Target>,
     limit: usize,
 }
@@ -26,11 +57,11 @@ impl Store {
         self.drafts.is_empty()
     }
 
-    pub(super) fn get(&self, target: &Target) -> Option<&State> {
+    pub(super) fn get(&self, target: &Target) -> Option<&Entry> {
         self.drafts.get(target)
     }
 
-    pub(super) fn get_mut(&mut self, target: &Target) -> Option<&mut State> {
+    pub(super) fn get_mut(&mut self, target: &Target) -> Option<&mut Entry> {
         self.drafts.get_mut(target)
     }
 
@@ -39,15 +70,17 @@ impl Store {
     }
 
     pub(super) fn insert(&mut self, target: Target, draft: State) {
-        self.drafts.insert(target, draft);
+        self.drafts.insert(target, Entry::new(draft));
     }
 
     pub(super) fn get_or_insert_with(
         &mut self,
         target: Target,
         draft: impl FnOnce() -> State,
-    ) -> &mut State {
-        self.drafts.entry(target).or_insert_with(draft)
+    ) -> &mut Entry {
+        self.drafts
+            .entry(target)
+            .or_insert_with(|| Entry::new(draft()))
     }
 
     pub(super) fn remove(&mut self, target: &Target) -> bool {

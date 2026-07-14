@@ -658,7 +658,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let virtual_selections = self.session.virtual_selection_snapshot(window);
         view.project_virtual_selections(&virtual_selections);
         if let Some(interaction) = interaction.as_ref() {
-            view.project_active_table_cells(interaction.tables(), &virtual_selections);
+            view.project_active_table_cells(interaction, &virtual_selections);
         }
         let window_feedback = self
             .session

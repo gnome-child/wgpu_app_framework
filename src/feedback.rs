@@ -29,6 +29,10 @@ impl Entry {
         self.severity
     }
 
+    pub(crate) fn from_text(severity: Severity, text: String) -> Self {
+        Self { severity, text }
+    }
+
     pub(crate) fn text(&self) -> &str {
         &self.text
     }
@@ -42,6 +46,15 @@ pub(crate) struct Stack {
 impl Stack {
     pub(crate) fn report(&mut self, severity: Severity, message: impl fmt::Display) -> bool {
         let entry = Entry::new(severity, message);
+        self.replace(entry)
+    }
+
+    pub(crate) fn report_text(&mut self, severity: Severity, text: String) -> bool {
+        self.replace(Entry::from_text(severity, text))
+    }
+
+    fn replace(&mut self, entry: Entry) -> bool {
+        let severity = entry.severity();
         let slot = &mut self.entries[severity.index()];
         if slot.as_ref() == Some(&entry) {
             return false;
@@ -64,10 +77,6 @@ impl Stack {
         [Severity::Error, Severity::Warning, Severity::Info]
             .into_iter()
             .find_map(|severity| self.entries[severity.index()].as_ref())
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.entries.iter().all(Option::is_none)
     }
 }
 

@@ -3,37 +3,6 @@ use crate::{table, window as app_window};
 use super::Session;
 
 impl Session {
-    pub fn table_edit_error(&self, window: app_window::Id, cell: table::Cell) -> Option<&str> {
-        self.window(window)?.interaction.tables().rejection(cell)
-    }
-
-    pub fn table_edit_feedback(
-        &self,
-        window: app_window::Id,
-        cell: table::Cell,
-    ) -> Option<(crate::feedback::Severity, &str)> {
-        self.window(window)?.interaction.tables().feedback(cell)
-    }
-
-    pub(crate) fn reject_table_edit(
-        &mut self,
-        window: app_window::Id,
-        cell: table::Cell,
-        reason: String,
-    ) -> bool {
-        self.window_mut(window)
-            .is_some_and(|window| window.interaction.tables_mut().reject(cell, reason))
-    }
-
-    pub(crate) fn clear_table_edit_error(
-        &mut self,
-        window: app_window::Id,
-        cell: table::Cell,
-    ) -> bool {
-        self.window_mut(window)
-            .is_some_and(|window| window.interaction.tables_mut().clear_rejection(cell))
-    }
-
     pub fn active_table_cell(
         &self,
         window: app_window::Id,

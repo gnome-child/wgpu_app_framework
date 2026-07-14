@@ -363,9 +363,10 @@ impl Node {
 
     pub(in crate::view) fn project_active_table_cells(
         &mut self,
-        tables: &interaction::Tables,
+        interaction: &interaction::Interaction,
         selections: &[(interaction::Id, crate::selection::Selection)],
     ) {
+        let tables = interaction.tables();
         if let Some(cell) = self.table_cell() {
             let active_row = selections
                 .iter()
@@ -373,10 +374,16 @@ impl Node {
                 .and_then(|(_, selection)| selection.active());
             self.active_item = active_row == Some(cell.row())
                 && tables.active_column(cell.table()) == Some(cell.column());
-            self.table_edit_error = tables.rejection(cell).map(str::to_owned);
+            self.table_edit_error = self
+                .text_box_model()
+                .and_then(TextBox::focus)
+                .and_then(session::Focus::text_target)
+                .and_then(|target| interaction.text_input().feedback_for(&target))
+                .filter(|(severity, _)| *severity == crate::feedback::Severity::Error)
+                .map(|(_, text)| text.to_owned());
         }
         for child in &mut self.children {
-            child.project_active_table_cells(tables, selections);
+            child.project_active_table_cells(interaction, selections);
         }
     }
 
