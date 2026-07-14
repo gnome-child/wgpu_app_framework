@@ -5150,6 +5150,68 @@ structural`).
    lifecycles and the complete visibility, failure, intermediate, housing, and
    naming inventories. This cell does not close Rung 5.
 
+### R5-50 — direct typed view-content dispatch through recursive layout
+
+Status: **complete; duplicate derived-role dispatch and two asserted payload
+recoveries removed**. Correction `7535cda7` (`Dispatch layout from typed view
+content`).
+
+1. **Question and complete trace.** The post-frame-construction sweep traced
+   every view content species through recursive layout selection, ordinary and
+   table scrolling, fixed and variable virtual lists, root floating-panel
+   placement, clipping, frame publication, table/virtual specialization, and
+   all downstream scene and hit consumers. It followed every remaining role
+   query and content-payload recovery in `layout::algorithm` after R5-47 had
+   established typed content as the frame-construction boundary.
+2. **Duplicate agreement and false failure.** Recursive layout still selected
+   algorithms through derived `Role`, then recovered table-scroll and
+   virtual-list models through optional accessors and two `expect`s. The source
+   `view::node::Content` sum already makes both models structural and had just
+   been matched directly by frame construction. The role/payload protocol was
+   therefore a second, weaker representation of the same agreement.
+3. **Correction and displaced paths.** `layout_node` now captures and
+   exhaustively matches `Node::content()` for recursive dispatch as well as
+   ordinary frame recursion. `node::Scroll::Table` passes its owned table model
+   directly to table layout; virtual-list content passes its model directly to
+   virtual layout. Floating-panel detection also matches content. Every role
+   query, both optional model recoveries, and both assertions are deleted from
+   the algorithm.
+4. **Boundary and naming ruling.** The touched seam practices the canonical
+   namesake law: `view::Node` remains the sole central parent projection,
+   layout imports `view::{self, node}`, and supporting `Content` and `Scroll`
+   are named as `node::Content` and `node::Scroll`. No supporting type is
+   flattened, no compound declaration is re-exported under a simple alias at
+   any parent, and no compatibility spelling survives.
+5. **Topology resistance.** Table surface/header children, materialized
+   virtual rows, and declarative/composition child order remain independently
+   stored topology. Their local assertions are retained: defaults, truncating
+   zips, or optional recovery would conceal drift, while making them structural
+   requires the broader paired-tree envelope already resisted in R5-49. This
+   cell removes only duplicated content agreement.
+6. **Behavior and economics.** Algorithm selection, table and virtual models,
+   viewport geometry, floating placement, clipping, child order, frame order,
+   scene order, renderer topology, batching/pass fusion, invalidation,
+   allocation, and presentation clocks are unchanged. The same borrowed models
+   enter the same algorithms without optional recovery or a derived-role
+   branch.
+7. **Doctrine and proof.** Master design now requires both frame construction
+   and recursive layout dispatch to consume typed content directly. The
+   architecture witness failed against the role/recovery path, then pinned the
+   direct content match, namespaced support types, and displaced assertions.
+   The 221-test layout slice and the full library passed: 1,118 passed with ten
+   standing ignores. All targets and all five examples compiled without
+   warnings; all ten census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, visibility,
+   cross-slot test edges, source-root mentions, filesystem reads, allowances,
+   and panics remain 325/109, 3, 54, 0/0/0, 1,825 in 192 files, 90, 118, 363,
+   6, and 6. Removing the two payload assertions lowers production expects
+   61 -> 59. Recursive typed-content dispatch is at fixed point; the reverse
+   sweep continues through the remaining table/virtual topology lifecycles and
+   the complete visibility, failure, intermediate, housing, and naming
+   inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
