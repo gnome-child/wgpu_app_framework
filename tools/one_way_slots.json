@@ -150,7 +150,9 @@
     "winit": ["platform"]
   },
   "source_responsibilities": {
-    "src/view/context.rs": "facade"
+    "src/view/context.rs": "facade",
+    "src/window/defaults.rs": "facade",
+    "src/window/options.rs": "facade"
   },
   "external_module_exceptions": {}
 }

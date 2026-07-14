@@ -941,6 +941,14 @@ one token; `window::DEFAULT_CANVAS_COLOR` remains its public projection. The
 theme `root` surface is a separate token even when a variant currently assigns
 it the same bytes as `canvas`.
 
+Window's lower vocabulary is identity, facts, kind, presentation epoch, and
+departure. Application-facing `window::Options` and its framework default
+projections are facade responsibilities: their sources may select the
+theme-owned canvas token, while lower window vocabulary must not depend on UI
+policy. The parent keeps the established exact `window::Options`,
+`window::DEFAULT_TITLE`, and `window::DEFAULT_CANVAS_COLOR` spellings; it does
+not duplicate their declarations or preserve compound aliases.
+
 Typography has two anchors. `interface` is compact system/widget text: buttons,
 text boxes, checkbox and radio labels, sliders, menus, palette rows, and other
 control chrome. `body` is app/content/document text: labels, prose, document

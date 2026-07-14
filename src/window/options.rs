@@ -1,11 +1,8 @@
-use super::{DEFAULT_CANVAS_COLOR, DEFAULT_HEIGHT, DEFAULT_TITLE, DEFAULT_WIDTH};
+use super::{
+    Kind,
+    defaults::{DEFAULT_CANVAS_COLOR, DEFAULT_HEIGHT, DEFAULT_TITLE, DEFAULT_WIDTH},
+};
 use crate::{color, geometry};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Application,
-    Popup,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {

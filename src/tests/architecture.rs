@@ -1960,12 +1960,19 @@ fn scene_layout_painting_stays_internal() {
 #[test]
 fn theme_owns_the_framework_default_canvas_color() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let window_dir = root.join("src/window");
     let theme =
         std::fs::read_to_string(root.join("src/theme/mod.rs")).expect("theme source should read");
     let scene =
         std::fs::read_to_string(root.join("src/scene/mod.rs")).expect("scene source should read");
     let window =
-        std::fs::read_to_string(root.join("src/window/mod.rs")).expect("window source should read");
+        std::fs::read_to_string(window_dir.join("mod.rs")).expect("window module should read");
+    let defaults_path = window_dir.join("defaults.rs");
+    let defaults = std::fs::read_to_string(&defaults_path).expect("window defaults should read");
+    let kind =
+        std::fs::read_to_string(window_dir.join("kind.rs")).expect("window kind should read");
+    let options =
+        std::fs::read_to_string(window_dir.join("options.rs")).expect("window options should read");
     let control_gallery =
         std::fs::read_to_string(root.join("examples/control_gallery/app/view.rs"))
             .expect("control gallery view should read");
@@ -1973,6 +1980,8 @@ fn theme_owns_the_framework_default_canvas_color() {
         .expect("glass tuner view should read");
     let master = std::fs::read_to_string(root.join("docs/master_design.md"))
         .expect("master design should read");
+    let slots = std::fs::read_to_string(root.join("tools/one_way_slots.json"))
+        .expect("one-way slot map should read");
 
     assert!(
         theme.contains(
@@ -1983,10 +1992,25 @@ fn theme_owns_the_framework_default_canvas_color() {
     assert!(
         !scene.contains("DEFAULT_CLEAR")
             && scene.contains("theme::DEFAULT_CANVAS_COLOR")
-            && window.contains(
+            && defaults.contains(
                 "pub const DEFAULT_CANVAS_COLOR: color::Color = theme::DEFAULT_CANVAS_COLOR"
-            ),
+            )
+            && window.contains("pub use defaults::{DEFAULT_CANVAS_COLOR, DEFAULT_TITLE};")
+            && window.contains("pub use kind::Kind;")
+            && window.contains("pub use options::Options;")
+            && kind.contains("pub enum Kind")
+            && options.contains("pub struct Options")
+            && !options.contains("pub enum Kind")
+            && !window.contains("Options as")
+            && !window.contains("Kind as"),
         "scene and window defaults must project the theme-owned token"
+    );
+    assert_pattern_only_in(&window_dir, "theme", &defaults_path);
+    assert!(
+        slots.contains("\"src/window/defaults.rs\": \"facade\"")
+            && slots.contains("\"src/window/options.rs\": \"facade\"")
+            && !slots.contains("\"src/window/kind.rs\": \"facade\""),
+        "the gauge must split application options/defaults from lower window kind"
     );
     for (name, source) in [
         ("control gallery", control_gallery),
