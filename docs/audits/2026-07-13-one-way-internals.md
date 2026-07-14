@@ -2938,6 +2938,53 @@ Correction `4d51b881` (`Own variable list layout arity`).
    starts across every UI module and every cell dimension; queue exhaustion is
    not rung closure.
 
+### R5-10 — atomic contextual path location
+
+Status: **complete; parallel optional location facts collapsed**. Correction
+`b94e14ac` (`Make context path location atomic`).
+
+1. **Question and complete trace.** The reverse sweep traced contextual owners
+   from retained-node traversal through table, row, cell, text, responder, and
+   application frames into command-scope resolution and the white-box path
+   witnesses. `ContextOwner` carried `table`, `row`, and `cell` as three
+   parallel options even though a row or cell already carries its table key.
+2. **Invalid states and repeated policy.** The old representation admitted
+   contradictory table/row/cell combinations and forced runtime scope
+   resolution to repeat `table.or_else(cell.table)`. Traversal happened to
+   construct only four legitimate species: no location, table, row, or cell.
+3. **Correction.** A private `Location::{None, Table, Row, Cell}` sum now owns
+   that one contextual-path fact. `table()` is the single projection that
+   derives table identity from every applicable species; `row()` and the
+   test-only `cell()` project their exact species. Traversal constructs the
+   species directly, and runtime consumes only `owner.table()`.
+4. **Boundary and naming ruling.** `ContextOwner::new` is private to `view` and
+   its descendants, while `cell()` leaves the production surface because only
+   white-box tests inspect it. `Location` is an implementation-local simple
+   name with no parent projection or alias, so the namesake-module and
+   compound-name laws require no public spelling.
+5. **Behavior and economics.** Context-path order, responder/focus/binding
+   selection, table and text service frames, row command population, cell
+   identity, application fallback, menu construction, hit behavior, rendering,
+   allocation, and presentation work are unchanged. The refactor removes
+   impossible state and one repeated fallback without adding a heap object or
+   traversal.
+6. **Doctrine and witnesses.** Master design now requires exactly one location
+   species per contextual frame and forbids parallel table/row/cell facts. The
+   architecture witness pins the four species, the absence of the old fields,
+   centralized table projection, and retirement of the runtime cell fallback.
+7. **Proof and gauge delta from R5-09.** The focused context-menu suite passed;
+   the full library discovered 1,092 tests and passed 1,082 with 10 ignored;
+   all targets compiled without warnings. All nine census parser witnesses,
+   formatting, diff, and protected-state checks passed. Production and
+   provisional graph metrics remain clean; the new architecture witness raises
+   test-only module edges 109 -> 110. Production `pub(crate)` declarations fall
+   1,808 -> 1,806 and the cross-slot upper bound falls 1,761 -> 1,759. All other
+   gauges remain unchanged.
+8. **Fixed point and next frontier.** Contextual location is now one keyed fact
+   at construction and one derived table projection at consumption. The reverse
+   sweep continues across the remaining UI state shapes; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
