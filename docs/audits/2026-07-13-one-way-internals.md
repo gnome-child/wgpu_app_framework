@@ -4083,6 +4083,74 @@ Correction `31b62d65` (`Make view node content structural`).
    widget/theme state, session lifecycles, and the complete visibility,
    failure, and intermediate inventories; this cell does not close Rung 5.
 
+### R5-33 — structural floating-panel state through layout
+
+Status: **complete; attachment, communication, and derived frame facts made
+valid**. Correction `4ec5958c` (`Make floating panel state structural`).
+
+1. **Question and complete trace.** The continuation of the view/layout role
+   sweep traced generic floating widgets, authored menus, contextual menus,
+   command palettes, hover tips, window feedback, root placement and nested
+   available bounds, retained element anchors, auxiliary measurement/paint,
+   focus collection, semantic overlay drafts, native popup preference/context,
+   retirement, and in-frame fallback. It followed every floating-only fact from
+   node construction through `FrameContent` and scene projection.
+2. **Invalid states and independent axes.** View panel state stored an optional
+   attachment beside optional available geometry, and stored policy beside an
+   optional hint. Available bounds have meaning only for a geometry attachment;
+   pointer and element attachment cannot own them. Interactive panels carry no
+   auxiliary explanation, while hover-tip and window-feedback panels always
+   communicate one `Hint` and never accept input. Layout then copied six
+   floating-only facts onto every `Frame`. Placement mode, popup context,
+   material preference, force-group diagnostics, and attachment species remain
+   independent inside a real floating panel and were deliberately not merged.
+3. **Correction and displaced paths.** `PanelAttachment::Geometry` now owns its
+   optional available rectangle. `PanelPolicy` is now
+   `Interactive | HoverTip(Hint) | WindowFeedback(Hint)`, so communication and
+   hit transparency are one fact. The parallel panel availability and hint
+   fields, `placement_available`, and `with_auxiliary_hint` are deleted. Layout
+   `FrameContent::FloatingPanel` now owns a private payload containing popup
+   placement/context, material/group preferences, and the same policy; ordinary
+   frames cannot carry any of them.
+4. **Boundary and naming ruling.** Existing `Node`, `PanelPolicy`,
+   `PanelAttachment`, `Frame`, and public widget spellings remain exact. Private
+   `FloatingPanelContent` and feedback's construction-only `Auxiliary` species
+   receive no projection or alias. No supporting public re-export, compound
+   declaration under a simpler name, compatibility path, or unrelated rename
+   was introduced.
+5. **Behavior and economics.** Edge flipping, available-bound clamping,
+   pointer clearance, element lookup, menu and palette focus, hover and window
+   feedback, hit transparency, auxiliary icons, overlay identity, popup
+   material/context, native/in-frame selection, scene order, batching/pass
+   fusion, invalidation, retirement, and presentation clocks are unchanged.
+   The same owned `Hint` and Copy placement values move through exhaustive
+   matches without a heap allocation, callback, lookup, traversal, or frame
+   operation.
+6. **Doctrine and witnesses.** Master design now states the attachment species,
+   hint-owning communication policies, and role-local layout payload. The new
+   architecture witness follows those facts through view and layout, forbids
+   the displaced builders/projections, and requires communication policy to own
+   its hint. The existing `FrameContent` witness now also tombstones every
+   floating-only common-frame field.
+7. **Proof and gauge delta from R5-32.** The two structural witnesses, 17 hover,
+   seven feedback, eleven floating-panel, nine context-menu, and 84 popup tests
+   passed with one standing ignored GPU diagnostic. The full library discovered
+   1,117 tests and passed 1,107 with 10 ignored; all targets and all five
+   examples compiled without warnings. All nine census parser witnesses, the
+   full census, formatting, diff, and protected-state checks passed. Production/
+   test edges remain 325/111; split responsibilities, slot edges, forbidden/
+   external/SCC counts, and cross-slot test edges remain 3, 54, 0/0/0, and 90.
+   Removing the independent hint builder lowers production `pub(crate)` 1,810
+   -> 1,809 and the cross-slot upper bound 1,763 -> 1,762. Source-root mentions,
+   filesystem reads, allowances, panics, and expects remain 118, 361, 6, 6,
+   and 89.
+8. **Fixed point and next frontier.** Floating-panel semantic and derived state
+   is now role-local at both owners, and communication cannot block operation
+   because its hint-owning species is intrinsically hit-transparent. The reverse
+   sweep continues through remaining layout projections, widget/theme state,
+   session lifecycles, and the complete visibility/failure/intermediate
+   inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
