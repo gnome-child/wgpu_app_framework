@@ -3958,6 +3958,64 @@ Status: **complete; partial public conversions retired**. Correction `d925281d`
    visibility/failure/intermediate inventories; this cell does not close Rung
    5.
 
+### R5-31 — one command-focus precedence ladder
+
+Status: **complete; repeated semantic fallback centralized**. Correction
+`2e015c1a` (`Centralize command focus precedence`).
+
+1. **Question and complete trace.** The reverse focus-policy sweep traced live
+   window focus, active text targets, menu opening/switching/toggling/closing,
+   contextual pruning, outside dismissal, command-palette replacement and
+   capture, command resolution, focused-text preparation, command-scope
+   construction, restoration, window restore, and destruction. It compared
+   `Session::command_focus` with the separate menu-capture fallback rather than
+   assuming their similar syntax shared meaning.
+2. **Repeated policy and precedence.** Both paths ask for the focus against
+   which commands operate and transient command surfaces later restore. The
+   complete precedence is command-palette capture, open-menu restoration
+   capture, live window focus, then an active text target projected back to
+   focus. The menu helper independently reconstructed only the final two rungs;
+   the agreement depended on call order and could drift from command
+   resolution after another focus species or capture rule was added.
+3. **Correction and displaced path.** Private `Window::command_focus` now owns
+   the entire ladder. The session crossing delegates to it, and first menu open
+   or toggle captures that same resolved fact before installing the surface.
+   The standalone `restore_focus_for_menu` algorithm and its duplicate
+   live-focus/text-target fallback are deleted; no callback, cache, new state,
+   or compatibility route replaces them.
+4. **Boundary and naming ruling.** Session window state already owns live focus,
+   menu restoration, and the interaction values needed for palette and text
+   projections, so the private window method is the lowest honest policy owner.
+   Interaction still owns surface identity and draft target state. Existing
+   `command_focus`, `Focus`, and `Window` names remain exact; no compound type,
+   alias, flattened supporting export, or public spelling was introduced.
+5. **Behavior and economics.** Menu and palette replacement, captured command
+   routing, menu switching, restoration, contextual pruning, focused text
+   commit/deactivation, live focus, active-draft fallback, view resolution,
+   allocation, layout, scene order, renderer topology, and presentation clocks
+   are unchanged. The same constant-time option ladder is evaluated at the same
+   entrances; one duplicate evaluation body is gone.
+6. **Doctrine and witnesses.** Master design now records the four-rung ladder
+   and forbids consumers from reconstructing subsets. The architecture witness
+   pins the one window owner, both menu consumers, session delegation, and the
+   old-helper tombstone. A direct owner witness walks active-draft fallback,
+   menu capture over later live focus and restoration, then palette capture over
+   later live focus and restoration. The contextual-pruning, fourteen palette,
+   and thirteen focus journeys also passed.
+7. **Proof and gauge delta from R5-30.** The full library discovered 1,115 tests
+   and passed 1,105 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every gauge remains unchanged: production/
+   test edges 325/111, split responsibilities 3, slot edges 54, forbidden/
+   external/SCC counts 0/0/0, production `pub(crate)` 1,810 in 190 files,
+   cross-slot upper bound 1,763, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 361, allowances 6, panics 6, and expects 89.
+8. **Fixed point and next frontier.** Command focus now has one policy owner and
+   no consumer-local fallback algorithm. The reverse sweep continues through
+   view/layout role facts, widget/theme state, remaining lifecycle shapes, and
+   the complete visibility/failure/intermediate inventories; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
