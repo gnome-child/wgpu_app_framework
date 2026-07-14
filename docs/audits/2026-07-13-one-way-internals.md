@@ -4283,6 +4283,65 @@ Correction `0714a744` (`Make widget label text species structural`).
    complete visibility/failure/intermediate inventories; this cell does not
    close Rung 5.
 
+### R5-36 — structural focus-presentation species
+
+Status: **complete; visible focus and focus ownership made one fact**.
+Correction `4fc97968` (`Make focus presentation structural`).
+
+1. **Question and complete trace.** The reverse focus-presentation sweep traced
+   session focus species and input modality through retained-node projection,
+   editable and inactive-display text controls, caret/preedit cleanup, public
+   node inspection, layout-frame construction, focus-outline scene production,
+   runtime visual state, cursor behavior, and the focused menu, table, text-box,
+   and generic-control witnesses.
+2. **Invalid state and duplicate authority.** `TextArea`, `TextBox`, `Node`, and
+   `Frame` each stored independent `focused` and `focus_visible` booleans even
+   though visible focus always implies focus. Text nodes additionally copied a
+   generic node-envelope focus fact beside their control-owned projection even
+   though editability and inactive-display state make the text control the only
+   owner capable of deciding its visible affordance.
+3. **Correction and displaced paths.** One closed
+   `view::focus::Presentation::{Unfocused, Focused, Visible}` species now flows
+   from view projection into layout. TextArea and TextBox own the projection for
+   text nodes; the node envelope owns it for every other node. Public focused and
+   visible queries derive from that one value, and `Frame` carries the same
+   resolved receipt. All eight parallel boolean fields and the duplicated text-
+   node envelope truth are deleted.
+4. **Boundary and naming ruling.** The supporting type is declared simply as
+   `Presentation` inside crate-visible `view::focus` and is consumed as
+   `view::focus::Presentation` by layout. The view parent does not flatten or
+   alias it. Only the type, its two downstream queries, the supporting module,
+   and the node-to-layout receipt cross the owner boundary; construction and
+   control projection remain restricted to view.
+5. **Behavior and economics.** Pointer-hidden versus keyboard-visible focus,
+   editable text focus, inactive table-cell display, caret installation and
+   retirement, preedit cleanup, menu and palette focus, focus-outline paint,
+   cursor selection, allocation, layout work, scene order, renderer topology,
+   batching/pass fusion, invalidation, and presentation clocks are unchanged.
+   One enum discriminant replaces each formerly correlated boolean pair without
+   a heap object, lookup, callback, or additional traversal.
+6. **Doctrine and witnesses.** Master design now names the three presentation
+   species, the visible-implies-focused law, and the distinct text-control and
+   generic-node owners. The architecture witness follows the namespaced species
+   through both controls, node access/traversal, and frame storage; forbids a
+   flattened parent projection; and tombstones every parallel boolean field.
+7. **Proof and gauge delta from R5-35.** The full library discovered 1,119 tests
+   and passed 1,109 with 10 ignored; all targets and all five examples compiled
+   without warnings. All nine census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed. Production/test edges
+   remain 325/111; split responsibilities, slot edges, forbidden edges, external
+   violations, SCCs, cross-slot test edges, source-root mentions, filesystem
+   reads, allowances, panics, and expects remain 3, 54, 0, 0, 0, 90, 118, 361,
+   6, 6, and 89. The explicit namespaced crossing raises production
+   `pub(crate)` declarations 1,809 in 190 files -> 1,814 in 191 files and the
+   cross-slot upper bound 1,762 -> 1,767.
+8. **Fixed point and next frontier.** Visible focus can no longer exist without
+   focus, and text nodes no longer carry competing generic and control-owned
+   presentation truth. The reverse sweep continues through text-control active
+   state, session scopes, theme patch semantics, remaining layout lifecycles,
+   and the complete visibility/failure/intermediate inventories; this cell does
+   not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
