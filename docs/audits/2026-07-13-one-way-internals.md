@@ -2228,6 +2228,28 @@ Status: **complete; nonempty fallback policy made structural**. Correction
    public/private backend allowances assigned to Rung 6, and the full clock and
    retirement sweep.
 
+### R4-08 — stale native-popup argument allowance
+
+Status: **complete; unowned suppression removed**. Correction `4be10c9e`
+(`Remove stale popup argument allowance`).
+
+1. **Question and ruling.** The allowance inventory found
+   `popup_needs_concealment` carrying `clippy::too_many_arguments` after prior
+   reductions left it with five inputs. Those inputs remain the exact current
+   exposure, material, and scale comparison; grouping them would add an
+   intermediate with no invariant. The suppression itself had no live lint or
+   owner and was stale.
+2. **Correction and proof.** Deleted the attribute without changing the
+   function or any call site. Both concealment/serial witnesses passed and all
+   targets compiled without warnings; format, diff, census, and protected state
+   checks passed. Allowances fall 10 -> 9; all other corrected gauge counts and
+   every renderer, presentation, and lifecycle path are unchanged.
+3. **Fixed point and next frontier.** Native popup concealment has no local
+   allowance debt. The remaining six platform allowances all describe the
+   public `Backend` trait's use of crate-private overlay/IME contracts and stay
+   visible for the Rung 6 symbol-level public-surface ruling; Rung 4 now closes
+   its full clocks, retirement, dependency, and retained-invariant sweep.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
