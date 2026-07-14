@@ -51,6 +51,39 @@ impl<'a, M: state::State> Services<'a, M> {
             .and_then(|interaction| interaction.text_input().target())
             == Some(&target)
     }
+
+    fn invoke_contextual(
+        &mut self,
+        service: &'static str,
+        command_type: TypeId,
+        command_name: &'static str,
+        args: Box<dyn Any + Send>,
+        cx: &mut context::Context,
+    ) -> Option<AnyResponse> {
+        match service {
+            table::RESPONDER_NAME => table::invoke(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.table(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            ),
+            text::RESPONDER_NAME => text::invoke(
+                self.session,
+                self.composition,
+                self.window,
+                self.scope.focus(),
+                command_type,
+                command_name,
+                args,
+                cx,
+            ),
+            _ => None,
+        }
+    }
 }
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -128,94 +161,18 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
     fn invoke(
         &mut self,
         store: &mut state::Store<M>,
+        claim: &responder::Claim,
         command_type: TypeId,
         command_name: &'static str,
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
-        if self.active_text_scope()
-            && text::claim(
-                self.session,
-                self.composition,
-                self.window,
-                self.scope.focus(),
-                self.scope.kind(),
-                command_type,
-                command_name,
-                args.as_ref(),
-                cx,
-            )
-            .ok()
-            .flatten()
-            .is_some()
-        {
-            return text::invoke(
-                self.session,
-                self.composition,
-                self.window,
-                self.scope.focus(),
-                command_type,
-                command_name,
-                args,
-                cx,
-            );
-        }
-        if table::claim(
-            self.session,
-            self.composition,
-            self.window,
-            self.scope.table(),
-            self.scope.kind(),
-            command_type,
-            command_name,
-            args.as_ref(),
-            cx,
-        )
-        .ok()
-        .flatten()
-        .is_some()
-        {
-            return table::invoke(
-                self.session,
-                self.composition,
-                self.window,
-                self.scope.table(),
-                command_type,
-                command_name,
-                args,
-                cx,
-            );
+        let claimant = claim.provenance().name();
+        if claimant == system::RESPONDER_NAME {
+            return system::invoke(self, store, command_type, command_name, args, cx);
         }
 
-        let text_claimed = match text::state(
-            self.session,
-            self.composition,
-            self.window,
-            self.scope.focus(),
-            command_type,
-            command_name,
-            args.as_ref(),
-            cx,
-        ) {
-            Ok(Some(_)) => true,
-            Ok(None) => false,
-            Err(error) => return Some(AnyResponse::failed(error)),
-        };
-
-        if text_claimed {
-            return text::invoke(
-                self.session,
-                self.composition,
-                self.window,
-                self.scope.focus(),
-                command_type,
-                command_name,
-                args,
-                cx,
-            );
-        }
-
-        system::invoke(self, store, command_type, command_name, args, cx)
+        self.invoke_contextual(claimant, command_type, command_name, args, cx)
     }
 
     fn claim_exact(
@@ -265,31 +222,7 @@ impl<M: state::State> responder::Service<M> for Services<'_, M> {
         args: Box<dyn Any + Send>,
         cx: &mut context::Context,
     ) -> Option<AnyResponse> {
-        if service == table::RESPONDER_NAME {
-            return table::invoke(
-                self.session,
-                self.composition,
-                self.window,
-                self.scope.table(),
-                command_type,
-                command_name,
-                args,
-                cx,
-            );
-        }
-        if service != text::RESPONDER_NAME {
-            return None;
-        }
-        text::invoke(
-            self.session,
-            self.composition,
-            self.window,
-            self.scope.focus(),
-            command_type,
-            command_name,
-            args,
-            cx,
-        )
+        self.invoke_contextual(service, command_type, command_name, args, cx)
     }
 }
 

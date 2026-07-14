@@ -2143,6 +2143,87 @@ fn table_service_admission_lends_its_resolved_model() {
 }
 
 #[test]
+fn broad_service_invocation_carries_identity_and_revalidates_the_typed_target() {
+    let chain = include_str!("../responder/chain.rs");
+    let services = include_str!("../runtime/services/mod.rs");
+    let target = include_str!("../runtime/services/target.rs");
+    let text = include_str!("../runtime/services/text/mod.rs");
+
+    assert!(
+        chain.contains("claim: &Claim,")
+            && chain.contains("Ok(Some(claim))")
+            && chain.contains(".invoke(self.store, &claim,"),
+        "broad chain invocation must hand the adjacent service claim to its invoker"
+    );
+
+    let service_impl = services
+        .split("impl<M: state::State> responder::Service<M> for Services<'_, M>")
+        .nth(1)
+        .expect("runtime service implementation should exist");
+    let invoke = service_impl
+        .split("fn invoke(")
+        .nth(1)
+        .and_then(|source| source.split("fn claim_exact(").next())
+        .expect("broad runtime service invocation should precede exact claiming");
+    assert!(
+        invoke.contains("claim: &responder::Claim,")
+            && invoke.contains("let claimant = claim.provenance().name();")
+            && invoke.contains("self.invoke_contextual(claimant")
+            && invoke.contains("system::invoke(self, store"),
+        "runtime service invocation must dispatch from the claimant identity"
+    );
+    for repeated in [
+        "text::claim(",
+        "table::claim(",
+        "text::state(",
+        ".ok().flatten()",
+    ] {
+        assert!(
+            !invoke.contains(repeated),
+            "broad invocation must not replay service precedence: {repeated}"
+        );
+    }
+    assert!(!text.contains("pub(super) fn state("));
+    assert!(!target.contains("pub(super) fn state<S>("));
+
+    let typed_invoke = target
+        .split("pub(super) fn invoke<S>(")
+        .nth(1)
+        .and_then(|source| source.split("fn claim_target<S>(").next())
+        .expect("typed target invocation should precede its claim helper");
+    assert!(
+        typed_invoke.contains("let claim = match claim_target(")
+            && typed_invoke.contains("match claim.state.availability"),
+        "the chosen service must still revalidate its typed target and availability"
+    );
+
+    let text_invoke = text
+        .split("pub(super) fn invoke(")
+        .nth(1)
+        .and_then(|source| source.split("fn base_text_for(").next())
+        .expect("focused-text invocation should precede base-text resolution");
+    assert!(
+        text_invoke
+            .find("session.focus(window, focus);")
+            .is_some_and(|focus| {
+                text_invoke
+                    .find("service_target::invoke(")
+                    .is_some_and(|revalidation| focus < revalidation)
+            }),
+        "focused text must hand off focus before typed target revalidation"
+    );
+
+    let exact_invoke = chain
+        .split("pub(crate) fn invoke_on(")
+        .nth(1)
+        .expect("exact routed invocation should exist");
+    assert!(
+        exact_invoke.contains("service.claim_exact(") && exact_invoke.contains(".invoke_exact("),
+        "exact contextual routes must retain their own live revalidation path"
+    );
+}
+
+#[test]
 fn focused_text_service_stays_behind_runtime_boundary() {
     let runtime_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

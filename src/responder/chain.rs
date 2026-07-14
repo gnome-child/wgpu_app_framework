@@ -30,6 +30,7 @@ pub(crate) trait Service<M: state::State> {
     fn invoke(
         &mut self,
         store: &mut state::Store<M>,
+        claim: &Claim,
         command_type: TypeId,
         command_name: &'static str,
         args: Box<dyn Any + Send>,
@@ -94,6 +95,10 @@ impl Provenance {
 
     pub(crate) fn kind(&self) -> Kind {
         self.kind
+    }
+
+    pub(crate) fn name(&self) -> &'static str {
+        self.name
     }
 
     pub(crate) fn sort_key(&self) -> (usize, usize, &'static str) {
@@ -259,10 +264,10 @@ impl<'a, M: state::State> Chain<'a, M> {
 
         for service in &mut self.services {
             match service.claim(self.store, command_type, command_name, args.as_ref(), cx) {
-                Ok(Some(_)) => {
+                Ok(Some(claim)) => {
                     return Some(
                         service
-                            .invoke(self.store, command_type, command_name, args, cx)
+                            .invoke(self.store, &claim, command_type, command_name, args, cx)
                             .unwrap_or_else(|| {
                                 AnyResponse::failed(Error::MissingTarget {
                                     command: command_name,
@@ -464,5 +469,82 @@ impl<'a, M: state::State> Chain<'a, M> {
         }
 
         Ok(claim)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct Model;
+
+    impl state::State for Model {}
+
+    struct TestCommand;
+
+    impl Command for TestCommand {
+        type Args = ();
+        type Output = ();
+
+        const NAME: &'static str = "test.claimed_service";
+    }
+
+    struct RecordingService {
+        claims: Rc<Cell<usize>>,
+        invoked_claimant: Rc<Cell<Option<&'static str>>>,
+    }
+
+    impl Service<Model> for RecordingService {
+        fn claim(
+            &mut self,
+            _store: &mut state::Store<Model>,
+            _command_type: TypeId,
+            _command_name: &'static str,
+            _args: &dyn Any,
+            _cx: &Context,
+        ) -> Result<Option<Claim>> {
+            self.claims.set(self.claims.get() + 1);
+            Ok(Some(Claim::service(
+                Kind::Framework,
+                "claimed_service",
+                State::enabled(),
+            )))
+        }
+
+        fn invoke(
+            &mut self,
+            _store: &mut state::Store<Model>,
+            claim: &Claim,
+            _command_type: TypeId,
+            _command_name: &'static str,
+            _args: Box<dyn Any + Send>,
+            _cx: &mut Context,
+        ) -> Option<AnyResponse> {
+            self.invoked_claimant.set(Some(claim.provenance().name()));
+            Some(AnyResponse::from_response(Response::output(())))
+        }
+    }
+
+    #[test]
+    fn broad_service_invocation_carries_the_adjacent_claim() {
+        let claims = Rc::new(Cell::new(0));
+        let invoked_claimant = Rc::new(Cell::new(None));
+        let service = RecordingService {
+            claims: claims.clone(),
+            invoked_claimant: invoked_claimant.clone(),
+        };
+        let mut store = state::Store::new(Model);
+        let mut chain = Chain::nearest_first(&mut store, Vec::new()).with_service(service);
+
+        let response = chain
+            .invoke::<TestCommand>((), &mut Context::default())
+            .expect("the claimed service should invoke");
+
+        assert!(response.output.is_ok());
+        assert_eq!(claims.get(), 1);
+        assert_eq!(invoked_claimant.get(), Some("claimed_service"));
     }
 }

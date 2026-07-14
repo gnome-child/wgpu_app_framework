@@ -34,38 +34,6 @@ where
     }
 }
 
-pub(super) fn state(
-    session: &mut session::Session,
-    composition: &composition::Store,
-    window: Option<window::Id>,
-    focus: Option<session::Focus>,
-    command_type: TypeId,
-    command_name: &'static str,
-    args: &dyn Any,
-    cx: &command_context::Context,
-) -> command::Result<Option<command::State>> {
-    let Some((window, focus)) = base_text_for(composition, window, focus) else {
-        return Ok(None);
-    };
-    let mut text = Text {
-        session,
-        composition,
-        window,
-        focus,
-    };
-    let targets = targets();
-
-    service_target::state(
-        RESPONDER_NAME,
-        &targets,
-        &mut text,
-        command_type,
-        command_name,
-        args,
-        cx,
-    )
-}
-
 pub(super) fn claim(
     session: &mut session::Session,
     composition: &composition::Store,

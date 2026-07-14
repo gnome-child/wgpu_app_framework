@@ -1260,6 +1260,16 @@ disappearing local owner cannot fall through to a broader target. Sessions
 retain owner and anchor, never command availability; state is re-resolved while
 the menu remains open.
 
+Within one broad invocation, the responder chain resolves the service claimant
+once and hands that adjacent claim receipt to the service invoker. Runtime uses
+the claimant identity to select focused text, table, or system realization; it
+does not replay the service-precedence ladder. The receipt is not an
+availability lease: the selected service re-resolves its typed target and state
+immediately before invoking, with focused text performing its focus handoff
+before that revalidation. Exact contextual routes retain their separate route
+re-claim and typed-target revalidation, and still never fall through to a
+broader target.
+
 Tables contribute their existing keyed selection domain, the focal provider
 row, and the exact cell facet to that path. Secondary-clicking an unselected row
 makes it the sole selection; secondary-clicking a selected row preserves the

@@ -4,7 +4,7 @@ use crate::{command::Result, context, responder, response::AnyResponse, session,
 
 use super::{Services, target};
 
-const RESPONDER_NAME: &str = "system";
+pub(super) const RESPONDER_NAME: &str = "system";
 
 struct ServiceContext<'a, 'services, M: state::State> {
     services: &'a mut Services<'services, M>,

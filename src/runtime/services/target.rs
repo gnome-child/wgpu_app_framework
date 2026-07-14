@@ -69,27 +69,6 @@ pub(super) fn handles<S>(targets: &[AnyTarget<S>], command_type: TypeId) -> bool
         .any(|target| target.handles_type(command_type))
 }
 
-pub(super) fn state<S>(
-    responder_name: &'static str,
-    targets: &[AnyTarget<S>],
-    service: &mut S,
-    command_type: TypeId,
-    command_name: &'static str,
-    args: &dyn Any,
-    cx: &Context,
-) -> Result<Option<command::State>> {
-    claim(
-        responder_name,
-        targets,
-        service,
-        command_type,
-        command_name,
-        args,
-        cx,
-    )
-    .map(|claim| claim.map(|claim| claim.state))
-}
-
 pub(super) fn claim<S>(
     responder_name: &'static str,
     targets: &[AnyTarget<S>],
