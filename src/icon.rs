@@ -139,6 +139,10 @@ impl Style {
     }
 }
 
+pub(crate) fn font_bytes() -> impl Iterator<Item = &'static [u8]> {
+    iconflow::fonts().iter().map(|font| font.bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,5 +172,13 @@ mod tests {
 
         assert_eq!(icon.style(), Style::Bold);
         assert_eq!(glyph.family(), "Phosphor Bold");
+    }
+
+    #[test]
+    fn icon_owner_exposes_every_embedded_font_as_nonempty_bytes() {
+        let fonts = font_bytes().collect::<Vec<_>>();
+
+        assert!(!fonts.is_empty());
+        assert!(fonts.iter().all(|font| !font.is_empty()));
     }
 }

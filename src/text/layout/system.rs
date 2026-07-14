@@ -23,12 +23,10 @@ pub(crate) fn font_system() -> FontSystem {
 fn loaded_font_database() -> (String, FontDatabase) {
     let mut font_system = FontSystem::new();
 
-    for font in iconflow::fonts() {
+    for bytes in crate::icon::font_bytes() {
         font_system
             .db_mut()
-            .load_font_source(glyphon::fontdb::Source::Binary(Arc::new(
-                font.bytes.to_vec(),
-            )));
+            .load_font_source(glyphon::fontdb::Source::Binary(Arc::new(bytes.to_vec())));
     }
 
     font_system.into_locale_and_db()

@@ -6,7 +6,6 @@
         "color",
         "feedback",
         "geometry",
-        "icon",
         "state",
         "subject",
         "task",
@@ -14,9 +13,13 @@
       ],
       "may_depend_on": []
     },
+    "icons": {
+      "modules": ["icon"],
+      "may_depend_on": []
+    },
     "text": {
       "modules": ["text"],
-      "may_depend_on": ["foundation"]
+      "may_depend_on": ["foundation", "icons"]
     },
     "command": {
       "modules": [
@@ -51,11 +54,11 @@
         "virtual_list",
         "widget"
       ],
-      "may_depend_on": ["foundation", "text", "command"]
+      "may_depend_on": ["foundation", "icons", "text", "command"]
     },
     "renderer": {
       "modules": ["paint", "render"],
-      "may_depend_on": ["foundation", "text", "ui"]
+      "may_depend_on": ["foundation", "icons", "text", "ui"]
     },
     "runtime": {
       "modules": [
@@ -67,12 +70,13 @@
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "text", "command", "ui"]
+      "may_depend_on": ["foundation", "icons", "text", "command", "ui"]
     },
     "platform": {
       "modules": ["platform"],
       "may_depend_on": [
         "foundation",
+        "icons",
         "text",
         "command",
         "ui",
@@ -84,6 +88,7 @@
       "modules": ["lib"],
       "may_depend_on": [
         "foundation",
+        "icons",
         "text",
         "command",
         "ui",
@@ -98,7 +103,7 @@
     "bytemuck": ["renderer"],
     "cosmic_text": ["text"],
     "glyphon": ["text", "renderer"],
-    "iconflow": ["ui"],
+    "iconflow": ["icons"],
     "lru": ["text"],
     "pollster": ["runtime", "platform"],
     "rfd": ["platform"],

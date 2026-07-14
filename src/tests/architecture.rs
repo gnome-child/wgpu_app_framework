@@ -95,6 +95,26 @@ fn pointer_grammar_consumes_platform_facts_without_importing_platform_ffi() {
 }
 
 #[test]
+fn icon_pack_dependency_has_one_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let icon = std::fs::read_to_string(src.join("icon.rs")).expect("icon source should read");
+    let text_system = std::fs::read_to_string(src.join("text/layout/system.rs"))
+        .expect("text layout system should read");
+
+    assert!(
+        icon.contains("iconflow::try_icon(")
+            && icon.contains("iconflow::fonts()")
+            && icon.contains("pub(crate) fn font_bytes()"),
+        "the icon owner must resolve glyphs and expose embedded font bytes"
+    );
+    assert!(
+        text_system.contains("crate::icon::font_bytes()") && !text_system.contains("iconflow"),
+        "text may consume icon fonts without learning the selected pack dependency"
+    );
+}
+
+#[test]
 fn table_std_capabilities_have_no_framework_trait_mirrors() {
     let table = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/table.rs"),
