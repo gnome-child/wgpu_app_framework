@@ -356,6 +356,11 @@ materializes the keyed row and only then transfers focus. V1 virtualization is
 synchronous, flat, uniform-height, and bounded to visible rows plus overscan
 and pins; it has no variable-height, streaming, or async provider policy.
 
+Interaction pruning returns one receipt species: unchanged, changed, or
+capture removed. Capture removal necessarily implies interaction change and
+additionally cancels the runtime-owned gesture; parallel booleans must not
+represent capture removal without change.
+
 `Table` is the record-table species of provided container. It composes one
 ordinary sticky header with one selectable `VirtualList`; its provider returns
 ordinary public cell nodes, so buttons, choices, labels, overflow, focus, and

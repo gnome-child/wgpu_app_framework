@@ -73,6 +73,21 @@ fn layout_hit_has_one_action_source() {
 }
 
 #[test]
+fn interaction_pruning_receipt_encodes_capture_implication() {
+    let interaction = include_str!("../interaction/mod.rs");
+
+    assert!(
+        interaction.contains("enum PruneOutcome {")
+            && interaction.contains("Unchanged,")
+            && interaction.contains("Changed,")
+            && interaction.contains("CaptureRemoved,")
+            && interaction.contains("outcome: PruneOutcome,")
+    );
+    assert!(!interaction.contains("capture_removed: bool"));
+    assert!(!interaction.contains("changed: bool"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
