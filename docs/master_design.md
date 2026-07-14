@@ -365,9 +365,11 @@ Reconciliation v1 is local to each parent: explicit ids survive sibling
 reordering, id-less nodes are positional, and cross-parent moves are remove plus
 add until a later keyed reparenting design exists. View-only layout helpers use
 layout-namespace composition identities, so their node-backed hit targets cannot
-collide with retained composition identity. Subject segment names are strings
-for grouping, display/debug output, and future serialization, not routing
-identity.
+collide with retained composition identity. `NodeId` itself owns that namespace;
+composition nodes and parent links store it directly rather than repeating the
+same retained/layout distinction in a second identity wrapper. Subject segment
+names are strings for grouping, display/debug output, and future serialization,
+not routing identity.
 
 Within a parent, one structural reconciliation key is ordinary, a provided row,
 a table cell, or a table header cell. Role and axis participate inside each

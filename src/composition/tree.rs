@@ -39,20 +39,13 @@ pub(crate) struct Tree {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Node {
-    id: Identity,
+    id: NodeId,
     key: Key,
     element_id: Option<interaction::Id>,
     subject: Option<subject::Segment>,
     provided_row: Option<view::ProvidedRow>,
-    parent: Option<Identity>,
+    parent: Option<NodeId>,
     children: Vec<Node>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Identity {
-    Retained(NodeId),
-    #[cfg(test)]
-    Layout(NodeId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -98,27 +91,13 @@ impl NodeId {
         id
     }
 
+    fn retained_id(self) -> Option<Self> {
+        (self.space == Space::Retained).then_some(self)
+    }
+
     #[cfg(test)]
     pub(crate) fn is_retained(self) -> bool {
         self.space == Space::Retained
-    }
-}
-
-impl Identity {
-    fn node_id(self) -> NodeId {
-        match self {
-            Self::Retained(id) => id,
-            #[cfg(test)]
-            Self::Layout(id) => id,
-        }
-    }
-
-    fn retained_id(self) -> Option<NodeId> {
-        match self {
-            Self::Retained(id) => Some(id),
-            #[cfg(test)]
-            Self::Layout(_) => None,
-        }
     }
 }
 
@@ -220,15 +199,12 @@ impl Tree {
 impl Node {
     fn build_retained(
         view: &view::Node,
-        parent: Option<Identity>,
+        parent: Option<NodeId>,
         next_node_id: &mut u64,
         changes: &mut Changes,
     ) -> Self {
-        let id = Identity::Retained(NodeId::next(next_node_id));
-        changes.add_added(
-            id.retained_id()
-                .expect("retained identity should be retained"),
-        );
+        let id = NodeId::next(next_node_id);
+        changes.add_added(id);
         let mut node = Self::new(id, view, parent);
         node.children = view
             .children()
@@ -239,8 +215,8 @@ impl Node {
     }
 
     #[cfg(test)]
-    fn build_layout(view: &view::Node, parent: Option<Identity>, next_id: &mut u64) -> Self {
-        let id = Identity::Layout(NodeId::layout(next_id));
+    fn build_layout(view: &view::Node, parent: Option<NodeId>, next_id: &mut u64) -> Self {
+        let id = NodeId::layout(next_id);
         let mut node = Self::new(id, view, parent);
         node.children = view
             .children()
@@ -253,7 +229,7 @@ impl Node {
     fn reconcile(
         old: Option<&Node>,
         view: &view::Node,
-        parent: Option<Identity>,
+        parent: Option<NodeId>,
         next_node_id: &mut u64,
         changes: &mut Changes,
     ) -> Self {
@@ -266,11 +242,8 @@ impl Node {
             None => None,
         };
         let id = old.map(|old| old.id).unwrap_or_else(|| {
-            let id = Identity::Retained(NodeId::next(next_node_id));
-            changes.add_added(
-                id.retained_id()
-                    .expect("retained identity should be retained"),
-            );
+            let id = NodeId::next(next_node_id);
+            changes.add_added(id);
             id
         });
         let mut node = Self::new(id, view, parent);
@@ -317,7 +290,7 @@ impl Node {
         node
     }
 
-    fn new(id: Identity, view: &view::Node, parent: Option<Identity>) -> Self {
+    fn new(id: NodeId, view: &view::Node, parent: Option<NodeId>) -> Self {
         Self {
             id,
             key: Key::for_view(view),
@@ -337,7 +310,7 @@ impl Node {
         &'a self,
         index: usize,
         view: &view::Node,
-        used: &HashSet<Identity>,
+        used: &HashSet<NodeId>,
     ) -> Option<&'a Node> {
         if let Some(cell) = view.table_cell() {
             return self
@@ -380,7 +353,7 @@ impl Node {
     }
 
     pub(crate) fn node_id(&self) -> NodeId {
-        self.id.node_id()
+        self.id
     }
 
     pub(crate) fn element_id(&self) -> Option<interaction::Id> {
@@ -388,7 +361,7 @@ impl Node {
     }
 
     pub(crate) fn parent(&self) -> Option<NodeId> {
-        self.parent.and_then(Identity::retained_id)
+        self.parent.and_then(NodeId::retained_id)
     }
 
     pub(crate) fn subject(&self) -> Option<&subject::Segment> {
@@ -404,7 +377,7 @@ impl Node {
     }
 
     fn find(&self, id: NodeId) -> Option<&Node> {
-        if self.id.node_id() == id {
+        if self.id == id {
             return Some(self);
         }
 

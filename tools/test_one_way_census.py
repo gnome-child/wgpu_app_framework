@@ -77,6 +77,33 @@ mod tests {
         self.assertEqual(production_roots, {"text"})
         self.assertEqual(test_roots, {"platform", "render"})
 
+    def test_cfg_test_variants_and_arms_do_not_mask_following_production(self) -> None:
+        source = """
+enum Identity {
+    Retained,
+    #[cfg(test)]
+    Layout(crate::layout::Frame),
+}
+
+fn project(identity: Identity) -> crate::render::Frame {
+    match identity {
+        #[cfg(test)]
+        Identity::Layout(_) => crate::platform::layout_frame(),
+        Identity::Retained => crate::render::Frame::new(),
+    }
+}
+
+pub(crate) fn visible() {}
+"""
+        masked = mask_rust_literals_and_comments(source)
+        production, tests = partition_test_code(masked)
+        production_roots, _ = referenced_roots(production, ["composition"])
+        test_roots, _ = referenced_roots(tests, ["composition"])
+
+        self.assertEqual(production_roots, {"render"})
+        self.assertEqual(test_roots, {"layout", "platform"})
+        self.assertEqual(production.count("pub(crate)"), 1)
+
     def test_resolves_external_cfg_test_modules_and_their_descendants(self) -> None:
         src = Path("workspace/src")
         lib = src / "lib.rs"

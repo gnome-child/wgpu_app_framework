@@ -2022,6 +2022,17 @@ fn composition_tree_owns_identity_not_behavior() {
             "retained composition tree internals must not be public API: {pattern}"
         );
     }
+    assert!(
+        composition_tree.contains("id: NodeId,")
+            && composition_tree.contains("parent: Option<NodeId>,"),
+        "composition nodes and parent links must store the namespaced NodeId directly"
+    );
+    for pattern in ["enum Identity", "Identity::Retained", "Identity::Layout"] {
+        assert!(
+            !composition_tree.contains(pattern),
+            "NodeId must remain the sole retained/layout namespace owner: {pattern}"
+        );
+    }
 
     let runtime_access = std::fs::read_to_string(src_dir.join("runtime").join("access.rs"))
         .expect("runtime access module should read");

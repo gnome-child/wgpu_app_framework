@@ -185,6 +185,52 @@ def matching_brace(source: str, opening: int) -> int | None:
     return None
 
 
+RUST_ITEM_START = re.compile(
+    r"""(?x)
+    \s*
+    (?:pub(?:\s*\([^)]*\))?\s+)?
+    (?:(?:async|default|unsafe)\s+|const\s+(?=fn\b)|extern\s+)*
+    (?:
+        fn\b|mod\b|impl\b|struct\b|enum\b|union\b|trait\b|type\b|
+        const\b|static\b|use\b|extern\s+crate\b|macro_rules\s*!
+    )
+    """
+)
+
+
+def attributed_construct_end(masked: str, cursor: int) -> int | None:
+    """Find the end of the item, field, variant, arm, or statement after an attribute."""
+
+    if RUST_ITEM_START.match(masked, cursor):
+        brace = masked.find("{", cursor)
+        semicolon = masked.find(";", cursor)
+        if semicolon >= 0 and (brace < 0 or semicolon < brace):
+            return semicolon + 1
+        if brace >= 0:
+            close = matching_brace(masked, brace)
+            return None if close is None else close + 1
+        return None
+
+    parentheses = 0
+    brackets = 0
+    for index in range(cursor, len(masked)):
+        char = masked[index]
+        if char == "(":
+            parentheses += 1
+        elif char == ")":
+            parentheses = max(0, parentheses - 1)
+        elif char == "[":
+            brackets += 1
+        elif char == "]":
+            brackets = max(0, brackets - 1)
+        elif char == "{" and parentheses == 0 and brackets == 0:
+            close = matching_brace(masked, index)
+            return None if close is None else close + 1
+        elif char in {",", ";"} and parentheses == 0 and brackets == 0:
+            return index + 1
+    return None
+
+
 def test_ranges(masked: str) -> list[tuple[int, int]]:
     """Find cfg(test) and #[test] item ranges in a masked Rust source."""
 
@@ -202,14 +248,9 @@ def test_ranges(masked: str) -> list[tuple[int, int]]:
             if close < 0:
                 break
             cursor = close + 1
-        brace = masked.find("{", cursor)
-        semicolon = masked.find(";", cursor)
-        if semicolon >= 0 and (brace < 0 or semicolon < brace):
-            ranges.append((match.start(), semicolon + 1))
-        elif brace >= 0:
-            close = matching_brace(masked, brace)
-            if close is not None:
-                ranges.append((match.start(), close + 1))
+        end = attributed_construct_end(masked, cursor)
+        if end is not None:
+            ranges.append((match.start(), end))
     # Merge nested/overlapping ranges, especially #[cfg(test)] mod tests.
     merged: list[tuple[int, int]] = []
     for start, end in sorted(ranges):
