@@ -74,13 +74,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             input::Input::PointerDown(target) => self.handle_pointer_down_input(
                 window,
                 target,
-                interaction::PressIntent::Activate,
+                interaction::pointer::PressIntent::Activate,
                 crate::pointer::Cursor::Default,
             ),
             input::Input::PointerManipulate(target) => self.handle_pointer_down_input(
                 window,
                 target,
-                interaction::PressIntent::Manipulate,
+                interaction::pointer::PressIntent::Manipulate,
                 crate::pointer::Cursor::Default,
             ),
             input::Input::PointerDrag(hovered) => {

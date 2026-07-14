@@ -8,9 +8,7 @@ pub(crate) struct Pointer {
     pub(super) surface: crate::popup::Surface,
     pub(super) modifiers: crate::keyboard::Modifiers,
     pub(super) hovered: Option<Target>,
-    pub(super) pressed: Option<Target>,
-    pub(super) capture: Option<Capture>,
-    pub(super) press_intent: Option<PressIntent>,
+    pub(super) press: Option<Press>,
     hover_tip: HoverTip,
     last_click: Option<Click>,
 }
@@ -31,6 +29,18 @@ enum HoverTip {
 pub(crate) struct Capture {
     target: Target,
     cursor: pointer::Cursor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Press {
+    Captured {
+        capture: Capture,
+        intent: PressIntent,
+    },
+    Uncaptured {
+        target: Target,
+        intent: PressIntent,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,17 +183,57 @@ impl Pointer {
     }
 
     pub(crate) fn pressed(&self) -> Option<&Target> {
-        self.pressed.as_ref()
+        self.press.as_ref().map(Press::target)
     }
 
     pub(crate) fn capture(&self) -> Option<&Capture> {
-        self.capture.as_ref()
+        self.press.as_ref().and_then(Press::capture)
     }
 
     pub(crate) fn activation_target(&self) -> Option<&Target> {
-        (self.press_intent == Some(PressIntent::Activate))
-            .then_some(self.pressed.as_ref())
-            .flatten()
+        self.press
+            .as_ref()
+            .filter(|press| press.intent() == PressIntent::Activate)
+            .map(Press::target)
+    }
+}
+
+impl Press {
+    pub(super) fn new(target: Target, intent: PressIntent, cursor: pointer::Cursor) -> Self {
+        if target.captures() {
+            Self::Captured {
+                capture: Capture::new(target, cursor),
+                intent,
+            }
+        } else {
+            Self::Uncaptured { target, intent }
+        }
+    }
+
+    pub(super) fn target(&self) -> &Target {
+        match self {
+            Self::Captured { capture, .. } => capture.target(),
+            Self::Uncaptured { target, .. } => target,
+        }
+    }
+
+    pub(super) fn capture(&self) -> Option<&Capture> {
+        match self {
+            Self::Captured { capture, .. } => Some(capture),
+            Self::Uncaptured { .. } => None,
+        }
+    }
+
+    pub(super) fn intent(&self) -> PressIntent {
+        match self {
+            Self::Captured { intent, .. } | Self::Uncaptured { intent, .. } => *intent,
+        }
+    }
+
+    pub(super) fn set_intent(&mut self, next: PressIntent) {
+        match self {
+            Self::Captured { intent, .. } | Self::Uncaptured { intent, .. } => *intent = next,
+        }
     }
 }
 

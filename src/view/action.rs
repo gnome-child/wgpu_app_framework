@@ -11,7 +11,7 @@ pub(crate) enum Action {
     PointerMove(Option<interaction::Target>),
     PointerDown {
         target: interaction::Target,
-        intent: interaction::PressIntent,
+        intent: interaction::pointer::PressIntent,
         cursor: pointer::Cursor,
     },
     PointerDrag {
@@ -67,14 +67,14 @@ impl Action {
     pub(crate) fn pointer_down(target: interaction::Target) -> Self {
         Self::pointer_press(
             target,
-            interaction::PressIntent::Activate,
+            interaction::pointer::PressIntent::Activate,
             pointer::Cursor::Default,
         )
     }
 
     pub(crate) fn pointer_press(
         target: interaction::Target,
-        intent: interaction::PressIntent,
+        intent: interaction::pointer::PressIntent,
         cursor: pointer::Cursor,
     ) -> Self {
         Self::PointerDown {

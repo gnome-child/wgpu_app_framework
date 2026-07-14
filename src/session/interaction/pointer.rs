@@ -64,7 +64,7 @@ impl Session {
         target: &interaction::Target,
         point: crate::geometry::Point,
         at: std::time::Instant,
-    ) -> interaction::ClickCount {
+    ) -> interaction::pointer::ClickCount {
         let settings = self.multi_click_settings;
         self.window_mut(id)
             .map(|window| {
@@ -72,7 +72,7 @@ impl Session {
                     .interaction
                     .classify_click(target, point, at, settings)
             })
-            .unwrap_or(interaction::ClickCount::Single)
+            .unwrap_or(interaction::pointer::ClickCount::Single)
     }
 
     pub(crate) fn set_multi_click_settings(
@@ -115,7 +115,7 @@ impl Session {
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
-        intent: interaction::PressIntent,
+        intent: interaction::pointer::PressIntent,
         cursor: crate::pointer::Cursor,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
@@ -137,7 +137,7 @@ impl Session {
         &mut self,
         id: app_window::Id,
         target: &interaction::Target,
-        intent: interaction::PressIntent,
+        intent: interaction::pointer::PressIntent,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;

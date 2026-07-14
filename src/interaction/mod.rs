@@ -1,6 +1,6 @@
 mod command_palette;
 mod menu;
-mod pointer;
+pub(crate) mod pointer;
 mod scroll;
 mod selection;
 mod table;
@@ -9,7 +9,7 @@ mod target;
 pub use crate::identity::Id;
 pub(crate) use command_palette::CommandPalette;
 pub use menu::Menu;
-pub(crate) use pointer::{Capture, ClickCount, Pointer, PressIntent};
+pub(crate) use pointer::Pointer;
 pub(crate) use scroll::Scroll;
 pub use scroll::{ScrollDelta, ScrollOffset};
 pub(crate) use selection::Selections;
@@ -67,7 +67,7 @@ impl Interaction {
         point: crate::geometry::Point,
         at: Instant,
         settings: crate::pointer::MultiClickSettings,
-    ) -> ClickCount {
+    ) -> pointer::ClickCount {
         self.pointer.classify_click(target, point, at, settings)
     }
 
@@ -235,31 +235,20 @@ impl Interaction {
     pub(super) fn pointer_down(
         &mut self,
         target: Target,
-        intent: PressIntent,
+        intent: pointer::PressIntent,
         cursor: crate::pointer::Cursor,
     ) -> bool {
+        let press = pointer::Press::new(target.clone(), intent, cursor);
         let changed = self.pointer.hovered.as_ref() != Some(&target)
-            || self.pointer.pressed.as_ref() != Some(&target)
-            || self.pointer.capture.as_ref().map(Capture::target)
-                != target.captures().then_some(&target)
-            || self.pointer.capture.as_ref().map(Capture::cursor)
-                != target.captures().then_some(cursor)
-            || self.pointer.press_intent != Some(intent);
-        self.pointer.hovered = Some(target.clone());
-        self.pointer.pressed = Some(target.clone());
-        self.pointer.capture = target.captures().then(|| Capture::new(target, cursor));
-        self.pointer.press_intent = Some(intent);
+            || self.pointer.press.as_ref() != Some(&press);
+        self.pointer.hovered = Some(target);
+        self.pointer.press = Some(press);
         changed | self.pointer.dismiss_hover_tip()
     }
 
     pub(super) fn pointer_up(&mut self, target: Option<Target>) -> bool {
-        let changed = self.pointer.pressed.is_some()
-            || self.pointer.capture.is_some()
-            || self.pointer.press_intent.is_some()
-            || self.pointer.hovered != target;
-        self.pointer.pressed = None;
-        self.pointer.capture = None;
-        self.pointer.press_intent = None;
+        let changed = self.pointer.press.is_some() || self.pointer.hovered != target;
+        self.pointer.press = None;
         self.pointer.hovered = target;
         changed | self.pointer.dismiss_hover_tip()
     }
@@ -267,36 +256,41 @@ impl Interaction {
     pub(super) fn set_pointer_press_intent(
         &mut self,
         target: &Target,
-        intent: PressIntent,
+        intent: pointer::PressIntent,
     ) -> bool {
-        if self.pointer.pressed.as_ref() != Some(target) {
+        let Some(press) = self
+            .pointer
+            .press
+            .as_mut()
+            .filter(|press| press.target() == target)
+        else {
             return false;
-        }
+        };
 
-        let changed = self.pointer.press_intent != Some(intent);
-        self.pointer.press_intent = Some(intent);
+        let changed = press.intent() != intent;
+        press.set_intent(intent);
         changed
     }
 
     pub(super) fn pointer_left(&mut self) -> bool {
-        let changed = self.pointer.position.is_some()
-            || self.pointer.hovered.is_some()
-            || (self.pointer.capture.is_none() && self.pointer.pressed.is_some());
+        let uncaptured_press = self
+            .pointer
+            .press
+            .as_ref()
+            .is_some_and(|press| press.capture().is_none());
+        let changed =
+            self.pointer.position.is_some() || self.pointer.hovered.is_some() || uncaptured_press;
         self.pointer.position = None;
         self.pointer.surface = crate::popup::Surface::Parent;
         self.pointer.hovered = None;
-        if self.pointer.capture.is_none() {
-            self.pointer.pressed = None;
-            self.pointer.press_intent = None;
+        if uncaptured_press {
+            self.pointer.press = None;
         }
         changed | self.pointer.dismiss_hover_tip()
     }
 
     pub(super) fn cancel_pointer(&mut self) -> bool {
-        let changed = self.pointer.pressed.is_some() || self.pointer.capture.is_some();
-        self.pointer.pressed = None;
-        self.pointer.capture = None;
-        self.pointer.press_intent = None;
+        let changed = self.pointer.press.take().is_some();
         changed | self.pointer.dismiss_hover_tip()
     }
 
@@ -417,18 +411,19 @@ impl Interaction {
         if hovered_changed {
             self.pointer.hovered = None;
         }
-        let pressed_changed = self.pointer.pressed.as_ref().is_some_and(removed);
-        if pressed_changed {
-            self.pointer.pressed = None;
-            self.pointer.press_intent = None;
-        }
-        let capture_changed = self
+        let press_changed = self
             .pointer
-            .capture
+            .press
             .as_ref()
-            .is_some_and(|capture| removed(capture.target()));
-        if capture_changed {
-            self.pointer.capture = None;
+            .is_some_and(|press| removed(press.target()));
+        let capture_changed = press_changed
+            && self
+                .pointer
+                .press
+                .as_ref()
+                .is_some_and(|press| press.capture().is_some());
+        if press_changed {
+            self.pointer.press = None;
         }
 
         let scroll_changed = self.scroll.prune_removed(removed_nodes, removed_elements);
@@ -443,12 +438,8 @@ impl Interaction {
             self.surface = None;
         }
 
-        let changed = hovered_changed
-            || pressed_changed
-            || capture_changed
-            || scroll_changed
-            || text_changed
-            || menu_changed;
+        let changed =
+            hovered_changed || press_changed || scroll_changed || text_changed || menu_changed;
         let outcome = if capture_changed {
             PruneOutcome::CaptureRemoved
         } else if changed {

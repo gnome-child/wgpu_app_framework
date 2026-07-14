@@ -1023,6 +1023,11 @@ nested beneath that active target, so composition without a target is not
 representable. An active target may have no composition, and retained drafts
 remain independently keyed so they may lawfully outlive activation.
 
+A pointer press is one lifecycle. Its target and press intent are total; a
+captured press additionally owns the resolved cursor beside that same target.
+Pointer release, cancellation, and target removal retire the unit atomically;
+pointer leave retains a captured press and retires an uncaptured one.
+
 Visual interaction state is paint input. Hover, press, active/selected row
 tint, animation phase, and caret blink should be resolved from session/visuals
 by retained target identity during paint, not projected into view data as a

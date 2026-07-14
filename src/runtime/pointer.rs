@@ -17,7 +17,7 @@ pub(super) struct ResolvedPress {
     row: Option<VirtualRowGesture>,
     task_focus: Option<session::Focus>,
     admission: PressAdmission,
-    intent: Option<interaction::PressIntent>,
+    intent: Option<interaction::pointer::PressIntent>,
     cursor: pointer::Cursor,
     cursor_after_release: pointer::Cursor,
     inside_palette: bool,
@@ -122,15 +122,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             target.as_ref()?;
             Some(
                 if hit.is_chrome() || hit.frame().role() == view::Role::Slider {
-                    interaction::PressIntent::Manipulate
+                    interaction::pointer::PressIntent::Manipulate
                 } else if matches!(
                     hit.frame().role(),
                     view::Role::TextArea | view::Role::TextBox
                 ) && hit.frame().is_focused()
                 {
-                    interaction::PressIntent::Manipulate
+                    interaction::pointer::PressIntent::Manipulate
                 } else {
-                    interaction::PressIntent::Activate
+                    interaction::pointer::PressIntent::Activate
                 },
             )
         });
@@ -168,7 +168,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .session
             .interaction(window)
             .and_then(|interaction| interaction.pointer().capture())
-            .map(interaction::Capture::cursor)
+            .map(interaction::pointer::Capture::cursor)
             .unwrap_or(cursor_after_release);
         let inside_palette = hit
             .as_ref()
@@ -454,9 +454,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.session
                 .classify_click(window, &target, point, std::time::Instant::now());
         let text_click = match click_count {
-            interaction::ClickCount::Single => text::selection::PointerKind::Click,
-            interaction::ClickCount::Double => text::selection::PointerKind::DoubleClick,
-            interaction::ClickCount::Triple => text::selection::PointerKind::TripleClick,
+            interaction::pointer::ClickCount::Single => text::selection::PointerKind::Click,
+            interaction::pointer::ClickCount::Double => text::selection::PointerKind::DoubleClick,
+            interaction::pointer::ClickCount::Triple => text::selection::PointerKind::TripleClick,
         };
 
         let action = if target.kind() == interaction::Kind::TableDivider {
@@ -647,7 +647,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             && self.session.set_pointer_press_intent(
                 window,
                 &target,
-                interaction::PressIntent::Manipulate,
+                interaction::pointer::PressIntent::Manipulate,
             );
         let action = dragged.and_then(|(_, action)| action);
 

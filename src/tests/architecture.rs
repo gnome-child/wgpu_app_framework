@@ -88,6 +88,29 @@ fn interaction_pruning_receipt_encodes_capture_implication() {
 }
 
 #[test]
+fn pointer_press_state_is_one_lifecycle_species() {
+    let pointer = include_str!("../interaction/pointer.rs");
+
+    assert!(
+        pointer.contains("press: Option<Press>")
+            && pointer.contains("enum Press {")
+            && pointer.contains("Captured {")
+            && pointer.contains("Uncaptured {")
+            && pointer.contains("intent: PressIntent")
+    );
+    for parallel in [
+        "pressed: Option<Target>",
+        "capture: Option<Capture>",
+        "press_intent: Option<PressIntent>",
+    ] {
+        assert!(
+            !pointer.contains(parallel),
+            "pointer press lifecycle must not regain parallel state: {parallel}"
+        );
+    }
+}
+
+#[test]
 fn realized_material_parts_encode_tint_inside_frost() {
     let region = include_str!("../scene/region.rs");
 
@@ -1841,8 +1864,10 @@ fn press_intent_stays_runtime_interaction_detail() {
         std::fs::read_to_string(src_dir.join("input").join("mod.rs")).expect("input module read");
 
     assert!(
-        !interaction_mod.contains("pub use pointer::PressIntent"),
-        "press intent is runtime/session press classification, not public interaction API"
+        interaction_mod.contains("pub(crate) mod pointer;")
+            && interaction_mod.contains("pub(crate) use pointer::Pointer;")
+            && !interaction_mod.contains("pub(crate) use pointer::{"),
+        "Pointer should be the sole parent projection while supporting concepts stay namespaced"
     );
     assert!(
         !pointer.contains("pub enum PressIntent"),
@@ -1851,6 +1876,7 @@ fn press_intent_stays_runtime_interaction_detail() {
     for pattern in [
         "pointer_down_with_intent",
         "intent: interaction::PressIntent",
+        "intent: interaction::pointer::PressIntent",
         "PointerDown {",
     ] {
         assert!(
@@ -1908,7 +1934,7 @@ fn resolved_press_is_the_one_cursor_semantics_owner() {
     assert!(
         interaction_pointer.contains("cursor: pointer::Cursor")
             && interaction_pointer.contains("pub(crate) fn cursor(&self) -> pointer::Cursor")
-            && runtime_pointer.contains(".map(interaction::Capture::cursor)")
+            && runtime_pointer.contains(".map(interaction::pointer::Capture::cursor)")
             && !runtime_pointer.contains("captured_kind")
             && !runtime_pointer.contains("capture.target().kind"),
         "capture must preserve resolved cursor meaning instead of inferring it from target kind"

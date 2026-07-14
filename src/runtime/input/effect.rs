@@ -9,7 +9,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         target: interaction::Target,
-        intent: interaction::PressIntent,
+        intent: interaction::pointer::PressIntent,
         cursor: pointer::Cursor,
     ) -> std::result::Result<input::Outcome, Error> {
         let hover_tip_was_visible = self.session.hover_tip_visible(window);
