@@ -1474,6 +1474,83 @@ capability`).
     the `responder -> interaction/session/table` crossings before touching
     notification placement or effect consumption.
 
+### R3-02 — responder routing identity versus UI service scope
+
+Status: **complete; shared authored identity lowered**. Correction `43bcd3f0`
+(`Separate responder routing from UI scope`).
+
+1. **Question and trace.** Responder identity and scope were traced through
+   builder registration, exact and broad claims, path traversal, focused and
+   application routing, typed and erased command state/invocation, context-menu
+   sections, palette capture/query routing, standard bars, focused text and
+   table services, direct text drops, and notification delivery. Focus species
+   included text, table cell, and control; scope kinds included Focused,
+   Transient, and Captured; contextual paths covered task and inspection
+   traversal with exact service routes.
+2. **Current and proposed graph.** The lower `responder::Scope` stored both
+   routing facts and higher `session::Focus`/table facts, forcing responder to
+   import interaction, session, and table. The same authored identity datum was
+   declared under interaction even though reconciliation and responder routing
+   consume it independently. The admitted graph places the unchanged `Id`
+   declaration in private lower housing, leaves `interaction::Id` as its public
+   projection, keeps `responder::Scope` route-only, and lets private
+   `session::CommandScope` align that route with optional focus and table facts
+   for runtime service realization.
+3. **Admission.** Stable authored identity is dependency-free vocabulary with
+   independent UI and command-routing consumers, so it belongs in the existing
+   foundation responsibility; it does not earn another virtual crate. The
+   higher command scope is not a transport wrapper: its invariant derives the
+   same responder/table identity from focus and prevents the service question
+   from drifting from the route used to claim and invoke. Erasing the UI facts
+   behind callbacks or keeping them in responder would conceal the upward
+   dependency instead of removing it.
+4. **Naming and API ruling.** The declaration remains the simple canonical
+   `Id`; no compound declaration, alias, or second public root is introduced.
+   `interaction::Id` re-exports that exact declaration and the former
+   `interaction/id.rs` path is tombstoned. This preserves the established
+   application spelling while applying the house law through the private
+   ownership move.
+5. **Reduction and rewire.** `responder::Scope` now contains only optional
+   authored identity plus `responder::Kind`; builder chains accept that identity
+   directly. Session constructs `CommandScope` for focused, transient,
+   captured, and contextual questions. Runtime services consume the higher
+   scope, while responder paths consume its route projection. Context-menu
+   section order is still built once from the same broad-to-exact source list;
+   text drops and notifications project only the focus identity they need.
+6. **Behavior and economics.** Claim precedence, disabled-claim stopping,
+   exact service invocation, task/inspection order, captured palette focus,
+   context-menu table/text ownership, live standard-menu state, notification
+   listener order, and text-drop cleanup are unchanged. No allocation, shaping,
+   paint, renderer, presentation-clock, or frame path changed; the new scope is
+   a small Copy value replacing the same fields previously embedded in the
+   responder value.
+7. **Proof and ratchet.** The architecture witness requires one private lower
+   declaration with the established interaction projection, tombstones the old
+   declaration path, pins route-only responder fields and higher session
+   alignment, and recursively forbids interaction, session, and table paths
+   under responder. Focused responder, context-menu, palette, notification,
+   text-drop, and path-traversal witnesses all passed.
+8. **Full verification.** The library discovered 1,083 tests: 1,073 passed, 10
+   standing ignores, and 0 failed. All targets and all five examples compiled
+   without warnings; census parser witnesses, formatting, diff checks, and the
+   protected `comparison_open: true` state passed.
+9. **Gauge delta from R3-01.** Top-level modules rise 45 -> 46 because the
+   shared declaration now has truthful root housing. Production edges remain
+   324; test-only edges rise 99 -> 100. Slot edges rise 44 -> 45 from the now
+   visible lower identity dependency, while forbidden edges fall 11 -> 8 by
+   deleting all three `responder -> interaction/session/table` crossings.
+   External questions and SCCs remain 1/1. Explicit scope crossings raise
+   production `pub(crate)` declarations 1,756 -> 1,764 in 191 files;
+   cross-slot test edges rise 79 -> 80. The ratchet raises source-root mentions
+   109 -> 110 and filesystem reads 323 -> 328. Allowances, panics, and expects
+   remain 10, 9, and 102.
+10. **Fixed point and next frontier.** Responder now depends only on command and
+    lower vocabulary; no UI service fact or focus type enters its directory.
+    Session owns the one aligned higher projection and runtime consumes both
+    levels explicitly. Rung 3 continues with notification placement and the
+    `window -> notification` crossing, tracing departure publication and
+    effect consumption before admitting any move.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
