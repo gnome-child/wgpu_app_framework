@@ -4962,6 +4962,72 @@ directly`).
    visibility, failure, intermediate, housing, and naming inventories. This
    cell does not close Rung 5.
 
+### R5-47 — direct typed view-content projection into layout
+
+Status: **complete; duplicated role/content agreement and fourteen assertions
+removed**. Correction `7d20ba15` (`Project typed view content into layout`).
+
+1. **Question and complete trace.** The frame-construction sweep traced every
+   view content species through node builders, public model accessors, layout
+   measurement, text overflow and inactive-field projection, control geometry,
+   table and virtual-list specialization, floating-panel state, frame role
+   queries, scene production, hit testing, and the complete layout/control
+   witness slices.
+2. **Duplicate agreement and failure shape.** R5-32 had made private
+   `view::node::Content` the node's structural role/payload truth, yet layout
+   queried the derived role, recovered each payload through independent
+   optional accessors, rebuilt a second agreement in `FrameContent::for_node`,
+   and used fourteen `expect`s to assert that the two representations still
+   matched. Those assertions preserved no invariant beyond the source sum.
+3. **Boundary and naming ruling.** The existing namesake seam is the honest
+   crossing: `view::node` is crate-visible, `view::Node` remains the central
+   parent projection, and supporting `Content`, `MenuBar`, `Panel`, and
+   `Scroll` remain qualified beneath `view::node`. Layout imports
+   `view::{node, Node}`, uses `Node` centrally, and matches `node::Type` for
+   support. No support type is flattened at `view`, no compound declaration or
+   aliased re-export is introduced, and application-facing paths are unchanged.
+4. **Correction and displaced paths.** Frame construction now exhaustively
+   matches `Node::content()` and enriches each semantic species directly with
+   layout-owned geometry, shaping, overflow, and resolved panel facts.
+   `FrameContent::for_node`, role-first payload recovery, all fourteen
+   agreement assertions, and three displaced panel accessors are deleted.
+   Shared label projection remains one helper and preserves the established
+   shaping and diagnostic sequence.
+5. **Visibility and resistance.** Eight net crate-visible declarations are the
+   measured price of the real view-to-layout library contract: the namespaced
+   module/content species, the narrow content projection, and the panel fields
+   layout consumes, offset by deleted accessors. Making layout depend on a
+   second transport enum, callback, or flattened facade would hide the same
+   crossing and restore duplicated agreement, so the explicit typed seam is
+   admitted for Rung 6's later symbol-level disposition.
+6. **Behavior and economics.** Every role, text-area and active/inactive
+   TextBox layout, overflow projection, label width/diagnostic, input geometry,
+   slider/choice active rectangle, scroll species, virtual model, panel policy,
+   scene order, hit route, renderer topology, batching/pass fusion,
+   invalidation, and presentation clock is unchanged. Models are cloned and
+   text engines invoked in the same order; no heap object, callback, lookup,
+   traversal, or frame pass was added.
+7. **Doctrine and proof.** Master design now names the direct typed crossing
+   and the namespaced parent law. The ownership witness failed against the old
+   private/role-recovery boundary, then pinned `view::{node, Node}`, direct
+   content matching, and extinction of `for_node` and its assertions. The four
+   structural witnesses, 154 layout-scene tests, 26 TextBox tests, 13 focus
+   tests, and six slider tests passed. The full library discovered 1,128 tests
+   and passed 1,118 with 10 ignored; all five examples, all ten census parser
+   witnesses, the full census, formatting, diff, and protected-state checks
+   passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, cross-slot
+   test edges, source-root mentions, filesystem reads, allowances, and panics
+   remain 325/109, 3, 54, 0/0/0, 90, 118, 362, 6, and 6. The admitted crossing
+   raises production `pub(crate)` declarations 1,819 in 191 files -> 1,827 in
+   192 files and the cross-slot upper bound 1,772 -> 1,780. Removing the false
+   agreement assertions lowers production expects 76 -> 62. Direct
+   view-content projection is at fixed point; the reverse sweep continues
+   through two-phase frame specialization, retained-tree admission, remaining
+   layout lifecycles, and the complete visibility, failure, intermediate,
+   housing, and naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
