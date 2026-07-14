@@ -6299,6 +6299,64 @@ Status: **complete; namesake parent projection normalized**. Correction
    exhausted; Rung 5 now requires its full alias, visibility, failure,
    intermediate, housing, and bidirectional fixed-point sweep.
 
+### R5-69 — atomic namespaced table-interaction snapshot
+
+Status: **complete; flattened sibling snapshot collections collapsed at their
+owner**. Correction `5d71eac4` (`Keep table interaction snapshots atomic`).
+
+1. **Question and complete trace.** The full fixed-point state-shape sweep
+   traced table column widths and active columns from header resize and cell
+   activation through interaction storage, view projection, window snapshot
+   capture, runtime snapshot restore, table rebuild, selection, and every
+   snapshot consumer. `Tables::snapshot` returned two vectors as a tuple;
+   `session::WindowSnapshot` flattened them into two fields; restore then
+   re-paired them for the same owner.
+2. **One lifecycle and neighboring resistance.** Widths and active columns are
+   the complete persisted state of one `interaction::Tables` value. They are
+   captured, transported, restored, and discarded together, and no consumer
+   observes either collection independently. Selection snapshotting remains a
+   single collection with no sibling fact to aggregate, so wrapping it would
+   add transport machinery without preserving another invariant.
+3. **Correction and displaced paths.** Namespaced
+   `interaction::table::Snapshot` now owns both collections. `Tables::snapshot`
+   returns that value, `Tables::restore` consumes it, and `WindowSnapshot`
+   transports one `tables` field. The tuple, two session fields, destructuring,
+   and two-argument restore protocol are deleted. A direct owner witness proves
+   width and active-column restoration through the one value.
+4. **Boundary and naming ruling.** Interaction remains the state owner and
+   session remains the window-snapshot transporter. The parent still projects
+   `Tables`; supporting `Snapshot` is reachable only through crate-visible
+   `interaction::table` and is never flattened or aliased. Declaration and
+   call-site spellings therefore remain identical, and the correction obeys
+   the canonical parent-projection law without a compound compatibility name.
+5. **Behavior and economics.** Width identity, active-column identity,
+   snapshot cloning, restore order, table projection, selection, layout,
+   scene order, renderer topology, invalidation, and presentation clocks are
+   unchanged. The same two vectors move once inside a named value with no heap
+   allocation, clone, lookup, callback, traversal, or frame work added. The
+   former table-snapshot `type_complexity` lint is gone.
+6. **Ratchet and proof.** The architecture witness pins the crate-visible
+   namespace, namespaced supporting value, central parent projection, one
+   session field, and extinction of both flattened field names. Focused owner,
+   architecture, and five snapshot/restore witnesses passed. The full library
+   discovered 1,144 tests and passed 1,134 with ten standing ignores. All
+   targets and all five examples compiled; all ten census parser witnesses,
+   the full census, formatting, diff hygiene, and protected
+   `comparison_open: true` check passed.
+7. **Gauge delta.** The explicit support namespace and snapshot value raise
+   production `pub(crate)` declarations 1,804 -> 1,806 and the cross-slot-
+   provider upper bound 1,757 -> 1,759. Every other gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, 192 visibility-bearing files,
+   cross-slot test edges 90, source-root mentions 118, filesystem reads 363,
+   allowances 6, panics 5, and expects 44.
+8. **Fixed point and next frontier.** Table interaction snapshot state now
+   crosses session as one owner-defined value and cannot be flattened without
+   failing the ratchet. The Rung 5 sweep continues through repeated runtime
+   pointer predicates and the remaining visibility, failure, intermediate,
+   housing, naming, and bidirectional inventories; this cell does not close
+   the rung.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
