@@ -3203,6 +3203,48 @@ Status: **complete; parallel optional structural keys collapsed**. Correction
    The reverse sweep continues across view/widget/layout and remaining state
    shapes; this cell does not close Rung 5.
 
+### R5-16 — atomic projected text-box caret
+
+Status: **complete; cursor and selection collapsed into one optional unit**.
+Correction `71887ea8` (`Make text box caret projection atomic`).
+
+1. **Question and complete trace.** The reverse text-control sweep traced
+   `TextBox` construction, draft/input projection, focus projection, cursor and
+   selection queries, field shaping, caret reveal/blink scheduling, selection
+   paint, pointer placement/drag, table editing, and the full text-box/cursor
+   witness sets.
+2. **Invalid state.** `view::TextBox` carried optional cursor and optional
+   selection independently. Every producer installed selection only alongside
+   a cursor and cleared both together, but the representation admitted a
+   selection with no cursor to own its active endpoint.
+3. **Correction.** One private optional `Caret { cursor, selection }` now owns
+   the projected fact. Existing public `cursor()` and `selection()` queries
+   remain unchanged; draft projection and focus fallback construct the unit,
+   while unfocus or absent projection clears it atomically.
+4. **Boundary and naming ruling.** `Caret` is private to the private
+   `view::control::text_box` housing. Public `view::TextBox` keeps its established
+   namesake projection unchanged; no support type, compound alias, or
+   visibility escapes at either parent.
+5. **Behavior and economics.** Draft authority, cached text, cursor fallback,
+   selection range, field shaping, caret reveal/blink, paint order, pointer
+   editing, allocation, and presentation work are unchanged. One optional
+   aggregate replaces two options without a heap object or extra traversal.
+6. **Doctrine and witnesses.** Master design now states that projected cursor
+   and selection are one caret unit and that selection implies cursor. The
+   architecture witness pins the private unit and tombstones the two parallel
+   fields on `TextBox`.
+7. **Proof and gauge delta from R5-15.** The architecture witness, all 26
+   text-box tests, and the 16-test cursor slice passed; the full library
+   discovered 1,098 tests and passed 1,088 with 10 ignored; all targets compiled
+   without warnings. All nine census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed. Every graph,
+   visibility, test-edge, source-root, filesystem, allowance, panic, and expect
+   gauge remains unchanged.
+8. **Fixed point and next frontier.** Text-box caret projection is now one fact
+   from interaction draft through layout and paint. The reverse sweep continues
+   across layout frame species, view-node role facts, widgets, and remaining UI
+   state shapes; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
