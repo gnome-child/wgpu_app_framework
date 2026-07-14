@@ -31,6 +31,12 @@ pub(crate) struct Realization {
     popup: interaction::Id,
     parent: window::Id,
     generation: Generation,
+    geometry: Geometry,
+}
+
+/// Geometry resolved by the selected native host for one popup realization.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Geometry {
     local_bounds: geometry::Rect,
     host_bounds: geometry::Rect,
     visible_clip: geometry::Rect,
@@ -60,12 +66,8 @@ impl ContextFingerprint {
     }
 }
 
-impl Realization {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn native(
-        popup: interaction::Id,
-        parent: window::Id,
-        generation: Generation,
+impl Geometry {
+    pub(crate) fn new(
         local_bounds: geometry::Rect,
         host_bounds: geometry::Rect,
         visible_clip: geometry::Rect,
@@ -74,15 +76,28 @@ impl Realization {
         scale: f64,
     ) -> Self {
         Self {
-            popup,
-            parent,
-            generation,
             local_bounds,
             host_bounds,
             visible_clip,
             visual_bounds,
             panel_offset,
             scale,
+        }
+    }
+}
+
+impl Realization {
+    pub(crate) fn native(
+        popup: interaction::Id,
+        parent: window::Id,
+        generation: Generation,
+        geometry: Geometry,
+    ) -> Self {
+        Self {
+            popup,
+            parent,
+            generation,
+            geometry,
         }
     }
 
@@ -104,34 +119,34 @@ impl Realization {
     }
 
     pub(crate) fn local_bounds(self) -> geometry::Rect {
-        self.local_bounds
+        self.geometry.local_bounds
     }
 
     pub(crate) fn host_bounds(self) -> geometry::Rect {
-        self.host_bounds
+        self.geometry.host_bounds
     }
 
     pub(crate) fn visible_clip(self) -> geometry::Rect {
-        self.visible_clip
+        self.geometry.visible_clip
     }
 
     pub(crate) fn visual_bounds(self) -> geometry::Rect {
-        self.visual_bounds
+        self.geometry.visual_bounds
     }
 
     pub(crate) fn panel_offset(self) -> geometry::Point {
-        self.panel_offset
+        self.geometry.panel_offset
     }
 
     pub(crate) fn panel_offset_physical(self) -> (i32, i32) {
         (
-            (f64::from(self.panel_offset.x()) * self.scale).round() as i32,
-            (f64::from(self.panel_offset.y()) * self.scale).round() as i32,
+            (f64::from(self.panel_offset().x()) * self.scale()).round() as i32,
+            (f64::from(self.panel_offset().y()) * self.scale()).round() as i32,
         )
     }
 
     pub(crate) fn scale(self) -> f64 {
-        self.scale
+        self.geometry.scale
     }
 
     pub(crate) fn with_generation(mut self, generation: Generation) -> Self {
@@ -142,15 +157,23 @@ impl Realization {
     #[cfg(test)]
     pub(crate) fn local_to_host(self) -> geometry::Point {
         geometry::Point::new(
-            self.host_bounds.x().saturating_sub(self.local_bounds.x()),
-            self.host_bounds.y().saturating_sub(self.local_bounds.y()),
+            self.host_bounds()
+                .x()
+                .saturating_sub(self.local_bounds().x()),
+            self.host_bounds()
+                .y()
+                .saturating_sub(self.local_bounds().y()),
         )
     }
 
     pub(crate) fn visual_offset(self) -> geometry::Point {
         geometry::Point::new(
-            self.visual_bounds.x().saturating_sub(self.host_bounds.x()),
-            self.visual_bounds.y().saturating_sub(self.host_bounds.y()),
+            self.visual_bounds()
+                .x()
+                .saturating_sub(self.host_bounds().x()),
+            self.visual_bounds()
+                .y()
+                .saturating_sub(self.host_bounds().y()),
         )
     }
 
@@ -158,8 +181,8 @@ impl Realization {
     /// the retained layout that produced the visible popup content.
     pub(crate) fn retained_point(self, surface_point: geometry::Point) -> geometry::Point {
         geometry::Point::new(
-            self.local_bounds.x().saturating_add(surface_point.x()),
-            self.local_bounds.y().saturating_add(surface_point.y()),
+            self.local_bounds().x().saturating_add(surface_point.x()),
+            self.local_bounds().y().saturating_add(surface_point.y()),
         )
     }
 }
@@ -174,12 +197,14 @@ mod tests {
             interaction::Id::new("menu"),
             window::Id::new(1),
             Generation::initial(),
-            geometry::Rect::new(700, 20, 120, 80),
-            geometry::Rect::new(580, 20, 120, 80),
-            geometry::Rect::new(580, 20, 120, 80),
-            geometry::Rect::new(570, 10, 140, 100),
-            geometry::Point::new(10, 10),
-            1.25,
+            Geometry::new(
+                geometry::Rect::new(700, 20, 120, 80),
+                geometry::Rect::new(580, 20, 120, 80),
+                geometry::Rect::new(580, 20, 120, 80),
+                geometry::Rect::new(570, 10, 140, 100),
+                geometry::Point::new(10, 10),
+                1.25,
+            ),
         );
 
         assert_eq!(realization.local_to_host(), geometry::Point::new(-120, 0));

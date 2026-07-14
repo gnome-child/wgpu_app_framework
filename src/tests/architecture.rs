@@ -2882,14 +2882,19 @@ fn overlay_backend_selection_is_not_a_paint_id_exception() {
 
 #[test]
 fn native_popup_positioning_anchors_to_parent_client_origin() {
-    let popup = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("platform")
-            .join("native")
-            .join("popup.rs"),
-    )
-    .expect("native popup source should read");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let popup = std::fs::read_to_string(root.join("platform").join("native").join("popup.rs"))
+        .expect("native popup source should read");
+    let contract =
+        std::fs::read_to_string(root.join("popup.rs")).expect("popup contract source should read");
+
+    assert!(
+        contract.contains("pub(crate) struct Geometry {")
+            && contract.matches("geometry: Geometry,").count() == 2
+            && !contract.contains("#[allow(clippy::too_many_arguments)]")
+            && popup.contains("crate::popup::Geometry::new("),
+        "the selected host must deliver one namespaced realized-geometry value without a flattened constructor"
+    );
 
     assert!(
         popup.contains(".inner_position()"),

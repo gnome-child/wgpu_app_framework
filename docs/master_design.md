@@ -729,9 +729,10 @@ the compositor-pickup barrier promotes the pending realization. Same-geometry
 content changes use the same generation discipline without moving or cloaking
 the host. Material and scale changes retain the concealed reconfiguration gate
 because one present cannot make those contracts atomic. Geometry is resolved
-once by the selected host into a retained popup realization; paint, hit testing,
-event translation, IME, accessibility, clipping, and material projection
-consume that same fact. Placement intent is never reused as realized geometry.
+once by the selected host into one `popup::Geometry` value retained by the popup
+realization; paint, hit testing, event translation, IME, accessibility,
+clipping, and material projection consume that same fact. Placement intent is
+never reused as realized geometry.
 
 Windows are different presentation clocks. Parent-window presents, hover
 frames, and fades cannot make a popup stale; popup currentness advances only

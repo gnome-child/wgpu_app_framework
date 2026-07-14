@@ -1035,14 +1035,16 @@ impl Native {
             presentation.id(),
             parent_id,
             popup.generation,
-            presentation.local_bounds(),
-            bounds,
-            available
-                .map(|available| visible_intersection(bounds, available))
-                .unwrap_or(bounds),
-            projection.visual_bounds_at(bounds),
-            projection.panel_offset_logical(),
-            popup_scale,
+            crate::popup::Geometry::new(
+                presentation.local_bounds(),
+                bounds,
+                available
+                    .map(|available| visible_intersection(bounds, available))
+                    .unwrap_or(bounds),
+                projection.visual_bounds_at(bounds),
+                projection.panel_offset_logical(),
+                popup_scale,
+            ),
         );
         let staging_geometry = popup.exposed && popup.reconfiguring;
         if popup.exposed
@@ -2213,12 +2215,14 @@ mod tests {
             interaction::Id::new("context_menu"),
             window::Id::new(1),
             crate::popup::Generation::new(7),
-            crate::geometry::Rect::new(300, 40, 120, 80),
-            crate::geometry::Rect::new(900, 60, 120, 80),
-            crate::geometry::Rect::new(900, 60, 120, 80),
-            crate::geometry::Rect::new(892, 52, 136, 96),
-            crate::geometry::Point::new(8, 8),
-            1.25,
+            crate::popup::Geometry::new(
+                crate::geometry::Rect::new(300, 40, 120, 80),
+                crate::geometry::Rect::new(900, 60, 120, 80),
+                crate::geometry::Rect::new(900, 60, 120, 80),
+                crate::geometry::Rect::new(892, 52, 136, 96),
+                crate::geometry::Point::new(8, 8),
+                1.25,
+            ),
         );
 
         assert_eq!(

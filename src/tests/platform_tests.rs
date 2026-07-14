@@ -319,17 +319,19 @@ fn test_popup_realization(
         interaction::Id::new("test.popup"),
         parent,
         crate::popup::Generation::initial(),
-        bounds,
-        bounds,
-        bounds,
-        geometry::Rect::new(
-            bounds.x().saturating_sub(panel_offset.x()),
-            bounds.y().saturating_sub(panel_offset.y()),
-            bounds.width().saturating_add(panel_offset.x()),
-            bounds.height().saturating_add(panel_offset.y()),
+        crate::popup::Geometry::new(
+            bounds,
+            bounds,
+            bounds,
+            geometry::Rect::new(
+                bounds.x().saturating_sub(panel_offset.x()),
+                bounds.y().saturating_sub(panel_offset.y()),
+                bounds.width().saturating_add(panel_offset.x()),
+                bounds.height().saturating_add(panel_offset.y()),
+            ),
+            panel_offset,
+            scale,
         ),
-        panel_offset,
-        scale,
     )
 }
 
