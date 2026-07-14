@@ -100,6 +100,14 @@ Reject or redraw the seam instead.
 ### Naming follows the established house law
 
 - Names describe the domain concept, not its implementation trick.
+- When a public module and its central type have the same name, the parent
+  re-exports only that type. Call sites import both as `{module, Module}`;
+  supporting concepts keep simple names inside the module and are spelled
+  `module::Type` at use sites.
+- Do not preserve a compound declaration merely to re-export it under a
+  simpler name. Collapse the declaration to the public re-exported name,
+  including when that re-export is at a parent module; callers that need to
+  distinguish a supporting concept use its module namespace instead.
 - No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
 - Moving or re-housing a concept does not authorize renaming it.
 - Existing overloaded-name cleanup remains under its established census and
@@ -1080,6 +1088,76 @@ their complete traces.
 Rung 2 begins with the direct `text -> paint` edge, tracing each imported type
 by coordinate space, clock, shaping authority, renderer consumer, and public
 surface before moving anything.
+
+## Rung 2 cell records
+
+### R2-01 — renderer-neutral coordinates versus paint policy
+
+Status: **complete**. Correction `efe641f4` (`Move shared coordinates to
+geometry`).
+
+1. **Question and trace.** The direct `text -> paint` edge consisted entirely
+   of floating logical area/point facts used by field layout, text-area
+   observation, shaping bounds, hit testing, caret projection, reveal, and
+   scrolling. The same paint declarations also crossed renderer preparation,
+   canvas sizing, filters, native popup geometry, monitor-scale projection, and
+   surface realization. Geometry separately owned an integer `Point` and a
+   public `LogicalArea` carrying the same width/height facts. The trace covered
+   logical/physical conversion, fractional-scale snapping, layout-to-paint
+   conversion, native surface minimums, popup scaling, rounded geometry,
+   selection/hit paths, renderer batches, and the public text projections.
+2. **Current and proposed graph.** Paint already depends on text because its
+   flattened display list carries prepared text values, so text importing paint
+   coordinates formed a real peer cycle. Moving the entire paint geometry
+   vocabulary downward would be equally false: device-grid `Grid`, rounded
+   paint `Rect`/`Rounding`, and flattened paint items are renderer-ready policy
+   and representation. The admitted graph puts only renderer-neutral area and
+   point unit facts in geometry; text and paint both consume them, and paint
+   retains its actual rendering vocabulary.
+3. **Naming and API ruling.** The coordinate move applies the established
+   house law rather than preserving compound compatibility names. Public unit
+   species are `geometry::area::Logical` and `geometry::point::Logical`;
+   `point::Point` remains the module's same-named central type and is its sole
+   parent projection as `geometry::Point`. No `LogicalArea`, `LogicalPoint`,
+   `SurfaceArea`, or `SurfacePoint` alias survives. Call sites import the
+   supporting modules and qualify their simple types. The campaign constitution
+   and master API doctrine now state the same rule for later cells.
+4. **Reduction and rewire.** Deleted `paint/area.rs` and `paint/point.rs`, moved
+   the live logical/physical area conversions and logical point fact into
+   geometry, and rewired text, paint, render, and native consumers. Deleted the
+   one-use geometry-to-paint native area translation, unused physical-point
+   conversion machinery, unused area clamps, the two text surface aliases, and
+   dead paint-rounding constructors/accessors exposed by the move. Text's
+   unconsumed public `ObservedArea` no longer names private paint `Rect`; it
+   carries its existing text `Viewport` plus a geometry origin without changing
+   the observation calculations.
+5. **Proof and ratchet.** The architecture witnesses pin the absence of paint
+   area/point modules, preserve private paint policy modules, restrict paint
+   imports to rendering consumers, require the `point::Point` parent projection,
+   forbid compound coordinate aliases, and retain the old whole-bucket
+   tombstone. Focused proof passed 131 text tests (2 standing ignores), 56 paint
+   tests, and 123 renderer tests (8 standing ignores). Full library: 1,067
+   passed, 10 ignored, 0 failed; all targets and all five examples compiled
+   without warnings; formatting and diff checks passed. Existing snapping,
+   batch/pass topology, presentation clocks, native popup geometry, and frame
+   economics are unchanged because every consumer receives the same values in
+   the same order.
+6. **Gauge delta.** The forbidden `text -> paint` edge is deleted: provisional
+   forbidden edges fall 14 -> 13 and slot edges fall 43 -> 42. Truthful shared
+   dependencies (`text -> geometry`, `paint -> geometry`, and their existing
+   consumers) raise production module edges 323 -> 325. The new architecture
+   receipt raises test-only edges 97 -> 98, cross-slot test edges 77 -> 78, and
+   filesystem reads 298 -> 299; source-root mentions remain 104. Explicit
+   crate-private constructors and the physical area species raise production
+   `pub(crate)` declarations 1,737 -> 1,742. External questions, the one
+   provisional SCC, allowances, panics, and expects remain 2, 1, 10, 9, and
+   102.
+7. **Fixed point and next frontier.** Text contains no paint import, geometry
+   contains no rendering reason for existence, and paint retains the policy
+   that only its renderer/native consumers need. The text/paint coordinate
+   cycle is closed. Rung 2 continues with renderer-ready scene grammar and the
+   direct scene `glyphon` dependency, followed by the complete read-only text
+   projection versus mutation/history/IME trace.
 
 ## Initial hypotheses and queue
 

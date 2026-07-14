@@ -120,18 +120,23 @@ questions owned by higher layers.
 
 `geometry`
 
-Owns spatial facts: points, rects, sizes, areas. It should not know about
-widgets, commands, layout policy, scenes, windows, or renderers.
+Owns renderer-neutral spatial facts: integer layout `Point`, `Rect`, and `Size`,
+plus the floating coordinate and unit species shared by text observation,
+layout-to-paint conversion, GPU preparation, surfaces, and native realization.
+`area::Logical` and `area::Physical` remain distinct types so DPI unit safety
+stays enforced by the compiler; floating logical points are `point::Logical`.
+Geometry should not know about widgets, commands, layout policy, scenes,
+windows, paint lists, or renderers.
 
-Paint-space geometry belongs to the private `paint` module. It is the f32,
-device-grid-aware vocabulary used by text layout, paint conversion, and GPU
-preparation internals; it is not public framework geometry and should not leak
-into widget, view, layout, or app APIs. `paint::area::Logical` and
-`paint::area::Physical` remain distinct types so DPI unit safety stays enforced
-by the compiler.
+The private `paint` module owns renderer-ready policy and representation: its
+flattened display list, device-grid `Grid`, rounded `Rect`/`Rounding`, brushes,
+clips, groups, and material primitives. Paint consumes geometry-owned area and
+point facts; text does not import paint vocabulary. Renderer-neutral
+coordinates must not be duplicated under paint merely because paint consumes
+them.
 
 The layout-to-paint boundary is a geometry boundary. Layout frames use integer
-logical coordinates. Paint uses floating logical coordinates because a
+logical coordinates. Paint consumes floating logical coordinates because a
 device-pixel-aligned edge may be fractional in logical space at scale factors
 such as 125%. Boundary conversion multiplies by the active scale factor, rounds
 in device-pixel space, and divides back to floating logical coordinates. Do
@@ -1316,6 +1321,14 @@ Internal routing details stay private.
 This rule keeps call sites readable while preserving context for narrower
 types. A type should move toward a module root only when it is part of that
 module's public meaning, not merely because many files mention it.
+
+When a public module and its central type have the same name, the parent
+re-exports only that type. Call sites import the pair as `{module, Module}`;
+supporting concepts keep simple declarations inside the module and are spelled
+`module::Type`. Do not retain a compound declaration only to re-export it under
+a shorter name, including at a parent module: rename the declaration to the
+exported name and let callers use the module namespace when distinction is
+needed.
 
 ## The Implementation Protocol
 
