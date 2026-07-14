@@ -3374,6 +3374,50 @@ Status: **complete; catalog and authored entry state separated**. Correction
    reverse sweep continues across the remaining view/layout/widget/session/
    theme/scene inventories; this cell does not close Rung 5.
 
+### R5-20 — valid projected table-track species
+
+Status: **complete; axis and column-only resize facts made inseparable**.
+Correction `b44ff406` (`Make table track species valid`).
+
+1. **Question and complete trace.** The reverse layout-table sweep traced track
+   projection from table/header/row frames through resolved column geometry,
+   row and column rule paint, floating-layer ordering, clipped divider hits,
+   resize targets/actions, renderer scene inspection, rebuilds, sorting, scroll,
+   and the complete table-layout witness set.
+2. **Invalid state and ownership.** `layout::table::Track` carried an `Axis` and
+   optional `Column` independently. Its two producers admitted only column
+   tracks with resize identity/geometry and row tracks without those facts, but
+   the representation also admitted both contradictory combinations. Layout
+   remains the one owner of the resolved projection; no new seam is needed.
+3. **Correction.** A private `Kind::{Column(Column), Row}` now owns the species.
+   Axis is derived from it, and header identity, divider target, resize action,
+   and hit geometry all consume one private column-fact projection. The parallel
+   axis field, optional column field, and their implicit agreement are deleted.
+4. **Boundary and naming ruling.** `Kind` remains private to `layout::table` and
+   receives no projection or alias. Existing crate-visible `Track`, `Axis`, and
+   their parent spellings remain unchanged; no compound declaration is exposed
+   under a simpler re-export and no visibility widened.
+5. **Behavior and economics.** Track order, boundaries, clipped rule geometry,
+   floating-layer placement, header/row paint axes, divider hit zones, resize
+   widths, rebuild identity, allocation, cloning, hashing, and presentation work
+   are unchanged. One enum discriminant replaces the axis plus option
+   discriminants without a heap object, lookup, or additional traversal.
+6. **Doctrine and witness.** Master design now states the two table-track
+   species and makes axis a projection rather than parallel truth. The
+   architecture witness pins the private sum and tombstones the independent
+   axis and optional-column fields.
+7. **Proof and gauge delta from R5-19.** The focused architecture witness passed;
+   the full library discovered 1,102 tests and passed 1,092 with 10 ignored; all
+   targets compiled without warnings. All nine census parser witnesses, the
+   full census, formatting, diff, and protected-state checks passed. Every
+   graph, visibility, test-edge, source-root, filesystem, allowance, panic, and
+   expect gauge remains unchanged.
+8. **Fixed point and next frontier.** A projected table track now carries exactly
+   the facts its row or column species can mean. The reverse sweep continues
+   through scene animation, view/layout role state, widget/session/theme facts,
+   and the remaining lifecycle and intermediate inventories; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
