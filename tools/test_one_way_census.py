@@ -8,7 +8,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from one_way_census import (  # noqa: E402
+    Edge,
     belongs_to_test_only_module,
+    effective_edges,
     external_module_candidates,
     mask_rust_literals_and_comments,
     partition_test_code,
@@ -113,6 +115,34 @@ mod tests {
     def test_external_dependency_does_not_match_a_nested_path_segment(self) -> None:
         self.assertTrue(uses_dependency("use windows::Win32;", "windows"))
         self.assertFalse(uses_dependency("use std::os::windows::ffi;", "windows"))
+
+    def test_source_responsibilities_refine_only_their_own_receipts(self) -> None:
+        edge = Edge(
+            "view",
+            "diagnostics",
+            {"src/view/context.rs", "src/view/mod.rs"},
+        )
+
+        resolved = effective_edges(
+            {("view", "diagnostics"): edge},
+            {"view": "ui", "diagnostics": "diagnostics"},
+            {"src/view/context.rs": "facade"},
+        )
+
+        self.assertEqual(
+            [
+                (
+                    item.source_slot,
+                    item.target_slot,
+                    item.locations,
+                )
+                for item in resolved
+            ],
+            [
+                ("facade", "diagnostics", {"src/view/context.rs"}),
+                ("ui", "diagnostics", {"src/view/mod.rs"}),
+            ],
+        )
 
 
 if __name__ == "__main__":

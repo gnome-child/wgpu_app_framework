@@ -272,6 +272,15 @@ and action metadata. View answers "what is being presented?" It should not own
 input dispatch, command execution, mutation history, platform rendering, or
 task execution.
 
+The application view callback is a facade contract around that declarative
+territory. Its `view::Context` input is not node data: it is a per-window
+callback envelope containing the window identity and an immutable diagnostics
+snapshot. Runtime constructs the envelope when it invokes the callback, and
+`src/view/context.rs` is the one facade-owned source responsibility housed under
+the established `view` API. No other view source may depend on diagnostics.
+This split preserves the public spelling without making the whole view module
+own application instrumentation or forcing diagnostics through declarative UI.
+
 `task`
 
 Owns deferred job execution through a bounded worker pool. `Task<E>` describes

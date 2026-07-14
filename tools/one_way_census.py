@@ -33,13 +33,32 @@ class Edge:
 
 
 @dataclass
+class EffectiveEdge:
+    source: str
+    target: str
+    source_slot: str
+    target_slot: str
+    locations: set[str] = field(default_factory=set)
+
+
+@dataclass
+class ExternalEdge:
+    source: str
+    dependency: str
+    source_slot: str
+    locations: set[str] = field(default_factory=set)
+
+
+@dataclass
 class Census:
     root: Path
     modules: list[str]
     module_slots: dict[str, str]
+    source_slots: dict[str, str]
     production_edges: dict[tuple[str, str], Edge]
     test_edges: dict[tuple[str, str], Edge]
     external_users: dict[str, set[str]]
+    external_user_locations: dict[str, dict[str, set[str]]]
     pub_crate_total: int
     pub_crate_files: int
     cross_slot_pub_crate_upper_bound: int
@@ -360,6 +379,7 @@ def load_slots(
     dict[str, set[str]],
     dict[str, set[str]],
     dict[str, set[str]],
+    dict[str, str],
 ]:
     data = json.loads(path.read_text(encoding="utf-8"))
     owners: dict[str, str] = {}
@@ -378,7 +398,13 @@ def load_slots(
         dependency.replace("-", "_"): set(modules)
         for dependency, modules in data.get("external_module_exceptions", {}).items()
     }
-    return owners, allowed, external_allowed, external_exceptions
+    source_slots = dict(data.get("source_responsibilities", {}))
+    unknown_source_slots = sorted(set(source_slots.values()) - set(allowed))
+    if unknown_source_slots:
+        raise ValueError(
+            f"source responsibilities name unknown slots: {unknown_source_slots}"
+        )
+    return owners, allowed, external_allowed, external_exceptions, source_slots
 
 
 def cargo_dependencies(manifest: Path) -> set[str]:
@@ -414,6 +440,38 @@ def add_edge(edges: dict[tuple[str, str], Edge], source: str, target: str, locat
     edge.locations.add(location)
 
 
+def effective_edges(
+    edges: dict[tuple[str, str], Edge],
+    module_slots: dict[str, str],
+    source_slots: dict[str, str],
+) -> list[EffectiveEdge]:
+    grouped: dict[tuple[str, str, str, str], EffectiveEdge] = {}
+    for edge in edges.values():
+        for location in edge.locations:
+            source_slot = source_slots.get(location, module_slots[edge.source])
+            target_slot = module_slots[edge.target]
+            key = (edge.source, edge.target, source_slot, target_slot)
+            effective = grouped.setdefault(
+                key,
+                EffectiveEdge(
+                    source=edge.source,
+                    target=edge.target,
+                    source_slot=source_slot,
+                    target_slot=target_slot,
+                ),
+            )
+            effective.locations.add(location)
+    return sorted(
+        grouped.values(),
+        key=lambda edge: (
+            edge.source_slot,
+            edge.source,
+            edge.target_slot,
+            edge.target,
+        ),
+    )
+
+
 def count_pattern(sources: Iterable[str], pattern: re.Pattern[str]) -> tuple[int, int]:
     count = 0
     touched = 0
@@ -436,13 +494,22 @@ def run_census(
     rust_files = sorted(src.rglob("*.rs"))
     lib = src / "lib.rs"
     modules = discover_modules(lib.read_text(encoding="utf-8"))
-    owners, allowed, external_allowed, external_exceptions = load_slots(slots_path)
+    owners, allowed, external_allowed, external_exceptions, source_slots = load_slots(
+        slots_path
+    )
     dependencies = cargo_dependencies(root / "Cargo.toml")
     expected = set(modules) | {"lib"}
     missing = sorted(expected - set(owners))
     extra = sorted(set(owners) - expected)
     if missing or extra:
         raise ValueError(f"slot map mismatch; missing={missing}, extra={extra}")
+
+    rust_locations = {path.relative_to(root).as_posix() for path in rust_files}
+    unknown_source_paths = sorted(set(source_slots) - rust_locations)
+    if unknown_source_paths:
+        raise ValueError(
+            f"source responsibilities name unknown Rust files: {unknown_source_paths}"
+        )
 
     masked_files = {
         path: mask_rust_literals_and_comments(path.read_text(encoding="utf-8"))
@@ -463,6 +530,9 @@ def run_census(
     production_edges: dict[tuple[str, str], Edge] = {}
     test_edges: dict[tuple[str, str], Edge] = {}
     external_users: dict[str, set[str]] = defaultdict(set)
+    external_user_locations: dict[str, dict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
     for path in rust_files:
         parts = module_path(src, path)
         source_module = parts[0] if parts else "lib"
@@ -483,14 +553,15 @@ def run_census(
                 for dependency in dependencies:
                     if uses_dependency(code, dependency):
                         external_users[dependency].add(source_module)
+                        external_user_locations[dependency][source_module].add(location)
 
     pub_total, pub_files = count_pattern(
         production_files.values(), re.compile(r"\bpub\s*\(\s*crate\s*\)")
     )
     cross_providers = {
-        target
-        for source, target in production_edges
-        if owners[source] != owners[target]
+        edge.target
+        for edge in effective_edges(production_edges, owners, source_slots)
+        if edge.source_slot != edge.target_slot
     }
     upper_bound = 0
     for path in rust_files:
@@ -522,16 +593,23 @@ def run_census(
         production_files.values(), re.compile(r"\.\s*expect\s*\(")
     )
     cross_slot_test_edges = sum(
-        1 for source, target in test_edges if owners[source] != owners[target]
+        1
+        for edge in effective_edges(test_edges, owners, source_slots)
+        if edge.source_slot != edge.target_slot
     )
 
     return Census(
         root=root,
         modules=modules,
         module_slots=owners,
+        source_slots=source_slots,
         production_edges=production_edges,
         test_edges=test_edges,
         external_users=dict(external_users),
+        external_user_locations={
+            dependency: dict(users)
+            for dependency, users in external_user_locations.items()
+        },
         pub_crate_total=pub_total,
         pub_crate_files=pub_files,
         cross_slot_pub_crate_upper_bound=upper_bound,
@@ -544,36 +622,56 @@ def run_census(
     ), allowed, external_allowed, external_exceptions
 
 
-def forbidden_edges(census: Census, allowed: dict[str, set[str]]) -> list[Edge]:
+def forbidden_edges(
+    census: Census, allowed: dict[str, set[str]]
+) -> list[EffectiveEdge]:
     result = []
-    for edge in census.production_edges.values():
-        source_slot = census.module_slots[edge.source]
-        target_slot = census.module_slots[edge.target]
-        if source_slot != target_slot and target_slot not in allowed[source_slot]:
+    for edge in effective_edges(
+        census.production_edges, census.module_slots, census.source_slots
+    ):
+        if (
+            edge.source_slot != edge.target_slot
+            and edge.target_slot not in allowed[edge.source_slot]
+        ):
             result.append(edge)
-    return sorted(result, key=lambda edge: (census.module_slots[edge.source], edge.source, edge.target))
+    return result
 
 
 def forbidden_external_edges(
     census: Census,
     external_allowed: dict[str, set[str]],
     external_exceptions: dict[str, set[str]],
-) -> list[tuple[str, str, str]]:
-    violations = []
+) -> list[ExternalEdge]:
+    violations: list[ExternalEdge] = []
     for dependency, allowed_slots in external_allowed.items():
-        for module in census.external_users.get(dependency, set()):
-            slot = census.module_slots[module]
+        for module, locations in census.external_user_locations.get(
+            dependency, {}
+        ).items():
             excepted_modules = external_exceptions.get(dependency, set())
-            if slot not in allowed_slots and module not in excepted_modules:
-                violations.append((module, dependency, slot))
-    return sorted(violations)
+            grouped_locations: dict[str, set[str]] = defaultdict(set)
+            for location in locations:
+                slot = census.source_slots.get(
+                    location, census.module_slots[module]
+                )
+                grouped_locations[slot].add(location)
+            for slot, receipts in grouped_locations.items():
+                if slot not in allowed_slots and module not in excepted_modules:
+                    violations.append(
+                        ExternalEdge(module, dependency, slot, receipts)
+                    )
+    return sorted(
+        violations,
+        key=lambda edge: (edge.source, edge.dependency, edge.source_slot),
+    )
 
 
 def slot_edges(census: Census) -> set[tuple[str, str]]:
     return {
-        (census.module_slots[source], census.module_slots[target])
-        for source, target in census.production_edges
-        if census.module_slots[source] != census.module_slots[target]
+        (edge.source_slot, edge.target_slot)
+        for edge in effective_edges(
+            census.production_edges, census.module_slots, census.source_slots
+        )
+        if edge.source_slot != edge.target_slot
     }
 
 
@@ -634,19 +732,25 @@ def as_json(
         "test_module_edges": len(census.test_edges),
         "slot_edges": sorted([list(edge) for edge in slot_edges(census)]),
         "slot_cycles": strongly_connected(set(census.module_slots.values()), slot_edges(census)),
+        "source_responsibilities": dict(sorted(census.source_slots.items())),
         "forbidden_edges": [
             {
                 "source": edge.source,
                 "target": edge.target,
-                "source_slot": census.module_slots[edge.source],
-                "target_slot": census.module_slots[edge.target],
+                "source_slot": edge.source_slot,
+                "target_slot": edge.target_slot,
                 "locations": sorted(edge.locations),
             }
             for edge in forbidden
         ],
         "external_boundary_violations": [
-            {"module": module, "dependency": dependency, "slot": slot}
-            for module, dependency, slot in external_forbidden
+            {
+                "module": edge.source,
+                "dependency": edge.dependency,
+                "slot": edge.source_slot,
+                "locations": sorted(edge.locations),
+            }
+            for edge in external_forbidden
         ],
         "external_module_exceptions": {
             dependency: sorted(modules)
@@ -693,6 +797,7 @@ def as_markdown(
         f"| Top-level modules | {len(census.modules)} |",
         f"| Production module edges | {len(census.production_edges)} |",
         f"| Test-only module edges | {len(census.test_edges)} |",
+        f"| Split source responsibilities | {len(census.source_slots)} |",
         f"| Provisional slot edges | {len(edges)} |",
         f"| Provisional forbidden module edges | {len(forbidden)} |",
         f"| Provisional external-boundary violations | {len(external_forbidden)} |",
@@ -715,7 +820,7 @@ def as_markdown(
         receipts = "<br>".join(f"`{location}`" for location in sorted(edge.locations))
         lines.append(
             f"| `{edge.source}` | `{edge.target}` | "
-            f"`{census.module_slots[edge.source]}` -> `{census.module_slots[edge.target]}` | {receipts} |"
+            f"`{edge.source_slot}` -> `{edge.target_slot}` | {receipts} |"
         )
     if not forbidden:
         lines.append("| — | — | — | — |")
@@ -724,21 +829,35 @@ def as_markdown(
             "",
             "## Provisional external-boundary violations",
             "",
-            "| Module | Dependency | Provisional slot | Allowed slots |",
-            "|---|---|---|---|",
+            "| Module | Dependency | Provisional slot | Allowed slots | Receipts |",
+            "|---|---|---|---|---|",
         ]
     )
-    for module, dependency, slot in external_forbidden:
-        allowed_slots = ", ".join(f"`{item}`" for item in sorted(external_allowed[dependency]))
-        lines.append(f"| `{module}` | `{dependency}` | `{slot}` | {allowed_slots} |")
+    for edge in external_forbidden:
+        allowed_slots = ", ".join(
+            f"`{item}`" for item in sorted(external_allowed[edge.dependency])
+        )
+        receipts = "<br>".join(
+            f"`{location}`" for location in sorted(edge.locations)
+        )
+        lines.append(
+            f"| `{edge.source}` | `{edge.dependency}` | `{edge.source_slot}` | "
+            f"{allowed_slots} | {receipts} |"
+        )
     if not external_forbidden:
-        lines.append("| — | — | — | — |")
+        lines.append("| — | — | — | — | — |")
     lines.extend(["", "Accepted module-specific external exceptions:"])
     if external_exceptions:
         for dependency, modules in sorted(external_exceptions.items()):
             lines.append(
                 f"- `{dependency}`: " + ", ".join(f"`{module}`" for module in sorted(modules))
             )
+    else:
+        lines.append("- None.")
+    lines.extend(["", "Split source responsibilities:"])
+    if census.source_slots:
+        for location, slot in sorted(census.source_slots.items()):
+            lines.append(f"- `{location}`: `{slot}`")
     else:
         lines.append("- None.")
     lines.extend(["", "## Provisional slot cycles", ""])

@@ -149,5 +149,8 @@
     "windows_sys": ["document", "platform"],
     "winit": ["platform"]
   },
+  "source_responsibilities": {
+    "src/view/context.rs": "facade"
+  },
   "external_module_exceptions": {}
 }

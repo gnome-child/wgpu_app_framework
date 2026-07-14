@@ -272,6 +272,47 @@ fn layout_publishes_text_facts_without_importing_diagnostics() {
 }
 
 #[test]
+fn view_callback_context_is_a_facade_responsibility() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let view = src.join("view");
+    let context_path = view.join("context.rs");
+    let context =
+        std::fs::read_to_string(&context_path).expect("view callback context should read");
+    let view_mod = std::fs::read_to_string(view.join("mod.rs")).expect("view module should read");
+    let runtime = std::fs::read_to_string(src.join("runtime").join("mod.rs"))
+        .expect("runtime module should read");
+    let builder = std::fs::read_to_string(src.join("runtime").join("builder.rs"))
+        .expect("runtime builder should read");
+    let presentation = std::fs::read_to_string(src.join("runtime").join("presentation.rs"))
+        .expect("runtime presentation should read");
+    let slots = std::fs::read_to_string(root.join("tools").join("one_way_slots.json"))
+        .expect("one-way slot map should read");
+
+    assert!(
+        context.contains("pub struct Context")
+            && context.contains("window: window::Id")
+            && context.contains("diagnostics: Diagnostics")
+            && context.contains("pub fn diagnostics(&self) -> &Diagnostics")
+            && view_mod.contains("pub use context::Context;"),
+        "the established view facade must expose one immutable per-window callback envelope"
+    );
+    assert!(
+        runtime.contains("type ViewCallback<M, V> = Box<dyn Fn(&M, view::Context) -> V>;")
+            && builder.contains("callback: impl Fn(&M, view::Context) -> V2 + 'static")
+            && presentation.contains("view::Context::new(")
+            && presentation.contains("self.diagnostics.get(window).cloned().unwrap_or_default()"),
+        "runtime must construct the facade context exactly when invoking the application view callback"
+    );
+    assert_pattern_only_in(&view, "diagnostics", &context_path);
+    assert!(
+        slots.contains("\"src/view/context.rs\": \"facade\"")
+            && !slots.contains("\"src/view\": \"facade\""),
+        "the gauge must assign only the dedicated callback source to facade responsibility"
+    );
+}
+
+#[test]
 fn semantic_scene_lowering_belongs_to_renderer() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let render_scene = std::fs::read_to_string(root.join("render").join("scene.rs"))
@@ -4436,7 +4477,7 @@ fn assert_pattern_only_in(path: &std::path::Path, pattern: &str, allowed: &std::
         if source.contains(pattern) {
             assert_eq!(
                 path, allowed,
-                "{pattern} must appear only in the named platform adaptation site"
+                "{pattern} must appear only in the named ownership site"
             );
         }
     }
