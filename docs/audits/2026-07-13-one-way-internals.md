@@ -4642,6 +4642,74 @@ Status: **complete resistance ruling; no production correction admitted**.
    layout lifecycles and the complete visibility/failure/intermediate
    inventories; this cell does not close Rung 5.
 
+### R5-42 — theme patch absence and truthful glass round trips
+
+Status: **complete; patch optionality retained and one lossy export corrected**.
+Correction `27dcc1d0` (`Preserve theme glass luminosity round trips`).
+
+1. **Question and complete trace.** The reverse theme sweep traced public TOML
+   parsing and serialization through variant selection, palette extension and
+   reference resolution, every optional section and token, typography-derived
+   defaults, solid and glass material admission, recipe/current-material
+   overlay, public programmatic material mutation, glass-tuner projection,
+   runtime token consumption, unknown-field/color/recipe failures, and full
+   export/reparse. All patch and export transport types remain private to
+   `theme::toml`; resolved `Theme` stores total runtime tokens.
+2. **Absence and material-species resistance.** `Option` in `ThemePatch` and
+   its section patches is authored omission: an absent variant selects dark,
+   an absent section or field inherits the selected base, and an absent glass
+   member inherits its recipe or current material. Glass members are
+   intentionally independent partial overrides; tint/opacity, luminosity
+   color/opacity, and the refraction components resolve their missing peer from
+   current truth. Collapsing those options into runtime species would erase the
+   patch language rather than remove invalid state. `MaterialToml::Solid` and
+   `Glass` remain the honest exclusive material species.
+3. **Discovered information loss.** The public material API can install a
+   `Glass` whose `Luminosity` has an arbitrary color and opacity, but TOML
+   exported only the opacity and always selected a recipe from the theme
+   variant. A pinned public round trip failed before correction: a dark theme
+   carrying panel-light glass with luminosity `#123456` reparsed with the dark
+   recipe's `#1c1c1e` luminosity. The glass tuner's displayed patch had the same
+   mismatch after tint tuning because its rendered luminosity used the tint
+   color while its TOML omitted that fact.
+4. **Correction and displaced path.** Glass TOML now accepts optional
+   `luminosity-color` beside the established `luminosity-opacity`. Supplying
+   either preserves the other from the current recipe; export emits both facts
+   whenever luminosity exists. The glass tuner emits the same tint as its
+   luminosity color, so the displayed patch now describes its rendered
+   material. The lossy recipe recovery is deleted without changing existing
+   opacity-only patches, variant defaults, or any other token.
+5. **Boundary and naming ruling.** The new field is private patch vocabulary;
+   no Rust declaration, visibility, parent projection, or call-site import was
+   added. `Theme`, `ThemeTomlError`, `Material`, `Glass`, and `Luminosity` keep
+   their established canonical names. No compound declaration is projected
+   under a simple alias, no namesake module flattens a supporting type, and the
+   cell does not widen into unrelated naming cleanup.
+6. **Behavior and economics.** Existing theme files retain their inheritance
+   semantics; opacity-only glass patches preserve recipe color; unknown fields,
+   colors, recipes, and nonuniform rounding retain typed failure. Runtime
+   layout, shaping, scene order, material layers, renderer topology,
+   batching/pass fusion, invalidation, presentation clocks, allocation, and
+   frame work are unchanged. Serialization adds one truthful inline field only
+   when the resolved material has luminosity.
+7. **Doctrine and proof.** Master design now distinguishes patch absence from
+   resolved theme state and requires serialization of every publicly mutable
+   material fact. The new witness proves color-only inheritance and a public
+   custom-glass round trip; all fifteen theme TOML tests and the glass-tuner
+   render/patch journey passed. The full library discovered 1,124 tests and
+   passed 1,114 with 10 ignored; all five examples compiled; formatting and
+   diff checks passed.
+8. **Gauge delta and next frontier.** The full census remains 47 top-level
+   modules, 325 production edges, 111 test-only edges, three split
+   responsibilities, 54 slot edges, zero forbidden/external/SCC findings,
+   1,815 production `pub(crate)` declarations in 191 files, a 1,768 cross-slot
+   upper bound, 90 cross-slot test edges, 118 source-root mentions, 361
+   filesystem reads, six allowances, six panics, and 86 expects. Theme patch
+   absence and material species are now at fixed point. The reverse sweep
+   continues through remaining layout lifecycles and the complete visibility,
+   failure, intermediate, housing, and naming inventories; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
