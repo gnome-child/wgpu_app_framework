@@ -4017,6 +4017,72 @@ Status: **complete; repeated semantic fallback centralized**. Correction
    the complete visibility/failure/intermediate inventories; this cell does not
    close Rung 5.
 
+### R5-32 — one structural view-node content truth
+
+Status: **complete; role and mutually exclusive payload made inseparable**.
+Correction `31b62d65` (`Make view node content structural`).
+
+1. **Question and complete trace.** The reverse view-role sweep traced every
+   `Node` constructor and builder through widgets, tables, virtual-list
+   materialization, standard-menu projection, command palettes, contextual and
+   feedback panels, retained composition, layout frame construction, pointer
+   targets, text commits, focus projection, scene production, and public model
+   inspection. It covered ordinary and table scrolls, committed and
+   uncommitted text boxes, standard and ordinary menu bars, interactive and
+   hit-transparent floating panels, role-changing layout containers, and
+   removal/rebuild lifecycles.
+2. **Invalid states and co-occurrence resistance.** `Node` stored `Role` beside
+   independent optional control, virtual-list, table-scroll, text-commit,
+   standard-menu, scroll-offset, and floating-panel facts. The representation
+   admitted payload-less controls, payloads under unrelated roles, table models
+   on arbitrary nodes, commit capability outside text boxes, standard-menu
+   extensions on ordinary bars, and floating facts on nonfloating nodes. By
+   contrast, identity, axis, style, subject/label, binding, focus/selection,
+   provided/table identity, participation, context-menu eligibility, and
+   children all have witnessed cross-role combinations and remain common.
+3. **Correction and displaced paths.** One private `Content` sum is now the
+   role truth and owns control models directly, ordinary/table scroll species,
+   virtual-list model and offset, text-box commit capability, ordinary/standard
+   menu-bar species, and floating-panel state. `Role` is derived. The redundant
+   private `Control` sum, copied role, parallel payload fields,
+   `with_table_model`, and `with_text_commit` are deleted; table scroll and
+   committed text-box constructors admit those capabilities structurally.
+4. **Boundary and naming ruling.** Public `view::Node` and each concrete control
+   model retain their established simple names. Private `Content`, `MenuBar`,
+   `Scroll`, and `Panel` stay in private node housing and receive no parent
+   projection, alias, or flattened supporting export. The cell introduces no
+   compound declaration under a simpler re-export and does not reopen unrelated
+   naming cleanup.
+5. **Behavior and economics.** Construction, binding, standard-menu
+   projection, virtual materialization, table horizontal scrolling, text
+   commit lookup, floating placement/policy, focus, hit testing, layout, scene
+   order, renderer topology, batching/pass fusion, invalidation, and every
+   presentation clock are unchanged. The same owned models and Copy facts move
+   through exhaustive constant-time matches; no heap allocation, callback,
+   lookup, traversal, or frame work was added.
+6. **Doctrine and witnesses.** Master design now names the common node envelope,
+   one private typed content truth, and the justified common annotations. The
+   architecture witness pins structural control, scroll, virtual-list,
+   text-commit, standard-menu, and floating-panel species; tombstones every
+   displaced field and builder; and strengthens the prior control-privacy
+   witness to forbid restoration of any parallel `Control` enum.
+7. **Proof and gauge delta from R5-31.** The structural witnesses, 39 text-box,
+   15 virtual-list, 60 table, two standard-menu, and ten floating-panel tests
+   passed. The full library discovered 1,116 tests and passed 1,106 with 10
+   ignored; all targets and all five examples compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every gauge remains unchanged: production/
+   test edges 325/111, split responsibilities 3, slot edges 54, forbidden/
+   external/SCC counts 0/0/0, production `pub(crate)` 1,810 in 190 files,
+   cross-slot upper bound 1,763, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 361, allowances 6, panics 6, and expects 89.
+8. **Fixed point and next frontier.** View role and its exclusive payload now
+   have one structural owner from construction through layout projection, while
+   genuine cross-role annotations remain explicit resistance outcomes. The
+   reverse sweep continues through remaining layout/view projections,
+   widget/theme state, session lifecycles, and the complete visibility,
+   failure, and intermediate inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
