@@ -3896,6 +3896,68 @@ Status: **complete; cross-owner cleanup made explicit**. Correction `b4e00498`
    and the remaining visibility, failure, and intermediate inventories; this
    cell does not close Rung 5.
 
+### R5-30 — explicitly optional focus-to-text-target projection
+
+Status: **complete; partial public conversions retired**. Correction `d925281d`
+(`Make focus text targets explicitly optional`).
+
+1. **Question and complete trace.** The reverse focus/target sweep traced text,
+   table-cell, and control focus from construction through session focus,
+   composition target projection, ordinary character input, selection, IME
+   preedit and commit, local drafts, focused services, text drop, caret reveal
+   and blink, TextBox/TextArea projection, table editing, snapshot tests, and
+   every conversion call site. Text and table-cell focus have text targets;
+   control focus is a keyboard destination with no text target.
+2. **Partial API and reachable failure.** `Focus::target` panicked for table-cell
+   and control focus, `Focus::into_target` expected every focus to be textual,
+   and `Target::text_area(Focus)` publicly presented that partial conversion as
+   total. A printable key or IME preedit while an ordinary control held focus
+   could reach the conversion and panic. Safe `Focus::target_id` and
+   `Focus::text_target` already represented the two distinct optional
+   projections, so the total-looking routes preserved no independent invariant.
+3. **Correction and displaced path.** Deleted all three partial public methods
+   and migrated runtime input, session draft operations, focused services,
+   view/layout target projection, widgets, and tests to `text_target()` or
+   `target_id()` according to the fact they need. Every text consumer now
+   handles absence through its existing false, `None`, not-attempted, or ignored
+   outcome; no compatibility shim, fallback target, panic, or duplicated
+   species check survives.
+4. **Boundary and naming ruling.** Session continues to own focus species and
+   interaction continues to own target representation. The one narrow
+   `Option<interaction::Target>` projection is the honest crossing; moving focus
+   into interaction or making runtime rediscover the species would blur those
+   owners. Existing simple `Focus`, `Target`, `target_id`, and `text_target`
+   names remain exact. No compound declaration, aliased projection, supporting
+   parent re-export, or unrelated rename was introduced.
+5. **Behavior and economics.** Text and table-cell editing, draft retention,
+   selection, history, feedback, reveal, caret blink, text drop, table-cell
+   identity, view projection, shaping, scene order, renderer topology,
+   presentation clocks, allocation, and lookup work are unchanged. Control-
+   focused printable input and preedit now take the ordinary unavailable path
+   instead of violating the focus species; successful text paths perform the
+   same constant-time match that the deleted conversions performed.
+6. **Doctrine and witnesses.** Master design now names all three focus species,
+   the optional text-target law, and absence behavior. The architecture witness
+   requires the optional projection and tombstones all three partial APIs. A
+   runtime behavior witness proves both printable input and IME preedit are
+   ignored without changing state or focus while a control owns focus; all 26
+   text-box, 28 text-input, and 13 focus witnesses passed.
+7. **Proof and gauge delta from R5-29.** The full library discovered 1,113 tests
+   and passed 1,103 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Production/test edges remain 325/111; split
+   responsibilities, slot edges, forbidden edges, external violations, SCCs,
+   production `pub(crate)`, cross-slot upper bound, cross-slot test edges,
+   source-root mentions, filesystem reads, and allowances remain 3, 54,
+   0/0/0, 1,810, 1,763, 90, 118, 361, and 6. Deleting the partial methods lowers
+   production panics 7 -> 6 and expects 90 -> 89.
+8. **Fixed point and next frontier.** Focus-to-text conversion is now total only
+   through an explicit option, and no text ingress assumes all keyboard focus is
+   editable. The reverse sweep continues through view/layout role facts,
+   widget/theme state, the remaining session lifecycles, and the full
+   visibility/failure/intermediate inventories; this cell does not close Rung
+   5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
