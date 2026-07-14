@@ -4226,6 +4226,63 @@ structural`).
    lifecycles, and the complete visibility/failure/intermediate inventories;
    this cell does not close Rung 5.
 
+### R5-35 — valid widget label text species
+
+Status: **complete; mutually exclusive builder policy made structural**.
+Correction `0714a744` (`Make widget label text species structural`).
+
+1. **Question and complete trace.** The widget-state sweep traced all public
+   `Label::new`, `Label::world`, and `Label::wrapped` entrances through widget
+   conversion, view-node construction, author-overflow diagnostics,
+   world-text resolution, wrapping, measurement, scene paint, selectable
+   source mapping, and overflow hover explanation. The constructors are the
+   complete mutation surface; no setter or deserialization path can add a
+   fourth policy.
+2. **Invalid state.** `widget::Label` stored overflow and wrap as independent
+   options. Its constructors admitted exactly author text, single-line world
+   text with an explicit overflow policy, or wrapped world text with Clip, but
+   the representation also admitted simultaneous ellipsis and wrapping. Node
+   conversion retained an `unreachable!` solely to reject that impossible
+   builder state.
+3. **Correction and displaced path.** One private
+   `Content::{Author, World { text, wrap, overflow }}` fact now owns label text
+   provenance and policy. Each public constructor selects its exact species,
+   and conversion exhaustively projects the same author, world, or wrapped
+   node. The two independent options, tuple agreement match, and unreachable
+   branch are deleted without adding a wrapper at any crossing.
+4. **Boundary and naming ruling.** Public `widget::Label` and its three
+   constructors retain their exact established spellings. Private `Content`
+   stays inside private `widget::control::label` housing and receives no parent
+   projection, alias, or flattened supporting export. The namesake central
+   `Label` remains the only public parent projection; no compound declaration
+   is re-exported under a simpler name.
+5. **Behavior and economics.** Author diagnostics, explicit Clip/end/middle
+   overflow, word wrapping, source text, measured dimensions, scene glyphs,
+   hover eligibility/content, allocation, shaping/cache identity, renderer
+   topology, batching/pass fusion, invalidation, and presentation clocks are
+   unchanged. One enum discriminant replaces two option discriminants and no
+   heap object, callback, lookup, traversal, or frame work is added.
+6. **Doctrine and witnesses.** Master design now names author and world label
+   species and requires world wrap/overflow policy to be one fact. A focused
+   architecture witness pins the private sum and tombstones both independent
+   options and the unreachable branch.
+7. **Proof and gauge delta from R5-34.** Both world-text layout witnesses and
+   the new structural witness passed. The full library discovered 1,118 tests
+   and passed 1,108 with 10 ignored; all targets and all five examples compiled
+   without warnings. All nine census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed. Every gauge remains
+   unchanged: production/test edges 325/111, split responsibilities 3, slot
+   edges 54, forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,809
+   in 190 files, cross-slot upper bound 1,762, cross-slot test edges 90,
+   source-root mentions 118, filesystem reads 361, allowances 6, panics 6, and
+   expects 89.
+8. **Fixed point and next frontier.** A widget label now carries only one valid
+   text-provenance/policy species and no failure branch remains in conversion.
+   The reverse sweep continues through the larger view/session interaction
+   projections, theme patch semantics, remaining layout lifecycles, and the
+   complete visibility/failure/intermediate inventories; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
