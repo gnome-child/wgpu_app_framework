@@ -48,6 +48,13 @@ enum ProjectedEntry {
     },
 }
 
+#[derive(Clone, Copy)]
+struct Location {
+    category: usize,
+    section: usize,
+    entry: usize,
+}
+
 impl ProjectedEntry {
     fn standard(&self) -> Option<Standard> {
         match self {
@@ -198,15 +205,17 @@ pub(super) fn project(projection: &command::BarProjection, extensions: &[Extensi
 fn apply_extension(categories: &mut [ProjectedCategory], extension: &Extension) {
     match extension.kind {
         ExtensionKind::ItemsBefore(anchor) => {
-            let section = section_containing_mut(categories, anchor);
-            let index = entry_index(section, anchor);
-            section
-                .entries
-                .splice(index..index, authored_entries(&extension.nodes, None));
+            let location = location(categories, anchor);
+            let section = &mut categories[location.category].sections[location.section];
+            section.entries.splice(
+                location.entry..location.entry,
+                authored_entries(&extension.nodes, None),
+            );
         }
         ExtensionKind::ItemsAfter(anchor) => {
-            let section = section_containing_mut(categories, anchor);
-            let mut index = entry_index(section, anchor) + 1;
+            let location = location(categories, anchor);
+            let section = &mut categories[location.category].sections[location.section];
+            let mut index = location.entry + 1;
             while section
                 .entries
                 .get(index)
@@ -220,9 +229,10 @@ fn apply_extension(categories: &mut [ProjectedCategory], extension: &Extension) 
             );
         }
         ExtensionKind::SectionBefore(anchor) => {
-            let (category, index) = section_location(categories, anchor);
+            let location = location(categories, anchor);
+            let category = &mut categories[location.category];
             category.sections.insert(
-                index,
+                location.section,
                 ProjectedSection {
                     entries: authored_entries(&extension.nodes, None),
                     authored_after: None,
@@ -230,8 +240,9 @@ fn apply_extension(categories: &mut [ProjectedCategory], extension: &Extension) 
             );
         }
         ExtensionKind::SectionAfter(anchor) => {
-            let (category, anchor_index) = section_location(categories, anchor);
-            let mut index = anchor_index + 1;
+            let location = location(categories, anchor);
+            let category = &mut categories[location.category];
+            let mut index = location.section + 1;
             while category
                 .sections
                 .get(index)
@@ -248,7 +259,8 @@ fn apply_extension(categories: &mut [ProjectedCategory], extension: &Extension) 
             );
         }
         ExtensionKind::ReplaceSection(anchor) => {
-            let section = section_containing_mut(categories, anchor);
+            let location = location(categories, anchor);
+            let section = &mut categories[location.category].sections[location.section];
             let mut markers = section
                 .entries
                 .iter()
@@ -300,35 +312,21 @@ fn category_mut(
         .unwrap_or_else(|| panic!("menu extension references an unregistered custom category"))
 }
 
-fn section_containing_mut(
-    categories: &mut [ProjectedCategory],
-    anchor: Standard,
-) -> &mut ProjectedSection {
-    let (category, index) = section_location(categories, anchor);
-    &mut category.sections[index]
-}
-
-fn section_location(
-    categories: &mut [ProjectedCategory],
-    anchor: Standard,
-) -> (&mut ProjectedCategory, usize) {
-    for category in categories {
-        if let Some(index) = category.sections.iter().position(|section| {
-            section
+fn location(categories: &[ProjectedCategory], anchor: Standard) -> Location {
+    for (category_index, category) in categories.iter().enumerate() {
+        for (section_index, section) in category.sections.iter().enumerate() {
+            if let Some(entry_index) = section
                 .entries
                 .iter()
-                .any(|entry| entry.standard() == Some(anchor))
-        }) {
-            return (category, index);
+                .position(|entry| entry.standard() == Some(anchor))
+            {
+                return Location {
+                    category: category_index,
+                    section: section_index,
+                    entry: entry_index,
+                };
+            }
         }
     }
     panic!("standard-menu extension anchor is absent from the platform topology")
-}
-
-fn entry_index(section: &ProjectedSection, anchor: Standard) -> usize {
-    section
-        .entries
-        .iter()
-        .position(|entry| entry.standard() == Some(anchor))
-        .expect("section location must contain its anchor")
 }

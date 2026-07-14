@@ -9,13 +9,12 @@ mod axis;
 mod builder;
 mod content;
 mod role;
-mod standard_menu;
+pub(crate) mod standard_menu;
 mod traversal;
 
 pub use axis::Axis;
 pub(crate) use content::{Content, MenuBar, Panel, Scroll};
 pub(crate) use role::Role;
-pub(crate) use standard_menu::Extension as StandardMenuExtension;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TextKind {

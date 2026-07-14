@@ -1327,6 +1327,15 @@ species. A catalog entry may retain an optional standard marker when its live
 action resolves to no node; an authored entry always carries its node and alone
 may carry an after-anchor. Those lifecycles never share parallel optional
 standard, node, and anchor fields.
+Platform templates group each placed standard with its section in one pass.
+Authored extensions resolve an anchor once to one category/section/entry
+location and consume that same location for item or section mutation; consumers
+never rescan a supposedly located section to recover the anchor again. An
+unplaceable standard or unregistered custom category remains an author-contract
+failure rather than a silent omission.
+The extension request is supporting view-node vocabulary and remains
+`view::node::standard_menu::Extension`; neither `node` nor `view` flattens it
+under a compound alias.
 An application requests that projection with `ui.standard_menu_bar()` and
 declares static deviations through typed placement metadata. Dynamic or
 argument-bearing deviations use the typed mixed-bar builder. Fully authored

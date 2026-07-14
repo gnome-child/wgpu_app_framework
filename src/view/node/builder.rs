@@ -27,7 +27,10 @@ impl Node {
         Self::new(Content::MenuBar(MenuBar::Standard(Vec::new())))
     }
 
-    pub(crate) fn push_standard_menu_extension(&mut self, extension: super::StandardMenuExtension) {
+    pub(crate) fn push_standard_menu_extension(
+        &mut self,
+        extension: super::standard_menu::Extension,
+    ) {
         assert!(
             self.standard_menu_extensions().is_some(),
             "standard-menu extensions require a standard menu bar"

@@ -1,6 +1,6 @@
 use super::{
     FloatingPlacement, NativePopupMaterialPreference, PanelAttachment, PanelPolicy, Role,
-    StandardMenuExtension,
+    standard_menu,
 };
 use crate::{interaction, popup, table, virtual_list};
 
@@ -41,7 +41,7 @@ pub(crate) enum Content {
 #[derive(Clone)]
 pub(crate) enum MenuBar {
     Ordinary,
-    Standard(Vec<StandardMenuExtension>),
+    Standard(Vec<standard_menu::Extension>),
 }
 
 #[derive(Clone)]
@@ -90,7 +90,7 @@ impl Content {
         }
     }
 
-    pub(super) fn standard_menu_extensions(&self) -> Option<&[StandardMenuExtension]> {
+    pub(super) fn standard_menu_extensions(&self) -> Option<&[standard_menu::Extension]> {
         match self {
             Self::MenuBar(MenuBar::Standard(extensions)) => Some(extensions),
             _ => None,
@@ -99,7 +99,7 @@ impl Content {
 
     pub(super) fn standard_menu_extensions_mut(
         &mut self,
-    ) -> Option<&mut Vec<StandardMenuExtension>> {
+    ) -> Option<&mut Vec<standard_menu::Extension>> {
         match self {
             Self::MenuBar(MenuBar::Standard(extensions)) => Some(extensions),
             _ => None,

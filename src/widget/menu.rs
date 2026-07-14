@@ -1,4 +1,7 @@
-use crate::{command, interaction, view};
+use crate::{
+    command, interaction,
+    view::{self, node},
+};
 
 use super::{Ui, Widget};
 
@@ -59,7 +62,7 @@ impl StandardMenuBar {
         anchor: command::Standard,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::items_before(
+        self.extend(node::standard_menu::Extension::items_before(
             anchor,
             extension_nodes(children),
         ))
@@ -70,7 +73,7 @@ impl StandardMenuBar {
         anchor: command::Standard,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::items_after(
+        self.extend(node::standard_menu::Extension::items_after(
             anchor,
             extension_nodes(children),
         ))
@@ -81,7 +84,7 @@ impl StandardMenuBar {
         anchor: command::Standard,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::section_before(
+        self.extend(node::standard_menu::Extension::section_before(
             anchor,
             extension_nodes(children),
         ))
@@ -92,7 +95,7 @@ impl StandardMenuBar {
         anchor: command::Standard,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::section_after(
+        self.extend(node::standard_menu::Extension::section_after(
             anchor,
             extension_nodes(children),
         ))
@@ -103,7 +106,7 @@ impl StandardMenuBar {
         anchor: command::Standard,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::replace_section(
+        self.extend(node::standard_menu::Extension::replace_section(
             anchor,
             extension_nodes(children),
         ))
@@ -114,7 +117,7 @@ impl StandardMenuBar {
         category: command::menu::Category,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::append_section(
+        self.extend(node::standard_menu::Extension::append_section(
             category,
             extension_nodes(children),
         ))
@@ -125,13 +128,13 @@ impl StandardMenuBar {
         category: command::menu::Category,
         children: impl FnOnce(&mut Ui),
     ) -> &mut Self {
-        self.extend(view::StandardMenuExtension::replace_category(
+        self.extend(node::standard_menu::Extension::replace_category(
             category,
             extension_nodes(children),
         ))
     }
 
-    fn extend(&mut self, extension: view::StandardMenuExtension) -> &mut Self {
+    fn extend(&mut self, extension: node::standard_menu::Extension) -> &mut Self {
         self.node.push_standard_menu_extension(extension);
         self
     }

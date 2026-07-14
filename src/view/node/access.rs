@@ -202,13 +202,13 @@ impl Node {
         self.content.set_scroll_offset(offset);
     }
 
-    pub(super) fn standard_menu_extensions(&self) -> Option<&[super::StandardMenuExtension]> {
+    pub(super) fn standard_menu_extensions(&self) -> Option<&[super::standard_menu::Extension]> {
         self.content.standard_menu_extensions()
     }
 
     pub(super) fn standard_menu_extensions_mut(
         &mut self,
-    ) -> Option<&mut Vec<super::StandardMenuExtension>> {
+    ) -> Option<&mut Vec<super::standard_menu::Extension>> {
         self.content.standard_menu_extensions_mut()
     }
 }

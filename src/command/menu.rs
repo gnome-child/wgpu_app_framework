@@ -574,19 +574,17 @@ fn template_sections(platform: Platform, category: CategoryIdentity) -> Vec<Vec<
     .collect::<Vec<_>>();
     slots.sort_by_key(|(_, slot)| (section_order(platform, slot.section), slot.ordinal));
 
-    let mut sections = Vec::<Vec<Standard>>::new();
-    let mut current = None;
+    let mut sections = Vec::<(Section, Vec<Standard>)>::new();
     for (role, slot) in slots {
-        if current != Some(slot.section) {
-            sections.push(Vec::new());
-            current = Some(slot.section);
+        match sections.last_mut() {
+            Some((section, standards)) if *section == slot.section => standards.push(role),
+            _ => sections.push((slot.section, vec![role])),
         }
-        sections
-            .last_mut()
-            .expect("section just inserted")
-            .push(role);
     }
     sections
+        .into_iter()
+        .map(|(_, standards)| standards)
+        .collect()
 }
 
 fn section_order(platform: Platform, section: Section) -> usize {

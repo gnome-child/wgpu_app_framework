@@ -32,7 +32,6 @@ pub use context::Context;
 pub(crate) use context_menu::ContextMenu;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub(crate) use hint::{Hint, Tone};
-pub(crate) use node::StandardMenuExtension;
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
 pub(crate) use node::{PanelAttachment, PanelPolicy, Participation, ProvidedRow, Role, TablePart};
 #[cfg(test)]

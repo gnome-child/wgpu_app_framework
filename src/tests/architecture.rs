@@ -285,7 +285,10 @@ fn view_binding_trigger_species_keeps_slider_factory_with_current_trigger() {
 
 #[test]
 fn standard_menu_projected_entry_separates_catalog_and_authored_lifecycles() {
+    let view = include_str!("../view/mod.rs");
+    let node = include_str!("../view/node/mod.rs");
     let menu = include_str!("../view/node/standard_menu.rs");
+    let command_menu = include_str!("../command/menu.rs");
     let entry = menu
         .split("enum ProjectedEntry")
         .nth(1)
@@ -302,6 +305,18 @@ fn standard_menu_projected_entry_separates_catalog_and_authored_lifecycles() {
             && menu.contains("after: Option<Standard>,")
     );
     assert!(!entry.contains("authored_after: Option<Standard>"));
+    assert!(
+        menu.contains("struct Location {")
+            && menu.contains("category: usize,")
+            && menu.contains("section: usize,")
+            && menu.contains("entry: usize,")
+    );
+    assert!(!menu.contains("fn entry_index("));
+    assert!(!menu.contains("section location must contain its anchor"));
+    assert!(!command_menu.contains("section just inserted"));
+    assert!(node.contains("pub(crate) mod standard_menu;"));
+    assert!(!node.contains("as StandardMenuExtension"));
+    assert!(!view.contains("StandardMenuExtension"));
 }
 
 #[test]
@@ -1671,7 +1686,7 @@ fn view_node_content_is_the_single_role_payload_representation() {
         "FloatingPanel(Panel)",
         "pub(super) fn role(&self) -> Role",
         "pub(crate) enum MenuBar {",
-        "Standard(Vec<StandardMenuExtension>)",
+        "Standard(Vec<standard_menu::Extension>)",
         "pub(crate) enum Scroll {",
         "Table {",
     ] {
