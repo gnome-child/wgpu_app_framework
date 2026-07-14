@@ -2509,6 +2509,71 @@ Status: **complete; producer-owned observer fact established**. Correction
    continues through the document projection, view-context diagnostics, and
    window/theme split responsibilities before re-scanning internal state shape.
 
+### R5-02 — document workflow versus runtime housing
+
+Status: **complete; independent document seam admitted**. Correction
+`3826a669` (`Admit document workflow as independent seam`).
+
+1. **Question and complete trace.** The remaining `widget -> document`
+   violation was traced through `TextArea::from_document`, public document
+   construction and mutation, selection, standard editing commands, focused
+   draft and table service implementations, command availability and outcomes,
+   open/save dialogs and cancellation facts, synchronous and deferred saves,
+   identity/version/generation rejection, atomic replacement, application
+   targets, runtime dispatch, and facade exports. Widget consumes only a cloned
+   buffer plus copied selection state; document imports no UI or runtime owner.
+2. **Current and proposed graph.** The provisional runtime slot made document
+   look like orchestration because runtime coordinates its commands. The live
+   module instead owns a complete workflow and depends only on text,
+   command/context/response/target/notification, clipboard, Unicode
+   segmentation, and its private OS replacement primitive. Runtime, UI, and
+   facade are independent consumers. The admitted graph gives `document` its
+   own virtual owner below those consumers.
+3. **Admission and resistance.** The seam has one sentence of ownership,
+   public state/command/save contracts smaller than its implementation, no
+   higher import, independent runtime/widget/application consumers, and
+   meaningful persistence dependency weight. Splitting standard editing
+   commands from the workflow is not admitted: the established command set,
+   document targets, focused-draft targets, and table target share the same
+   typed command identities and outcome law already settled by Rungs 2 and 3.
+   No callback, service locator, or wrapper is introduced to disguise that
+   shared contract.
+4. **Map and external-boundary correction.** The virtual map moves `document`
+   out of runtime, permits its direct clipboard/text/command dependencies, and
+   names UI, runtime, and facade consumers. `unicode-segmentation` now belongs
+   to text and document rather than the false runtime bucket. The former
+   module-specific `windows-sys` exception is retired: document and platform
+   are the two named owners, and document's use remains the target-specific
+   private step of its atomic save transaction.
+5. **Behavior and API.** No Rust production path, public spelling, command
+   identity, buffer clone, selection copy, I/O operation, failure result,
+   cleanup path, or runtime route changed. `TextArea::from_document` remains
+   the exact named value-semantics projection, while `from_buffer` remains the
+   general constructor. No crate or gate was created; document-workflow
+   optionality remains a Rung 6 formulation question.
+6. **Proof and ratchet.** The existing document-to-widget architecture witness
+   now also recursively forbids runtime, session, view, widget, layout, and
+   platform imports under document; pins the independent slot; assigns
+   `windows-sys` directly; and requires the old exception table to be empty.
+   Four focused save/version/temporary-sibling witnesses passed. Full library:
+   1,079 passed, 10 ignored, 0 failed; all targets and all five examples
+   compiled without warnings; all census parser witnesses, formatting, diff,
+   and protected-state checks passed.
+7. **Gauge delta from R5-01.** Production/test edges remain 325/109. Exposing
+   the truthful document dependencies and consumers raises slot edges 51 ->
+   56, while the false `widget -> document` direction lowers forbidden edges
+   3 -> 2. The one SCC remains and now truthfully includes document while the
+   two remaining back-edges still connect its lower command dependency to UI;
+   SCC membership is evidence for the next cells, not a reason to merge the
+   admitted owner. The consolidated witness keeps source-root mentions at 116
+   and raises filesystem reads 348 -> 349. Visibility, cross-slot test edges,
+   external violations, allowances, panics, and expects remain unchanged.
+8. **Fixed point and next frontier.** Document has one owner for editable file
+   workflow and no runtime/UI reason for existence; runtime coordinates it and
+   widget projects it. No external exception or false upward UI dependency
+   remains. Rung 5 continues with the diagnostics-bearing view callback
+   context, then the theme-selected window default.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
