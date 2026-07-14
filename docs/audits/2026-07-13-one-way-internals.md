@@ -1681,6 +1681,130 @@ Status: **complete; input responsibility split and reclassified**. Correction
     and effects for remaining concrete-service, concealed-callback, ownership,
     visibility, and intermediate findings before declaring the rung complete.
 
+### R3-05 — full command-boundary fixed-point audit
+
+Status: **complete; no further correction admitted**.
+
+1. **Question and sweep.** The re-scan walked command, context, responder,
+   target, response, notification, keymap, timeline, runtime input, clipboard,
+   tasks, text operations, and every runtime construction site in both
+   directions. It challenged concrete engines, optional capability state,
+   generic services, selectors/callbacks, type erasure, effect transport,
+   duplicate routes, failure/absence, visibility, and retained intermediates.
+2. **Command dependency result.** No command-owned source imports runtime,
+   session, interaction, layout, view, table, or composition. `Context` carries
+   source plus exactly clipboard, task acceptance, and caret mapping; each is a
+   lower owned contract with an explicit absence/failure model. There is no
+   aggregate constructor, concrete layout engine, runtime state bag, or
+   arbitrary resource lookup.
+3. **Responder-service ruling.** The private `responder::Service` trait is
+   retained. It has one runtime implementation, exists only inside `Chain`, and
+   accepts exactly the same typed-command erasure tuple used by targets:
+   command identity/name, arguments, Context, state store, and typed
+   Claim/Response outcomes. Its lifetime is the one chain transaction and its
+   failures are command failures. It has no `get<T>`, ambient registration,
+   arbitrary capability lookup, or callback-owned policy, so it is the honest
+   cross-crate responder extension rather than a service locator.
+4. **Other dynamic seams.** Target selectors are authored projections from the
+   application model to registered targets, observer closures are the public
+   post-command behavior, typed triggers retain their argument builders, and
+   task Sink is the previously admitted tasks-owned acceptance capability.
+   Each callback preserves an independent lifetime or type invariant; none
+   hides an upward framework dependency. Exact `TypeId` checks precede the
+   retained downcasts.
+5. **Effects and intermediates.** `response::Effect` remains one command result
+   contract. Its Batch representation is not transport-only: composition
+   flattens nested batches, removes duplicates, preserves non-invalidation
+   order, and collapses invalidation to the maximum depth. Runtime is the sole
+   operational consumer for dialogs, floating-panel closure, and invalidation.
+   Command population's private typed marker/candidate/resolved forms retain
+   distinct surface membership and route freshness already pinned by command
+   surface case law; merging them would erase those invariants.
+6. **Visibility and hygiene.** Every crate-visible command crossing encountered
+   has a live runtime/UI consumer; symbol-level future-workspace disposition
+   remains explicitly assigned to Rung 6 rather than widened or guessed here.
+   Retained expects are exact type/cardinality/registration invariants covered
+   by tests; no Rung 3 production panic, allowance, concrete engine, retired
+   alias, or compatibility route was discovered.
+7. **Proof.** Source scans found one Service implementation and no prohibited
+   higher import in command territory. Default/explicit Context absence,
+   clipboard outcomes, task rejection, visual motion, responder precedence,
+   exact contextual routes, notification ordering, effect associativity, key
+   profiles, and all input paths remain covered. The R3-04 full proof is the
+   unchanged production boundary: 1,074 passed, 10 ignored, 0 failed; all
+   targets/examples, census witnesses, format, and diff checks passed.
+8. **Gauge.** No code or map changed: the R3-04 gauge remains 47 top-level
+   modules, 325 production edges, 100 test-only edges, 43 slot edges, 5
+   forbidden edges, 1 external question, 1 SCC, 1,764 production
+   `pub(crate)` declarations in 191 files, 80 cross-slot test edges, 111
+   source-root mentions, 334 filesystem reads, 10 allowances, 9 panics, and
+   102 expects.
+9. **Fixed point.** All Rung 3 seeded questions and the full re-scan are closed.
+   No command meaning depends on a higher engine or UI state, every dynamic
+   crossing has a named invariant, and no admissible reduction remains within
+   the rung's bounds.
+
+## Rung 3 closure — command meaning and service realization
+
+Status: **complete**. Production boundary `61162f20`; cell-ledger boundary
+`4e54cdb5`. The repository was clean at the pre-closure boundary, remained 19
+commits ahead of `origin/master` and not behind, and preserved
+`comparison_open: true`.
+
+Rung 3 resolved four ownership cells and one full fixed-point audit. Command
+Context now carries three explicit lower capabilities and no engine; clipboard
+is an independent owner; responder routing identity is lower than session
+service scope; window departure keeps its domain fact while notification owns
+the trait binding; and raw keyboard facts are lower than runtime input ingress.
+No physical crate, feature gate, public compatibility alias, generic service
+locator, or behavior change was introduced.
+
+### Boundary gauge
+
+| Metric | Rung 2 | Rung 3 |
+|---|---:|---:|
+| Top-level production modules | 45 | 47 |
+| Unique production module edges | 324 | 325 |
+| Unique test-only module edges | 99 | 100 |
+| Provisional cross-slot edges | 42 | 43 |
+| Provisional forbidden internal edges | 13 | 5 |
+| Provisional heavy external-boundary violations | 1 | 1 |
+| Provisional slot SCCs | 1 | 1 |
+| Production `pub(crate)` declarations | 1,756 | 1,764 |
+| Cross-slot test-only edges | 79 | 80 |
+| `CARGO_MANIFEST_DIR` mentions | 108 | 111 |
+| Filesystem read calls | 318 | 334 |
+| `#[allow(...)]` attributes | 10 | 10 |
+| Production `panic!` calls | 9 | 9 |
+| Production `.expect(...)` calls | 102 | 102 |
+
+The module count reflects truthful private housing for shared authored identity
+and keyboard facts, not new virtual crates. The one additional production edge
+is the net result of exposing those shared lower dependencies while deleting
+eight forbidden crossings: concrete layout from Context, all three responder
+UI dependencies, window-to-notification binding, and both false command-owned
+input edges. The slot-edge increase of one resolves independent clipboard and
+lower-vocabulary consumers; clipboard, tasks, state, feedback, and icons remain
+outside the SCC. Architecture receipts account for the test/source-read growth
+already assigned to the Rung 6 workspace witness seam.
+
+### Boundary proof and next frontier
+
+- full library: 1,074 passed, 10 ignored, 0 failed;
+- all targets and all five examples compiled without warnings;
+- focused command context, responder, context-menu, palette, notification,
+  keymap, input, task, clipboard, text-motion, and host/shell witnesses passed;
+- all census parser witnesses, `cargo fmt --check`, `git diff --check`, and
+  tombstone scans passed;
+- renderer order, batching/pass fusion, shaping, presentation clocks, and frame
+  economics are unchanged because no rendering or presentation route moved.
+
+Rung 4 begins with semantic presentation versus physical realization. It first
+traces the remaining `render -> diagnostics` observation back-edge and
+`platform -> wgpu` external-boundary question together with scene lowering,
+surface lifecycles, presentation clocks, and backend consumption before
+admitting either inversion.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
