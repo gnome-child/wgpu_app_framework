@@ -2888,6 +2888,56 @@ Correction `e6b8af93` (`Aggregate realized popup geometry`).
    remains. Rung 5 continues with the variable-list layout allowance and then a
    complete reverse sweep over the UI owner.
 
+### R5-09 — variable-list layout arity resistance ruling
+
+Status: **complete; exceptional arity retained without a blanket allowance**.
+Correction `4d51b881` (`Own variable list layout arity`).
+
+1. **Question and complete trace.** The last UI argument-count suppression was
+   traced from the virtual-list role through fixed/variable branch selection,
+   scroll viewport derivation, retained measurement identity, sparse height
+   refinement, table intrinsic measurement, materialized row placement,
+   recursive child layout, viewport/request projection, same-range mode
+   transition, rebuild, and bounded-work witnesses.
+2. **Ruling and alternatives resisted.** Seven arguments are the established
+   recursive layout traversal facts: view node, retained node, path, assigned
+   rect, floating state, inherited clip, and layout context. The remaining
+   three are already-resolved variable-list facts: viewport rect, provider
+   model, and the selected retained measurements handle. Wrapping them would
+   create a transport-only argument bag; re-deriving them inside the helper
+   would repeat model/viewport policy and add another `Rc` measurement clone;
+   inlining the helper would erase the useful fixed/variable algorithm boundary.
+   No coherent domain aggregate or ownership seam is missing here.
+3. **Correction and future retirement.** Replaced the blanket
+   `#[allow(clippy::too_many_arguments)]` with a reasoned
+   `#[expect(clippy::too_many_arguments, ...)]`. Clippy now proves that the
+   exceptional shape still exists and will emit an unfulfilled-expectation
+   warning if a future broader traversal refactor removes it. No parameter,
+   type, call site, visibility, lookup, clone, or algorithm changed.
+4. **Naming and visibility ruling.** No intermediate type was invented, so no
+   compound/simple naming question or new projection exists. The existing
+   `virtual_list::Measurements`, `Model`, and layout-local facts retain their
+   exact names and visibility.
+5. **Behavior and economics.** Fixed and variable selection, retained height
+   identity, measurement refinement, table projection, scroll anchoring,
+   materialization bounds, child order, layout output, allocation, reference
+   counting, renderer topology, and presentation work are byte-for-byte
+   unchanged; only lint governance changed.
+6. **Proof and gauge delta from R5-08.** Both focused variable-list integration
+   witnesses passed; all targets and all five examples compiled without
+   warnings; a focused Clippy run satisfied the expectation with no
+   `layout/algorithm.rs` or unfulfilled-expectation diagnostic. All nine census
+   parser witnesses, the full census, formatting, diff, and protected-state
+   checks passed. Every graph, visibility, test, source-root, filesystem, panic,
+   and expect metric remains unchanged. Blanket `#[allow(...)]` attributes fall
+   7 -> 6.
+7. **Fixed point and next frontier.** Both Rung 5 argument-count sites now have
+   explicit outcomes: popup geometry became a real crossing contract; variable
+   layout arity remains explicit and self-retiring because no aggregate is
+   honest. The seeded UI queue is exhausted, so the required reverse sweep now
+   starts across every UI module and every cell dimension; queue exhaustion is
+   not rung closure.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
