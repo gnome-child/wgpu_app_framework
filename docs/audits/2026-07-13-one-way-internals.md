@@ -4526,6 +4526,61 @@ Status: **complete; activation nested beneath its release target**. Correction
    layout lifecycles, and the complete visibility/failure/intermediate
    inventories; this cell does not close Rung 5.
 
+### R5-40 — exhaustive contextual text-task departure
+
+Status: **complete; asserted optional-presence protocol removed**. Correction
+`3dd48921` (`Consume contextual departure exhaustively`).
+
+1. **Question and complete trace.** The reverse contextual-departure sweep
+   traced secondary release and direct context-menu opening through presented
+   hit acquisition, semantic context paths, selected and unselected virtual
+   rows, active text tasks, accepted and rejected draft commits, row selection,
+   section resolution, menu opening, empty-section fallback, outcome merging,
+   focus retention, pointer admission, and the corrected follow-up gesture.
+2. **Outcome model and redundant assertion.** Departure already has three
+   legitimate outcomes: absence when no active text draft exists, an accepted
+   `TaskTransition` whose outcome composes with later work, or a rejected
+   transition that must return before row selection or menu opening. The code
+   tested optional presence plus rejection, then called `expect` to recover the
+   value whose presence that test had just established. The assertion preserved
+   no invariant beyond the option match.
+3. **Reduction and rewire.** One ownership-consuming match now returns the
+   rejected transition directly and retains accepted presence or absence for
+   the existing later composition. The `as_ref` predicate, second option
+   recovery, and production assertion are deleted. `TaskTransition` remains the
+   honest accepted/rejected receipt; its outcome payload and the outer optional
+   absence have distinct meanings and are not merged.
+4. **Boundary and naming ruling.** The correction changes no declaration,
+   visibility, module projection, or call-site import. Private runtime
+   `TaskTransition` is not re-exported under another name, so no compound/simple
+   collapse or namesake parent rule is implicated and unrelated naming cleanup
+   remains out of scope.
+5. **Behavior and economics.** Rejected drafts still retain focus, active text
+   task, focal row, selection, and closed-menu state; accepted departure still
+   composes before selection and opening; absence still proceeds directly.
+   Context traversal, command resolution, allocation, layout, scene order,
+   renderer topology, batching/pass fusion, invalidation, and presentation
+   clocks are unchanged.
+6. **Doctrine and witness.** Master design now states the absence/acceptance/
+   rejection ordering law for contextual row departure. A focused architecture
+   witness requires exhaustive rejection consumption and tombstones the
+   presence assertion; the existing end-to-end rejection journey proves that no
+   later selection, menu, or pointer work crosses the rejected boundary.
+7. **Proof and gauge delta from R5-39.** Eleven focused architecture,
+   context-menu, host-routing, and rejection witnesses passed. The full library
+   discovered 1,123 tests and passed 1,113 with 10 ignored; all targets and all
+   five examples compiled without warnings. All nine census parser witnesses,
+   the full census, formatting, diff, and protected-state checks passed. Every
+   graph, visibility, test-edge, source-root, filesystem, allowance, and panic
+   gauge remains unchanged. Production expects fall 87 -> 86.
+8. **Fixed point and next frontier.** Contextual departure now consumes each
+   outcome once and has no asserted optional-presence path. Other
+   `TaskTransition` consumers already use ownership-preserving `if let`, match,
+   or option mapping and retain their distinct accepted/rejected/absent laws.
+   The reverse sweep continues through session scopes, theme patch semantics,
+   remaining layout lifecycles, and the complete visibility/failure/
+   intermediate inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
