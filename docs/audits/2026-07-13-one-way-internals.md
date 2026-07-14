@@ -3713,6 +3713,68 @@ Correction `90cfcdae` (`Make pointer press lifecycle atomic`).
    view/layout roles, widget/theme facts, and the remaining visibility/failure
    inventories; this cell does not close Rung 5.
 
+### R5-27 — atomic pointer location
+
+Status: **complete; coordinate and owning surface given one presence
+lifetime**. Correction `4113956d` (`Make pointer location atomic`).
+
+1. **Question and complete trace.** The reverse pointer-location sweep traced
+   parent and native-popup move/down/up/drag/scroll events, retained-coordinate
+   translation, modifier-only reprojection, presented-layout hover refresh,
+   hover-tip promotion, pointer leave, capture retention, cursor resolution,
+   hit testing, and every position/surface consumer. Every producer supplied a
+   point and surface together; every consumer used the surface only with that
+   point; leave alone retired presence.
+2. **Invalid state and coordinate ownership.** `Pointer` stored optional logical
+   position beside an independently total `popup::Surface`. The representation
+   admitted absence with stale native-popup identity, while the setter admitted
+   an absent point paired with any surface even though no caller produced that
+   state. The point is meaningful only in the retained coordinate space named
+   by its owning parent or popup surface.
+3. **Correction and repeated-path reduction.** One optional
+   `pointer::Location { point, surface }` now owns presence. The renamed
+   `set_pointer_location` requires both facts, the sole `location()` query
+   returns them atomically, and pointer leave removes the unit. Separate
+   position/surface fields and queries, the optional setter argument, the
+   default-Parent stale-surface convention, and a duplicate session lookup in
+   presented hover refresh are deleted.
+4. **Boundary and naming ruling.** `interaction::Pointer` remains the sole
+   parent projection. `Location` is a simple supporting declaration under
+   crate-visible `interaction::pointer`, is consumed through that namespace
+   where named, and is not flattened or aliased at the parent. Renaming the
+   setter from position to location is admitted by the clarified coordinate-
+   space axis; no public application spelling or unrelated name changed.
+5. **Behavior and economics.** Parent/popup routing, retained point values,
+   surface-qualified hits, modifier refresh, hover projection, tip anchors,
+   capture cursor behavior, departure fallback point, allocation, layout,
+   scene, renderer topology, and presentation clocks are unchanged. The same
+   two Copy facts occupy one optional aggregate; consumers perform one
+   interaction lookup rather than independently re-pairing projections, with
+   no heap object, callback, extra lookup, or traversal.
+6. **Doctrine and witnesses.** Master design now states that pointer presence
+   owns point and surface together and absence owns neither. The architecture
+   witness pins the aggregate, atomic query, and renamed setter while
+   tombstoning split storage and the old setter. A direct owner witness covers
+   native surface retention and absence; parent departure, native-popup event,
+   popup hit isolation, popup hover paint, and retained-tip-anchor witnesses
+   passed.
+7. **Proof and gauge delta from R5-26.** The full library discovered 1,109 tests
+   and passed 1,099 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Production edges remain 325; the additional
+   architecture receipt raises test-only edges 110 -> 111. Split
+   responsibilities, slot edges, forbidden edges, external violations, SCCs,
+   and cross-slot test edges remain 3, 54, 0, 0, 0, and 90. The explicit
+   location contract raises production `pub(crate)` declarations 1,807 ->
+   1,809 and the cross-slot upper bound 1,760 -> 1,762. Source-root mentions,
+   filesystem reads, allowances, panics, and expects remain 118, 361, 6, 7,
+   and 90.
+8. **Fixed point and next frontier.** Pointer presence can no longer carry a
+   coordinate without its surface or retain a surface after departure. The
+   reverse sweep continues through session window clocks and lifecycles,
+   view/layout role facts, widget/theme state, and the remaining visibility,
+   failure, and intermediate inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
