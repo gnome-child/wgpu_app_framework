@@ -1,6 +1,7 @@
 # One Resolved Press campaign
 
-Status: active. `comparison_open: true`. No push during the campaign.
+Status: complete at `7ac61c5a`. `comparison_open: true`. No push during the
+campaign.
 
 Ignition is `7f9f734e`. The worktree was clean at that boundary. Roadmap item
 33 was already occupied by the independent direct-participation taste question,
@@ -68,7 +69,7 @@ and pointer execution consume that one result.
 | 2. Pointer execution consumes the resolved press | Complete | Target, task focus, row gesture, admission, intent, overlay relationship, and capture share the one answer |
 | 3. Modifiers become pointer truth | Complete | Retained modifiers and stationary parent/popup re-resolution without presentation |
 | 4. Cursor consumes press admission | Complete | Selection-only rows project Default; focal admitted selectable text projects Text |
-| 5. Future seam, doctrine, and closure | Pending | Architecture witnesses, master doctrine, full ritual, roadmap close-out |
+| 5. Future seam, doctrine, and closure | Complete | Architecture witnesses, master doctrine, full ritual, roadmap close-out |
 
 ## Checkpoint 0 reductions
 
@@ -196,6 +197,49 @@ and pointer execution consume that one result.
 - Parent and popup winit modifier events now have explicit adapter witnesses.
   Stationary modifier projection proves no redraw request and cursor-update
   deduplication remains session-owned.
+
+### Checkpoint 5 receipts
+
+- Master doctrine now defines the OS cursor as a projection of the ordinary
+  primary press available now. It records presented geometry, retained point,
+  physical surface and modifiers, row pre-gesture focality, capture retention,
+  read-only text selectability, pure hover, and the semantic admission rule for
+  future cursor vocabulary.
+- One architecture witness pins private `ResolvedPress` / `PressAdmission` as
+  the cursor-semantics owner, one logical selection site per specialized cursor,
+  the three-variant public vocabulary, one native mapping site, last-presented
+  geometry, parent and popup modifier routing, capture-retained cursor meaning,
+  and modifier re-resolution without presentation.
+- The same witness rejects cursor fields in application-authored nodes,
+  widgets, scenes, layout frames, and interaction targets. It also rejects all
+  campaign naming hazards and the retired cursor predicates.
+- The focal-row journey passed explicitly: non-focal and selected-but-not-focal
+  text remain Default; the first press performs selection/focality only; a
+  successful presentation changes a stationary cursor to Text; Shift, Ctrl,
+  and Super return it to Default while held and release restores Text without
+  pointer motion or redraw.
+- Focused witnesses passed for read-only versus disabled text, captured text
+  and divider drags outside their original hit areas, palette occlusion,
+  cursor-update deduplication, and rejected task departure.
+- The closing source census found no rejected names, retired predicates,
+  application/declarative cursor fields, or target-kind cursor reconstruction.
+  `CursorIcon` appears only in the exhaustive native window adapter; Text and
+  ResizeHorizontal each have one logical selection site in the resolver.
+- `cargo fmt --all -- --check`, `git diff --check`, and
+  `cargo check --all-targets` passed without warnings.
+- `cargo test --lib` passed: 1,055 passed, 10 intentional deep-tier ignores,
+  0 failed. `cargo test --doc` passed: 1 ordinary and 3 compile-fail doctests.
+- `text_editor`, `control_gallery`, and `glass_tuner --smoke` all exited 0.
+  `comparison_open: true` remains unchanged.
+
+### Acceptance disposition
+
+ORP-01 through ORP-22 are witnessed. The cursor and pointer-down consume one
+prospective primary press; only admitted exact targets advertise specialized
+participation; presentation and retained modifiers keep a stationary cursor
+current; capture preserves resolved meaning; overlays, native popup hosts, and
+fallible departure retain their established boundaries. No acceptance item is
+waived or deferred.
 
 ## Structural-absence contract
 

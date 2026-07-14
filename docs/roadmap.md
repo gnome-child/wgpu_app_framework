@@ -6,18 +6,6 @@ is next.
 
 ## In flight
 
-34. **One Resolved Press — Cursor Truth From Press Admission** — make the
-    platform cursor a projection of the same runtime-owned prospective primary
-    press that pointer execution consumes. Presented geometry, retained pointer
-    position/surface/modifiers, capture, task focus, selectable-row focality,
-    and deterministic member admission resolve once through private
-    `ResolvedPress` / `PressAdmission`; capture preserves that resolved cursor
-    meaning. Selection-only rows and selection-modified gestures must not
-    advertise text participation, including while the pointer is stationary.
-    No application cursor metadata, hover-time validation, speculative cursor
-    vocabulary, or table-local exception. Ledger:
-    `docs/audits/2026-07-13-one-resolved-press-campaign.md`.
-
 ## Specced and ready
 
 ## Pending manual verification
@@ -159,6 +147,18 @@ is next.
     optional status-projection tail was explicitly trimmed after the green core
     boundary and has no partial implementation. Ledger:
     `docs/audits/2026-07-13-input-validity-status-projection-audit.md`.
+34. **One Resolved Press — COMPLETE** (`7ac61c5a`, 2026-07-13; 1,055 library
+    tests + 10 intentional deep-tier ignores; per-checkpoint commits). The OS
+    cursor is a projection of the same runtime-owned prospective primary press
+    pointer-down consumes. Presented geometry, retained point/surface/modifiers,
+    capture, task focus, selectable-row focality, and deterministic admission
+    resolve once through private `ResolvedPress` / `PressAdmission`.
+    Selection-only rows and modified selection gestures remain Default;
+    successful presentation refreshes a stationary cursor; capture retains
+    resolved meaning. Applications have no raw cursor assignment, hover does
+    no fallible work, and future cursor species must enter through this
+    semantic seam. Ledger:
+    `docs/audits/2026-07-13-one-resolved-press-campaign.md`.
 
 ## Deferred until a caller or hardware appears
 
