@@ -1385,6 +1385,95 @@ starting at the concrete clipboard/layout crossings but following input,
 keymap, targets, focused text, tasks, notifications, and effects through every
 consumer before admitting any lower contract.
 
+## Rung 3 cell records
+
+### R3-01 — command invocation environment versus concrete services
+
+Status: **complete; clipboard owner admitted**. Text-capability correction
+`019eb330` (`Narrow command text context to caret mapping`); clipboard and
+construction correction `f207e488` (`Admit clipboard as an independent
+capability`).
+
+1. **Question and trace.** `context::Context` was traced through typed and
+   erased command transactions, state resolution, authored bindings,
+   conventional bars, context menus, the palette, direct text drops, responder
+   and framework-service claims, application targets, document editing, focused
+   drafts, observers, and task-producing examples. The trace covered every
+   `Source`, sourced state clones, configured and absent clipboards, confirmed
+   empty and failed reads, confirmed and failed writes, accepted and rejected
+   tasks, missing task sinks, semantic and visual caret motion, missing visual
+   mapping, and the retained response/effect/history paths.
+2. **Current graph.** Context owned no service engine, but its representation
+   said otherwise: it stored the concrete UI `layout::TextService`, stored the
+   clipboard capability under the provisional runtime owner, and constructed
+   clipboard, task sink, and text layout through one aggregate
+   `with_services_source` route. Document selection consumed only
+   `text::selection::CaretMap`; clipboard targets cloned the already-shared
+   handle for every operation; tasks consumed only the tasks-owned acceptance
+   sink.
+3. **Admission.** Context remains the command-owned invocation environment and
+   may depend on lower capabilities, but it may not contain their engines.
+   `text::selection::CaretMap` is an honest narrow contract: it names one text
+   question, returns absence coherently, and has the command invocation
+   lifetime. Clipboard is admitted as an independent owner of representations,
+   synchronization results, shared handle identity, and its optional system
+   realization. The previously admitted tasks owner remains intact; `Sink` and
+   `Option<Id>` already express acceptance and rejection without exposing the
+   queue or executor.
+4. **Reduction and rewire.** Context now stores a shared trait object for caret
+   mapping rather than `layout::TextService`; the UI layout service projects
+   that capability from the identical shared text engine. Document visual
+   selection borrows it only for the operation. The redundant
+   `clipboard_mut` clone path is deleted and every document/focused-text
+   operation borrows the one handle. The aggregate services constructor is
+   deleted; invocation contexts compose clipboard, tasks, and caret mapping
+   explicitly. No new wrapper, alias, service locator, or callback surface was
+   added.
+5. **Resistance and optionality.** A narrower clipboard wrapper is rejected:
+   `Clipboard` already is the typed capability and another value would repeat
+   its failure and lifetime model. Splitting its in-memory contract from the
+   arboard realization inside this cell is also rejected; the independent
+   owner already isolates that dependency, while an optional system-adapter
+   gate belongs to Rung 6 formulation. A new task contract is likewise
+   rejected. Existing command behavior that treats clipboard absence as
+   unavailable—including the current Select All and Delete paths—was
+   deliberately preserved rather than opportunistically corrected.
+6. **Behavior and economics.** All state-query and invocation routes retain
+   their sources, claims, fallthrough, outputs, effects, history, and
+   invalidation. Clipboard still distinguishes absence, empty, failure, and
+   confirmed publication; Cut still deletes only after a successful write.
+   Visual motion reaches the same `text::layout::Engine` and performs the same
+   shaping/cache work. Task acceptance and cancellation are unchanged.
+   Clipboard operations now avoid a redundant `Rc` clone; renderer topology,
+   batching/pass fusion, presentation clocks, and frame economics are
+   otherwise inapplicable or unchanged.
+7. **Proof and ratchet.** A direct target witness proves that Context supplies
+   visual motion through the caret-map contract, and a default-context witness
+   pins clipboard, caret-map, and task-sink absence. Architecture witnesses
+   forbid concrete layout service vocabulary and the retired aggregate
+   constructor, require explicit task-sink construction, require one borrowed
+   clipboard route, and keep the independent clipboard owner free of framework
+   imports. Clipboard failure/empty/confirmed-write, focused draft transfer,
+   task execution/rejection, and command routing witnesses all passed.
+8. **Full verification.** The closing library run discovered 1,082 tests:
+   1,072 passed, 10 standing ignores, and 0 failed. All targets and all five
+   examples compiled without warnings; formatting, diff checks, the census,
+   and the protected `comparison_open: true` state passed.
+9. **Gauge delta from Rung 2.** Production/test module edges remain 324/99.
+   Admitting the truthful clipboard consumers raises slot edges 42 -> 44 while
+   the independent owner remains outside the SCC. Removing `context -> layout`
+   and admitting `context -> clipboard` lower forbidden edges 13 -> 11.
+   External questions, SCCs, production `pub(crate)`, cross-slot test edges,
+   allowances, panics, and expects remain 1, 1, 1,756, 79, 10, 9, and 102.
+   The architecture receipts raise source-root mentions 108 -> 109 and
+   filesystem reads 318 -> 323; Rung 6 retains their consolidation.
+10. **Fixed point and next frontier.** Context names source plus three explicit
+    lower capabilities and no concrete UI/runtime service. Clipboard, tasks,
+    and text each retain one owner and one failure model; no aggregate service
+    bag survives. Rung 3 continues with responder identity and scope, tracing
+    the `responder -> interaction/session/table` crossings before touching
+    notification placement or effect consumption.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
