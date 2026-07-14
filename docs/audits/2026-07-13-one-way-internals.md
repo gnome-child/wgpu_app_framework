@@ -6188,6 +6188,62 @@ its central frame`).
    text naming is at fixed point; the touched-parent sweep continues through
    scene visuals and command-palette support before Rung 5 closes.
 
+### R5-67 — scene visual support retained behind its central owner
+
+Status: **complete; compound projections deleted and scene-only support
+narrowed**. Correction `497c398f` (`Keep scene visual support behind Visuals`).
+
+1. **Question and complete trace.** The touched-parent sweep traced target
+   hover/press/active/selection facts, slider transition sampling, sanitization,
+   caret visibility, scrollbar animation, runtime scheduling and cleanup,
+   scene tint/transform/scrollbar projection, renderer motion admission, and
+   every named `VisualScalar` and `TargetVisual` call site.
+2. **Naming and boundary contradiction.** Private `scene::visual` declared
+   `Visuals`, `Target`, `Scalar`, and `Scrollbar`, while the scene parent
+   changed two support spellings to `TargetVisual` and `VisualScalar`. Runtime
+   used those aliases only to construct values immediately handed back to
+   `Visuals`; paint consumed returned support values within the scene subtree.
+   The aliases therefore exposed construction details rather than a deliberate
+   crossing contract.
+3. **Challenge and stronger ruling.** Making `scene::visual` crate-visible and
+   qualifying both support types would obey spelling law but unnecessarily
+   publish the whole staging namespace. Runtime owns transition sampling and
+   interaction resolution; scene-owned `Visuals` owns validation, storage, and
+   paint projection. The smaller truthful contract is semantic admission on
+   `Visuals`, with support species retained below it.
+4. **Correction and deletion.** Runtime now admits resolved target facts and
+   moving/resting slider samples through `Visuals` methods. `Visuals` constructs
+   and sanitizes its private support values, exposes the one hover-or-press
+   query needed by runtime, and supplies the same inferred scalar default to scene
+   paint. Both aliased parent projections and both external support constructors
+   are deleted; no compatibility alias, facade, callback, or duplicate state
+   replaces them.
+5. **Visibility and naming.** The scene parent projects only central `Visuals`.
+   `Target`, `Scalar`, and `Scrollbar`, their scene-consumed queries, and their
+   accessors narrow from `pub(crate)` to `pub(super)`. Declaration spellings no
+   longer change at any boundary, the private module is not widened, and a new
+   architecture witness pins the central projection, alias extinction, and
+   subtree-only support visibility.
+6. **Behavior and economics.** Target sparsity/defaulting, slider desire and
+   transition endpoints, sanitization, caret blinking, scrollbar opacity and
+   thickness, scene order, transforms, renderer topology, batching/pass fusion,
+   redraw scheduling, allocation, cleanup, and presentation clocks remain
+   unchanged. The runtime-to-scene crossing transports the same scalar facts
+   without first materializing a support value at the caller.
+7. **Proof.** The focused architecture and slider-animation witnesses passed.
+   The full library discovered 1,141 tests and passed 1,131 with ten standing
+   ignores. All targets and all five examples compiled without warnings; all
+   ten census parser tests, the full census, formatting, diff hygiene, and
+   protected `comparison_open: true` check passed.
+8. **Gauge and next frontier.** Production `pub(crate)` declarations fall
+   1,819 -> 1,803 and the cross-slot-provider upper bound falls 1,772 -> 1,756.
+   Every other gauge remains unchanged: production/test edges 325/109, split
+   responsibilities 3, slot edges 54, forbidden/external/SCC counts 0/0/0,
+   192 visibility-bearing files, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 363, allowances 6, panics 5, and expects 44. Scene
+   visual naming and visibility are at fixed point; command-palette support is
+   the final known touched-parent projection before the full Rung 5 sweep.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
