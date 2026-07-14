@@ -634,6 +634,47 @@ retained.
    transaction and one target-specific private primitive. No smaller honest
    seam is evidenced. Cell closed as resistance.
 
+### R1-04 — icon identity and pack-backed realization
+
+Status: **complete; investigation map redrawn**. Correction `b5ad7720`
+(`Admit icon pack as an independent seam`).
+
+1. **Question and trace.** `icon::Id`, `Style`, `Icon`, and `Glyph` flow through
+   view hints, semantic scene icons, paint items, shortcut chrome, text inline
+   layout, and renderer batches. `Icon::glyph` resolves the established
+   phosphor identity/style to a family and codepoint; text also loaded the same
+   pack's embedded fonts directly from iconflow. Missing icons remain absence,
+   style fallbacks remain pack policy, and text/renderer consume the resulting
+   glyph without owning pack selection.
+2. **Current graph.** The old provisional foundation placement made iconflow a
+   dependency leak, while splitting identity from realization would break the
+   existing public `Icon::glyph` sentence and create two mutually dependent
+   concepts. Text's second iconflow import duplicated pack knowledge rather
+   than proving a separate text owner.
+3. **Admission.** A dedicated `icons` virtual owner is smaller and more honest:
+   it owns icon identity, style, selected-pack resolution, glyph facts, and the
+   selected pack's embedded font sources. It has independent text, UI, and
+   renderer consumers, isolates iconflow, imports no other framework owner, and
+   preserves the established API. The campaign is not constrained to the
+   investigation's eight slots; the ninth seam is admitted.
+4. **Reduction/rewire.** Added one icon-owned `font_bytes` projection and made
+   text consume it, deleting text's direct iconflow knowledge. The provisional
+   map now places `icon` in `icons`; text/UI/renderer/platform/facade may depend
+   on that slot. No files moved and no feature gate was introduced.
+5. **Proof and ratchet.** Glyph resolution, missing glyph, style selection,
+   nonempty embedded fonts, inline icon-cache behavior, shortcut-icon behavior,
+   and unique iconflow ownership passed. Full library: 1,061 passed, 10 ignored,
+   0 failed; all examples, formatting, and diff checks passed.
+6. **Gauge delta.** Heavy external-boundary questions 5 -> 3: both
+   `icon -> iconflow` and `text -> iconflow` are resolved by one admitted owner.
+   Production edges and internal forbidden edges remain 325/15. The new honest
+   slot raises cross-slot edges 30 -> 33 without joining the existing SCC.
+   Production `pub(crate)` declarations 1,739 -> 1,740; source-root mentions
+   102 -> 103 and filesystem reads 293 -> 295 for the new ratchet.
+7. **Fixed point.** One icon owner names identity and selected-pack realization;
+   no other module imports iconflow. Alternate/glyph-less packs remain a later
+   capability question, not a split forced without a caller. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
