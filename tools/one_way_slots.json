@@ -6,7 +6,6 @@
         "color",
         "feedback",
         "geometry",
-        "state",
         "subject",
         "window"
       ],
@@ -18,6 +17,10 @@
     },
     "tasks": {
       "modules": ["task"],
+      "may_depend_on": []
+    },
+    "state": {
+      "modules": ["state"],
       "may_depend_on": []
     },
     "text": {
@@ -37,7 +40,7 @@
         "target",
         "timeline"
       ],
-      "may_depend_on": ["foundation", "tasks", "text"]
+      "may_depend_on": ["foundation", "state", "tasks", "text"]
     },
     "ui": {
       "modules": [
@@ -57,7 +60,7 @@
         "virtual_list",
         "widget"
       ],
-      "may_depend_on": ["foundation", "icons", "tasks", "text", "command"]
+      "may_depend_on": ["foundation", "icons", "state", "tasks", "text", "command"]
     },
     "renderer": {
       "modules": ["paint", "render"],
@@ -73,13 +76,14 @@
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "icons", "tasks", "text", "command", "ui"]
+      "may_depend_on": ["foundation", "icons", "state", "tasks", "text", "command", "ui"]
     },
     "platform": {
       "modules": ["platform"],
       "may_depend_on": [
         "foundation",
         "icons",
+        "state",
         "tasks",
         "text",
         "command",
@@ -93,6 +97,7 @@
       "may_depend_on": [
         "foundation",
         "icons",
+        "state",
         "tasks",
         "text",
         "command",
