@@ -1,6 +1,5 @@
 use crate::geometry::area;
 use std::cell::RefCell;
-use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use lru::LruCache;
@@ -151,17 +150,11 @@ impl LineDisplay {
 }
 
 pub(super) fn line_display_cache() -> ShapingCache<LineDisplayKey, CachedLineDisplay> {
-    ShapingCache::new(
-        TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
-        "text area line display",
-    )
+    ShapingCache::new(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY)
 }
 
 pub(super) fn render_buffer_cache() -> LruCache<RenderBufferKey, CachedRenderBuffer> {
-    LruCache::new(
-        NonZeroUsize::new(TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY)
-            .expect("text area render buffer cache capacity must be non-zero"),
-    )
+    LruCache::new(TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY)
 }
 
 pub(super) fn render_line_window(

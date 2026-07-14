@@ -62,18 +62,21 @@ impl Engine {
             source_line,
         );
         let shaped = if let Some(key) = key {
-            self.text_area_line_displays
-                .shape(&mut self.font_system, key, committed, |font_system, _| {
-                    Some(prepare_text_area_line_display(
+            self.text_area_line_displays.shape_required(
+                &mut self.font_system,
+                key,
+                committed,
+                |font_system, _| {
+                    prepare_text_area_line_display(
                         font_system,
                         area_model,
                         source,
                         style,
                         viewport,
                         source_line,
-                    ))
-                })
-                .expect("text area line shaping should always produce a display")
+                    )
+                },
+            )
         } else {
             Shaped {
                 value: prepare_text_area_line_display(

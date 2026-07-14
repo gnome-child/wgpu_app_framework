@@ -18,12 +18,9 @@ where
     K: Eq + Hash,
     V: Clone,
 {
-    pub(super) fn new(capacity: usize, owner: &str) -> Self {
+    pub(super) fn new(capacity: NonZeroUsize) -> Self {
         Self {
-            entries: LruCache::new(
-                NonZeroUsize::new(capacity)
-                    .unwrap_or_else(|| panic!("{owner} shaping cache capacity must be non-zero")),
-            ),
+            entries: LruCache::new(capacity),
         }
     }
 
@@ -31,28 +28,54 @@ where
         self.entries.get(key).cloned()
     }
 
-    pub(super) fn shape(
+    pub(super) fn shape_required(
+        &mut self,
+        font_system: &mut FontSystem,
+        key: K,
+        retain: bool,
+        prepare: impl FnOnce(&mut FontSystem, &K) -> V,
+    ) -> Shaped<V> {
+        if let Some(shaped) = self.cached(&key, retain) {
+            return shaped;
+        }
+
+        let value = prepare(font_system, &key);
+        self.admit(key, value, retain)
+    }
+
+    pub(super) fn shape_optional(
         &mut self,
         font_system: &mut FontSystem,
         key: K,
         retain: bool,
         prepare: impl FnOnce(&mut FontSystem, &K) -> Option<V>,
     ) -> Option<Shaped<V>> {
-        if retain && let Some(value) = self.get(&key) {
-            return Some(Shaped {
-                value,
-                cache_hit: true,
-            });
+        if let Some(shaped) = self.cached(&key, retain) {
+            return Some(shaped);
         }
 
         let value = prepare(font_system, &key)?;
+        Some(self.admit(key, value, retain))
+    }
+
+    fn cached(&mut self, key: &K, retain: bool) -> Option<Shaped<V>> {
+        if !retain {
+            return None;
+        }
+        self.get(key).map(|value| Shaped {
+            value,
+            cache_hit: true,
+        })
+    }
+
+    fn admit(&mut self, key: K, value: V, retain: bool) -> Shaped<V> {
         if retain {
             self.entries.put(key, value.clone());
         }
-        Some(Shaped {
+        Shaped {
             value,
             cache_hit: false,
-        })
+        }
     }
 
     #[cfg(test)]
@@ -68,6 +91,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
+    use super::ShapingCache;
+
     #[test]
     fn shaped_buffer_caches_share_one_mechanics_owner() {
         for (name, source) in [
@@ -83,5 +110,35 @@ mod tests {
         assert!(!include_str!("text_area.rs").contains("LruCache<LineDisplayKey"));
         assert!(!include_str!("field.rs").contains("use lru::LruCache"));
         assert!(!include_str!("inline.rs").contains("use lru::LruCache"));
+    }
+
+    #[test]
+    fn shaping_cardinality_and_cache_admission_are_structural() {
+        let mut font_system = glyphon::FontSystem::new();
+        let mut cache = ShapingCache::new(NonZeroUsize::new(2).unwrap());
+
+        let first = cache.shape_required(&mut font_system, "required", true, |_, _| 1);
+        assert_eq!(first.value, 1);
+        assert!(!first.cache_hit);
+        let cached = cache.shape_required(&mut font_system, "required", true, |_, _| 2);
+        assert_eq!(cached.value, 1);
+        assert!(cached.cache_hit);
+
+        assert!(
+            cache
+                .shape_optional(&mut font_system, "optional", true, |_, _| None)
+                .is_none()
+        );
+        assert_eq!(cache.len(), 1, "absence must not enter the cache");
+        let optional = cache
+            .shape_optional(&mut font_system, "optional", true, |_, _| Some(3))
+            .expect("test preparation supplies a value");
+        assert_eq!(optional.value, 3);
+        assert!(!optional.cache_hit);
+        let cached = cache
+            .shape_optional(&mut font_system, "optional", true, |_, _| Some(4))
+            .expect("cached optional preparation remains present");
+        assert_eq!(cached.value, 3);
+        assert!(cached.cache_hit);
     }
 }

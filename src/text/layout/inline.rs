@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::num::NonZeroUsize;
 use std::rc::Rc;
 
 use glyphon::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping};
@@ -10,8 +11,8 @@ use super::system;
 use crate::icon;
 use crate::text;
 
-const TEXT_CACHE_CAPACITY: usize = 2048;
-const ICON_CACHE_CAPACITY: usize = 512;
+const TEXT_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(2048).unwrap();
+const ICON_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(512).unwrap();
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct InlineStats {
@@ -87,8 +88,8 @@ impl InlineCache {
     pub(crate) fn new() -> Self {
         Self {
             font_system: system::font_system(),
-            text: ShapingCache::new(TEXT_CACHE_CAPACITY, "inline text"),
-            icons: ShapingCache::new(ICON_CACHE_CAPACITY, "inline icon"),
+            text: ShapingCache::new(TEXT_CACHE_CAPACITY),
+            icons: ShapingCache::new(ICON_CACHE_CAPACITY),
         }
     }
 
@@ -123,9 +124,9 @@ impl InlineCache {
             });
         };
 
-        let shaped = self
-            .text
-            .shape(&mut self.font_system, key, true, prepare_cached_text)?;
+        let shaped =
+            self.text
+                .shape_optional(&mut self.font_system, key, true, prepare_cached_text)?;
         let cached = shaped.value;
 
         Some(PreparedText {
@@ -156,9 +157,9 @@ impl InlineCache {
     ) -> Option<PreparedIcon> {
         let key = IconKey::new(glyph, size, width, height);
 
-        let shaped = self
-            .icons
-            .shape(&mut self.font_system, key, true, prepare_cached_icon)?;
+        let shaped =
+            self.icons
+                .shape_optional(&mut self.font_system, key, true, prepare_cached_icon)?;
         let cached = shaped.value;
 
         Some(PreparedIcon {

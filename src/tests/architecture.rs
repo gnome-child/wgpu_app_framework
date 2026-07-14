@@ -980,6 +980,50 @@ fn shaped_text_crosses_scene_and_paint_without_renderer_types() {
 }
 
 #[test]
+fn text_shaping_cache_admission_is_structural() {
+    let cache = include_str!("../text/layout/shaping_cache.rs");
+    let constants = include_str!("../text/layout/constants.rs");
+    let field = include_str!("../text/layout/field.rs");
+    let display = include_str!("../text/layout/area/display.rs");
+    let inline = include_str!("../text/layout/inline.rs");
+    let height = include_str!("../text/layout/height.rs");
+    let text_area = include_str!("../text/layout/text_area.rs");
+
+    assert!(
+        cache.contains("fn new(capacity: NonZeroUsize)")
+            && cache.contains("fn shape_required(")
+            && cache.contains("fn shape_optional(")
+            && cache.contains("fn cached(")
+            && cache.contains("fn admit(")
+            && !cache.contains("fn shape(")
+            && !cache.contains("shaping cache capacity must be non-zero")
+    );
+    assert!(
+        constants.contains("TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY: NonZeroUsize")
+            && constants.contains("TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY: NonZeroUsize")
+            && constants.contains("TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY: NonZeroUsize")
+            && constants.contains("MEASURE_CACHE_CAPACITY: usize")
+    );
+    assert!(
+        field.contains(".shape_required(")
+            && field.contains(") -> CachedFieldSurface")
+            && !field.contains("text field shaping should always produce a surface")
+    );
+    assert!(
+        display.contains(".shape_required(")
+            && !display.contains("text area line shaping should always produce a display")
+    );
+    assert!(
+        inline.matches(".shape_optional(").count() == 2,
+        "inline text and icon preparation should keep their legitimate absence"
+    );
+    assert!(
+        height.contains("LruCache::new(TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY)")
+            && text_area.contains("LruCache::new(TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY)")
+    );
+}
+
+#[test]
 fn provided_list_selection_endpoints_are_atomic() {
     let selection = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

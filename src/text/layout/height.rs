@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, HashMap};
-use std::num::NonZeroUsize;
 
 use lru::LruCache;
 
@@ -185,8 +184,5 @@ impl TextAreaHeightIndex {
 }
 
 pub(super) fn cache() -> LruCache<TextAreaHeightKey, TextAreaHeightIndex> {
-    LruCache::new(
-        NonZeroUsize::new(TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY)
-            .expect("text area height index cache capacity must be non-zero"),
-    )
+    LruCache::new(TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY)
 }

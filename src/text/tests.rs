@@ -887,7 +887,7 @@ fn text_area_frame_cache_is_bounded() {
     let state = ViewState::default();
     let now = Instant::now();
 
-    for index in 0..(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY + 16) {
+    for index in 0..(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY.get() + 16) {
         let buffer = Buffer::from_multiline_text(format!("line {index}\nnext"));
         engine.text_area_paint_layout_for_area_at(
             &Area::new(buffer),
@@ -900,7 +900,7 @@ fn text_area_frame_cache_is_bounded() {
 
     assert_eq!(
         engine.text_area_line_displays.len(),
-        TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY
+        TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY.get()
     );
 }
 

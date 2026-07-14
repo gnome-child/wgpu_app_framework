@@ -213,6 +213,13 @@ an empty source has one boundary and therefore renders no phantom dot.
 Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
 lines, field surfaces, and inline text/icons supply domain keys and retention
 limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.
+That owner exposes distinct required and optional shaping entrances: area-line
+and field preparation are total after their keys are admitted, while inline
+text and icon preparation may still produce absence. Required callers never
+recover their result from `Option`, and optional absence never enters the cache.
+LRU cache constructors accept `NonZeroUsize`, so their nonzero capacity is an
+admission fact rather than a runtime assertion. The separate measurement FIFO
+retains its deliberate zero-capacity, cache-disabled mode.
 The concrete glyph buffer remains text implementation vocabulary. Scene and
 private paint surfaces may carry a cloned text-owned `ShapedBuffer` handle, but
 they do not name glyphon types or expose the buffer through public scene/text

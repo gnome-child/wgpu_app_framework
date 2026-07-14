@@ -1,5 +1,5 @@
 use crate::geometry::{area, point};
-use std::{cell::RefCell, rc::Rc, time::Instant};
+use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, time::Instant};
 
 use super::super::{
     Preedit,
@@ -22,7 +22,7 @@ use super::{
     system,
 };
 
-const TEXT_FIELD_SURFACE_CACHE_CAPACITY: usize = 512;
+const TEXT_FIELD_SURFACE_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(512).unwrap();
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct FieldSurfaceKey {
@@ -41,7 +41,7 @@ pub(super) struct CachedFieldSurface {
 }
 
 pub(super) fn surface_cache() -> ShapingCache<FieldSurfaceKey, CachedFieldSurface> {
-    ShapingCache::new(TEXT_FIELD_SURFACE_CACHE_CAPACITY, "text field surface")
+    ShapingCache::new(TEXT_FIELD_SURFACE_CACHE_CAPACITY)
 }
 
 impl FieldSurfaceKey {
@@ -376,15 +376,12 @@ impl Engine {
         area: area::Logical,
     ) -> (Rc<RefCell<glyphon::Buffer>>, f32) {
         let key = FieldSurfaceKey::new(buffer, style, area);
-        let shaped = self
-            .text_field_surfaces
-            .shape(
-                &mut self.font_system,
-                key,
-                true,
-                prepare_cached_field_surface,
-            )
-            .expect("text field shaping should always produce a surface");
+        let shaped = self.text_field_surfaces.shape_required(
+            &mut self.font_system,
+            key,
+            true,
+            prepare_cached_field_surface,
+        );
         (shaped.value.buffer, shaped.value.vertical_offset)
     }
 }
@@ -392,7 +389,7 @@ impl Engine {
 fn prepare_cached_field_surface(
     font_system: &mut glyphon::FontSystem,
     key: &FieldSurfaceKey,
-) -> Option<CachedFieldSurface> {
+) -> CachedFieldSurface {
     let font_size = f32::from_bits(key.size).max(1.0);
     let line_height = font_size * 1.25;
     let area_width = f32::from_bits(key.width).max(0.0);
@@ -416,8 +413,8 @@ fn prepare_cached_field_surface(
         Some(buffer_height),
     );
     prepared.shape_until_scroll(font_system, false);
-    Some(CachedFieldSurface {
+    CachedFieldSurface {
         buffer: Rc::new(RefCell::new(prepared)),
         vertical_offset,
-    })
+    }
 }
