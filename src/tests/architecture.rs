@@ -136,6 +136,25 @@ fn text_box_projects_cursor_and_selection_as_one_caret() {
 }
 
 #[test]
+fn virtual_list_frame_resolves_viewport_and_request_together() {
+    let frame = include_str!("../layout/frame.rs");
+
+    assert!(
+        frame.contains("struct VirtualGeometry {")
+            && frame.contains("viewport: Viewport,")
+            && frame.contains("request: crate::virtual_list::Request,")
+            && frame.contains("geometry: Option<VirtualGeometry>,")
+    );
+    let content = frame
+        .split("struct VirtualListContent")
+        .nth(1)
+        .and_then(|source| source.split("struct VirtualGeometry").next())
+        .expect("virtual-list content precedes its geometry");
+    assert!(!content.contains("viewport: Option<Viewport>"));
+    assert!(!content.contains("request: Option<crate::virtual_list::Request>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))

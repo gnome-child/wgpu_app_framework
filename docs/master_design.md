@@ -351,6 +351,11 @@ height lets layout derive the visible range arithmetically from the existing
 viewport. Runtime reaches a bounded fixed point by materializing that range
 plus overscan and pins, then laying out once more.
 
+A resolved virtual-list frame owns viewport geometry and its materialization
+request as one optional layout fact. The pair is installed atomically; neither
+half can exist without the other, and the request remains free of layout-owned
+viewport types below that frame-local aggregate.
+
 Dematerialization is not removal. A row outside the range still exists while
 its key remains in the provider, so composition does not emit removal facts and
 bounded inactive drafts may survive. Focused, pointer-captured, and actively

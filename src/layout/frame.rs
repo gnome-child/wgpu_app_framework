@@ -118,9 +118,14 @@ struct ScrollContent {
 
 #[derive(Clone)]
 struct VirtualListContent {
-    viewport: Option<Viewport>,
-    request: Option<crate::virtual_list::Request>,
+    geometry: Option<VirtualGeometry>,
     model: crate::virtual_list::Model,
+}
+
+#[derive(Clone)]
+struct VirtualGeometry {
+    viewport: Viewport,
+    request: crate::virtual_list::Request,
 }
 
 #[derive(Clone)]
@@ -449,8 +454,7 @@ impl Frame {
     ) -> Self {
         match &mut self.content {
             FrameContent::VirtualList(content) => {
-                content.viewport = Some(viewport);
-                content.request = Some(request);
+                content.geometry = Some(VirtualGeometry { viewport, request });
             }
             _ => panic!("only VirtualList frame content accepts virtual geometry"),
         }
@@ -693,14 +697,18 @@ impl Frame {
         match &self.content {
             FrameContent::Text(TextContent::Area { layout, .. }) => Some(layout.viewport()),
             FrameContent::Scroll(content) => content.viewport,
-            FrameContent::VirtualList(content) => content.viewport,
+            FrameContent::VirtualList(content) => {
+                content.geometry.as_ref().map(|geometry| geometry.viewport)
+            }
             _ => None,
         }
     }
 
     pub(crate) fn virtual_list_request(&self) -> Option<&crate::virtual_list::Request> {
         match &self.content {
-            FrameContent::VirtualList(content) => content.request.as_ref(),
+            FrameContent::VirtualList(content) => {
+                content.geometry.as_ref().map(|geometry| &geometry.request)
+            }
             _ => None,
         }
     }
@@ -709,7 +717,7 @@ impl Frame {
         let FrameContent::VirtualList(content) = &self.content else {
             return None;
         };
-        let viewport = content.viewport?;
+        let viewport = content.geometry.as_ref()?.viewport;
         if !viewport.rect().contains(point) {
             return None;
         }
@@ -1133,8 +1141,7 @@ impl FrameContent {
             }),
             view::Role::Scroll => Self::Scroll(ScrollContent { viewport: None }),
             view::Role::VirtualList => Self::VirtualList(VirtualListContent {
-                viewport: None,
-                request: None,
+                geometry: None,
                 model: node
                     .virtual_list_model()
                     .expect("VirtualList role must carry provider content")
