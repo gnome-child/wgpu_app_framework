@@ -1161,6 +1161,12 @@ Both consume one private erased command projection. Public construction remains
 typed, and candidate-provider types keep global and contextual discovery
 unsubstitutable.
 
+Opening a context menu over an unselected row first attempts departure from any
+active text task. Absence proceeds without a departure receipt; acceptance may
+then compose with row selection and menu opening; rejection returns before
+either. The rejected transition is consumed as its present species, never
+recovered through a second asserted optional-presence check.
+
 One command-population owner supplies discovery, erased triggers, registry
 metadata lookup, responder resolution, and state composition. Surface policy is
 an explicit input to that owner, not duplicated orchestration and not a claim

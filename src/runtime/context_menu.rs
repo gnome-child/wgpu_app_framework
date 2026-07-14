@@ -233,15 +233,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     .selection(window, row.table())
                     .is_some_and(|selection| selection.contains(row.key()))
             {
-                let transition = self.commit_and_deactivate_focused_text_box(window)?;
-                if transition
-                    .as_ref()
-                    .is_some_and(|transition| !transition.is_accepted())
-                {
-                    return Ok(transition
-                        .expect("rejected context departure is present")
-                        .into_outcome());
-                }
+                let transition = match self.commit_and_deactivate_focused_text_box(window)? {
+                    Some(transition) if !transition.is_accepted() => {
+                        return Ok(transition.into_outcome());
+                    }
+                    transition => transition,
+                };
                 departure = transition;
                 selection_changed |= self.session.select_virtual_row(
                     window,

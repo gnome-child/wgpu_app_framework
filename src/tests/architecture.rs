@@ -132,6 +132,18 @@ fn pointer_release_action_has_valid_species() {
 }
 
 #[test]
+fn context_departure_consumes_rejection_without_asserted_presence() {
+    let context_menu = include_str!("../runtime/context_menu.rs");
+
+    assert!(
+        context_menu.contains("match self.commit_and_deactivate_focused_text_box(window)?")
+            && context_menu.contains("Some(transition) if !transition.is_accepted()")
+            && context_menu.contains("return Ok(transition.into_outcome());")
+    );
+    assert!(!context_menu.contains("rejected context departure is present"));
+}
+
+#[test]
 fn pointer_position_and_surface_share_one_location() {
     let pointer = include_str!("../interaction/pointer.rs");
 
