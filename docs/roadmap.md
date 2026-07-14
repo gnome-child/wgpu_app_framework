@@ -16,7 +16,8 @@ is next.
    glyph/cut spacing in both
    themes, striping and rule weight, sticky-header feel, divider resize feel
    and cursor, selection tint and keyboard-extend feel, editor placement,
-   rejection outline presentation, commit/cancel feel. Outstanding: post-fix
+   trailing invalid-glyph presentation and rejection-panel hover feel (post
+   One Text Task), commit/cancel feel. Outstanding: post-fix
    `key -> present` panel reading from the Mac latency incident.
 
 ## Decisions awaiting product taste
@@ -33,6 +34,12 @@ is next.
     the node to Stack, dropping Panel's surface presentation (widget grammar
     audit R-11). Decide whether Panel is a persistent surface or Element's
     default column form; the contract has no whole witness today.
+33. **Member direct-participation opt-out** — selection-before-participation
+    is uniform law (One Text Task): a non-focal row's member never acts on
+    the selecting click. A MusicBee-style enable-checkbox column therefore
+    costs two clicks per cross-row toggle. Decide whether a member-level
+    direct-participation policy is warranted when the music player's enable
+    column arrives; until then uniformity stands.
 
 ## Named arcs
 
