@@ -2698,6 +2698,27 @@ Status: **complete; final forbidden edge and slot cycle retired**. Correction
    repetition, lifecycle, visibility, naming, and housing findings before
    closure; a clean import graph alone is not the rung exit.
 
+### R5-05 — stale overlay dead-code suppression
+
+Status: **complete; unowned suppression removed**. Correction `0456a0f8`
+(`Remove stale overlay allowance`).
+
+1. **Question and trace.** The Rung 5 hygiene sweep found `overlay::Layer::id`
+   marked `allow(dead_code)`. The field is produced by live, ghost, and retiring
+   popup layers and is read on production scene logging, IME targeting, native
+   popup presentation, and backend application paths as well as lifecycle
+   witnesses. The suppression no longer described the code it covered.
+2. **Correction and proof.** Deleted only the attribute. All nineteen overlay
+   lifecycle witnesses, including the 10,000-update law test, passed; all
+   targets compiled without warnings; format, diff, census, and protected state
+   checks passed. Allowances fall 9 -> 8; every dependency, visibility, panic,
+   expect, renderer, presentation, and lifecycle count/path is unchanged.
+3. **Fixed point and next frontier.** Overlay layer identity has live consumers
+   and no local suppression. The popup-realization and variable-list layout
+   argument-count allowances remain visible pending their complete aggregate
+   boundary ruling; the UI sweep continues through lifecycle state and
+   intermediate types.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
