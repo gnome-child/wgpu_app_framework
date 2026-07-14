@@ -3463,6 +3463,53 @@ Status: **complete; moving and resting scalar state separated**. Correction
    popup/overlay lifecycle, and the complete visibility/failure inventories;
    this cell does not close Rung 5.
 
+### R5-22 — valid pointer hover-tip lifecycle
+
+Status: **complete; waiting time and visible anchor separated by lifecycle**.
+Correction `ad24f9a3` (`Make hover tip lifecycle valid`).
+
+1. **Question and complete trace.** The reverse pointer-lifecycle sweep traced
+   presented-hit eligibility, same-target and changed-target projection,
+   admission timing, deadline scheduling, pointer absence, promotion, captured
+   reveal position, same-target pointer movement, dismissal on input/effects,
+   view rebuild, floating-panel projection, and hover-panel witnesses.
+2. **Invalid state and clocks.** Private `HoverTip` carried optional start time,
+   a visible boolean, and optional anchor independently. Producers used only
+   idle, waiting since an instant, and visible at a captured point, but the
+   representation admitted visible-without-anchor, anchor-while-waiting, and
+   idle-with-retained-time states. Admission time and reveal geometry are
+   successive clocks, not simultaneous optional facts.
+3. **Correction.** `HoverTip` is now
+   `Idle | Waiting { started_at } | Visible { anchor }`. Eligibility compares
+   against idle, deadlines exist only while waiting, promotion consumes the
+   waiting instant and current pointer position into one visible anchor, and
+   dismissal returns to idle. The three parallel fields and all agreement
+   checks are deleted.
+4. **Boundary and naming ruling.** `HoverTip` remains a simple private concept in
+   `interaction::pointer`; it has no projection, alias, or visibility change.
+   Public and crate-visible pointer/session queries retain their exact names and
+   absence models.
+5. **Behavior and economics.** Delay origin, target-change restart, unchanged
+   eligibility, missing-position retry, frozen reveal point, dismissal result,
+   schedule timing, view rebuild, placement, hit transparency, allocation, and
+   presentation work are unchanged. One enum discriminant replaces two option
+   discriminants plus a boolean without a heap object or new traversal.
+6. **Doctrine and witnesses.** Master design now states the three hover-tip
+   lifecycle species and distinguishes waiting time from visible geometry. The
+   architecture witness tombstones the parallel fields; the owner witness now
+   also pins the waiting deadline and its retirement upon visibility.
+7. **Proof and gauge delta from R5-21.** The focused architecture and retained-
+   anchor owner witnesses passed; the full library discovered 1,104 tests and
+   passed 1,094 with 10 ignored; all targets compiled without warnings. All nine
+   census parser witnesses, the full census, formatting, diff, and protected-
+   state checks passed. Every graph, visibility, test-edge, source-root,
+   filesystem, allowance, panic, and expect gauge remains unchanged.
+8. **Fixed point and next frontier.** Hover-tip admission and revelation now
+   advance through one valid lifecycle from presented hit to floating panel.
+   The reverse sweep continues through overlay placement/context projections,
+   view/layout role state, widget/session/theme facts, and all remaining
+   visibility/failure inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
