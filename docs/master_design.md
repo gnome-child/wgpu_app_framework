@@ -1356,6 +1356,12 @@ facts; `diagnostics::RenderReport` is an exact public projection of that one
 declaration, and diagnostics consumes it into counters and sample windows.
 Renderer code does not import diagnostic aggregation.
 
+Layout likewise owns the public `Text` fact assembled from its author-overflow
+counter and the text engine's layout receipts. `diagnostics::Text` is the exact
+public projection of that declaration; diagnostics accumulates it without
+making layout import its observer. The public projection's name is the
+declaration's canonical name—there is no compound layout-diagnostics alias.
+
 The text editor debug panel is the current full instrument panel. Its one
 instrument map is:
 

@@ -243,6 +243,35 @@ fn renderer_publishes_render_facts_without_importing_diagnostics() {
 }
 
 #[test]
+fn layout_publishes_text_facts_without_importing_diagnostics() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let layout = root.join("layout");
+    let text =
+        std::fs::read_to_string(layout.join("text.rs")).expect("layout text source should read");
+    let layout_mod =
+        std::fs::read_to_string(layout.join("mod.rs")).expect("layout module should read");
+    let diagnostics = std::fs::read_to_string(root.join("diagnostics").join("mod.rs"))
+        .expect("diagnostics module should read");
+
+    assert_source_patterns_absent(
+        &layout,
+        &[
+            "crate::diagnostics".to_owned(),
+            "super::super::diagnostics".to_owned(),
+            "diagnostics::".to_owned(),
+        ],
+    );
+    assert!(
+        text.contains("pub struct Text")
+            && text.contains("pub(crate) fn add(&mut self, diagnostics: Self)")
+            && layout_mod.contains("pub use text::Text;")
+            && diagnostics.contains("pub use crate::layout::Text;")
+            && !root.join("diagnostics").join("text.rs").exists(),
+        "layout must own its exact text fact while diagnostics projects and accumulates it"
+    );
+}
+
+#[test]
 fn semantic_scene_lowering_belongs_to_renderer() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let render_scene = std::fs::read_to_string(root.join("render").join("scene.rs"))

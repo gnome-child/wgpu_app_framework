@@ -4,14 +4,13 @@ mod render;
 mod samples;
 mod scroll;
 mod store;
-mod text;
 
+pub use crate::layout::Text;
 pub use crate::render::RenderReport;
 pub use frame::Frame;
 pub use pipeline::Pipeline;
 pub use render::Render;
 pub use scroll::Scroll;
-pub use text::Text;
 
 pub(crate) use store::Store;
 

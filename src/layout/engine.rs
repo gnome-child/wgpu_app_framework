@@ -2,8 +2,8 @@ use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use crate::text as text_engine;
 
-use super::super::{diagnostics, geometry, scene, theme, view};
-use super::text;
+use super::super::{geometry, scene, theme, view};
+use super::{Text, text};
 
 pub(crate) struct Engine {
     pub(super) text: text::Service,
@@ -133,7 +133,7 @@ impl Engine {
             .text_field_position_at(text_box, layout, rect, position)
     }
 
-    pub(crate) fn take_text_diagnostics(&mut self) -> diagnostics::Text {
+    pub(crate) fn take_text_diagnostics(&mut self) -> Text {
         self.text.take_diagnostics()
     }
 }
