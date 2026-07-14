@@ -2,7 +2,8 @@ use crate::text;
 
 use super::super::super::Runtime;
 use crate::{
-    command, draft, error::Error, input, interaction, keymap, response, session, state, window,
+    command, context, draft, error::Error, input, interaction, keymap, response, session, state,
+    view, window,
 };
 
 pub(in crate::runtime) enum CommitAttempt {
@@ -198,32 +199,29 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
         let base = draft.base_text().to_owned();
         let text = draft.text().to_owned();
-        let table_action = self
+        let Some(commit) = self
             .composition
             .get(window)
-            .and_then(|composition| composition.view().table_edit_action(focus, text.to_owned()));
-        let action = match table_action {
-            Some(Err((cell, reason))) => {
-                self.session.reject_table_edit(window, cell, reason);
+            .and_then(|composition| composition.view().text_commit(focus))
+        else {
+            return Ok(CommitAttempt::NotAttempted);
+        };
+        let trigger = match commit.build(text.clone()) {
+            Ok(trigger) => trigger,
+            Err(reason) => {
+                if let Some(cell) = focus.table_cell_identity() {
+                    self.session.reject_table_edit(window, cell, reason);
+                }
                 return Ok(CommitAttempt::Rejected(self.window_outcome(
                     window,
                     false,
                     response::Effect::Rebuild,
                 )));
             }
-            Some(Ok((cell, action))) => {
-                self.session.clear_table_edit_error(window, cell);
-                Some(action)
-            }
-            None => self.composition.get(window).and_then(|composition| {
-                composition
-                    .view()
-                    .text_commit_action(focus, text.to_owned())
-            }),
         };
-        let Some(action) = action else {
-            return Ok(CommitAttempt::NotAttempted);
-        };
+        if let Some(cell) = focus.table_cell_identity() {
+            self.session.clear_table_edit_error(window, cell);
+        }
 
         if text == base {
             return Ok(CommitAttempt::Accepted(self.window_outcome(
@@ -233,7 +231,21 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             )));
         }
 
-        let outcome = self.handle_view(window, action)?;
+        let binding = view::Binding::from_trigger(trigger, context::Source::Input);
+        let outcome = match self.handle_view(window, view::Action::activate(&binding)) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                if let Some(cell) = focus.table_cell_identity() {
+                    self.session
+                        .reject_table_edit(window, cell, error.to_string());
+                }
+                return Ok(CommitAttempt::Rejected(self.window_outcome(
+                    window,
+                    false,
+                    response::Effect::Rebuild,
+                )));
+            }
+        };
         let sealed = self.session.seal_text_draft(window, focus);
         let effect = outcome.effect().clone().then(if sealed {
             response::Effect::Layout

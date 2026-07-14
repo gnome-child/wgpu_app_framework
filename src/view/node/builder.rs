@@ -281,11 +281,6 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_table_edit(mut self, edit: crate::table::Edit) -> Self {
-        self.table_edit = Some(edit);
-        self
-    }
-
     pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
@@ -422,14 +417,8 @@ impl Node {
         self
     }
 
-    pub(crate) fn bind_text_trigger(
-        mut self,
-        text: String,
-        source: Source,
-        text_trigger: command::AnyValueTrigger<String>,
-    ) -> Self {
-        self.participation = participation_for_source(source);
-        self.binding = Some(Binding::text(text, source, text_trigger));
+    pub(crate) fn with_text_commit(mut self, commit: super::super::TextCommit) -> Self {
+        self.text_commit = Some(commit);
         self
     }
 
@@ -485,7 +474,7 @@ impl Node {
             table_header_cell: None,
             table_header_presentation: None,
             table_model: None,
-            table_edit: None,
+            text_commit: None,
             table_edit_error: None,
             participation: None,
             context_menu: false,

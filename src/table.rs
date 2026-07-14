@@ -337,43 +337,6 @@ pub struct Table {
     row_context: Option<Rc<RowContext>>,
 }
 
-pub struct TextEditor {
-    cell: Cell,
-    text: String,
-    placeholder: Option<String>,
-    validation: Arc<Validation>,
-    trigger: Option<command::AnyValueTrigger<String>>,
-    input: text::Input,
-    presentation: Presentation,
-    align: view::Align,
-    overflow: text::Overflow,
-}
-
-pub struct NumberEditor {
-    cell: Cell,
-    value: i64,
-    placeholder: Option<String>,
-    validation: Arc<NumberValidation>,
-    trigger: Option<command::AnyValueTrigger<String>>,
-    input: text::Input,
-}
-
-type Validation = dyn Fn(&str) -> Result<(), String> + Send + Sync;
-type NumberValidation = dyn Fn(i64) -> Result<(), String> + Send + Sync;
-
-#[derive(Clone)]
-pub(crate) struct Edit {
-    cell: Cell,
-    text: String,
-    placeholder: Option<String>,
-    validation: Arc<Validation>,
-    trigger: Option<command::AnyValueTrigger<String>>,
-    input: text::Input,
-    presentation: Presentation,
-    align: view::Align,
-    overflow: text::Overflow,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cell {
     table: interaction::Id,
@@ -630,11 +593,15 @@ where
         self
     }
 
-    pub fn validate(
+    pub fn validate<E>(
         mut self,
-        validation: impl Fn(&V) -> Result<(), String> + Send + Sync + 'static,
-    ) -> Self {
-        self.validation = Arc::new(validation);
+        validation: impl Fn(&V) -> Result<(), E> + Send + Sync + 'static,
+    ) -> Self
+    where
+        E: Display,
+    {
+        self.validation =
+            Arc::new(move |value| validation(value).map_err(|error| error.to_string()));
         self
     }
 
@@ -709,26 +676,18 @@ where
         let input = self.input;
         self.cell = Some(Rc::new(move |record, cell, presentation| {
             let value = accessor(record);
-            let draft_validation = Arc::clone(&validation);
             let commit_validation = Arc::clone(&validation);
             let commit_map = Arc::clone(&map);
+            let (wrap, overflow) = presentation.text_policy(overflow);
             widget::Widget::into_node(
-                TextEditor::new(cell, value.to_string())
-                    .display(presentation)
-                    .align(align)
-                    .overflow(overflow)
+                widget::TextBox::new(value.to_string())
+                    .focus(session::Focus::table_cell(cell))
                     .input(input)
-                    .validate(move |draft| {
+                    .inactive_display(align, wrap, overflow)
+                    .try_commit_with_formatted::<C>(move |draft| {
                         let parsed = draft.parse::<V>().map_err(|error| error.to_string())?;
-                        draft_validation(&parsed)
-                    })
-                    .on_commit::<C>(move |cell, draft| {
-                        let parsed = draft.parse::<V>().unwrap_or_else(|_| {
-                            panic!("typed table editor validates syntax before commit mapping")
-                        });
-                        commit_validation(&parsed)
-                            .expect("typed table editor validates domain before commit mapping");
-                        commit_map(cell, parsed)
+                        commit_validation(&parsed)?;
+                        Ok(commit_map(cell, parsed))
                     }),
             )
         }));
@@ -1046,213 +1005,6 @@ impl Cell {
     }
 }
 
-impl TextEditor {
-    pub fn new(cell: Cell, text: impl Into<String>) -> Self {
-        Self {
-            cell,
-            text: text.into(),
-            placeholder: None,
-            validation: Arc::new(|_| Ok(())),
-            trigger: None,
-            input: text::Input::unrestricted(),
-            presentation: Presentation::Compact,
-            align: view::Align::Start,
-            overflow: text::Overflow::EllipsisEnd,
-        }
-    }
-
-    fn display(mut self, presentation: Presentation) -> Self {
-        self.presentation = presentation;
-        self
-    }
-
-    fn align(mut self, align: view::Align) -> Self {
-        self.align = align;
-        self
-    }
-
-    fn overflow(mut self, overflow: text::Overflow) -> Self {
-        self.overflow = overflow;
-        self
-    }
-
-    pub fn input(mut self, input: text::Input) -> Self {
-        self.input = input;
-        self
-    }
-
-    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
-        self.placeholder = Some(placeholder.into());
-        self
-    }
-
-    pub fn validate(
-        mut self,
-        validation: impl Fn(&str) -> Result<(), String> + Send + Sync + 'static,
-    ) -> Self {
-        self.validation = Arc::new(validation);
-        self
-    }
-
-    pub fn on_commit<C>(
-        mut self,
-        map: impl Fn(Cell, String) -> C::Args + Send + Sync + 'static,
-    ) -> Self
-    where
-        C: command::Command,
-        C::Args: Clone,
-    {
-        let cell = self.cell;
-        self.trigger = Some(command::AnyValueTrigger::command::<C>(
-            move |text: String| map(cell, text),
-        ));
-        self
-    }
-}
-
-impl NumberEditor {
-    pub fn new(cell: Cell, value: i64) -> Self {
-        Self {
-            cell,
-            value,
-            placeholder: None,
-            validation: Arc::new(|_| Ok(())),
-            trigger: None,
-            input: text::Input::signed_integer(),
-        }
-    }
-
-    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
-        self.placeholder = Some(placeholder.into());
-        self
-    }
-
-    pub fn validate(
-        mut self,
-        validation: impl Fn(i64) -> Result<(), String> + Send + Sync + 'static,
-    ) -> Self {
-        self.validation = Arc::new(validation);
-        self
-    }
-
-    pub fn on_commit<C>(
-        mut self,
-        map: impl Fn(Cell, i64) -> C::Args + Send + Sync + 'static,
-    ) -> Self
-    where
-        C: command::Command,
-        C::Args: Clone,
-    {
-        let cell = self.cell;
-        self.trigger = Some(command::AnyValueTrigger::command::<C>(
-            move |text: String| {
-                let value = text
-                    .trim()
-                    .parse::<i64>()
-                    .expect("NumberEditor validates parsing before building command args");
-                map(cell, value)
-            },
-        ));
-        self
-    }
-}
-
-impl widget::Widget for TextEditor {
-    fn into_node(self) -> view::Node {
-        Edit::new(
-            self.cell,
-            self.text,
-            self.placeholder,
-            self.validation,
-            self.trigger,
-            self.input,
-            self.presentation,
-            self.align,
-            self.overflow,
-        )
-        .node()
-    }
-}
-
-impl widget::Widget for NumberEditor {
-    fn into_node(self) -> view::Node {
-        let domain = Arc::clone(&self.validation);
-        let validation: Arc<Validation> = Arc::new(move |text| {
-            let value = text
-                .trim()
-                .parse::<i64>()
-                .map_err(|_| "Enter a whole number".to_owned())?;
-            domain(value)
-        });
-        Edit::new(
-            self.cell,
-            self.value.to_string(),
-            self.placeholder,
-            validation,
-            self.trigger,
-            self.input,
-            Presentation::Compact,
-            view::Align::End,
-            text::Overflow::EllipsisEnd,
-        )
-        .node()
-    }
-}
-
-impl Edit {
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        cell: Cell,
-        text: String,
-        placeholder: Option<String>,
-        validation: Arc<Validation>,
-        trigger: Option<command::AnyValueTrigger<String>>,
-        input: text::Input,
-        presentation: Presentation,
-        align: view::Align,
-        overflow: text::Overflow,
-    ) -> Self {
-        Self {
-            cell,
-            text,
-            placeholder,
-            validation,
-            trigger,
-            input,
-            presentation,
-            align,
-            overflow,
-        }
-    }
-
-    pub(crate) fn cell(&self) -> Cell {
-        self.cell
-    }
-
-    pub(crate) fn validate(&self, text: &str) -> Result<(), String> {
-        (self.validation)(text)
-    }
-
-    pub(crate) fn node(&self) -> view::Node {
-        let focus = session::Focus::table_cell(self.cell);
-        let mut model = view::TextBox::new(self.text.clone())
-            .with_focus(focus)
-            .with_input(self.input)
-            .with_inactive_display();
-        if let Some(placeholder) = self.placeholder.as_ref() {
-            model = model.with_placeholder(placeholder.clone());
-        }
-        let (wrap, overflow) = self.presentation.text_policy(self.overflow);
-        let mut node = view::Node::text_box_state(model)
-            .with_world_text_policy(self.text.clone(), wrap, overflow)
-            .with_world_text_alignment(self.align);
-        if let Some(trigger) = self.trigger.clone() {
-            node = node.bind_text_trigger(self.text.clone(), context::Source::Input, trigger);
-        }
-        node.with_table_edit(self.clone())
-    }
-}
-
 impl Row {
     pub(crate) fn table(self) -> interaction::Id {
         self.table
@@ -1534,16 +1286,77 @@ mod tests {
         assert_eq!(address_node.label_text(), Some("127.0.0.1"));
         assert!(
             address_node
-                .table_edit()
-                .expect("FromStr supplies the foreign editor")
-                .validate("not an address")
+                .text_commit()
+                .expect("FromStr supplies the foreign commit recipe")
+                .build("not an address".to_owned())
                 .is_err()
         );
-        let ratio_edit = ratio_node
-            .table_edit()
-            .expect("float FromStr supplies an editor");
-        assert!(ratio_edit.validate("1.25").is_ok());
-        assert!(ratio_edit.validate("1e-").is_err());
+        let ratio_commit = ratio_node
+            .text_commit()
+            .expect("float FromStr supplies a commit recipe");
+        assert!(ratio_commit.build("1.25".to_owned()).is_ok());
+        assert!(ratio_commit.build("1e-".to_owned()).is_err());
+    }
+
+    #[test]
+    fn typed_table_commit_parses_and_validates_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+        static PARSES: AtomicUsize = AtomicUsize::new(0);
+        static VALIDATIONS: AtomicUsize = AtomicUsize::new(0);
+
+        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        struct Counted(u32);
+
+        impl Display for Counted {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(formatter)
+            }
+        }
+
+        impl FromStr for Counted {
+            type Err = std::num::ParseIntError;
+
+            fn from_str(text: &str) -> Result<Self, Self::Err> {
+                PARSES.fetch_add(1, AtomicOrdering::SeqCst);
+                text.parse().map(Self)
+            }
+        }
+
+        struct Record {
+            value: Counted,
+        }
+
+        PARSES.store(0, AtomicOrdering::SeqCst);
+        VALIDATIONS.store(0, AtomicOrdering::SeqCst);
+        let column = Column::text(
+            "value",
+            "Value",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.value,
+        )
+        .validate(|_: &Counted| {
+            VALIDATIONS.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok::<_, &'static str>(())
+        })
+        .editable::<CommitText>(|cell, value| (cell, value.to_string()))
+        .build();
+        let record = Record { value: Counted(1) };
+        let cell = Cell::new(
+            interaction::Id::new("counted.table"),
+            virtual_list::Key::new(0),
+            interaction::Id::new("value"),
+        );
+        let node = (column.cell)(&record, cell, Presentation::Compact);
+
+        assert!(
+            node.text_commit()
+                .expect("editable column should carry one commit recipe")
+                .build("2".to_owned())
+                .is_ok()
+        );
+        assert_eq!(PARSES.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(VALIDATIONS.load(AtomicOrdering::SeqCst), 1);
     }
 
     #[test]

@@ -388,23 +388,40 @@ impl crate::table::Provider for EditableTableProvider {
         let record = &self.records[row];
         match cell.column().as_str() {
             "name" => widget::Widget::into_node(
-                crate::table::TextEditor::new(cell, record.name.clone())
-                    .validate(|value| {
+                widget::TextBox::new(record.name.clone())
+                    .focus(session::Focus::table_cell(cell))
+                    .inactive_display(
+                        view::Align::Start,
+                        view::Wrap::None,
+                        text::Overflow::EllipsisEnd,
+                    )
+                    .try_commit_with::<SetRecordName, String>(move |value| {
                         (!value.trim().is_empty())
                             .then_some(())
-                            .ok_or_else(|| "Name is required".to_owned())
-                    })
-                    .on_commit::<SetRecordName>(|cell, value| SetRecordNameArgs { cell, value }),
+                            .ok_or_else(|| "Name is required".to_owned())?;
+                        Ok(SetRecordNameArgs { cell, value })
+                    }),
             ),
             "count" => widget::Widget::into_node(
-                crate::table::NumberEditor::new(cell, record.count)
-                    .validate(|value| {
+                widget::TextBox::new(record.count.to_string())
+                    .focus(session::Focus::table_cell(cell))
+                    .input(text::Input::signed_integer())
+                    .inactive_display(
+                        view::Align::End,
+                        view::Wrap::None,
+                        text::Overflow::EllipsisEnd,
+                    )
+                    .try_commit_with::<SetRecordCount, String>(move |value| {
+                        let value = value
+                            .trim()
+                            .parse::<i64>()
+                            .map_err(|_| "Enter a whole number".to_owned())?;
                         (0..=100)
                             .contains(&value)
                             .then_some(())
-                            .ok_or_else(|| "Count must be from 0 to 100".to_owned())
-                    })
-                    .on_commit::<SetRecordCount>(|cell, value| SetRecordCountArgs { cell, value }),
+                            .ok_or_else(|| "Count must be from 0 to 100".to_owned())?;
+                        Ok(SetRecordCountArgs { cell, value })
+                    }),
             ),
             "action" => widget::Widget::into_node(
                 widget::Button::new("Run").trigger::<InvokeTaskGate>(TaskGateArgs::Button),
@@ -6598,7 +6615,7 @@ fn pointer_cursor_uses_text_for_editable_text_regions() {
 }
 
 #[test]
-fn pointer_cursor_uses_default_for_disabled_text_box() {
+fn text_box_editability_is_independent_from_base_argument_command_state() {
     let focus = session::Focus::text("cursor.disabled");
     let mut app = Runtime::new(SourceState::default())
         .commands(|commands| {
@@ -6617,7 +6634,7 @@ fn pointer_cursor_uses_default_for_disabled_text_box() {
                     ui.text_box(
                         widget::TextBox::new("disabled")
                             .focus(focus)
-                            .on_submit::<DisabledTextSubmit>(),
+                            .on_commit::<DisabledTextSubmit>(),
                     );
                 });
             })
@@ -6649,8 +6666,8 @@ fn pointer_cursor_uses_default_for_disabled_text_box() {
     );
     assert_eq!(
         cursor_after_move(&mut app, window, size, frame_point(text_box)),
-        None,
-        "disabled text field keeps the default cursor"
+        Some(pointer::Cursor::Text),
+        "commit state is resolved from the future draft and cannot disable editing from base args"
     );
 }
 

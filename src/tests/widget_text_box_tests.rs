@@ -1,8 +1,109 @@
 use super::*;
 use std::time::{Duration, Instant};
 
+struct CurrentTextCommit;
+
+impl Command for CurrentTextCommit {
+    type Args = String;
+    type Output = ();
+
+    const NAME: &'static str = "test.current_text_commit";
+}
+
+#[derive(Clone)]
+struct CurrentTextState {
+    text: String,
+    invocations: usize,
+}
+
+impl State for CurrentTextState {}
+
+impl Target<CurrentTextCommit> for CurrentTextState {
+    fn state(&self, text: &String, _: &Context) -> command::State {
+        if text == "valid" {
+            command::State::enabled()
+        } else {
+            command::State::disabled()
+        }
+    }
+
+    fn invoke(&mut self, text: String, _: &mut Context) -> Response<()> {
+        self.text = text;
+        self.invocations += 1;
+        Response::changed(())
+    }
+}
+
 #[test]
-fn text_box_on_submit_invokes_command_with_draft_text() {
+fn text_commit_state_uses_current_draft_arguments() {
+    let focus = session::Focus::text("current-commit");
+    let mut app = Runtime::new(CurrentTextState {
+        text: "invalid".to_owned(),
+        invocations: 0,
+    })
+    .commands(|commands| {
+        commands
+            .install(document::Editing::standard())
+            .register::<CurrentTextCommit>(command::Spec::new("Current commit"));
+    })
+    .responders(|responders| {
+        responders.app().target::<CurrentTextCommit>();
+    })
+    .started(|cx| {
+        cx.open_window(window::Options::new("Current text commit"));
+    })
+    .view(move |state, _| {
+        widget::view(|ui| {
+            ui.text_box(
+                widget::TextBox::new(state.text.clone())
+                    .focus(focus)
+                    .on_commit::<CurrentTextCommit>(),
+            );
+        })
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    app.show_scene(window, size)
+        .expect("text box should render");
+
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box should focus");
+    app.handle_input(window, Input::shortcut("Ctrl+A"))
+        .expect("base text should select");
+    app.handle_input(window, Input::text_commit("valid"))
+        .expect("current valid draft should type");
+    app.handle_input(window, Input::focus(non_text_focus("blur")))
+        .expect("current valid arguments should commit");
+    assert_eq!(app.state().text, "valid");
+    assert_eq!(app.state().invocations, 1);
+
+    app.show_scene(window, size)
+        .expect("committed base should rebuild");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box should refocus");
+    app.handle_input(window, Input::shortcut("Ctrl+A"))
+        .expect("valid base should select");
+    app.handle_input(window, Input::text_commit("invalid"))
+        .expect("current invalid draft should type");
+    let rejected = app
+        .handle_input(window, Input::focus(non_text_focus("second-blur")))
+        .expect("disabled current arguments should reject without runtime failure");
+
+    assert!(rejected.is_handled());
+    assert_eq!(app.state().text, "valid");
+    assert_eq!(app.state().invocations, 1);
+    assert_eq!(text_draft(&app, window, focus).text(), "invalid");
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|current| current.same_target(&focus)),
+        "a rejected current command must keep the text task active"
+    );
+}
+
+#[test]
+fn text_box_on_commit_invokes_command_with_draft_text() {
     let focus = session::Focus::text("search");
     let mut app = Runtime::new(TextBoxSubmitState {
         submitted: "Mar".to_owned(),
@@ -23,7 +124,7 @@ fn text_box_on_submit_invokes_command_with_draft_text() {
                 widget::TextBox::new(state.submitted.clone())
                     .placeholder("Search")
                     .focus(focus)
-                    .on_submit::<SubmitText>(),
+                    .on_commit::<SubmitText>(),
             );
         })
     });
@@ -77,7 +178,7 @@ fn bound_text_box_scene_paints_text_box_text_not_command_label() {
                     widget::TextBox::new(state.submitted.clone())
                         .placeholder("Search")
                         .focus(focus)
-                        .on_submit::<SubmitText>(),
+                        .on_commit::<SubmitText>(),
                 );
             })
         });
@@ -123,7 +224,7 @@ fn bound_text_box_pointer_target_stays_text_input_target() {
                 ui.text_box(
                     widget::TextBox::new(state.submitted.clone())
                         .focus(focus)
-                        .on_submit::<SubmitText>(),
+                        .on_commit::<SubmitText>(),
                 );
             })
         });
@@ -149,7 +250,7 @@ fn bound_text_box_pointer_target_stays_text_input_target() {
 }
 
 #[test]
-fn text_box_submit_with_maps_committed_text_into_custom_command_args() {
+fn text_box_commit_with_maps_committed_text_into_custom_command_args() {
     let focus = session::Focus::text("filter");
     let mut app = Runtime::new(TextBoxSubmitState::default())
         .commands(|commands| {
@@ -166,7 +267,7 @@ fn text_box_submit_with_maps_committed_text_into_custom_command_args() {
                 ui.text_box(
                     widget::TextBox::new(state.submitted.clone())
                         .focus(focus)
-                        .submit_with::<SubmitMappedText, _>(|text| TextSubmitArgs {
+                        .commit_with::<SubmitMappedText>(|text| TextSubmitArgs {
                             normalized: text.trim().to_ascii_lowercase(),
                             raw: text,
                         }),
@@ -645,7 +746,7 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
             ui.text_box(
                 widget::TextBox::new(state.submitted.clone())
                     .focus(focus)
-                    .on_submit::<SubmitText>(),
+                    .on_commit::<SubmitText>(),
             );
         })
     });
@@ -798,7 +899,7 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
             ui.text_box(
                 widget::TextBox::new(state.submitted.clone())
                     .focus(focus)
-                    .on_submit::<SubmitText>(),
+                    .on_commit::<SubmitText>(),
             );
         })
     });
@@ -1015,7 +1116,7 @@ fn text_box_undo_redo_uses_focused_draft_history() {
                 ui.text_box(
                     widget::TextBox::new(state.submitted.clone())
                         .focus(focus)
-                        .on_submit::<SubmitText>(),
+                        .on_commit::<SubmitText>(),
                 );
             })
         });
@@ -1108,7 +1209,7 @@ fn text_box_native_key_typing_undoes_as_one_text_chunk() {
                 ui.text_box(
                     widget::TextBox::new(state.submitted.clone())
                         .focus(focus)
-                        .on_submit::<SubmitText>(),
+                        .on_commit::<SubmitText>(),
                 );
             })
         });

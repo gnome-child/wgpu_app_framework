@@ -15,11 +15,6 @@ pub(super) struct SliderChangeBinding {
     source: Source,
 }
 
-pub(super) struct TextBoxBinding {
-    trigger: command::AnyValueTrigger<String>,
-    source: Source,
-}
-
 impl TriggerBinding {
     pub(super) fn command<C>(args: C::Args, source: Source) -> Self
     where
@@ -63,25 +58,5 @@ impl SliderChangeBinding {
 
     fn bind(self, node: view::Node, value: f64) -> view::Node {
         node.bind_slider_trigger(value, self.source, self.trigger)
-    }
-}
-
-impl TextBoxBinding {
-    pub(super) fn command<C>(
-        source: Source,
-        map: impl Fn(String) -> C::Args + Send + Sync + 'static,
-    ) -> Self
-    where
-        C: command::Command,
-        C::Args: Clone,
-    {
-        Self {
-            trigger: command::AnyValueTrigger::command::<C>(map),
-            source,
-        }
-    }
-
-    pub(super) fn bind(self, node: view::Node, text: String) -> view::Node {
-        node.bind_text_trigger(text, self.source, self.trigger)
     }
 }

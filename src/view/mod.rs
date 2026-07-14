@@ -10,6 +10,7 @@ use std::collections::HashMap;
 mod action;
 mod binding;
 mod command_palette;
+mod commit;
 mod context;
 mod context_menu;
 mod control;
@@ -22,6 +23,7 @@ mod style;
 pub(crate) use action::{Action, FocusDirection};
 pub use binding::Binding;
 pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
+pub(crate) use commit::TextCommit;
 pub use context::Context;
 pub(crate) use context_menu::ContextMenu;
 pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
@@ -184,10 +186,6 @@ impl View {
             .unwrap_or_default()
     }
 
-    pub(crate) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {
-        self.root.table_cell_is_editable(cell)
-    }
-
     pub(crate) fn table_cell_focus(&self, cell: crate::table::Cell) -> Option<session::Focus> {
         self.root.table_cell_focus(cell)
     }
@@ -341,16 +339,8 @@ impl View {
         }
     }
 
-    pub(super) fn text_commit_action(&self, focus: session::Focus, text: String) -> Option<Action> {
-        self.root.text_commit_action(focus, text)
-    }
-
-    pub(super) fn table_edit_action(
-        &self,
-        focus: session::Focus,
-        text: String,
-    ) -> Option<Result<(crate::table::Cell, Action), (crate::table::Cell, String)>> {
-        self.root.table_edit_action(focus, text)
+    pub(super) fn text_commit(&self, focus: session::Focus) -> Option<TextCommit> {
+        self.root.text_commit_for_focus(focus)
     }
 
     pub(super) fn draft_text(&self, focus: session::Focus) -> Option<String> {

@@ -21,7 +21,7 @@ are both present. Checkpoint 7 is the severable status tail.
 | 1 — accepted task transitions | Complete | Rejected departure admits no dependent action or click-chain contribution |
 | 2 — one TextBox and row participation | Complete | Pre-gesture focal row gates every member; table edit identity is deleted |
 | 3 — one responder path | Complete | Semantic table/row/cell/member layers replace editing-scope suppression |
-| 4 — one current commit recipe | Pending | One current draft produces one trigger or one formatted rejection |
+| 4 — one current commit recipe | Complete | One current draft produces one trigger or one formatted rejection |
 | 5 — draft-owned validity | Pending | Rejection lifetime is structurally bounded by its draft entry |
 | 6 — inline validity and explanation | Pending | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
 | 7 — passive status projection | Pending | General status atom plus thin, virtualized `Column::status` sugar |
@@ -182,6 +182,42 @@ draft-owned validity, one TextBox surface, and the one panel path.
   `active_table_editor_uses_task_order_and_owns_select_all` pins the full
   standard edit-command family before broader owners and live task ownership.
 - Formatting, diff hygiene, warning-free all-target compilation, 1,047 passing
+  library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
+  three application smokes passed. `comparison_open: true` remains protected.
+  The independent checkpoint boundary is `bdddee71`.
+
+### Checkpoint 4 — one current commit recipe
+
+- `view::TextCommit` erases one closure from current draft text to either a
+  current `AnyTrigger` or one formatted rejection. Infallible and fallible
+  public TextBox constructors converge there through `on_commit`,
+  `commit_with`, and `try_commit_with`; the retired submit vocabulary has no
+  compatibility alias.
+- Text commits no longer materialize a view binding from the displayed base or
+  copy resolved command state across argument substitution. The recipe builds
+  first, then its fresh trigger resolves and invokes through the current live
+  responder chain. Disabled current arguments reject departure and keep the
+  draft task active instead of inheriting the base arguments' state.
+- `Column::text(...).validate(...)` accepts any displayable rejection. Its one
+  erased recipe performs `FromStr`, optional domain validation, and typed
+  command mapping exactly once. Syntax and validation errors are formatted
+  once before crossing the erased boundary; no panic asserts agreement between
+  duplicate paths.
+- Public `table::TextEditor`, public `table::NumberEditor`, `table::Edit`,
+  `table_edit_action`, `table_cell_is_editable`, the text-specific
+  `AnyValueTrigger` binding, and `Binding::with_text_value` are absent. Typed
+  columns and custom table fixtures now compose the ordinary TextBox directly,
+  including its input and inactive-display policies.
+- `text_commit_state_uses_current_draft_arguments` pins both inverse base/draft
+  states. `typed_table_commit_parses_and_validates_once` counts each operation,
+  and `fallible_commit_formats_one_rejection_snapshot` counts the one `Display`
+  boundary. The old disabled-base cursor expectation now proves that command
+  state cannot disable editing before draft arguments exist.
+- The existing table rejection store is intentionally the temporary visual
+  bridge at this independent boundary. Checkpoint 5 moves the rejection under
+  the general draft entry and deletes that store; no new table retention was
+  introduced here.
+- Formatting, diff hygiene, warning-free all-target compilation, 1,050 passing
   library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
   three application smokes passed. `comparison_open: true` remains protected.
 

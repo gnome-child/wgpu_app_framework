@@ -13,7 +13,6 @@ pub struct Binding {
     source: Source,
     route: responder::Route,
     slider_trigger: Option<command::AnyValueTrigger<f64>>,
-    text_trigger: Option<command::AnyValueTrigger<String>>,
 }
 
 impl Binding {
@@ -33,7 +32,6 @@ impl Binding {
             source,
             route: responder::Route::Chain,
             slider_trigger: None,
-            text_trigger: None,
         }
     }
 
@@ -49,23 +47,6 @@ impl Binding {
             source,
             route: responder::Route::Chain,
             slider_trigger: Some(slider_trigger),
-            text_trigger: None,
-        }
-    }
-
-    pub(super) fn text(
-        text: String,
-        source: Source,
-        text_trigger: command::AnyValueTrigger<String>,
-    ) -> Self {
-        Self {
-            trigger: text_trigger.trigger(text),
-            state: command::State::hidden(),
-            description: None,
-            source,
-            route: responder::Route::Chain,
-            slider_trigger: None,
-            text_trigger: Some(text_trigger),
         }
     }
 
@@ -121,7 +102,6 @@ impl Binding {
             source,
             route: action.route(),
             slider_trigger: None,
-            text_trigger: None,
         }
     }
 
@@ -137,7 +117,6 @@ impl Binding {
             source: Source::Menu,
             route: responder::Route::Chain,
             slider_trigger: None,
-            text_trigger: None,
         }
     }
 
@@ -151,18 +130,6 @@ impl Binding {
         }
 
         Some(Action::Activate(self.with_slider_value(value)?))
-    }
-
-    pub(super) fn text_action(&self, text: String) -> Option<Action> {
-        if !self.is_enabled() {
-            return None;
-        }
-
-        Some(Action::Activate(self.with_text_value(text)?))
-    }
-
-    pub(crate) fn validated_text_action(&self, text: String) -> Option<Action> {
-        self.text_action(text)
     }
 
     pub(super) fn element_pointer_target(&self, id: interaction::Id) -> interaction::Target {
@@ -207,21 +174,6 @@ impl Binding {
             source: self.source,
             route: self.route,
             slider_trigger: Some(slider_trigger),
-            text_trigger: self.text_trigger.clone(),
-        })
-    }
-
-    fn with_text_value(&self, text: String) -> Option<Self> {
-        let text_trigger = self.text_trigger.clone()?;
-
-        Some(Self {
-            trigger: text_trigger.trigger(text),
-            state: self.state.clone(),
-            description: self.description,
-            source: self.source,
-            route: self.route,
-            slider_trigger: self.slider_trigger.clone(),
-            text_trigger: Some(text_trigger),
         })
     }
 }

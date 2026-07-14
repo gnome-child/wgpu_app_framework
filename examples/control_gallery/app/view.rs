@@ -312,7 +312,7 @@ fn input_panel(state: &State) -> widget::Element {
                 widget::TextBox::new(state.query.clone())
                     .placeholder("Type to search")
                     .focus(wgpu_l3::session::Focus::text(QUERY_FOCUS))
-                    .on_submit::<SubmitQuery>(),
+                    .on_commit::<SubmitQuery>(),
             );
         })
 }

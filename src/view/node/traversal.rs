@@ -221,14 +221,6 @@ impl Node {
         )]
     }
 
-    pub(in crate::view) fn table_cell_is_editable(&self, cell: crate::table::Cell) -> bool {
-        (self.table_cell() == Some(cell) && self.table_edit().is_some())
-            || self
-                .children
-                .iter()
-                .any(|child| child.table_cell_is_editable(cell))
-    }
-
     pub(in crate::view) fn table_cell_focus(
         &self,
         cell: crate::table::Cell,
@@ -241,31 +233,6 @@ impl Node {
         self.children
             .iter()
             .find_map(|child| child.table_cell_focus(cell))
-    }
-
-    pub(in crate::view) fn table_edit_action(
-        &self,
-        focus: session::Focus,
-        text: String,
-    ) -> Option<Result<(crate::table::Cell, Action), (crate::table::Cell, String)>> {
-        let owns_focus = self
-            .text_box_model()
-            .and_then(TextBox::focus)
-            .or_else(|| self.text_area_model().and_then(TextArea::focus))
-            .is_some_and(|candidate| candidate.same_target(&focus));
-        if owns_focus && let Some(edit) = self.table_edit() {
-            if let Err(reason) = edit.validate(&text) {
-                return Some(Err((edit.cell(), reason)));
-            }
-            return self
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.validated_text_action(text))
-                .map(|action| Ok((edit.cell(), action)));
-        }
-        self.children
-            .iter()
-            .find_map(|child| child.table_edit_action(focus, text.clone()))
     }
 
     pub(in crate::view) fn table_model_for_id(
@@ -565,25 +532,21 @@ impl Node {
         self.collect_floating_panel_focus_order_retained_at(retained, order)
     }
 
-    pub(in crate::view) fn text_commit_action(
+    pub(in crate::view) fn text_commit_for_focus(
         &self,
         focus: session::Focus,
-        text: String,
-    ) -> Option<Action> {
+    ) -> Option<super::super::TextCommit> {
         if self
             .text_box_model()
             .and_then(TextBox::focus)
             .is_some_and(|text_focus| text_focus.same_target(&focus))
         {
-            return self
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.text_action(text));
+            return self.text_commit().cloned();
         }
 
         self.children
             .iter()
-            .find_map(|child| child.text_commit_action(focus, text.clone()))
+            .find_map(|child| child.text_commit_for_focus(focus))
     }
 
     pub(in crate::view) fn text_box_for_focus(&self, focus: session::Focus) -> Option<&TextBox> {
@@ -765,7 +728,7 @@ impl Node {
         }
 
         if let Some(Control::TextBox(text_box)) = &mut self.control {
-            text_box.project_layout_interaction(interaction, self.binding.is_some());
+            text_box.project_layout_interaction(interaction, self.text_commit.is_some());
         }
 
         for (index, child) in self.children.iter_mut().enumerate() {

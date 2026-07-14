@@ -158,7 +158,7 @@ pub struct Node {
     table_header_cell: Option<crate::table::HeaderCell>,
     table_header_presentation: Option<crate::table::HeaderPresentation>,
     table_model: Option<crate::table::Model>,
-    table_edit: Option<crate::table::Edit>,
+    text_commit: Option<super::TextCommit>,
     table_edit_error: Option<String>,
     participation: Option<Participation>,
     context_menu: bool,

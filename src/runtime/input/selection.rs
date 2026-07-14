@@ -100,9 +100,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .table_cell_identity()
                 .or_else(|| self.session.active_table_cell(window, model.id()))?;
             let editable = self
-                .composition
-                .get(window)
-                .is_some_and(|composition| composition.view().table_cell_is_editable(cell));
+                .text_draft_base(window, session::Focus::table_cell(cell))
+                .is_some();
             if !editable {
                 return None;
             }

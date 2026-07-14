@@ -158,8 +158,8 @@ impl Node {
         self.table_model.as_ref()
     }
 
-    pub(crate) fn table_edit(&self) -> Option<&crate::table::Edit> {
-        self.table_edit.as_ref()
+    pub(crate) fn text_commit(&self) -> Option<&super::super::TextCommit> {
+        self.text_commit.as_ref()
     }
 
     pub(crate) fn table_edit_error(&self) -> Option<&str> {
