@@ -960,7 +960,12 @@ pub(crate) fn group_from_items(items: &[Item], opacity: f32, grid: Grid) -> Opti
 }
 
 pub(crate) fn shadow_visual_bounds(shadow: Shadow, grid: Grid) -> Rect {
-    item_bounds(&Item::Shadow(shadow), grid).expect("a shadow always owns visual bounds")
+    let spread = shadow.spread.max(0.0);
+    let blur = shadow.blur.max(0.0) + grid.logical_pixel();
+    expand_rect(
+        offset_rect(expand_rect(shadow.rect, spread), shadow.offset),
+        blur,
+    )
 }
 
 pub(crate) fn union_visual_bounds(a: Rect, b: Rect) -> Rect {
@@ -989,14 +994,7 @@ fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
         Item::Text(text) => Some(text.rect),
         Item::TextViewport(text) => Some(text.rect),
         Item::Icon(icon) => Some(icon.rect),
-        Item::Shadow(shadow) => {
-            let spread = shadow.spread.max(0.0);
-            let blur = shadow.blur.max(0.0) + grid.logical_pixel();
-            Some(expand_rect(
-                offset_rect(expand_rect(shadow.rect, spread), shadow.offset),
-                blur,
-            ))
-        }
+        Item::Shadow(shadow) => Some(shadow_visual_bounds(*shadow, grid)),
         Item::Outline(outline) => Some(expand_rect(
             outline.rect,
             outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
@@ -1355,6 +1353,7 @@ mod tests {
             group.bounds,
             Rect::new(point::logical(-1.0, 13.0), area::logical(62.0, 52.0))
         );
+        assert_eq!(shadow_visual_bounds(shadow, Grid::new(1.0)), group.bounds);
     }
 
     #[test]
