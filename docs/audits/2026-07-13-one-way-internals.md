@@ -6214,10 +6214,10 @@ narrowed**. Correction `497c398f` (`Keep scene visual support behind Visuals`).
 4. **Correction and deletion.** Runtime now admits resolved target facts and
    moving/resting slider samples through `Visuals` methods. `Visuals` constructs
    and sanitizes its private support values, exposes the one hover-or-press
-   query needed by runtime, and supplies the same inferred scalar default to scene
-   paint. Both aliased parent projections and both external support constructors
-   are deleted; no compatibility alias, facade, callback, or duplicate state
-   replaces them.
+   query needed by runtime, and supplies the same inferred scalar default to
+   scene paint. Both aliased parent projections and both external support
+   constructors are deleted; no compatibility alias, facade, callback, or
+   duplicate state replaces them.
 5. **Visibility and naming.** The scene parent projects only central `Visuals`.
    `Target`, `Scalar`, and `Scrollbar`, their scene-consumed queries, and their
    accessors narrow from `pub(crate)` to `pub(super)`. Declaration spellings no
@@ -6243,6 +6243,61 @@ narrowed**. Correction `497c398f` (`Keep scene visual support behind Visuals`).
    118, filesystem reads 363, allowances 6, panics 5, and expects 44. Scene
    visual naming and visibility are at fixed point; command-palette support is
    the final known touched-parent projection before the full Rung 5 sweep.
+
+### R5-68 — namespaced command-palette entry support
+
+Status: **complete; namesake parent projection normalized**. Correction
+`6af34bb2` (`Namespace command palette entries`).
+
+1. **Question and complete trace.** The final known touched-parent sweep traced
+   command candidate population, contextual resolution and fuzzy ordering,
+   selection clamping/navigation/reveal, trigger/label/section projection,
+   view panel construction, section grouping, row binding, layout, paint,
+   native popup realization, activation, focus restoration, and every named
+   `CommandPaletteEntry` call site.
+2. **Naming contradiction.** `view::command_palette` owns central
+   `CommandPalette` and supporting `Entry`, but the view parent flattened the
+   support value under the compound spelling `CommandPaletteEntry`. Runtime
+   was its only external producer. The alternate spelling duplicated context
+   already supplied by the owning module and violated the namesake projection
+   law at the parent itself.
+3. **Crossing and resistance ruling.** The entry is a real crossing value:
+   runtime resolves command identity, state, contextual section, and order;
+   view owns the trigger/label/section row projection and consumes the complete
+   value. Replacing it with a tuple or repeated builder arguments would erase
+   that contract, while moving command resolution into view would invert its
+   dependency. Unlike scene visual support, this type therefore earns a
+   namespaced crossing rather than concealment.
+4. **Correction and deletion.** `view::command_palette` is now crate-visible,
+   the parent re-exports only central `CommandPalette`, and runtime imports the
+   module and namesake type together. Supporting entries are constructed as
+   `command_palette::Entry`; `CommandPaletteEntry` is deleted at the parent and
+   every call site. No compatibility alias or duplicate constructor remains.
+5. **Visibility and naming.** `CommandPalette` retains its existing parent path
+   and effective crate visibility. `Entry` retains crate visibility but is now
+   reachable only through its declaring module with its declaration spelling.
+   A new architecture witness pins the crate-visible namespace, central-only
+   parent projection, compound extinction, grouped module/type import, and
+   namespaced support call site.
+6. **Behavior and economics.** Candidate ordering, section grouping, selected
+   row, triggers, query focus, panel geometry, results scrolling, layout, scene
+   order, native realization, allocation, renderer topology, batching/pass
+   fusion, invalidation, and presentation clocks remain unchanged. This is a
+   path-only correction with no additional construction or traversal.
+7. **Proof.** All fifteen focused command-palette witnesses passed. The full
+   library discovered 1,142 tests and passed 1,132 with ten standing ignores.
+   All targets and all five examples compiled without warnings; all ten census
+   parser tests, the full census, formatting, diff hygiene, and protected
+   `comparison_open: true` check passed.
+8. **Gauge and next frontier.** Making the real namespace explicit raises
+   production `pub(crate)` declarations 1,803 -> 1,804 and the cross-slot-
+   provider upper bound 1,756 -> 1,757. Every other gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, 192 visibility-bearing files,
+   cross-slot test edges 90, source-root mentions 118, filesystem reads 363,
+   allowances 6, panics 5, and expects 44. The seeded touched-parent list is
+   exhausted; Rung 5 now requires its full alias, visibility, failure,
+   intermediate, housing, and bidirectional fixed-point sweep.
 
 ## Initial hypotheses and queue
 
