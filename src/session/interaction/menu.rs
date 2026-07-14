@@ -1,6 +1,6 @@
 use crate::{interaction, window as app_window};
 
-use super::super::{Focus, Session, Window};
+use super::super::{Session, Window};
 
 impl Session {
     pub fn open_menu(&mut self, id: app_window::Id, menu: interaction::Menu) -> bool {
@@ -10,7 +10,7 @@ impl Session {
         };
 
         if window.interaction.open_menu().is_none() {
-            window.menu_restore_focus = restore_focus_for_menu(window);
+            window.menu_restore_focus = window.command_focus();
         }
 
         window.interaction.open_menu_with(menu) || closed_palette
@@ -29,7 +29,7 @@ impl Session {
         }
 
         if window.interaction.open_menu().is_none() {
-            window.menu_restore_focus = restore_focus_for_menu(window);
+            window.menu_restore_focus = window.command_focus();
         }
 
         window.interaction.toggle_menu(menu) || closed_palette
@@ -95,16 +95,6 @@ fn dismiss_menu_for_surface(window: &mut Window, inside_surface: bool) -> bool {
     }
 
     closed
-}
-
-fn restore_focus_for_menu(window: &Window) -> Option<Focus> {
-    window.focus.or_else(|| {
-        window
-            .interaction
-            .text_input()
-            .target()
-            .and_then(Focus::from_text_target)
-    })
 }
 
 fn restore_menu_focus(window: &mut Window) -> bool {

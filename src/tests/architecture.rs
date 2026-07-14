@@ -153,6 +153,22 @@ fn focus_text_target_projection_is_explicitly_optional() {
 }
 
 #[test]
+fn command_focus_precedence_has_one_window_owner() {
+    let window = include_str!("../session/window.rs");
+    let focus = include_str!("../session/focus.rs");
+    let menu = include_str!("../session/interaction/menu.rs");
+
+    assert!(
+        window.contains("pub(super) fn command_focus(&self) -> Option<Focus>")
+            && window.contains("return palette.captured_focus();")
+            && window.contains("self.menu_restore_focus.or(self.focus).or_else(||")
+    );
+    assert!(focus.contains("self.window(id).and_then(Window::command_focus)"));
+    assert_eq!(menu.matches("window.command_focus()").count(), 2);
+    assert!(!menu.contains("fn restore_focus_for_menu"));
+}
+
+#[test]
 fn realized_material_parts_encode_tint_inside_frost() {
     let region = include_str!("../scene/region.rs");
 

@@ -180,17 +180,6 @@ impl Session {
     }
 
     pub(crate) fn command_focus(&self, id: app_window::Id) -> Option<Focus> {
-        let window = self.window(id)?;
-        if let Some(palette) = window.interaction.command_palette() {
-            return palette.captured_focus();
-        }
-
-        window.menu_restore_focus.or(window.focus).or_else(|| {
-            window
-                .interaction
-                .text_input()
-                .target()
-                .and_then(Focus::from_text_target)
-        })
+        self.window(id).and_then(Window::command_focus)
     }
 }

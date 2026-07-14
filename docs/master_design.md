@@ -1062,6 +1062,12 @@ palette. Opening either replaces the other structurally; menu focus restoration
 and palette captured-focus restoration retain their distinct session-owned
 lifecycles around that one interaction species.
 
+Command focus has one window-owned precedence ladder: command-palette capture,
+then open-menu restoration capture, then live window focus, then the active
+text target projected back to focus. Menu opening captures that same resolved
+focus before installing its surface; command resolution and later restoration
+must not independently reconstruct subsets of the ladder.
+
 Provided-list selection is window-local interaction state keyed by list id and
 `virtual_list::Key`; it is not application data, does not dirty documents, and
 does not enter application history. `selection::Selection` exposes read-only

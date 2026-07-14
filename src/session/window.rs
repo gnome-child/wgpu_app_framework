@@ -124,6 +124,19 @@ impl Window {
         self.focus
     }
 
+    pub(super) fn command_focus(&self) -> Option<Focus> {
+        if let Some(palette) = self.interaction.command_palette() {
+            return palette.captured_focus();
+        }
+
+        self.menu_restore_focus.or(self.focus).or_else(|| {
+            self.interaction
+                .text_input()
+                .target()
+                .and_then(Focus::from_text_target)
+        })
+    }
+
     pub(crate) fn interaction(&self) -> &interaction::Interaction {
         &self.interaction
     }
@@ -514,5 +527,30 @@ mod tests {
         assert!(session.close_window(window));
         assert_eq!(session.window(window), None);
         assert_eq!(session.text_input_feedback(window, focus), None);
+    }
+
+    #[test]
+    fn command_focus_has_one_surface_and_live_focus_precedence_ladder() {
+        let mut session = Session::default();
+        let window = session.open_window(app_window::Options::new("Command focus"));
+        let draft_focus = Focus::text("draft-focus");
+        assert!(session.focus(window, draft_focus));
+        assert!(session.activate_text_draft(window, draft_focus, "draft"));
+        assert!(session.clear_focus(window));
+        assert_eq!(session.command_focus(window), Some(draft_focus));
+
+        assert!(session.open_menu(window, interaction::Menu::new("file", "File")));
+        let live_focus = Focus::text("live-focus");
+        assert!(session.focus(window, live_focus));
+        assert_eq!(session.command_focus(window), Some(draft_focus));
+        assert!(session.close_menu(window));
+        assert_eq!(session.focused(window), Some(draft_focus));
+
+        assert!(session.open_command_palette(window));
+        assert_eq!(session.command_focus(window), Some(draft_focus));
+        assert!(session.focus(window, live_focus));
+        assert_eq!(session.command_focus(window), Some(draft_focus));
+        assert!(session.close_command_palette(window));
+        assert_eq!(session.focused(window), Some(draft_focus));
     }
 }
