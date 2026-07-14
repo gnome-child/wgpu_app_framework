@@ -1879,6 +1879,84 @@ Status: **complete; diagnostics observer seam admitted**. Correction
     while retaining the separately traced wgpu surface bridge for its own
     bounded cell.
 
+### R4-02 — semantic scene lowering versus native realization
+
+Status: **complete; renderer projection owner established**. Correction
+`657c3752` (`Move semantic scene lowering to renderer`).
+
+1. **Question and trace.** The complete semantic-scene-to-private-paint path
+   was traced from parent and popup presentation through scale selection,
+   clear-color conversion, quads, rules, text, icons, shadows, panes, clips,
+   outlines, groups, material resolution, popup visual reach and translation,
+   unchanged-scene suppression, composition-region projection, and final
+   renderer consumption. The trace covered all four supported scale witnesses,
+   parent versus composition-backed popups, exposed/fresh/stale submissions,
+   resolved glass and refraction values, native material fidelity, and the
+   retained candidate/prepared/submitted/presented/committed clocks.
+2. **Current and proposed graph.** A 1,322-line renderer grammar conversion and
+   its color bridge were declared under `platform::native` despite containing
+   no OS or window-system operation. Platform produced and cached the private
+   display list while render only consumed it. The admitted graph makes render
+   own the one semantic-to-renderer projection; platform supplies the surface
+   scale and consumes the result while retaining native window, material,
+   composition, and presentation realization.
+3. **Admission and naming.** The correction deletes false platform ownership
+   without adding a trait, callback, wrapper, or second representation.
+   `render::scene` is the crate-private supporting module and exact
+   `render::Scene` is its parent projection of the existing private paint
+   scene. Native call sites therefore qualify the supporting module as
+   `render::scene` and the central type as `render::Scene`, following the
+   established module/type pattern; no compound declaration or alias was
+   introduced. The old native paint and color paths are tombstoned, and stale
+   test/doctrine wording now names renderer projection.
+4. **Reduction and rewire.** Moved `platform/native/paint.rs` to
+   `render/scene.rs` and `platform/native/color.rs` to `render/color.rs`.
+   Parent and popup surfaces call the renderer scene contract; popup cache
+   identity remains the exact same `paint::Scene` type through `render::Scene`;
+   surface clears use one renderer color boundary; and Windows composition
+   consumes the shared rounded-rectangle projection. Test-only helpers were
+   narrowed to private while only the live platform crossings became
+   crate-visible.
+5. **Retained physical edge.** Windows composition still consumes private
+   `paint::Grid` and projected rectangles when converting renderer geometry to
+   OS composition regions. That is a real physical-realization boundary, not a
+   second semantic lowering algorithm, and it remains visible for the paired
+   renderer/platform boundary trace. Popup tests also use `paint::Color` only
+   to construct an unequal private scene. Neither receipt is laundered into a
+   claim that platform is paint-free.
+6. **Behavior, clocks, and economics.** The move preserves the source algorithm
+   and all seventeen owner tests. The same scale, snapped coordinates, colors,
+   shaped-buffer handles, primitive order, clip/group topology, material
+   values, visual bounds, popup translations, and scene equality reach the
+   same renderer and caches. No shaping, allocation, invalidation, batching,
+   pass fusion, acquisition, submission, acknowledgement, or presentation
+   clock changed.
+7. **Proof and ratchet.** The new architecture witness requires renderer
+   ownership of scene lowering and popup projection, requires native surface
+   and popup consumers to use that contract, and tombstones both former native
+   files. Existing refraction, generic-filter extinction, popup visual-reach,
+   color-delegation, composition geometry, unchanged-scene, fractional-scale,
+   clip, focus, and table-rule witnesses moved with their owner and passed.
+8. **Full verification.** The library discovered 1,086 tests: 1,076 passed, 10
+   standing ignores, and 0 failed. All targets and all five examples compiled
+   without warnings; all census parser witnesses, formatting, diff checks, and
+   protected `comparison_open: true` state passed.
+9. **Gauge delta from R4-01.** Truthful renderer-scene and renderer-popup
+   dependencies raise production edges 325 -> 327 and slot edges 51 -> 52;
+   forbidden edges, external questions, and SCCs remain 4, 1, and 1. Relocated
+   owner tests resolve through their new module and raise test-only edges
+   101 -> 107 and cross-slot test edges 82 -> 88. Explicit renderer/platform
+   crossings raise production `pub(crate)` declarations 1,774 -> 1,786 in 192
+   files. The tombstone witness raises source-root mentions 112 -> 113 and
+   filesystem reads 336 -> 339. Allowances, panics, and expects remain 10, 9,
+   and 102.
+10. **Fixed point and next frontier.** Native platform contains no semantic
+    scene-to-paint or color conversion owner; render contains no OS operation;
+    and no parallel lowering route survives. Rung 4 continues with the direct
+    `platform -> wgpu` external edge, tracing backend choice, format/alpha
+    capability, safe window targets, composition visuals, and surface
+    realization before admitting an abstraction.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
