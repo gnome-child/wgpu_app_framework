@@ -550,6 +550,36 @@ fn shaped_text_crosses_scene_and_paint_without_renderer_types() {
 }
 
 #[test]
+fn provided_list_selection_endpoints_are_atomic() {
+    let selection = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("selection.rs"),
+    )
+    .expect("provided-list selection source should read");
+
+    assert!(
+        selection.contains("struct Endpoint {")
+            && selection.contains("key: Key,")
+            && selection.contains("index: usize,")
+            && selection.contains("anchor: Option<Endpoint>,")
+            && selection.contains("active: Option<Endpoint>,"),
+        "anchor and active should each store one atomic key/index endpoint"
+    );
+    for parallel_field in [
+        "anchor: Option<Key>",
+        "anchor_index:",
+        "active: Option<Key>",
+        "active_index:",
+    ] {
+        assert!(
+            !selection.contains(parallel_field),
+            "selection must not restore independently optional endpoint state: {parallel_field}"
+        );
+    }
+}
+
+#[test]
 fn read_only_text_vocabulary_does_not_depend_on_mutation() {
     let text_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

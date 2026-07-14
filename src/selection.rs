@@ -7,16 +7,32 @@ use crate::virtual_list::{Key, Provider};
 pub struct Selection {
     membership: Membership,
     selected_count: usize,
-    anchor: Option<Key>,
-    anchor_index: Option<usize>,
-    active: Option<Key>,
-    active_index: Option<usize>,
+    anchor: Option<Endpoint>,
+    active: Option<Endpoint>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Membership {
     Explicit(BTreeSet<Key>),
     AllExcept(BTreeSet<Key>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Endpoint {
+    key: Key,
+    index: usize,
+}
+
+impl Endpoint {
+    fn new(key: Key, index: usize) -> Self {
+        Self { key, index }
+    }
+
+    fn resolve(self, provider: &dyn Provider) -> Option<Self> {
+        provider
+            .index_of(self.key)
+            .map(|index| Self::new(self.key, index))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,9 +51,7 @@ impl Selection {
             membership: Membership::Explicit(BTreeSet::new()),
             selected_count: 0,
             anchor: None,
-            anchor_index: None,
             active: None,
-            active_index: None,
         }
     }
 
@@ -61,11 +75,11 @@ impl Selection {
     }
 
     pub fn anchor(&self) -> Option<Key> {
-        self.anchor
+        self.anchor.map(|endpoint| endpoint.key)
     }
 
     pub fn active(&self) -> Option<Key> {
-        self.active
+        self.active.map(|endpoint| endpoint.key)
     }
 
     pub(crate) fn clear(&mut self) -> bool {
@@ -100,20 +114,24 @@ impl Selection {
         self.selected_count = len;
         if len == 0 {
             self.anchor = None;
-            self.anchor_index = None;
             self.active = None;
-            self.active_index = None;
-        } else if self.active.and_then(|key| provider.index_of(key)).is_none() {
+        } else if self
+            .active
+            .and_then(|endpoint| endpoint.resolve(provider))
+            .is_none()
+        {
             let key = provider.key(0);
-            self.anchor = Some(key);
-            self.anchor_index = Some(0);
-            self.active = Some(key);
-            self.active_index = Some(0);
+            let endpoint = Endpoint::new(key, 0);
+            self.anchor = Some(endpoint);
+            self.active = Some(endpoint);
         } else {
-            self.active_index = self.active.and_then(|key| provider.index_of(key));
-            if self.anchor.and_then(|key| provider.index_of(key)).is_none() {
+            self.active = self.active.and_then(|endpoint| endpoint.resolve(provider));
+            if self
+                .anchor
+                .and_then(|endpoint| provider.index_of(endpoint.key))
+                .is_none()
+            {
                 self.anchor = self.active;
-                self.anchor_index = self.active_index;
             }
         }
         *self != before
@@ -132,8 +150,8 @@ impl Selection {
 
         let current = self
             .active
-            .and_then(|key| provider.index_of(key))
-            .or(self.active_index)
+            .and_then(|endpoint| provider.index_of(endpoint.key))
+            .or(self.active.map(|endpoint| endpoint.index))
             .unwrap_or(0)
             .min(len - 1);
         let index = match movement {
@@ -149,8 +167,7 @@ impl Selection {
         if extend {
             if self.anchor.is_none() {
                 let anchor = provider.key(current);
-                self.anchor = Some(anchor);
-                self.anchor_index = Some(current);
+                self.anchor = Some(Endpoint::new(anchor, current));
             }
             self.extend_to(provider, key, index);
         } else {
@@ -173,18 +190,17 @@ impl Selection {
             }
         }
 
-        let old_active_index = self.active_index.unwrap_or(0);
-        self.active_index = self.active.and_then(|key| provider.index_of(key));
-        if self.active_index.is_none() {
-            let fallback = self.nearest_selected(provider, old_active_index);
-            self.active = fallback.map(|(key, _)| key);
-            self.active_index = fallback.map(|(_, index)| index);
+        let old_active_index = self.active.map_or(0, |endpoint| endpoint.index);
+        self.active = self.active.and_then(|endpoint| endpoint.resolve(provider));
+        if self.active.is_none() {
+            self.active = self
+                .nearest_selected(provider, old_active_index)
+                .map(|(key, index)| Endpoint::new(key, index));
         }
 
-        self.anchor_index = self.anchor.and_then(|key| provider.index_of(key));
-        if self.anchor_index.is_none() {
+        self.anchor = self.anchor.and_then(|endpoint| endpoint.resolve(provider));
+        if self.anchor.is_none() {
             self.anchor = self.active;
-            self.anchor_index = self.active_index;
         }
         *self != before
     }
@@ -192,10 +208,9 @@ impl Selection {
     fn select_only(&mut self, key: Key, index: usize) {
         self.membership = Membership::Explicit(BTreeSet::from([key]));
         self.selected_count = 1;
-        self.anchor = Some(key);
-        self.anchor_index = Some(index);
-        self.active = Some(key);
-        self.active_index = Some(index);
+        let endpoint = Endpoint::new(key, index);
+        self.anchor = Some(endpoint);
+        self.active = Some(endpoint);
     }
 
     fn toggle(&mut self, provider_len: usize, key: Key, index: usize) {
@@ -213,17 +228,16 @@ impl Selection {
                 self.selected_count = provider_len.saturating_sub(excluded.len());
             }
         }
-        self.anchor = Some(key);
-        self.anchor_index = Some(index);
-        self.active = Some(key);
-        self.active_index = Some(index);
+        let endpoint = Endpoint::new(key, index);
+        self.anchor = Some(endpoint);
+        self.active = Some(endpoint);
     }
 
     fn extend_to(&mut self, provider: &dyn Provider, key: Key, index: usize) {
         let anchor_index = self
             .anchor
-            .and_then(|anchor| provider.index_of(anchor))
-            .or(self.anchor_index)
+            .and_then(|endpoint| provider.index_of(endpoint.key))
+            .or(self.anchor.map(|endpoint| endpoint.index))
             .unwrap_or(index)
             .min(provider.len().saturating_sub(1));
         let anchor = provider.key(anchor_index);
@@ -237,10 +251,8 @@ impl Selection {
             .collect::<BTreeSet<_>>();
         self.selected_count = keys.len();
         self.membership = Membership::Explicit(keys);
-        self.anchor = Some(anchor);
-        self.anchor_index = Some(anchor_index);
-        self.active = Some(key);
-        self.active_index = Some(index);
+        self.anchor = Some(Endpoint::new(anchor, anchor_index));
+        self.active = Some(Endpoint::new(key, index));
     }
 
     fn nearest_selected(&self, provider: &dyn Provider, desired: usize) -> Option<(Key, usize)> {

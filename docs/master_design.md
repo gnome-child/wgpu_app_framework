@@ -1002,7 +1002,10 @@ layout nodes. A pending active-item reveal may materialize its one target for a
 single rebuild; after viewport feedback includes it in the ordinary visible
 range, that temporary pin disappears. Provider reorder preserves keys;
 deletion reconciles selected membership and deterministically moves deleted
-anchor/active facts to the nearest remaining selected key. Selections are
+anchor/active facts to the nearest remaining selected key. Each anchor and
+active endpoint owns its stable key and last usable provider index atomically;
+the index is only a navigation fallback while the key remains authoritative.
+Selections are
 scoped independently by window and list and participate in runtime snapshot
 restore; window departure deletes them with the window.
 
