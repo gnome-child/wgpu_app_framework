@@ -6135,6 +6135,59 @@ Correction `1a703f29` (`Namespace layout table tracks`).
    track naming is at fixed point; the sweep continues through layout text,
    scene visuals, and command-palette support before Rung 5 closes.
 
+### R5-66 — central layout text projection without flattened area support
+
+Status: **complete; flattened support projection removed without widening the
+private layout-text seam**. Correction `ff1604a2` (`Project layout text through
+its central frame`).
+
+1. **Question and complete trace.** The touched-parent naming sweep traced
+   layout text-area construction from the view model through the layout engine,
+   cached `text::Area` storage in `Frame`, interaction and rendering accessors,
+   TextArea and TextBox scene branches, render-surface projection, and every
+   call site that named the support type outside its declaring module.
+2. **Naming contradiction.** Private `layout::text` declared diagnostic
+   `Text` and staging value `Area`, while the layout parent projected the
+   latter under the compound spelling `TextArea`. The only named production
+   consumer was the text-area painter; one test used the alias solely as a
+   method pointer. The parent spelling added context already supplied by the
+   module and exposed a private implementation value beside the namesake
+   module's central type.
+3. **Ownership and challenge.** `Area` is layout-owned cached text geometry.
+   It is constructed and retained by `Frame`; scene paint needs the frame's
+   resolved surfaces, not independent authority to name or construct that
+   support value. Making `layout::text` crate-visible would widen an inspection
+   seam to repair a naming violation mechanically, while moving paint policy
+   into layout or adding a facade would conceal the same dependency.
+4. **Correction and deletion.** The layout parent no longer re-exports
+   `text::Area as TextArea`. The text-area painter now accepts the central
+   `layout::Frame` and borrows its private cached area internally; callers no
+   longer transport the support value across the paint boundary. The lone test
+   method pointer uses type inference. No replacement alias, compatibility
+   path, adapter, or callback remains.
+5. **Naming and visibility.** The namesake parent projects only `text::Text`.
+   The `text` module and `Area` remain private/crate-private at their existing
+   owner, and no call site can spell a flattened `layout::TextArea`. A new
+   architecture witness pins the central-only parent projection, alias
+   extinction, and painter boundary.
+6. **Behavior and economics.** Text-area construction, caching, selection and
+   surface order, TextBox inactive-field behavior, clipping, paint order,
+   renderer topology, batching/pass fusion, invalidation, allocation, and
+   presentation clocks remain unchanged. The painter performs the same single
+   optional frame lookup that its caller previously performed.
+7. **Proof.** The full library discovered 1,140 tests and passed 1,130 with ten
+   standing ignores. All targets and all five examples compiled without
+   warnings; all ten census parser tests, the full census, formatting, diff
+   hygiene, and protected `comparison_open: true` check passed.
+8. **Gauge and next frontier.** Production `pub(crate)` declarations fall
+   1,820 -> 1,819 and the cross-slot-provider upper bound falls 1,773 -> 1,772.
+   Every other gauge remains unchanged: production/test edges 325/109, split
+   responsibilities 3, slot edges 54, forbidden/external/SCC counts 0/0/0,
+   192 visibility-bearing files, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 363, allowances 6, panics 5, and expects 44. Layout
+   text naming is at fixed point; the touched-parent sweep continues through
+   scene visuals and command-palette support before Rung 5 closes.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
