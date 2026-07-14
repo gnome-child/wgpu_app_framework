@@ -106,9 +106,13 @@ impl Native {
             presentation.lifecycle_epoch().elapsed().as_micros(),
             surface_started.elapsed().as_micros()
         );
-        let renderer_was_warm = self.renderers.contains_key(&render_format);
         let renderer_started = Instant::now();
-        self.ensure_renderer(render_format);
+        let render_context = self
+            .context
+            .as_ref()
+            .expect("render context should exist before presenting popup");
+        let (renderer, renderer_was_warm) =
+            super::surface::renderer_for_format(render_context, &mut self.renderers, render_format);
         log::debug!(
             target: "wgpu_l3::native_popup",
             "first-present stage=renderer-ready popup={:?} parent={:?} elapsed_us={} stage_us={} warm={}",
@@ -118,15 +122,6 @@ impl Native {
             renderer_started.elapsed().as_micros(),
             renderer_was_warm
         );
-
-        let render_context = self
-            .context
-            .as_ref()
-            .expect("render context should exist before presenting popup");
-        let renderer = self
-            .renderers
-            .get_mut(&render_format)
-            .expect("renderer should exist before presenting popup");
         let popup = self
             .popups
             .get_mut(&key)
@@ -892,15 +887,13 @@ impl Native {
         }
 
         let render_format = host.window.canvas().surface().render_format();
-        self.ensure_renderer(render_format);
         let render_context = self
             .context
             .as_ref()
             .expect("render context should exist while prewarming popup host");
-        self.renderers
-            .get_mut(&render_format)
-            .expect("renderer should exist while prewarming popup host")
-            .clear(render_context, host.window.canvas_mut())?;
+        let (renderer, _) =
+            super::surface::renderer_for_format(render_context, &mut self.renderers, render_format);
+        renderer.clear(render_context, host.window.canvas_mut())?;
         #[cfg(target_os = "windows")]
         if let Some(composition) = host.composition.as_mut() {
             match composition.prewarm_material() {

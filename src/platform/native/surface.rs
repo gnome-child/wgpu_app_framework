@@ -1,4 +1,5 @@
 use crate::geometry::area;
+use std::collections::{HashMap, hash_map::Entry};
 use std::time::Instant;
 
 use crate::diagnostics;
@@ -34,6 +35,20 @@ impl Attempts {
     }
 }
 
+pub(super) fn renderer_for_format<'a>(
+    render_context: &render::Context,
+    renderers: &'a mut HashMap<surface::Format, Renderer>,
+    format: surface::Format,
+) -> (&'a mut Renderer, bool) {
+    match renderers.entry(format) {
+        Entry::Occupied(entry) => (entry.into_mut(), true),
+        Entry::Vacant(entry) => {
+            log::debug!("initializing native renderer for surface format {format:?}");
+            (entry.insert(Renderer::new(render_context, format)), false)
+        }
+    }
+}
+
 impl Native {
     pub(in crate::platform::native) fn ensure_context(&mut self) -> Result<(), NativeError> {
         if self.context.is_none() {
@@ -43,20 +58,6 @@ impl Native {
         }
 
         Ok(())
-    }
-
-    pub(in crate::platform::native) fn ensure_renderer(&mut self, format: surface::Format) {
-        if self.renderers.contains_key(&format) {
-            return;
-        }
-
-        log::debug!("initializing native renderer for surface format {format:?}");
-        let context = self
-            .context
-            .as_ref()
-            .expect("render context should exist before creating renderer");
-        self.renderers
-            .insert(format, Renderer::new(context, format));
     }
 
     pub(in crate::platform::native) fn create_native_window(
@@ -112,16 +113,11 @@ impl Native {
         native_window: &mut NativeWindow,
     ) -> Result<(), NativeError> {
         let render_format = native_window.canvas().surface().render_format();
-        self.ensure_renderer(render_format);
-
         let context = self
             .context
             .as_ref()
             .expect("render context should exist before clearing");
-        let renderer = self
-            .renderers
-            .get_mut(&render_format)
-            .expect("renderer should exist before clearing");
+        let (renderer, _) = renderer_for_format(context, &mut self.renderers, render_format);
         renderer.clear(context, native_window.canvas_mut())?;
 
         Ok(())
@@ -140,16 +136,11 @@ impl Native {
             })?;
             native_window.canvas().surface().render_format()
         };
-        self.ensure_renderer(render_format);
-
         let context = self
             .context
             .as_ref()
             .expect("render context should exist before presenting");
-        let renderer = self
-            .renderers
-            .get_mut(&render_format)
-            .expect("renderer should exist before presenting");
+        let (renderer, _) = renderer_for_format(context, &mut self.renderers, render_format);
         let native_window = self.windows.get_mut(&window).ok_or_else(|| {
             log::error!("cannot present missing native window: {window:?}");
             NativeError::MissingWindow { window }

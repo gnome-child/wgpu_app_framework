@@ -3932,6 +3932,12 @@ fn native_renderer_cache_is_keyed_by_render_target_format() {
 
     assert!(native_mod.contains("renderers: HashMap<render::surface::Format, render::Renderer>"));
     assert!(surface.contains("canvas().surface().render_format()"));
+    assert!(
+        surface.contains("renderers.entry(format)")
+            && !surface.contains("ensure_renderer")
+            && !surface.contains("renderer should exist"),
+        "native renderer creation and consumption must share one format-keyed cache entry"
+    );
     assert!(render_surface.contains("scene_format_for_surface_format(format)"));
 }
 
