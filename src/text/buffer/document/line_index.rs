@@ -30,7 +30,7 @@ impl LineMeta {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Summary {
     lines: usize,
     height: u8,
@@ -48,9 +48,9 @@ struct Node {
     kind: NodeKind,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(super) struct LineIndex {
-    root: Option<Arc<Node>>,
+    root: Arc<Node>,
 }
 
 impl LineIndex {
@@ -67,28 +67,29 @@ impl LineIndex {
         } else {
             lines
         };
-        let leaves = lines
+        let first_end = lines.len().min(TARGET_LEAF_LINES);
+        let root = lines[first_end..]
             .chunks(TARGET_LEAF_LINES)
-            .map(|chunk| leaf(Arc::from(chunk)))
-            .collect::<Vec<_>>();
-        Self {
-            root: build_balanced(&leaves),
-        }
+            .fold(leaf(Arc::from(&lines[..first_end])), |root, chunk| {
+                join_nodes(root, leaf(Arc::from(chunk)))
+            });
+        Self { root }
     }
 
     pub(super) fn len(&self) -> usize {
-        summary(self.root.as_ref()).lines
+        self.root.summary.lines
     }
 
     pub(super) fn get(&self, line: usize) -> Option<LineMeta> {
-        let root = self.root.as_ref()?;
-        (line < root.summary.lines)
-            .then(|| get(root, line))
-            .flatten()
+        (line < self.root.summary.lines).then(|| get(&self.root, line))
+    }
+
+    pub(super) fn get_clamped(&self, line: usize) -> LineMeta {
+        get(&self.root, line.min(self.root.summary.lines - 1))
     }
 
     pub(super) fn find(&self, id: LineId) -> Option<(usize, LineMeta)> {
-        self.root.as_ref().and_then(|root| find(root, id, 0))
+        find(&self.root, id, 0)
     }
 
     pub(super) fn replace(
@@ -99,70 +100,32 @@ impl LineIndex {
     ) -> Self {
         let start = start.min(self.len());
         let end = start.saturating_add(old_line_count).min(self.len());
-        let (left, tail) = self.split_at(start);
-        let (_, right) = tail.split_at(end - start);
-        let middle = Self::from_optional_lines(replacement);
-        let joined = Self::concat(Self::concat(left, middle), right);
-        if joined.len() == 0 {
-            Self::new(1, 0)
-        } else {
-            joined
-        }
-    }
-
-    fn from_optional_lines(lines: Vec<LineMeta>) -> Self {
-        if lines.is_empty() {
-            Self::default()
-        } else {
-            let leaves = lines
-                .chunks(TARGET_LEAF_LINES)
-                .map(|chunk| leaf(Arc::from(chunk)))
-                .collect::<Vec<_>>();
-            Self {
-                root: build_balanced(&leaves),
-            }
-        }
-    }
-
-    fn split_at(&self, line: usize) -> (Self, Self) {
-        let (left, right) = split_node(self.root.as_ref(), line.min(self.len()));
-        (Self { root: left }, Self { root: right })
-    }
-
-    fn concat(left: Self, right: Self) -> Self {
-        Self {
-            root: join(left.root, right.root),
-        }
+        let (left, tail) = split_node(Some(&self.root), start);
+        let (_, right) = split_node(tail.as_ref(), end - start);
+        let middle = tree_for_lines(&replacement);
+        let root =
+            join(join(left, middle), right).unwrap_or_else(|| leaf(Arc::from([LineMeta::new(0)])));
+        Self { root }
     }
 
     #[cfg(test)]
     pub(super) fn assert_invariants(&self) {
-        if let Some(root) = &self.root {
-            validate(root);
-        }
+        validate(&self.root);
     }
 
     #[cfg(test)]
     pub(super) fn shares_root_with(&self, other: &Self) -> bool {
-        match (&self.root, &other.root) {
-            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
-            (None, None) => true,
-            _ => false,
-        }
+        Arc::ptr_eq(&self.root, &other.root)
     }
 
     #[cfg(test)]
     pub(super) fn shared_leaf_count(&self, other: &Self) -> usize {
         let mut left = Vec::new();
         let mut right = Vec::new();
-        collect_leaf_ptrs(self.root.as_ref(), &mut left);
-        collect_leaf_ptrs(other.root.as_ref(), &mut right);
+        collect_leaf_ptrs(&self.root, &mut left);
+        collect_leaf_ptrs(&other.root, &mut right);
         left.iter().filter(|ptr| right.contains(ptr)).count()
     }
-}
-
-fn summary(node: Option<&Arc<Node>>) -> Summary {
-    node.map(|node| node.summary).unwrap_or_default()
 }
 
 fn leaf(lines: Arc<[LineMeta]>) -> Arc<Node> {
@@ -211,23 +174,16 @@ fn debug_assert_local_summary(_node: &Arc<Node>) {
     }
 }
 
-fn build_balanced(nodes: &[Arc<Node>]) -> Option<Arc<Node>> {
-    match nodes.len() {
-        0 => None,
-        1 => Some(nodes[0].clone()),
-        len => {
-            let middle = len / 2;
-            Some(branch(
-                build_balanced(&nodes[..middle]).expect("left line-index half is non-empty"),
-                build_balanced(&nodes[middle..]).expect("right line-index half is non-empty"),
-            ))
-        }
-    }
+fn tree_for_lines(lines: &[LineMeta]) -> Option<Arc<Node>> {
+    lines
+        .chunks(TARGET_LEAF_LINES)
+        .map(|chunk| leaf(Arc::from(chunk)))
+        .reduce(join_nodes)
 }
 
-fn get(node: &Arc<Node>, line: usize) -> Option<LineMeta> {
+fn get(node: &Arc<Node>, line: usize) -> LineMeta {
     match &node.kind {
-        NodeKind::Leaf(lines) => lines.get(line).copied(),
+        NodeKind::Leaf(lines) => lines[line],
         NodeKind::Branch { left, right } => {
             if line < left.summary.lines {
                 get(left, line)
@@ -379,15 +335,12 @@ fn validate(node: &Arc<Node>) -> Summary {
 }
 
 #[cfg(test)]
-fn collect_leaf_ptrs(node: Option<&Arc<Node>>, leaves: &mut Vec<*const Node>) {
-    let Some(node) = node else {
-        return;
-    };
+fn collect_leaf_ptrs(node: &Arc<Node>, leaves: &mut Vec<*const Node>) {
     match &node.kind {
         NodeKind::Leaf(_) => leaves.push(Arc::as_ptr(node)),
         NodeKind::Branch { left, right } => {
-            collect_leaf_ptrs(Some(left), leaves);
-            collect_leaf_ptrs(Some(right), leaves);
+            collect_leaf_ptrs(left, leaves);
+            collect_leaf_ptrs(right, leaves);
         }
     }
 }
@@ -425,5 +378,14 @@ mod tests {
         assert_eq!(edited.get(2).unwrap(), third);
         assert_eq!(edited.find(third.id), Some((2, third)));
         edited.assert_invariants();
+    }
+
+    #[test]
+    fn line_index_remains_nonempty_when_every_line_is_removed() {
+        let index = LineIndex::new(3, 0).replace(0, 3, Vec::new());
+
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.get_clamped(usize::MAX), index.get(0).unwrap());
+        index.assert_invariants();
     }
 }

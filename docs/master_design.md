@@ -1414,6 +1414,13 @@ split/insert route. A separate persistent line-index tree owns stable
 caches for its siblings. Grapheme and word segmentation are line-local and
 lazy; the buffer stores no whole-file character or grapheme index.
 
+The stored line-index tree is structurally nonempty, including for an empty
+text buffer and after an edit removes every byte; only private splice
+temporaries may be empty. Projecting a current-document `Position` or `Cursor`
+to a `Mark` is therefore total and clamps to the current text and grapheme
+boundaries. Projecting a `Mark` back remains explicitly optional because its
+stable line identity may have departed after a later edit.
+
 **Owned sources, never retained mappings.** A file load reads UTF-8 into owned
 immutable source storage. A mapping must not survive loading: external file
 truncation can turn a later mapped read into SIGBUS or an access violation, and

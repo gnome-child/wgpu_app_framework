@@ -217,7 +217,7 @@ impl View {
             observed.interaction_surfaces(),
             observed.viewport().area().height(),
         )
-        .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
+        .map(|surface| scroll_anchor_for_surface(area_model, surface))
     }
 
     pub fn scroll_anchor_for_text_area(
@@ -227,7 +227,7 @@ impl View {
     ) -> Option<ScrollAnchor> {
         Self::scroll_anchor_for_observed_area(area_model, observed).or_else(|| {
             top_visible_surface(render_surfaces, observed.viewport().area().height())
-                .and_then(|surface| scroll_anchor_for_surface(area_model, surface))
+                .map(|surface| scroll_anchor_for_surface(area_model, surface))
         })
     }
 
@@ -262,7 +262,7 @@ fn top_visible_surface(
         .min_by(|a, b| a.y().total_cmp(&b.y()))
 }
 
-fn scroll_anchor_for_surface(area_model: &Area, surface: &TextAreaSurface) -> Option<ScrollAnchor> {
+fn scroll_anchor_for_surface(area_model: &Area, surface: &TextAreaSurface) -> ScrollAnchor {
     let viewport_y = (-surface.y()).max(0.0);
     let surface_buffer = surface.buffer();
     let buffer = surface_buffer.borrow();
@@ -302,8 +302,8 @@ fn scroll_anchor_for_surface(area_model: &Area, surface: &TextAreaSurface) -> Op
     } else {
         (0.0, surface.source_start())
     };
-    let mark = source.mark_for_position(Position::new(source_start))?;
-    Some(ScrollAnchor::new(mark, (viewport_y - line_top).max(0.0)))
+    let mark = source.mark_for_position(Position::new(source_start));
+    ScrollAnchor::new(mark, (viewport_y - line_top).max(0.0))
 }
 
 #[derive(Debug, Clone, PartialEq)]

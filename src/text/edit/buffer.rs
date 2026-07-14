@@ -35,16 +35,7 @@ impl Buffer {
             let cursor = inner
                 .document
                 .cursor_for_text_index(range.start + inserted.len());
-            let cursor = inner.document.mark_for_cursor(cursor).unwrap_or_else(|| {
-                inner
-                    .document
-                    .mark_for_cursor(
-                        inner
-                            .document
-                            .cursor_for_text_index(inner.document.text_len()),
-                    )
-                    .expect("text documents always contain at least one line")
-            });
+            let cursor = inner.document.mark_for_cursor(cursor);
             *state = State::collapsed(cursor);
             let affected_start_line_id = inner
                 .document

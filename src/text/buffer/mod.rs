@@ -233,7 +233,7 @@ impl Buffer {
     pub fn position_for_mark(&self, mark: Mark) -> Option<Position> {
         self.inner.document.position_for_mark(mark)
     }
-    pub fn mark_for_position(&self, position: Position) -> Option<Mark> {
+    pub fn mark_for_position(&self, position: Position) -> Mark {
         self.inner.document.mark_for_position(position)
     }
     pub fn position_for_text_index(&self, index: usize) -> Position {

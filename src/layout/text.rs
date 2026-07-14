@@ -450,19 +450,13 @@ impl Field {
 fn field_model(text_box: &view::TextBox) -> text_engine::surface::Field {
     let buffer = text_engine::Buffer::from_text(text_box.text());
     let cursor = text_box.cursor().unwrap_or_else(|| text_box.text().len());
-    let cursor = buffer
-        .mark_for_position(text_engine::buffer::Position::new(cursor))
-        .unwrap_or_else(|| {
-            buffer
-                .mark_for_position(text_engine::buffer::Position::new(buffer.len()))
-                .expect("text buffers always contain a valid end position")
+    let cursor = buffer.mark_for_position(text_engine::buffer::Position::new(cursor));
+    let selection = text_box
+        .selection()
+        .map(|selection| text_engine::buffer::MarkRange {
+            start: buffer.mark_for_position(text_engine::buffer::Position::new(selection.start)),
+            end: buffer.mark_for_position(text_engine::buffer::Position::new(selection.end)),
         });
-    let selection = text_box.selection().and_then(|selection| {
-        Some(text_engine::buffer::MarkRange {
-            start: buffer.mark_for_position(text_engine::buffer::Position::new(selection.start))?,
-            end: buffer.mark_for_position(text_engine::buffer::Position::new(selection.end))?,
-        })
-    });
     let state = text_engine::selection::State::new(cursor, selection);
     text_engine::surface::Field::new(buffer)
         .with_state(state)

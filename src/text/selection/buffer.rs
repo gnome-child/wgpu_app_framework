@@ -78,10 +78,7 @@ impl Buffer {
         selection: CursorSelection,
     ) {
         let inner = &self.inner;
-        let cursor = inner
-            .document
-            .mark_for_cursor(cursor)
-            .unwrap_or_else(|| document_end_mark(self));
+        let cursor = inner.document.mark_for_cursor(cursor);
         let selection = selection_mark_for_document(self, selection).map(|anchor| MarkRange {
             start: anchor,
             end: cursor,
@@ -94,7 +91,7 @@ fn selection_mark_for_document(buffer: &Buffer, selection: CursorSelection) -> O
     let inner = &buffer.inner;
     match selection {
         CursorSelection::None => None,
-        CursorSelection::Normal(cursor) => inner.document.mark_for_cursor(cursor),
+        CursorSelection::Normal(cursor) => Some(inner.document.mark_for_cursor(cursor)),
     }
 }
 
@@ -105,14 +102,11 @@ pub(crate) fn selection_mark_from_state(buffer: &Buffer, state: State) -> Option
         .and_then(|selection| inner.document.cursor_for_mark(selection.start))
 }
 
-pub(crate) fn document_end_mark(buffer: &Buffer) -> Mark {
+fn document_end_mark(buffer: &Buffer) -> Mark {
     let inner = &buffer.inner;
-    inner
-        .document
-        .mark_for_cursor(
-            inner
-                .document
-                .cursor_for_text_index(inner.document.text_len()),
-        )
-        .expect("text documents always contain at least one line")
+    inner.document.mark_for_cursor(
+        inner
+            .document
+            .cursor_for_text_index(inner.document.text_len()),
+    )
 }

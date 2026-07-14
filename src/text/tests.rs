@@ -1078,6 +1078,34 @@ fn marks_round_trip_through_line_identity() {
 }
 
 #[test]
+fn current_document_positions_always_project_to_marks() {
+    let empty = Buffer::new();
+    let position = Position::with_affinity(usize::MAX, Affinity::Upstream);
+    let mark: Mark = empty.mark_for_position(position);
+
+    assert_eq!(
+        empty.position_for_mark(mark),
+        Some(Position::with_affinity(0, Affinity::Upstream))
+    );
+
+    let mut editor = Editor::new();
+    let mut buffer = Buffer::from_multiline_text("alpha\nbeta");
+    let mut state = buffer.initial_state();
+    let len = buffer.len();
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut state,
+        Edit::replace_range(0..len, "")
+    ));
+
+    let mark: Mark = buffer.mark_for_position(Position::new(usize::MAX));
+    assert!(buffer.is_empty());
+    assert_eq!(buffer.logical_line_count(), 1);
+    assert_eq!(buffer.position_for_mark(mark), Some(Position::new(0)));
+}
+
+#[test]
 fn file_buffer_owns_original_source_without_mapping() {
     let path = std::env::temp_dir().join(format!(
         "wgpu_l3_text_mapped_{}_{}.txt",

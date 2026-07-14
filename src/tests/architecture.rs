@@ -1353,6 +1353,8 @@ fn text_buffer_old_line_and_mmap_representations_stay_deleted() {
         .expect("text document source should read");
     let span_tree = std::fs::read_to_string(buffer.join("document").join("span_tree.rs"))
         .expect("source span tree should read");
+    let line_index = std::fs::read_to_string(buffer.join("document").join("line_index.rs"))
+        .expect("line-index source should read");
     let buffer_api =
         std::fs::read_to_string(buffer.join("mod.rs")).expect("text buffer API should read");
     let manifest =
@@ -1388,6 +1390,14 @@ fn text_buffer_old_line_and_mmap_representations_stay_deleted() {
     assert!(
         document.contains("tree: SpanTree") && document.contains("lines: LineIndex"),
         "TextDocument must have one source-span representation and its persistent line index"
+    );
+    assert!(
+        line_index.contains("root: Arc<Node>")
+            && !line_index.contains("root: Option<Arc<Node>>")
+            && document.contains("fn mark_for_position(&self, position: Position) -> Mark")
+            && document.contains("fn mark_for_cursor(&self, cursor: Cursor) -> Mark")
+            && !document.contains("text documents always contain at least one line"),
+        "the stored line index must be nonempty and current-document mark projection total"
     );
     assert!(
         span_tree.contains("GraphemeCursor")

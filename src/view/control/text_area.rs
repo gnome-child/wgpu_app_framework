@@ -201,17 +201,14 @@ impl TextArea {
             }
             let cursor = self
                 .buffer
-                .mark_for_position(text::buffer::Position::new(draft.cursor()))
-                .expect("draft cursor must resolve in its projected buffer");
-            let selection = draft.selection().and_then(|selection| {
-                Some(text::buffer::MarkRange {
-                    start: self
-                        .buffer
-                        .mark_for_position(text::buffer::Position::new(selection.start))?,
-                    end: self
-                        .buffer
-                        .mark_for_position(text::buffer::Position::new(selection.end))?,
-                })
+                .mark_for_position(text::buffer::Position::new(draft.cursor()));
+            let selection = draft.selection().map(|selection| text::buffer::MarkRange {
+                start: self
+                    .buffer
+                    .mark_for_position(text::buffer::Position::new(selection.start)),
+                end: self
+                    .buffer
+                    .mark_for_position(text::buffer::Position::new(selection.end)),
             });
             self.state = text::selection::State::new(cursor, selection);
         } else if target.table_cell().is_some() {

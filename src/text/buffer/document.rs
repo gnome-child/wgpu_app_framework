@@ -218,19 +218,16 @@ impl TextDocument {
         self.line_start(line) + self.floor_grapheme_in_line(line, cursor.index)
     }
 
-    pub(in crate::text) fn mark_for_position(&self, position: Position) -> Option<Mark> {
+    pub(in crate::text) fn mark_for_position(&self, position: Position) -> Mark {
         let cursor = self.cursor_for_position(position);
         self.mark_for_cursor(cursor)
     }
 
-    pub(in crate::text) fn mark_range_for_selection(
-        &self,
-        selection: Selection,
-    ) -> Option<MarkRange> {
-        Some(MarkRange {
-            start: self.mark_for_position(selection.anchor)?,
-            end: self.mark_for_position(selection.focus)?,
-        })
+    pub(in crate::text) fn mark_range_for_selection(&self, selection: Selection) -> MarkRange {
+        MarkRange {
+            start: self.mark_for_position(selection.anchor),
+            end: self.mark_for_position(selection.focus),
+        }
     }
 
     pub(in crate::text) fn position_for_mark(&self, anchor: Mark) -> Option<Position> {
@@ -242,15 +239,15 @@ impl TextDocument {
         ))
     }
 
-    pub(in crate::text) fn mark_for_cursor(&self, cursor: Cursor) -> Option<Mark> {
+    pub(in crate::text) fn mark_for_cursor(&self, cursor: Cursor) -> Mark {
         let line = cursor.line.min(self.line_count().saturating_sub(1));
-        let meta = self.lines.get(line)?;
-        Some(Mark {
+        let meta = self.lines.get_clamped(line);
+        Mark {
             line_id: meta.id,
             byte_offset: self.floor_grapheme_in_line(line, cursor.index),
             affinity: cursor.affinity,
             gravity: MarkGravity::Downstream,
-        })
+        }
     }
 
     pub(in crate::text) fn cursor_for_mark(&self, anchor: Mark) -> Option<Cursor> {

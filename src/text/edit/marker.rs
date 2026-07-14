@@ -1,5 +1,5 @@
 use super::super::buffer::{self, Buffer, Mark, Position, Selection};
-use super::super::selection::{State, document_end_mark};
+use super::super::selection::State;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Marker {
@@ -34,10 +34,7 @@ impl Marker {
         if inner.document.position_for_mark(self.cursor).is_some() {
             self.cursor
         } else {
-            inner
-                .document
-                .mark_for_position(self.cursor_position)
-                .unwrap_or_else(|| document_end_mark(buffer))
+            inner.document.mark_for_position(self.cursor_position)
         }
     }
 
@@ -50,6 +47,6 @@ impl Marker {
             return Some(selection);
         }
         self.selection_positions
-            .and_then(|selection| inner.document.mark_range_for_selection(selection))
+            .map(|selection| inner.document.mark_range_for_selection(selection))
     }
 }
