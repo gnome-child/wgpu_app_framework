@@ -509,6 +509,45 @@ the pilot for the complete cell loop. The remaining Rung 1 cells are ordered by
 dependency weight unlocked and independent provability, not by the old census
 table.
 
+## Rung 1 cell records
+
+### R1-01 — platform-neutral schedule versus winit realization
+
+Status: **complete**. Correction `754c5a54` (`Move event-loop schedule
+projection to platform`).
+
+1. **Question and trace.** `animation::Schedule` is produced by overlay,
+   caret, visual-animation, runtime, shell, host, and platform work paths. Its
+   merge and due-time laws are consumed throughout those paths. Exactly one
+   operation crossed into winit: `Schedule::control_flow`, called only by the
+   native runner immediately before `ActiveEventLoop::set_control_flow`.
+   Outcomes traced: idle wait, future deadline wait, due deadline poll,
+   next-frame poll, exiting event loop, backend-forced poll, and normal merged
+   runtime schedule.
+2. **Current graph.** A foundation-shaped time vocabulary imported and returned
+   `winit::event_loop::ControlFlow` solely for a platform consumer. This was an
+   external dependency leak, not a shared invariant.
+3. **Admission.** The event-loop type and policy have one consumer and one
+   physical effect. Relocating the conversion to that adapter makes the
+   crossing smaller (`Schedule` in, `set_control_flow` locally) and deletes
+   winit from the lower module. Admitted.
+4. **Reduction/rewire.** Deleted the winit import, `Schedule::control_flow`, and
+   its misplaced test from `animation.rs`. Added the private conversion beside
+   `sync_control_flow` in `platform::runner::native`; no producer, merge, due,
+   exit, or polling behavior changed.
+5. **Proof and ratchet.** Six schedule/transition tests, the four-outcome native
+   projection witness, and the new structural-absence architecture witness
+   passed. Full library result: 1,056 passed, 10 ignored, 0 failed; all examples,
+   formatting, and diff checks passed.
+6. **Gauge delta.** Heavy external-boundary questions 10 -> 9;
+   production `pub(crate)` declarations 1,738 -> 1,737. Production module edges
+   and provisional internal back-edges remained 325 and 15. The new ratchet
+   increased test-only module edges 95 -> 96, cross-slot test edges 75 -> 76,
+   source-root mentions 100 -> 101, and filesystem read calls 288 -> 290; Rung
+   6 will collapse those witness paths behind the workspace helper.
+7. **Fixed point.** No `winit` or `ControlFlow` reference remains in animation;
+   the native runner is the only Schedule-to-ControlFlow owner. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
