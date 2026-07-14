@@ -17,11 +17,16 @@ pub struct TextBox {
     inactive_display: bool,
     focused: bool,
     focus_visible: bool,
-    cursor: Option<usize>,
-    selection: Option<Range<usize>>,
+    caret: Option<Caret>,
     preedit: Option<text::Preedit>,
     caret_epoch: Option<Instant>,
     indicator_hint: Option<Hint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Caret {
+    cursor: usize,
+    selection: Option<Range<usize>>,
 }
 
 impl TextBox {
@@ -36,8 +41,7 @@ impl TextBox {
             inactive_display: false,
             focused: false,
             focus_visible: false,
-            cursor: None,
-            selection: None,
+            caret: None,
             preedit: None,
             caret_epoch: None,
             indicator_hint: None,
@@ -109,11 +113,13 @@ impl TextBox {
     }
 
     pub fn cursor(&self) -> Option<usize> {
-        self.cursor
+        self.caret.as_ref().map(|caret| caret.cursor)
     }
 
     pub fn selection(&self) -> Option<Range<usize>> {
-        self.selection.clone()
+        self.caret
+            .as_ref()
+            .and_then(|caret| caret.selection.clone())
     }
 
     pub fn preedit(&self) -> Option<&text::Preedit> {
@@ -194,11 +200,12 @@ impl TextBox {
             && (active || !bound || draft.text() == self.text)
         {
             self.text = draft.text().to_owned();
-            self.cursor = Some(draft.cursor());
-            self.selection = draft.selection();
+            self.caret = Some(Caret {
+                cursor: draft.cursor(),
+                selection: draft.selection(),
+            });
         } else {
-            self.cursor = None;
-            self.selection = None;
+            self.caret = None;
         }
         self.preedit = interaction.text_input().preedit_for(&target).cloned();
         self.caret_epoch = interaction.text_input().caret_epoch_for(&target);
@@ -226,12 +233,14 @@ impl TextBox {
                 focus.shows_focus_indicator()
                     || (self.mode.is_editable() && (!self.inactive_display || self.active))
             });
-        if self.focused && self.cursor.is_none() {
-            self.cursor = Some(self.text.len());
+        if self.focused && self.caret.is_none() {
+            self.caret = Some(Caret {
+                cursor: self.text.len(),
+                selection: None,
+            });
         }
         if !self.focused {
-            self.cursor = None;
-            self.selection = None;
+            self.caret = None;
             self.preedit = None;
             self.caret_epoch = None;
         }

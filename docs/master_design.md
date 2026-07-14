@@ -487,6 +487,10 @@ but never require redraw or view reconstruction. Hover resolution is purely
 deterministic: it does not parse, validate, resolve commands, or preflight the
 fallible task departure that the real gesture attempts once.
 
+A projected `TextBox` caret is one optional unit containing its cursor and
+optional selection. Selection cannot exist without the cursor that owns its
+active endpoint; clearing focus or draft projection clears the unit atomically.
+
 Cursor vocabulary follows interaction meaning, not the platform's catalog. A
 new `pointer::Cursor` variant requires a real resolved-press species with a
 precise semantic criterion plus execution, capture, and platform witnesses.

@@ -118,6 +118,24 @@ fn composition_key_has_one_structural_identity_species() {
 }
 
 #[test]
+fn text_box_projects_cursor_and_selection_as_one_caret() {
+    let text_box = include_str!("../view/control/text_box.rs");
+    let owner = text_box
+        .split("struct Caret")
+        .next()
+        .expect("TextBox declaration precedes its private caret");
+
+    assert!(
+        text_box.contains("struct Caret {")
+            && text_box.contains("cursor: usize,")
+            && text_box.contains("selection: Option<Range<usize>>,")
+            && text_box.contains("caret: Option<Caret>,")
+    );
+    assert!(!owner.contains("cursor: Option<usize>"));
+    assert!(!owner.contains("selection: Option<Range<usize>>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
