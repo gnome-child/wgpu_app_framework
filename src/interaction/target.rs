@@ -51,6 +51,7 @@ pub enum Kind {
     FloatingPanel,
     Label,
     TableDivider,
+    Indicator,
 }
 
 impl Target {
@@ -138,6 +139,16 @@ impl Target {
 
     pub(crate) fn table_divider_node(node: composition::NodeId, label: impl Into<String>) -> Self {
         Self::node(Kind::TableDivider, node, None, label).with_capture()
+    }
+
+    pub(crate) fn indicator(owner: &Self, label: impl Into<String>) -> Self {
+        Self {
+            kind: Kind::Indicator,
+            identity: owner.identity.clone(),
+            label: label.into(),
+            source: None,
+            captures: false,
+        }
     }
 
     pub fn kind(&self) -> Kind {

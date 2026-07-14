@@ -1,7 +1,6 @@
-use super::{AuxiliaryChrome, Node, PanelPolicy, View, Wrap};
+use super::{Hint, Node, PanelPolicy, View, Wrap};
 use crate::{feedback, geometry, interaction};
 
-const TABLE_FEEDBACK_PANEL: &str = "feedback.table";
 const WINDOW_FEEDBACK_PANEL: &str = "feedback.window";
 const HOVER_TIP_PANEL: &str = "feedback.hover";
 
@@ -12,35 +11,22 @@ impl View {
         target: &interaction::Target,
         overflowed: bool,
     ) -> bool {
-        self.root
-            .hover_tip_text_retained(retained.root(), target, false)
-            .is_some_and(|(blocked, command_text)| {
-                !blocked && (command_text.is_some() || overflowed)
-            })
+        self.root.input_hint_for_target(target).is_some()
+            || self
+                .root
+                .hover_tip_text_retained(retained.root(), target)
+                .is_some_and(|command_text| command_text.is_some() || overflowed)
     }
 
     pub(crate) fn project_feedback(
         &mut self,
         window_feedback: Option<(feedback::Severity, String)>,
     ) {
-        if let Some((cell, text)) = self.root.first_table_rejection() {
-            self.push_floating_panel(
-                auxiliary_panel(
-                    TABLE_FEEDBACK_PANEL,
-                    AuxiliaryChrome::Error,
-                    text,
-                    PanelPolicy::AnchoredFeedback,
-                )
-                .with_table_panel_anchor(cell),
-            );
-        }
-
         if let Some((severity, text)) = window_feedback {
             self.push_floating_panel(
                 auxiliary_panel(
                     WINDOW_FEEDBACK_PANEL,
-                    severity.into(),
-                    text,
+                    Hint::from_feedback(severity, text),
                     PanelPolicy::WindowFeedback,
                 )
                 .with_panel_anchor(geometry::PlacementAnchor::Point(
@@ -57,37 +43,37 @@ impl View {
         pointer_anchor: geometry::Point,
         overflow: Option<String>,
     ) -> bool {
-        let Some((blocked, command_text)) =
-            self.root
-                .hover_tip_text_retained(retained.root(), target, false)
-        else {
+        if let Some(hint) = self.root.input_hint_for_target(target) {
+            self.push_floating_panel(
+                auxiliary_panel(HOVER_TIP_PANEL, hint, PanelPolicy::HoverTip)
+                    .with_pointer_panel_anchor(pointer_anchor),
+            );
+            return true;
+        }
+
+        let Some(command_text) = self.root.hover_tip_text_retained(retained.root(), target) else {
             return false;
         };
-        if blocked {
-            return false;
-        }
-        let (chrome, text) = match (command_text, overflow) {
-            (Some(text), _) => (AuxiliaryChrome::Info, text),
-            (None, Some(text)) => (AuxiliaryChrome::Plain, text),
+        let hint = match (command_text, overflow) {
+            (Some(text), _) => Hint::information(text),
+            (None, Some(text)) => Hint::plain(text),
             (None, None) => return false,
         };
 
         self.push_floating_panel(
-            auxiliary_panel(HOVER_TIP_PANEL, chrome, text, PanelPolicy::HoverTip)
+            auxiliary_panel(HOVER_TIP_PANEL, hint, PanelPolicy::HoverTip)
                 .with_pointer_panel_anchor(pointer_anchor),
         );
         true
     }
 }
 
-fn auxiliary_panel(
-    id: impl Into<interaction::Id>,
-    chrome: AuxiliaryChrome,
-    text: String,
-    policy: PanelPolicy,
-) -> Node {
+fn auxiliary_panel(id: impl Into<interaction::Id>, hint: Hint, policy: PanelPolicy) -> Node {
+    let description = hint.description().to_owned();
     Node::floating_panel(id)
         .with_panel_policy(policy)
-        .with_auxiliary_chrome(chrome)
-        .child(Node::wrapped_world_text(text, Wrap::Word).with_auxiliary_text_participation())
+        .with_auxiliary_hint(hint)
+        .child(
+            Node::wrapped_world_text(description, Wrap::Word).with_auxiliary_text_participation(),
+        )
 }

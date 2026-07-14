@@ -1,4 +1,5 @@
 mod choice;
+mod indicator;
 mod slider;
 mod text_area;
 mod text_box;
@@ -319,14 +320,6 @@ fn paint_frame(
     if frame.table_row().is_some_and(|row| row.index() % 2 == 1) {
         scene.push_quad(Quad::new(frame.rect(), theme.table().alternate_row_tint));
     }
-    if frame.table_edit_error().is_some() {
-        scene.push_quad(
-            Quad::new(frame.rect(), super::Color::rgba(0, 0, 0, 0)).with_stroke(
-                super::Stroke::new(super::Brush::solid(theme.focus().outline), 2.0),
-            ),
-        );
-    }
-
     match frame.role() {
         view::Role::Binding if frame.is_menu_row() => paint_menu_row(frame, scene, theme),
         _ if frame.is_palette_row() => paint_palette_row(frame, scene, theme),
@@ -389,6 +382,11 @@ fn paint_frame(
     paint_table_sort_indicator(frame, scene, theme);
 
     if frame.role() == view::Role::TextBox {
+        if let (Some(rect), Some(hint)) =
+            (frame.input_indicator_rect(), frame.input_indicator_hint())
+        {
+            indicator::paint(rect, hint, scene, theme);
+        }
         text_box::paint_caret(frame, scene, theme, visuals);
     }
 
@@ -654,10 +652,10 @@ fn paint_floating_panel_border(frame: &layout::Frame, scene: &mut Scene, theme: 
 }
 
 fn paint_auxiliary_panel_icon(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {
-    let Some(chrome) = frame.auxiliary_chrome() else {
+    let Some(hint) = frame.auxiliary_hint() else {
         return;
     };
-    if chrome == view::AuxiliaryChrome::Plain {
+    if hint.icon().is_none() {
         return;
     }
     let auxiliary = theme.auxiliary_panel();
@@ -677,18 +675,7 @@ fn paint_auxiliary_panel_icon(frame: &layout::Frame, scene: &mut Scene, theme: &
         extent,
         extent,
     );
-    let (name, color) = match chrome {
-        view::AuxiliaryChrome::Plain => return,
-        view::AuxiliaryChrome::Info => ("info", auxiliary.info),
-        view::AuxiliaryChrome::Warning => ("warning", auxiliary.warning),
-        view::AuxiliaryChrome::Error => ("x-circle", auxiliary.error),
-    };
-    scene.push_icon(Icon::new(
-        rect,
-        icons::Icon::phosphor(icons::Id::new(name)),
-        color,
-        extent as f32,
-    ));
+    indicator::paint(rect, hint, scene, theme);
 }
 
 fn paint_menu_row(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) {

@@ -76,7 +76,6 @@ pub enum NativePopupMaterialPreference {
 pub(crate) enum PanelPolicy {
     Interactive,
     HoverTip,
-    AnchoredFeedback,
     WindowFeedback,
 }
 
@@ -95,35 +94,6 @@ pub(crate) enum PanelAttachment {
     Geometry(crate::geometry::PlacementAnchor),
     Pointer(crate::geometry::Point),
     Element(interaction::Id),
-    TableCell(crate::table::Cell),
-}
-
-/// Visual treatment for auxiliary-panel content.
-///
-/// This is deliberately separate from retained feedback severity: descriptive
-/// and overflow content also use the panel recipe without becoming feedback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AuxiliaryChrome {
-    Plain,
-    Info,
-    Warning,
-    Error,
-}
-
-impl AuxiliaryChrome {
-    pub(crate) const fn has_icon(self) -> bool {
-        !matches!(self, Self::Plain)
-    }
-}
-
-impl From<crate::feedback::Severity> for AuxiliaryChrome {
-    fn from(severity: crate::feedback::Severity) -> Self {
-        match severity {
-            crate::feedback::Severity::Info => Self::Info,
-            crate::feedback::Severity::Warning => Self::Warning,
-            crate::feedback::Severity::Error => Self::Error,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -137,7 +107,7 @@ pub struct Node {
     placement_available: Option<crate::geometry::Rect>,
     popup_context: Option<crate::popup::ContextFingerprint>,
     panel_policy: PanelPolicy,
-    auxiliary_chrome: Option<AuxiliaryChrome>,
+    auxiliary_hint: Option<super::Hint>,
     force_overlay_group: bool,
     native_popup_material_preference: NativePopupMaterialPreference,
     subject: Option<subject::Segment>,
@@ -159,7 +129,6 @@ pub struct Node {
     table_header_presentation: Option<crate::table::HeaderPresentation>,
     table_model: Option<crate::table::Model>,
     text_commit: Option<super::TextCommit>,
-    table_edit_error: Option<String>,
     participation: Option<Participation>,
     context_menu: bool,
     standard_menu_bar: bool,

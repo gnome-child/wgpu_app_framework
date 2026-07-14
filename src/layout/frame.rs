@@ -156,14 +156,14 @@ pub(crate) struct Frame {
     table_header_cell: Option<crate::table::HeaderCell>,
     table_header_presentation: Option<crate::table::HeaderPresentation>,
     table_projection: Option<table::Projection>,
-    table_edit_error: Option<String>,
+    input_parts: Option<control::InputParts>,
     participation: Option<view::Participation>,
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
     popup_placement: Option<crate::geometry::PlacementRequest>,
     popup_context: Option<crate::popup::ContextFingerprint>,
     panel_policy: view::PanelPolicy,
-    auxiliary_chrome: Option<view::AuxiliaryChrome>,
+    auxiliary_hint: Option<view::Hint>,
     overflow_projection: Option<text::Selectable>,
     floating_layer: bool,
     background: Option<scene::Brush>,
@@ -188,6 +188,14 @@ impl Frame {
         let target = target_for(node, node_id);
         let binding = node.binding().cloned();
         let text_box = node.text_box_model().cloned();
+        let input_parts = text_box.as_ref().map(|text_box| {
+            control::input_parts(
+                rect,
+                node.participation() == Some(view::Participation::Table(view::TablePart::Cell)),
+                text_box.indicator_hint().is_some(),
+                theme,
+            )
+        });
         let inactive_text_box = text_box
             .as_ref()
             .is_some_and(view::TextBox::projects_inactive_display);
@@ -206,9 +214,18 @@ impl Frame {
             })
         });
         let now = animation_frame.now();
-        let text_area_text_rect =
-            table_cell_text_rect_for(node, rect, text_area.as_ref(), engine, theme);
-        let text_box_text_rect = text_box_text_rect_for(node, rect, theme);
+        let inactive_input_text_rect = inactive_text_box
+            .then(|| input_parts.map(control::InputParts::text))
+            .flatten();
+        let text_area_text_rect = table_cell_text_rect_for(
+            node,
+            rect,
+            inactive_input_text_rect,
+            text_area.as_ref(),
+            engine,
+            theme,
+        );
+        let text_box_text_rect = input_parts.map_or(rect, control::InputParts::text);
         let text_box_layout = (!inactive_text_box)
             .then_some(text_box.as_ref())
             .flatten()
@@ -386,14 +403,14 @@ impl Frame {
             table_header_cell: node.table_header_cell(),
             table_header_presentation: node.table_header_presentation(),
             table_projection: None,
-            table_edit_error: node.table_edit_error().map(str::to_owned),
+            input_parts,
             participation: node.participation(),
             force_overlay_group: node.force_overlay_group(),
             native_popup_material_preference: node.native_popup_material_preference(),
             popup_placement: None,
             popup_context: node.popup_context(),
             panel_policy: node.panel_policy(),
-            auxiliary_chrome: node.auxiliary_chrome(),
+            auxiliary_hint: node.auxiliary_hint().cloned(),
             overflow_projection: text_area_projection.or(label_projection),
             floating_layer,
             background: node.style().background(),
@@ -489,6 +506,11 @@ impl Frame {
     }
 
     pub(crate) fn overflow_tip(&self) -> Option<&str> {
+        if let (Some(text_box), Some(field)) = (self.text_box(), self.text_box_layout())
+            && field.layout().content_area().width() > self.text_box_text_rect().width() as f32
+        {
+            return Some(text_box.text());
+        }
         self.overflow_projection
             .as_ref()
             .filter(|projection| projection.overflowed())
@@ -592,8 +614,31 @@ impl Frame {
         self.table_projection.as_ref()
     }
 
-    pub(crate) fn table_edit_error(&self) -> Option<&str> {
-        self.table_edit_error.as_deref()
+    #[cfg(test)]
+    pub(crate) fn input_parts(&self) -> Option<control::InputParts> {
+        self.input_parts
+    }
+
+    pub(crate) fn input_indicator_rect(&self) -> Option<Rect> {
+        self.input_parts?.indicator()
+    }
+
+    pub(crate) fn input_indicator_hint(&self) -> Option<&view::Hint> {
+        self.text_box()?.indicator_hint()
+    }
+
+    pub(crate) fn input_indicator_target(&self) -> Option<interaction::Target> {
+        self.text_box()?.indicator_target()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn input_is_invalid(&self) -> bool {
+        self.text_box().is_some_and(view::TextBox::is_invalid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn input_error_message(&self) -> Option<&str> {
+        self.text_box()?.error_message()
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
@@ -616,8 +661,8 @@ impl Frame {
         self.panel_policy.accepts_input()
     }
 
-    pub(crate) fn auxiliary_chrome(&self) -> Option<view::AuxiliaryChrome> {
-        self.auxiliary_chrome
+    pub(crate) fn auxiliary_hint(&self) -> Option<&view::Hint> {
+        self.auxiliary_hint.as_ref()
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {
@@ -1145,26 +1190,10 @@ impl Clip {
     }
 }
 
-fn text_box_text_rect_for(node: &view::Node, rect: Rect, theme: &Theme) -> Rect {
-    let padding_x = if node.participation()
-        == Some(view::Participation::Table(view::TablePart::Cell))
-        && node.role() == view::Role::TextBox
-    {
-        theme.table().cell_padding
-    } else {
-        theme.text_input().padding_x
-    };
-    Rect::new(
-        rect.x().saturating_add(padding_x),
-        rect.y(),
-        rect.width().saturating_sub(padding_x.saturating_mul(2)),
-        rect.height(),
-    )
-}
-
 fn table_cell_text_rect_for(
     node: &view::Node,
     rect: Rect,
+    input_text_rect: Option<Rect>,
     text_area: Option<&view::TextArea>,
     engine: &engine::Engine,
     theme: &Theme,
@@ -1173,7 +1202,7 @@ fn table_cell_text_rect_for(
         return rect;
     }
 
-    let content = control::table_content_rect(rect, theme);
+    let content = input_text_rect.unwrap_or_else(|| control::table_content_rect(rect, theme));
     let Some(text_area) = text_area else {
         return content;
     };

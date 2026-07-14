@@ -201,8 +201,8 @@ pub(in crate::layout) fn floating_panel_height_for_width(
 ) -> i32 {
     let padding = theme.floating_panel().padding.max(0);
     let content_width = width.max(0).saturating_sub(padding.saturating_mul(2));
-    let content_height = if let Some(chrome) = node.auxiliary_chrome() {
-        let reserved = i32::from(chrome.has_icon()).saturating_mul(
+    let content_height = if let Some(hint) = node.auxiliary_hint() {
+        let reserved = i32::from(hint.icon().is_some()).saturating_mul(
             theme
                 .auxiliary_panel()
                 .icon_extent
@@ -215,7 +215,7 @@ pub(in crate::layout) fn floating_panel_height_for_width(
             theme,
             profile,
         )
-        .max(if chrome.has_icon() {
+        .max(if hint.icon().is_some() {
             theme.auxiliary_panel().icon_extent
         } else {
             0
@@ -261,8 +261,8 @@ pub(in crate::layout) fn floating_panel_width(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> i32 {
-    let content_width = if let Some(chrome) = node.auxiliary_chrome() {
-        let reserved = i32::from(chrome.has_icon()).saturating_mul(
+    let content_width = if let Some(hint) = node.auxiliary_hint() {
+        let reserved = i32::from(hint.icon().is_some()).saturating_mul(
             theme
                 .auxiliary_panel()
                 .icon_extent

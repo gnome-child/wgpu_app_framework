@@ -296,6 +296,18 @@ impl Layout {
             );
         }
 
+        if let Some((frame, target)) = self.frames.iter().rev().find_map(|frame| {
+            (self.surface_accepts_frame(surface, frame)
+                && frame
+                    .input_indicator_rect()
+                    .is_some_and(|rect| rect.contains(point))
+                && frame.clip_contains(point))
+            .then(|| Some((frame, frame.input_indicator_target()?)))
+            .flatten()
+        }) {
+            return Some(Hit::indicator(frame.clone(), target).with_table_cell(table_cell));
+        }
+
         self.frames
             .iter()
             .rev()

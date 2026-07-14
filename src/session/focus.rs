@@ -143,7 +143,9 @@ impl Focus {
             Kind::Text(id) => {
                 target.kind() == interaction::Kind::TextArea && target.element_id() == Some(id)
             }
-            Kind::TableCell(cell) => target.table_cell() == Some(cell),
+            Kind::TableCell(cell) => {
+                target.kind() == interaction::Kind::TextArea && target.table_cell() == Some(cell)
+            }
             Kind::Control(key) => target.focus_key() == key,
         }
     }

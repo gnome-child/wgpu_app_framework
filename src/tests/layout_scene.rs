@@ -3048,78 +3048,32 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
     let rejected = app
         .show_scene(window, size)
         .expect("rejected editor should retain visible presentation");
-    assert!(rejected.layout().frames().iter().any(|frame| {
-        frame.table_cell() == Some(count)
-            && frame.table_edit_error() == Some("Enter a whole number")
-    }));
-    let rejected = app
-        .show_scene_after_overlay_fade(window, size)
-        .expect("anchored rejection should settle through the shared panel path");
-    let error_panel = rejected
-        .layout()
-        .frames()
-        .iter()
-        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.table")))
-        .expect("rejected cell should project one anchored error panel");
-    assert_eq!(error_panel.role(), view::Role::FloatingPanel);
-    assert_eq!(
-        error_panel.auxiliary_chrome(),
-        Some(view::AuxiliaryChrome::Error)
-    );
-    let rejected_cell_rect = rejected
+    let rejected_field = rejected
         .layout()
         .frames()
         .iter()
         .find(|frame| frame.table_cell() == Some(count))
-        .map(layout::Frame::rect)
-        .expect("rejected cell rectangle");
+        .expect("rejected cell input");
+    assert!(rejected_field.input_is_invalid());
     assert_eq!(
-        error_panel
-            .popup_placement()
-            .expect("error panel placement request")
-            .anchor(),
-        geometry::PlacementAnchor::Rect(rejected_cell_rect),
-        "persistent error remains attached to its subject rather than the pointer"
+        rejected_field.input_error_message(),
+        Some("Enter a whole number")
+    );
+    let indicator = rejected_field
+        .input_indicator_rect()
+        .expect("rejected input owns a trailing indicator");
+    assert!(
+        rejected
+            .scene()
+            .icons()
+            .iter()
+            .any(|icon| { icon.icon().id().as_str() == "x-circle" && icon.rect() == indicator })
     );
     assert!(
-        error_panel.target().is_none(),
-        "feedback panels never accept input"
-    );
-    assert!(rejected.scene().texts().iter().any(|text| {
-        text.value() == "Enter a whole number" && text.wrap() == scene::TextWrap::WordOrGlyph
-    }));
-    assert!(rejected.scene().icons().iter().any(|icon| {
-        icon.icon().id().as_str() == "x-circle" && rect_contains(error_panel.rect(), icon.rect())
-    }));
-
-    let rejected_cell_point = rejected
-        .layout()
-        .frames()
-        .iter()
-        .find(|frame| frame.table_cell() == Some(count))
-        .map(frame_point)
-        .expect("rejected cell geometry");
-    app.pointer_move_at(window, size, rejected_cell_point)
-        .expect("rejected cell should still participate in ordinary hover routing");
-    assert_eq!(
-        app.session()
-            .hover_tip_deadline(window, std::time::Duration::from_millis(400)),
-        None,
-        "a live rejection suppresses lower-priority hover truth before scheduling work"
-    );
-    let priority = app
-        .show_scene_after_overlay_fade(window, size)
-        .expect("feedback priority frame");
-    assert!(
-        priority.layout().frames().iter().any(|frame| {
-            frame.interaction_id() == Some(interaction::Id::new("feedback.table"))
-        })
-    );
-    assert!(
-        priority.layout().frames().iter().all(|frame| {
+        rejected.layout().frames().iter().all(|frame| {
             frame.interaction_id() != Some(interaction::Id::new("feedback.hover"))
         }),
-        "live anchored feedback must suppress hint, description, and overflow projection for the same anchor"
+        "validation projects inline and opens no panel until the input is inspected"
     );
 
     app.handle_input(
@@ -3171,6 +3125,313 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
             .frames()
             .iter()
             .any(|frame| { frame.table_cell() == Some(count) && frame.label_text() == Some("42") })
+    );
+}
+
+const LONG_REJECTED_COUNT: &str = "999999999999999999999999999999999999999999999999999999999999";
+
+fn rejected_count_input_app() -> (
+    Runtime<EditableTableState, (), View>,
+    window::Id,
+    geometry::Size,
+    crate::table::Cell,
+) {
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: "Ada".to_owned(),
+            count: 4,
+        }],
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("count"),
+    );
+    let initial = app
+        .show_scene(window, size)
+        .expect("editable count should materialize");
+    let initial_count = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("initial count TextBox");
+    assert!(!initial_count.input_is_invalid());
+    assert_eq!(initial_count.input_indicator_rect(), None);
+    drop(initial);
+    app.handle_input(window, Input::focus(session::Focus::table_cell(cell)))
+        .expect("count cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("count cell should enter text participation");
+    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
+        .expect("count draft should select for replacement");
+    app.handle_input(window, Input::text_commit(LONG_REJECTED_COUNT))
+        .expect("long integer syntax remains a lawful draft");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("out-of-range integer representation should reject");
+
+    (app, window, size, cell)
+}
+
+#[test]
+fn rejection_projects_inline_without_opening_a_panel() {
+    let (mut app, window, size, cell) = rejected_count_input_app();
+    let rejected = app
+        .show_scene(window, size)
+        .expect("rejected input should render inline");
+    let frame = rejected
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("rejected count TextBox");
+    let parts = frame
+        .input_parts()
+        .expect("TextBox should expose one authoritative input decomposition");
+    let indicator = parts
+        .indicator()
+        .expect("rejected TextBox should reserve trailing indicator geometry");
+
+    assert!(frame.input_is_invalid());
+    assert_eq!(frame.input_error_message(), Some("Enter a whole number"));
+    assert_eq!(parts.text(), frame.text_box_text_rect());
+    assert_eq!(Some(indicator), frame.input_indicator_rect());
+    assert!(rect_contains(frame.rect(), parts.content()));
+    assert!(rect_contains(parts.content(), parts.text()));
+    assert!(rect_contains(parts.content(), indicator));
+    assert!(parts.text().right() <= indicator.x());
+    assert!(
+        rejected
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| frame.role() != view::Role::FloatingPanel),
+        "rejection alone must not open a panel"
+    );
+    assert!(rejected.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "x-circle"
+            && icon.rect() == indicator
+            && icon.color() == Theme::default().auxiliary_panel().error
+    }));
+    assert!(
+        rejected
+            .scene()
+            .text_viewports()
+            .iter()
+            .any(|viewport| viewport.rect() == parts.text())
+    );
+    assert!(
+        frame
+            .text_caret_rect()
+            .is_some_and(|caret| rect_contains(parts.text(), caret))
+    );
+
+    assert_eq!(
+        rejected
+            .layout()
+            .hit_test(frame_point_at(parts.text()))
+            .and_then(|hit| hit.target().map(interaction::Target::kind)),
+        Some(interaction::Kind::TextArea)
+    );
+    assert_eq!(
+        rejected
+            .layout()
+            .hit_test(frame_point_at(indicator))
+            .and_then(|hit| hit.target().map(interaction::Target::kind)),
+        Some(interaction::Kind::Indicator)
+    );
+
+    for scale in [1.0_f64, 1.25, 1.5, 2.0] {
+        let scaled_text_right = f64::from(parts.text().right()) * scale;
+        let scaled_indicator_x = f64::from(indicator.x()) * scale;
+        assert!(
+            scaled_text_right <= scaled_indicator_x,
+            "text and indicator must remain disjoint at scale {scale}"
+        );
+    }
+    drop(rejected);
+
+    app.handle_input(window, Input::text_edit(text::edit::Edit::SelectAll))
+        .expect("rejected draft selection remains editable");
+    let selected = app
+        .show_scene(window, size)
+        .expect("selected rejected draft should render");
+    let selected_frame = selected
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("selected rejected TextBox");
+    let text_rect = selected_frame.text_box_text_rect();
+    assert!(selected.scene().quads().iter().any(|quad| {
+        quad.fill() == Theme::default().text().selection && rect_contains(text_rect, quad.rect())
+    }));
+}
+
+#[test]
+fn invalid_text_box_and_indicator_hover_share_the_error_tip() {
+    let (mut app, window, size, cell) = rejected_count_input_app();
+    let initial = app
+        .show_scene(window, size)
+        .expect("rejected input should render before hover");
+    let frame = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("rejected count TextBox");
+    let text_rect = frame.text_box_text_rect();
+    let indicator = frame
+        .input_indicator_rect()
+        .expect("invalid TextBox indicator");
+    assert_eq!(frame.overflow_tip(), Some(LONG_REJECTED_COUNT));
+    let box_point = frame_point_at(text_rect);
+    let moved_box_point = geometry::Point::new(text_rect.x() + 1, box_point.y());
+    let indicator_point = frame_point_at(indicator);
+    drop(initial);
+
+    app.pointer_move_at(window, size, box_point)
+        .expect("invalid TextBox surface should become hover-eligible");
+    let before_delay = app
+        .show_scene(window, size)
+        .expect("TextBox hover dwell should schedule");
+    assert!(
+        before_delay
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| frame.interaction_id() != Some(interaction::Id::new("feedback.hover")))
+    );
+    drop(before_delay);
+    let crate::animation::Schedule::At(deadline) = app.animation_schedule() else {
+        panic!("invalid TextBox hover should schedule one dwell deadline");
+    };
+    app.invalidate_due_animation_frames(deadline);
+    let visible = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("invalid TextBox hover should reveal its error tip");
+    let panel = visible
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.hover")))
+        .expect("invalid TextBox should reveal one hover panel");
+    assert_eq!(
+        panel.popup_placement().expect("hover placement").anchor(),
+        geometry::PlacementAnchor::Point(box_point)
+    );
+    assert_eq!(
+        panel.auxiliary_hint().map(view::Hint::description),
+        Some("Enter a whole number")
+    );
+    assert_eq!(
+        panel.auxiliary_hint().map(view::Hint::tone),
+        Some(view::Tone::Error)
+    );
+    assert!(visible.scene().texts().iter().any(|text| {
+        text.value() == "Enter a whole number" && text.wrap() == scene::TextWrap::WordOrGlyph
+    }));
+    assert!(visible.scene().icons().iter().any(|icon| {
+        icon.icon().id().as_str() == "x-circle" && rect_contains(panel.rect(), icon.rect())
+    }));
+    drop(visible);
+
+    app.pointer_move_at(window, size, moved_box_point)
+        .expect("movement within the owning TextBox should retain the reveal snapshot");
+    let moved = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("same-target movement should preserve the error tip");
+    let moved_panel = moved
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.hover")))
+        .expect("same-target error tip");
+    assert_eq!(
+        moved_panel
+            .popup_placement()
+            .expect("retained hover placement")
+            .anchor(),
+        geometry::PlacementAnchor::Point(box_point),
+        "the visible panel remains fixed to its reveal snapshot"
+    );
+    drop(moved);
+
+    app.pointer_move_at(window, size, geometry::Point::new(1, 1))
+        .expect("leaving the invalid TextBox should dismiss its panel");
+    let dismissed = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("TextBox error tip should dismiss");
+    assert!(
+        dismissed
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| frame.interaction_id() != Some(interaction::Id::new("feedback.hover")))
+    );
+    drop(dismissed);
+
+    app.pointer_move_at(window, size, indicator_point)
+        .expect("the exact indicator target should expose the same error");
+    app.show_scene(window, size)
+        .expect("indicator dwell should schedule");
+    let crate::animation::Schedule::At(deadline) = app.animation_schedule() else {
+        panic!("indicator hover should schedule one dwell deadline");
+    };
+    app.invalidate_due_animation_frames(deadline);
+    let indicator_visible = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("indicator hover should reveal the shared error tip");
+    let indicator_panel = indicator_visible
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.hover")))
+        .expect("indicator error tip");
+    assert_eq!(
+        indicator_panel
+            .popup_placement()
+            .expect("indicator hover placement")
+            .anchor(),
+        geometry::PlacementAnchor::Point(indicator_point)
+    );
+    assert_eq!(
+        indicator_panel
+            .auxiliary_hint()
+            .map(view::Hint::description),
+        Some("Enter a whole number")
+    );
+    drop(indicator_visible);
+
+    app.pointer_move_at(window, size, geometry::Point::new(1, 1))
+        .expect("leaving the indicator should dismiss only the panel");
+    let final_frame = app
+        .show_scene_after_overlay_fade(window, size)
+        .expect("inline invalidity should remain after panel dismissal");
+    let invalid = final_frame
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("retained invalid TextBox");
+    assert!(invalid.input_is_invalid());
+    assert_eq!(invalid.input_indicator_rect(), Some(indicator));
+    assert!(
+        final_frame
+            .layout()
+            .frames()
+            .iter()
+            .all(|frame| frame.interaction_id() != Some(interaction::Id::new("feedback.hover")))
     );
 }
 
@@ -11254,7 +11515,11 @@ fn confirmed_table_overflow_uses_a_glyphless_shared_hover_panel() {
         .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.hover")))
         .expect("overflow should project one hover panel");
 
-    assert_eq!(panel.auxiliary_chrome(), Some(view::AuxiliaryChrome::Plain));
+    assert_eq!(panel.auxiliary_hint().and_then(view::Hint::icon), None);
+    assert_eq!(
+        panel.auxiliary_hint().map(view::Hint::tone),
+        Some(view::Tone::Neutral)
+    );
     assert!(panel.target().is_none());
     assert!(
         visible
@@ -11300,8 +11565,8 @@ fn warning_feedback_uses_shared_panel_without_trapping_focus() {
         .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
         .expect("warning should project through the shared panel path");
     assert_eq!(
-        panel.auxiliary_chrome(),
-        Some(view::AuxiliaryChrome::Warning)
+        panel.auxiliary_hint().map(view::Hint::tone),
+        Some(view::Tone::Warning)
     );
     assert_eq!(
         panel
@@ -11349,8 +11614,8 @@ fn gallery_runtime_dialogue_projects_warning_and_information_without_authored_pa
         .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
         .expect("gallery warning panel");
     assert_eq!(
-        warning_panel.auxiliary_chrome(),
-        Some(view::AuxiliaryChrome::Warning)
+        warning_panel.auxiliary_hint().map(view::Hint::tone),
+        Some(view::Tone::Warning)
     );
     assert!(warning.scene().icons().iter().any(|icon| {
         icon.icon().id().as_str() == "warning" && rect_contains(warning_panel.rect(), icon.rect())
@@ -11370,8 +11635,15 @@ fn gallery_runtime_dialogue_projects_warning_and_information_without_authored_pa
         .find(|frame| frame.interaction_id() == Some(interaction::Id::new("feedback.window")))
         .expect("gallery information panel");
     assert_eq!(
-        info_panel.auxiliary_chrome(),
-        Some(view::AuxiliaryChrome::Info)
+        info_panel.auxiliary_hint().map(view::Hint::tone),
+        Some(view::Tone::Neutral)
+    );
+    assert_eq!(
+        info_panel
+            .auxiliary_hint()
+            .and_then(view::Hint::icon)
+            .map(|icon| icon.id().as_str()),
+        Some("info")
     );
     assert!(info.scene().icons().iter().any(|icon| {
         icon.icon().id().as_str() == "info" && rect_contains(info_panel.rect(), icon.rect())

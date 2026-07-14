@@ -19,6 +19,88 @@ pub(crate) struct PaletteRowParts {
     pub shortcut: Rect,
 }
 
+/// Authoritative decomposition for a single-line input and its optional
+/// trailing indicator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InputParts {
+    content: Rect,
+    text: Rect,
+    indicator: Option<Rect>,
+}
+
+impl InputParts {
+    #[cfg(test)]
+    pub(crate) fn content(self) -> Rect {
+        self.content
+    }
+
+    pub(crate) fn text(self) -> Rect {
+        self.text
+    }
+
+    pub(crate) fn indicator(self) -> Option<Rect> {
+        self.indicator
+    }
+}
+
+pub(crate) fn input_parts(
+    rect: Rect,
+    table_cell: bool,
+    has_indicator: bool,
+    theme: &theme::Theme,
+) -> InputParts {
+    let padding = if table_cell {
+        theme.table().cell_padding
+    } else {
+        theme.text_input().padding_x
+    }
+    .max(0);
+    let content = Rect::new(
+        rect.x().saturating_add(padding),
+        rect.y(),
+        rect.width().saturating_sub(padding.saturating_mul(2)),
+        rect.height(),
+    );
+    let Some(indicator) = has_indicator.then(|| {
+        let extent = theme
+            .auxiliary_panel()
+            .icon_extent
+            .max(1)
+            .min(content.width().max(0))
+            .min(content.height().max(0));
+        Rect::new(
+            content.right().saturating_sub(extent),
+            content
+                .y()
+                .saturating_add(content.height().saturating_sub(extent) / 2),
+            extent,
+            extent,
+        )
+    }) else {
+        return InputParts {
+            content,
+            text: content,
+            indicator: None,
+        };
+    };
+    let gap = theme.auxiliary_panel().icon_gap.max(0);
+    let text = Rect::new(
+        content.x(),
+        content.y(),
+        indicator
+            .x()
+            .saturating_sub(gap)
+            .saturating_sub(content.x()),
+        content.height(),
+    );
+
+    InputParts {
+        content,
+        text,
+        indicator: Some(indicator),
+    }
+}
+
 pub(crate) fn padded_control_extent(content_extent: i32, theme: &theme::Theme) -> i32 {
     content_extent
         .max(0)

@@ -1,5 +1,6 @@
 use crate::text;
 
+use super::super::Hint;
 use super::super::action::Action;
 use crate::{interaction, session};
 use std::ops::Range;
@@ -20,6 +21,7 @@ pub struct TextBox {
     selection: Option<Range<usize>>,
     preedit: Option<text::edit::Preedit>,
     caret_epoch: Option<Instant>,
+    indicator_hint: Option<Hint>,
 }
 
 impl TextBox {
@@ -38,6 +40,7 @@ impl TextBox {
             selection: None,
             preedit: None,
             caret_epoch: None,
+            indicator_hint: None,
         }
     }
 
@@ -121,6 +124,35 @@ impl TextBox {
         self.caret_epoch
     }
 
+    pub(crate) fn indicator_hint(&self) -> Option<&Hint> {
+        self.indicator_hint.as_ref()
+    }
+
+    pub(crate) fn indicator_target(&self) -> Option<interaction::Target> {
+        let hint = self.indicator_hint.as_ref()?;
+        let owner = self.input_target()?;
+        Some(interaction::Target::indicator(
+            &owner,
+            self.error_message().unwrap_or_else(|| hint.description()),
+        ))
+    }
+
+    pub(crate) fn input_target(&self) -> Option<interaction::Target> {
+        Some(interaction::Target::text_area(self.focus?))
+    }
+
+    pub(crate) fn is_invalid(&self) -> bool {
+        self.indicator_hint
+            .as_ref()
+            .is_some_and(|hint| hint.tone() == super::super::Tone::Error)
+    }
+
+    pub(crate) fn error_message(&self) -> Option<&str> {
+        self.is_invalid()
+            .then(|| self.indicator_hint.as_ref().map(Hint::description))
+            .flatten()
+    }
+
     pub(crate) fn focus_action(&self) -> Option<Action> {
         Action::text_focus(self.focus)
     }
@@ -150,10 +182,12 @@ impl TextBox {
             self.active = false;
             self.preedit = None;
             self.caret_epoch = None;
+            self.indicator_hint = None;
             return;
         };
 
         let target = interaction::Target::text_area(focus);
+        self.project_input_feedback(interaction);
         let active = interaction.text_input().target() == Some(&target);
         self.active = active;
         if let Some(draft) = interaction.text_input().draft_for(&target)
@@ -168,6 +202,18 @@ impl TextBox {
         }
         self.preedit = interaction.text_input().preedit_for(&target).cloned();
         self.caret_epoch = interaction.text_input().caret_epoch_for(&target);
+    }
+
+    pub(in crate::view) fn project_input_feedback(
+        &mut self,
+        interaction: &interaction::Interaction,
+    ) {
+        self.indicator_hint = self.focus.and_then(|focus| {
+            interaction
+                .text_input()
+                .feedback_for(&interaction::Target::text_area(focus))
+                .map(|(severity, text)| Hint::from_feedback(severity, text.to_owned()))
+        });
     }
 
     pub(in crate::view) fn project_focus(&mut self, focus: Option<&session::Focus>) {

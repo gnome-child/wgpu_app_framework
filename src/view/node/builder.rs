@@ -350,15 +350,9 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_auxiliary_chrome(mut self, chrome: super::AuxiliaryChrome) -> Self {
+    pub(crate) fn with_auxiliary_hint(mut self, hint: super::super::Hint) -> Self {
         debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.auxiliary_chrome = Some(chrome);
-        self
-    }
-
-    pub(crate) fn with_table_panel_anchor(mut self, cell: crate::table::Cell) -> Self {
-        debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.panel_attachment = Some(super::PanelAttachment::TableCell(cell));
+        self.auxiliary_hint = Some(hint);
         self
     }
 
@@ -453,7 +447,7 @@ impl Node {
             placement_available: None,
             popup_context: None,
             panel_policy: super::PanelPolicy::Interactive,
-            auxiliary_chrome: None,
+            auxiliary_hint: None,
             force_overlay_group: false,
             native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,
@@ -475,7 +469,6 @@ impl Node {
             table_header_presentation: None,
             table_model: None,
             text_commit: None,
-            table_edit_error: None,
             participation: None,
             context_menu: false,
             standard_menu_bar: false,

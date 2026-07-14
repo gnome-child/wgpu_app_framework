@@ -3,10 +3,7 @@ use super::super::{
     control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
-use super::{
-    AuxiliaryChrome, Axis, FloatingPlacement, NativePopupMaterialPreference, Node, PanelPolicy,
-    Role,
-};
+use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, PanelPolicy, Role};
 use crate::{interaction, subject};
 
 impl Node {
@@ -42,8 +39,8 @@ impl Node {
         self.panel_policy
     }
 
-    pub(crate) fn auxiliary_chrome(&self) -> Option<AuxiliaryChrome> {
-        self.auxiliary_chrome
+    pub(crate) fn auxiliary_hint(&self) -> Option<&super::super::Hint> {
+        self.auxiliary_hint.as_ref()
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
@@ -160,10 +157,6 @@ impl Node {
 
     pub(crate) fn text_commit(&self) -> Option<&super::super::TextCommit> {
         self.text_commit.as_ref()
-    }
-
-    pub(crate) fn table_edit_error(&self) -> Option<&str> {
-        self.table_edit_error.as_deref()
     }
 
     pub(crate) fn participation(&self) -> Option<super::Participation> {

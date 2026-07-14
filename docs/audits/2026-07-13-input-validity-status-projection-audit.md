@@ -1,7 +1,7 @@
 # Input validity and status projection audit
 
-Status: campaign in flight (2026-07-13). Checkpoint 0 changes no production
-behavior.
+Status: campaign in flight (2026-07-13). Checkpoints 0 through 6 are complete;
+the severable status tail remains.
 `comparison_open: true` remains unchanged.
 
 ## Campaign execution ledger
@@ -23,7 +23,7 @@ are both present. Checkpoint 7 is the severable status tail.
 | 3 — one responder path | Complete | Semantic table/row/cell/member layers replace editing-scope suppression |
 | 4 — one current commit recipe | Complete | One current draft produces one trigger or one formatted rejection |
 | 5 — draft-owned validity | Complete | Rejection lifetime is structurally bounded by its draft entry |
-| 6 — inline validity and explanation | Pending | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
+| 6 — inline validity and explanation | Complete | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
 | 7 — passive status projection | Pending | General status atom plus thin, virtualized `Column::status` sugar |
 | 8 — doctrine and closeout | Pending | Deletion census, public API review, full/deep ritual, roadmap close |
 
@@ -45,7 +45,7 @@ with a table-local exception.
 | OTT-R08 | `resting_inspection_and_active_task_order_are_path_derived` | `editing_table_scope` suppresses table targets to manufacture active-editor precedence. | Rest uses `Inspection`; active input uses `Task`; first claim alone consumes conflicts. |
 | OTT-R09 | `rejection_cannot_outlive_its_draft` | Table feedback and draft state are separate stores with a clearing checklist. | Cancel, success, eviction, removal, pruning, and destruction retire issue no later than draft. |
 | OTT-R10 | `rejection_projects_inline_without_opening_a_panel` | Validation paints a cell outline and immediately builds an anchored floating panel. | Failed commit paints the input-owned glyph and opens zero panels. |
-| OTT-R11 | `indicator_and_overflow_hover_are_exact_independent_targets` | A subtree-wide feedback block suppresses ordinary hint/overflow resolution. | Indicator hover explains rejection; remaining text hover explains confirmed overflow. |
+| OTT-R11 | `invalid_text_box_and_indicator_hover_share_the_error_tip` | A subtree-wide feedback block suppresses ordinary hint/overflow resolution. | Hovering either the invalid TextBox surface or its exact glyph explains rejection; while invalid, that reason takes precedence over ordinary overflow. |
 | OTT-R12 | `status_projection_is_bounded_under_virtualization` | No status species exists; the typed-column erasure seam and virtualized cell boundary are available. | `Some(Status)` projects passively; `None` is blank; work remains bounded to materialized rows. |
 
 ### Checkpoint 0 structural-absence contract
@@ -252,6 +252,41 @@ draft-owned validity, one TextBox surface, and the one panel path.
 - Formatting, diff hygiene, warning-free all-target compilation, 1,050 passing
   library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
   three application smokes passed. `comparison_open: true` remains protected.
+  The independent checkpoint boundary is `ce989c9c`.
+
+### Checkpoint 6 — inline validity and explanation
+
+- `TextBox` projects its exact draft-owned feedback into one resolved `Hint`:
+  explanatory text, optional real icon, and neutral/warning/error tone. The
+  inline indicator and ordinary auxiliary panel consume that same payload, so
+  neither projection chooses a second glyph or color meaning.
+- One `InputParts` decomposition reserves content, reduced text, and trailing
+  indicator rectangles. Active shaping, inactive table alignment, text
+  viewport, caret, selection, text hit mapping, indicator hit mapping, and icon
+  paint all consume those rectangles. The glyph is a passive `Indicator`
+  target and never focuses, edits, captures, or contributes to a click chain.
+- A rejected commit paints the red `x-circle` inline and opens zero panels.
+  Hover revelation continues through the ordinary dwell, cursor-snapshot
+  placement, fade, and dismissal path. Invalid/ErrorMessage meaning remains on
+  the TextBox independently of whether that panel is visible.
+- The campaign direction was adjusted during implementation: hovering either
+  the owning invalid TextBox surface or its exact glyph reveals the retained
+  rejection. While invalid, that reason intentionally takes precedence over an
+  ordinary overflow explanation. Moving within the same TextBox leaves the
+  visible panel fixed to its reveal snapshot; leaving dismisses only the panel.
+- Table error projection, first-rejection tree scanning, descendant blocking,
+  table-cell panel attachment, `AnchoredFeedback`, and panel-only
+  `AuxiliaryChrome` are deleted. Window feedback, command hints/descriptions,
+  and confirmed overflow continue through the same one auxiliary-panel path.
+- `rejection_projects_inline_without_opening_a_panel` pins initial absence,
+  exact geometry, reduced viewport/caret/selection bounds, passive hit kind,
+  inline paint, and zero automatic panels.
+  `invalid_text_box_and_indicator_hover_share_the_error_tip` pins box and glyph
+  hover, overflow precedence, reveal-snapshot stability, shared semantics, and
+  dismissal without clearing invalidity.
+- Formatting, diff hygiene, warning-free all-target compilation, 1,052 passing
+  library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
+  three application smokes passed. `comparison_open: true` remains protected.
 
 ## Mission
 
@@ -264,8 +299,8 @@ The motivating behavior is deliberately small:
 
 - a failed text commit remains an editable draft;
 - its input projects a trailing error indicator that reduces the text area;
-- hovering the indicator reveals the retained reason through the one panel
-  path;
+- hovering the invalid text box or its indicator reveals the retained reason
+  through the one panel path;
 - a table may opt into a fixed status column whose row-owned state projects an
   icon and the same hover-panel anatomy.
 
@@ -378,7 +413,7 @@ a general focus-transition bypass, and an ad-hoc context-routing suppression.
 | A-10 — table rejection plumbing | `table_edit_error` spans 12 source files; `first_table_rejection`, `blocked_by_feedback`, `AnchoredFeedback`, and `PanelAttachment::TableCell` exist only for this projection. | One table error currently travels session -> view node -> layout frame -> scene and a separate tree scan -> floating panel. | Large deletion target; exact input indicator replaces ancestor blocking and global first-error scanning. |
 | A-11 — feedback truth | `src/feedback.rs:1-68`; `docs/master_design.md:1039-1052` | Severity plus eagerly formatted text and ranked stacks already exist. Severity deliberately does not own focus, lifetime, dismissal, or interaction. | Reuse the fact shape and `Display` boundary; do not create an error-message trait or wrapper. |
 | A-12 — panel projection | `src/view/feedback.rs:53-92`; `src/view/node/mod.rs:75-127` | Hover panels currently resolve command text or overflow into panel-only `AuxiliaryChrome`. | Promote the resolved icon/tone/text payload; retain the single panel path and its policies. |
-| A-13 — current priority coupling | `src/view/node/traversal.rs:18-60` | A table error blocks hints for the entire descendant subtree, and the first rejection is found by tree order. | Replace coarse blocking with exact indicator targeting: hover indicator -> issue; hover text -> overflow/description. |
+| A-13 — current priority coupling | `src/view/node/traversal.rs:18-60` | A table error blocks hints for the entire descendant subtree, and the first rejection is found by tree order. | Replace coarse blocking with input-owned targeting: the invalid TextBox and its exact indicator reveal the issue without suppressing unrelated descendants. |
 | A-14 — text geometry | `src/layout/frame.rs:192-240,1073-1085`; `src/layout/control.rs:129-205` | One text rectangle already feeds shaping and pointer mapping. Table headers and choices already reserve trailing/leading parts from shared row recipes. | Add one input-parts projection beside the existing control-part recipes; no inline padding arithmetic in paint or hit code. |
 | A-15 — paint fork | `src/scene/paint/mod.rs:305-325,651-686` | Table invalidity paints a whole-frame focus-colored outline, while auxiliary glyph selection is hard-coded inside panel paint. | General invalid input paint and general indicator paint replace both special assumptions. |
 | A-16 — icon vocabulary | `src/icon.rs:1-65` | Stable Phosphor icon identity/style/glyph resolution is already public. | Reuse real icon IDs (`x-circle`, `warning`, `info`, later play/pause); never store Unicode lookalikes. |
@@ -645,9 +680,10 @@ glyph layout, selection, caret, and hit mapping cannot disagree with the
 indicator slot.
 
 The indicator is a hover target without becoming an editing surface or command
-button. Hovering it resolves its issue/status hint. Hovering the remaining text
-continues to resolve confirmed overflow. This removes the current all-or-nothing
-ancestor block.
+button. For an invalid input, hovering either the owning TextBox surface or the
+exact glyph resolves its issue, with the rejection reason taking precedence
+over confirmed overflow until the draft is corrected. Unrelated descendants
+remain unaffected, removing the current all-or-nothing ancestor block.
 
 ### 5. General status atom, then table sugar
 
@@ -784,9 +820,9 @@ Consequences for this framework:
 
 Pin the stale-state/current-args reduction, focus-then-act bypass, row
 selection-before-participation matrix, table failed departure family,
-task-versus-inspection context ordering, draft-removal lifetime, exact
-indicator-versus-text hover behavior, and accessibility independence. Record
-structural absence requirements before code.
+task-versus-inspection context ordering, draft-removal lifetime, input-owned
+invalid hover behavior, and accessibility independence. Record structural
+absence requirements before code.
 
 ### Checkpoint 1 — one TextBox task path
 
@@ -848,7 +884,7 @@ panel directly.
 | IV-05 | Window deactivation and system focus changes are never trapped by input validity. |
 | IV-06 | Draft mutation, cancel, success, eviction, provider removal, and window destruction clear the issue no later than the draft. |
 | IV-07 | Indicator reservation moves text, caret, selection, hit mapping, and paint together at scales 1.0, 1.25, 1.5, and 2.0. |
-| IV-08 | Hovering the error glyph shows the rejection; hovering overflowed text shows full text; neither shadows the other. |
+| IV-08 | Hovering either the invalid TextBox surface or its exact glyph shows the rejection; while invalid, that reason takes precedence over ordinary overflow. |
 | IV-09 | No invalid indicator exists before the first rejected commit attempt. |
 | IV-10 | Error and warning status cells share the indicator/hint projection but not input retention. |
 | IV-11 | Neutral operational status uses a real icon and accessible description without pretending to be Info. |

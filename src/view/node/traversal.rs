@@ -15,18 +15,27 @@ use crate::{
 use std::collections::HashMap;
 
 impl Node {
+    pub(in crate::view) fn project_input_feedback(
+        &mut self,
+        interaction: &interaction::Interaction,
+    ) {
+        if let Some(Control::TextBox(text_box)) = &mut self.control {
+            text_box.project_input_feedback(interaction);
+        }
+        for child in &mut self.children {
+            child.project_input_feedback(interaction);
+        }
+    }
+
     pub(in crate::view) fn hover_tip_text_retained(
         &self,
         retained: &composition::Node,
         target: &interaction::Target,
-        blocked_by_feedback: bool,
-    ) -> Option<(bool, Option<String>)> {
-        let blocked_by_feedback = blocked_by_feedback || self.table_edit_error().is_some();
-        if !blocked_by_feedback
-            && self
-                .node_pointer_target(require_retained_id(retained))
-                .as_ref()
-                == Some(target)
+    ) -> Option<Option<String>> {
+        if self
+            .node_pointer_target(require_retained_id(retained))
+            .as_ref()
+            == Some(target)
         {
             let text = self.binding().and_then(|binding| {
                 binding
@@ -34,30 +43,29 @@ impl Node {
                     .map(str::to_owned)
                     .or_else(|| binding.description().map(str::to_owned))
             });
-            return Some((false, text));
-        }
-        if blocked_by_feedback
-            && self
-                .node_pointer_target(require_retained_id(retained))
-                .as_ref()
-                == Some(target)
-        {
-            return Some((true, None));
+            return Some(text);
         }
 
         self.children.iter().enumerate().find_map(|(index, child)| {
-            child.hover_tip_text_retained(
-                retained_child(retained, index),
-                target,
-                blocked_by_feedback,
-            )
+            child.hover_tip_text_retained(retained_child(retained, index), target)
         })
     }
 
-    pub(in crate::view) fn first_table_rejection(&self) -> Option<(crate::table::Cell, String)> {
-        self.table_cell()
-            .zip(self.table_edit_error().map(str::to_owned))
-            .or_else(|| self.children.iter().find_map(Node::first_table_rejection))
+    pub(in crate::view) fn input_hint_for_target(
+        &self,
+        target: &interaction::Target,
+    ) -> Option<super::super::Hint> {
+        self.text_box_model()
+            .filter(|text_box| {
+                text_box.input_target().as_ref() == Some(target)
+                    || text_box.indicator_target().as_ref() == Some(target)
+            })
+            .and_then(|text_box| text_box.indicator_hint().cloned())
+            .or_else(|| {
+                self.children
+                    .iter()
+                    .find_map(|child| child.input_hint_for_target(target))
+            })
     }
 
     pub(in crate::view) fn has_standard_menu_bar(&self) -> bool {
@@ -374,13 +382,6 @@ impl Node {
                 .and_then(|(_, selection)| selection.active());
             self.active_item = active_row == Some(cell.row())
                 && tables.active_column(cell.table()) == Some(cell.column());
-            self.table_edit_error = self
-                .text_box_model()
-                .and_then(TextBox::focus)
-                .and_then(session::Focus::text_target)
-                .and_then(|target| interaction.text_input().feedback_for(&target))
-                .filter(|(severity, _)| *severity == crate::feedback::Severity::Error)
-                .map(|(_, text)| text.to_owned());
         }
         for child in &mut self.children {
             child.project_active_table_cells(interaction, selections);

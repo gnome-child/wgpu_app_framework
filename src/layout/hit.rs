@@ -37,6 +37,15 @@ impl Hit {
         }
     }
 
+    pub(super) fn indicator(frame: Frame, target: interaction::Target) -> Self {
+        Self {
+            frame,
+            chrome: None,
+            target: Some(target),
+            table_cell: None,
+        }
+    }
+
     pub(super) fn with_table_cell(mut self, cell: Option<crate::table::Cell>) -> Self {
         self.table_cell = cell;
         self

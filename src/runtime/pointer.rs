@@ -119,6 +119,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return Ok(transition.into_outcome());
         };
 
+        if target.kind() == interaction::Kind::Indicator {
+            self.session.cancel_click_sequence(window);
+            let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
+            return Ok(self.with_overlay_dismissal(
+                window,
+                input::Outcome::handled(false, response::Effect::None),
+                dismissed_overlays,
+            ));
+        }
+
         let task_focus = if target.kind() == interaction::Kind::TableDivider || hit.is_chrome() {
             None
         } else if matches!(
@@ -575,6 +585,9 @@ pub(super) fn pointer_cursor_for_hit(hit: Option<&layout::Hit>) -> pointer::Curs
 
 fn hit_promises_text_edit(hit: &layout::Hit) -> bool {
     !hit.is_chrome()
+        && hit
+            .target()
+            .is_none_or(|target| target.kind() != interaction::Kind::Indicator)
         && hit.frame().is_enabled()
         && matches!(
             hit.frame().role(),

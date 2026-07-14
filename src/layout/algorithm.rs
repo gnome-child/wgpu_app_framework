@@ -660,7 +660,7 @@ fn root_floating_panel_rect(
         None => floating_panel_width(node, engine, theme, profile).min(root.width.max(0)),
     }
     .min(
-        node.auxiliary_chrome()
+        node.auxiliary_hint()
             .map(|_| theme.auxiliary_panel().max_width)
             .unwrap_or(i32::MAX),
     );
@@ -673,7 +673,7 @@ fn root_floating_panel_rect(
             .min(root.height.max(0)),
     }
     .min(
-        node.auxiliary_chrome()
+        node.auxiliary_hint()
             .map(|_| theme.auxiliary_panel().max_height)
             .unwrap_or(i32::MAX),
     );
@@ -723,10 +723,6 @@ fn floating_panel_attachment(
         )),
         view::PanelAttachment::Element(id) => frames.iter().find_map(|frame| {
             (frame.target().and_then(interaction::Target::element_id) == Some(id))
-                .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0))
-        }),
-        view::PanelAttachment::TableCell(cell) => frames.iter().find_map(|frame| {
-            (frame.table_cell() == Some(cell))
                 .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0))
         }),
     }
@@ -1322,11 +1318,11 @@ fn layout_floating_panel(
             rect.height().saturating_sub(padding.saturating_mul(2)),
         );
 
-        if node.auxiliary_chrome().is_some()
+        if node.auxiliary_hint().is_some()
             && let Some(child) = node.children().first()
         {
-            let reserved = node.auxiliary_chrome().map_or(0, |chrome| {
-                i32::from(chrome.has_icon()).saturating_mul(
+            let reserved = node.auxiliary_hint().map_or(0, |hint| {
+                i32::from(hint.icon().is_some()).saturating_mul(
                     ctx.theme
                         .auxiliary_panel()
                         .icon_extent
