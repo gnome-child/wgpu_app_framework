@@ -1077,6 +1077,10 @@ is distinct from selection anchor, active key, and membership. It remains
 pinned while merely dematerialized and dismisses the context session when the
 provider deletes it.
 
+Each contextual path frame owns exactly one semantic location: none, table,
+row, or cell. Row and cell locations derive their table identity from the keyed
+value itself; parallel optional table/row/cell facts must not disagree.
+
 Standard bindings, text boxes, table rows, and Boolean cells derive contextual
 participation from the semantic path they already contribute. Generated rows
 may still capture an explicit typed row action from their stable key, but no

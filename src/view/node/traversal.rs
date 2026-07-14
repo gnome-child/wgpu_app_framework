@@ -153,20 +153,13 @@ impl Node {
         if !self.is_context_layer() {
             return Vec::new();
         }
-        let table = self
-            .table_model()
-            .map(crate::table::Model::id)
-            .or_else(|| self.table_row().map(crate::table::Row::table))
-            .or_else(|| self.table_cell().map(crate::table::Cell::table));
-        if self.table_model().is_some() {
+        if let Some(table) = self.table_model() {
             return vec![super::super::ContextOwner::new(
                 retained.element_id(),
                 self.context_focus(),
                 self.context_command_binding().cloned(),
                 false,
-                table,
-                None,
-                None,
+                super::super::Location::Table(table.id()),
                 super::super::ContextService::Table,
             )];
         }
@@ -176,9 +169,7 @@ impl Node {
                 None,
                 self.context_command_binding().cloned(),
                 false,
-                table,
-                Some(row),
-                None,
+                super::super::Location::Row(row),
                 super::super::ContextService::None,
             )];
         }
@@ -191,9 +182,7 @@ impl Node {
                     None,
                     None,
                     false,
-                    table,
-                    None,
-                    Some(cell),
+                    super::super::Location::Cell(cell),
                     super::super::ContextService::None,
                 ),
                 super::super::ContextOwner::new(
@@ -201,9 +190,7 @@ impl Node {
                     focus,
                     self.context_command_binding().cloned(),
                     false,
-                    table,
-                    None,
-                    None,
+                    super::super::Location::Table(cell.table()),
                     if text_member {
                         super::super::ContextService::Text
                     } else {
@@ -218,9 +205,7 @@ impl Node {
             focus,
             self.context_command_binding().cloned(),
             self.role == Role::Root,
-            table,
-            None,
-            None,
+            super::super::Location::None,
             if focus.is_some() {
                 super::super::ContextService::Text
             } else {

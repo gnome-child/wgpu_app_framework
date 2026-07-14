@@ -184,10 +184,7 @@ fn scope_for(owner: &view::ContextOwner) -> session::CommandScope {
     } else {
         owner.responder()
     };
-    let table = owner
-        .table()
-        .or_else(|| owner.cell().map(crate::table::Cell::table));
-    session::CommandScope::contextual(responder, owner.focus(), table)
+    session::CommandScope::contextual(responder, owner.focus(), owner.table())
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {

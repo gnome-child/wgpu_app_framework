@@ -47,10 +47,16 @@ pub(crate) struct ContextOwner {
     focus: Option<session::Focus>,
     binding: Option<Binding>,
     application: bool,
-    table: Option<interaction::Id>,
-    row: Option<crate::table::Row>,
-    cell: Option<crate::table::Cell>,
+    location: Location,
     service: ContextService,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Location {
+    None,
+    Table(interaction::Id),
+    Row(crate::table::Row),
+    Cell(crate::table::Cell),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,14 +67,12 @@ pub(crate) enum ContextService {
 }
 
 impl ContextOwner {
-    pub(crate) fn new(
+    fn new(
         responder: Option<interaction::Id>,
         focus: Option<session::Focus>,
         binding: Option<Binding>,
         application: bool,
-        table: Option<interaction::Id>,
-        row: Option<crate::table::Row>,
-        cell: Option<crate::table::Cell>,
+        location: Location,
         service: ContextService,
     ) -> Self {
         Self {
@@ -76,9 +80,7 @@ impl ContextOwner {
             focus,
             binding,
             application,
-            table,
-            row,
-            cell,
+            location,
             service,
         }
     }
@@ -100,15 +102,27 @@ impl ContextOwner {
     }
 
     pub(crate) fn table(&self) -> Option<interaction::Id> {
-        self.table
+        match self.location {
+            Location::None => None,
+            Location::Table(table) => Some(table),
+            Location::Row(row) => Some(row.table()),
+            Location::Cell(cell) => Some(cell.table()),
+        }
     }
 
     pub(crate) fn row(&self) -> Option<crate::table::Row> {
-        self.row
+        match self.location {
+            Location::Row(row) => Some(row),
+            Location::None | Location::Table(_) | Location::Cell(_) => None,
+        }
     }
 
+    #[cfg(test)]
     pub(crate) fn cell(&self) -> Option<crate::table::Cell> {
-        self.cell
+        match self.location {
+            Location::Cell(cell) => Some(cell),
+            Location::None | Location::Table(_) | Location::Row(_) => None,
+        }
     }
 
     pub(crate) fn service(&self) -> ContextService {

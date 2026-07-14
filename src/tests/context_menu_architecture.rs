@@ -2,6 +2,7 @@ const COMMAND_MOD: &str = include_str!("../command/mod.rs");
 const COMMAND_REGISTRY: &str = include_str!("../command/registry.rs");
 const COMMAND_POPULATION: &str = include_str!("../command/population.rs");
 const WIDGET_BINDING: &str = include_str!("../widget/binding.rs");
+const VIEW: &str = include_str!("../view/mod.rs");
 const CONTEXT_RUNTIME: &str = include_str!("../runtime/context_menu.rs");
 const PALETTE_RUNTIME: &str = include_str!("../runtime/palette.rs");
 const TEXT_SERVICE: &str = include_str!("../runtime/services/text/mod.rs");
@@ -75,6 +76,29 @@ fn platform_hosts_supply_bounds_without_owning_menu_policy() {
     assert!(!NATIVE_POPUP.contains("TrackPopupMenu"));
     assert!(!WINDOWS_SYS.contains("TrackPopupMenu"));
     assert!(!WINDOWS_SYS.contains("CreatePopupMenu"));
+}
+
+#[test]
+fn contextual_path_location_is_one_keyed_fact() {
+    assert!(
+        VIEW.contains("enum Location {")
+            && VIEW.contains("Table(interaction::Id)")
+            && VIEW.contains("Row(crate::table::Row)")
+            && VIEW.contains("Cell(crate::table::Cell)")
+            && VIEW.contains("location: Location,")
+    );
+    for parallel in [
+        "table: Option<interaction::Id>",
+        "row: Option<crate::table::Row>",
+        "cell: Option<crate::table::Cell>",
+    ] {
+        assert!(
+            !VIEW.contains(parallel),
+            "context owners must not restore parallel location state: {parallel}"
+        );
+    }
+    assert!(CONTEXT_RUNTIME.contains("owner.table()"));
+    assert!(!CONTEXT_RUNTIME.contains("owner.cell().map(crate::table::Cell::table)"));
 }
 
 #[test]
