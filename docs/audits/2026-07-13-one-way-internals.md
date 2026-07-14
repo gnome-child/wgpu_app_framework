@@ -548,6 +548,47 @@ projection to platform`).
 7. **Fixed point.** No `winit` or `ControlFlow` reference remains in animation;
    the native runner is the only Schedule-to-ControlFlow owner. Cell closed.
 
+### R1-02 — pointer click grammar versus OS metrics
+
+Status: **complete**. Correction `b08b5970` (`Inject platform multi-click
+thresholds`).
+
+1. **Question and trace.** The click chain is interaction truth keyed by target,
+   point, instant, and prior count. Its only platform input is the system's
+   interval and x/y distance thresholds. The trace covered parent and native
+   popup presses, primary versus ignored buttons, selection/rejection chain
+   cancellation, single/double/triple cycling, target changes, exact threshold
+   boundaries, direct/headless Runtime callers, and native settings changes
+   between presses.
+2. **Current graph.** `pointer::MultiClickSettings` was a useful platform-neutral
+   value, but its `system()` constructor imported Windows FFI and interaction
+   queried it directly during classification. Grammar and realization were
+   therefore housed together despite different owners.
+3. **Admission.** The value has an invariant and multiple consumers; it stays.
+   OS acquisition has one adapter owner and moves. Because custom backends need
+   to provide the same fact, `pointer::MultiClickSettings` and the Runtime
+   builder configuration are a deliberate namespaced contract rather than a
+   hidden callback or platform import. Admitted.
+4. **Reduction/rewire.** Deleted Windows/non-Windows system acquisition from
+   pointer. The native event adapter now refreshes thresholds before every raw
+   press—the same clock as the former per-classification query—and injects them
+   into Session. Interaction consumes the retained value. Direct/headless hosts
+   receive deterministic defaults and may configure the public Runtime builder.
+5. **Proof and ratchet.** Added exact threshold and target-identity behavioral
+   witnesses plus structural absence of Windows details from pointer. Parent
+   and popup raw presses share the one runner translation path. Full library:
+   1,059 passed, 10 ignored, 0 failed; all examples, format, and diff checks
+   passed.
+6. **Gauge delta.** Heavy external-boundary questions 9 -> 8; pointer no longer
+   appears as a `windows-sys` user. Production edges and provisional internal
+   back-edges remained 325 and 15. Deliberate retained configuration raised
+   production `pub(crate)` declarations 1,737 -> 1,739. The architecture
+   ratchet raised source-root mentions 101 -> 102 and filesystem reads
+   290 -> 293; test-only edge counts remained 96/76.
+7. **Fixed point.** Pointer/interaction contain policy and state only; platform
+   alone queries OS click metrics; native settings remain live per press; a
+   custom host has an explicit value contract. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
