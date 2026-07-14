@@ -3245,6 +3245,48 @@ Correction `71887ea8` (`Make text box caret projection atomic`).
    across layout frame species, view-node role facts, widgets, and remaining UI
    state shapes; this cell does not close Rung 5.
 
+### R5-17 — atomic resolved virtual-frame geometry
+
+Status: **complete; viewport and request collapsed into one optional fact**.
+Correction `a9fceac9` (`Make virtual frame geometry atomic`).
+
+1. **Question and complete trace.** The reverse layout-frame sweep traced fixed
+   and variable virtual-list layout through viewport resolution, range/overscan
+   derivation, materialization requests, frame storage, request collection,
+   runtime fixed-point materialization, hit-to-row mapping, scroll projection,
+   refinement, jump, pinning, and bounded-work witnesses.
+2. **Invalid state and ownership constraint.** `VirtualListContent` carried
+   optional viewport and request fields even though both were installed by one
+   `with_virtual_list` step and consumed as one resolved frame. Either half
+   alone is invalid. Moving viewport into `virtual_list::Request` was rejected
+   because it would drag layout-owned geometry into the lower provider seam.
+3. **Correction.** A private frame-local optional
+   `VirtualGeometry { viewport, request }` now owns the pair. Existing frame
+   viewport/request queries project from it; row hit mapping consumes the same
+   viewport. Unresolved frame construction carries no geometry.
+4. **Boundary and naming ruling.** `VirtualGeometry` is private to
+   `layout::frame`, is not re-exported, and crosses no seam. The public and
+   crate-private `virtual_list` and `layout` spellings remain unchanged; no
+   compound declaration is exposed under a simpler alias.
+5. **Behavior and economics.** Fixed/variable range selection, retained
+   measurement identity, viewport scroll, request collection, refinement,
+   materialization, row hits, allocation, cloning, and presentation work are
+   unchanged. One optional aggregate replaces two options without a heap object
+   or added traversal.
+6. **Doctrine and witnesses.** Master design now states the atomic frame-local
+   pair and the lower-seam ownership constraint. The architecture witness pins
+   the aggregate and tombstones both parallel fields on `VirtualListContent`.
+7. **Proof and gauge delta from R5-16.** The architecture witness and all 15
+   virtual-list tests passed; the full library discovered 1,099 tests and passed
+   1,089 with 10 ignored; all targets compiled without warnings. All nine census
+   parser witnesses, the full census, formatting, diff, and protected-state
+   checks passed. Every graph, visibility, test-edge, source-root, filesystem,
+   allowance, panic, and expect gauge remains unchanged.
+8. **Fixed point and next frontier.** Resolved virtual geometry is now one fact
+   without contaminating the provider seam. The reverse sweep continues across
+   frame shortcut/popup facts, view nodes, widgets, and remaining UI state
+   shapes; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
