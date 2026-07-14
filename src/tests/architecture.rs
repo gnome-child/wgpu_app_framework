@@ -2119,6 +2119,30 @@ fn runtime_services_use_typed_provider_targets() {
 }
 
 #[test]
+fn table_service_admission_lends_its_resolved_model() {
+    let table = include_str!("../runtime/services/table.rs");
+    let provider = table
+        .split("struct Table<'a>")
+        .nth(1)
+        .and_then(|source| source.split("struct SelectionTarget<'a>").next())
+        .expect("table provider declaration should precede its target");
+
+    assert!(
+        table.contains("model: &'a crate::virtual_list::Model,")
+            && table.contains("fn table_model(")
+            && table.contains("fn table_for<'a>(")
+            && table.contains("let Some(mut service) = table_for(")
+            && table.contains("let mut service = table_for(")
+    );
+    assert!(
+        !provider.contains("composition:")
+            && !provider.contains("table:")
+            && !table.contains(".cloned()")
+            && !table.contains("a claimed table selection target retains its model")
+    );
+}
+
+#[test]
 fn focused_text_service_stays_behind_runtime_boundary() {
     let runtime_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

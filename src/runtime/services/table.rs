@@ -11,14 +11,13 @@ pub(super) const RESPONDER_NAME: &str = "table_selection";
 
 struct Table<'a> {
     session: &'a mut session::Session,
-    composition: &'a composition::Store,
+    model: &'a crate::virtual_list::Model,
     window: window::Id,
-    table: interaction::Id,
 }
 
 struct SelectionTarget<'a> {
     session: &'a mut session::Session,
-    model: crate::virtual_list::Model,
+    model: &'a crate::virtual_list::Model,
     window: window::Id,
 }
 
@@ -29,15 +28,9 @@ impl service_target::Provider<document::SelectAll> for Table<'_> {
         Self: 'target;
 
     fn target(&mut self) -> Self::Target<'_> {
-        let model = self
-            .composition
-            .get(self.window)
-            .and_then(|composition| composition.virtual_list_model(self.table))
-            .cloned()
-            .expect("a claimed table selection target retains its model");
         SelectionTarget {
-            session: self.session,
-            model,
+            session: &mut *self.session,
+            model: self.model,
             window: self.window,
         }
     }
@@ -55,7 +48,7 @@ impl Target<document::SelectAll> for SelectionTarget<'_> {
     ) -> response::Response<document::Outcome> {
         let changed = self
             .session
-            .select_all_virtual_rows(self.window, &self.model);
+            .select_all_virtual_rows(self.window, self.model);
         response::Response::output(document::Outcome::from_text_change(false, changed, false))
             .with_effect(
                 changed
@@ -65,15 +58,29 @@ impl Target<document::SelectAll> for SelectionTarget<'_> {
     }
 }
 
-fn base_table_for(
+fn table_model(
     composition: &composition::Store,
     window: Option<window::Id>,
     table: Option<interaction::Id>,
-) -> Option<(window::Id, interaction::Id)> {
+) -> Option<(window::Id, &crate::virtual_list::Model)> {
     let window = window?;
     let table = table?;
-    composition.get(window)?.virtual_list_model(table)?;
-    Some((window, table))
+    let model = composition.get(window)?.virtual_list_model(table)?;
+    Some((window, model))
+}
+
+fn table_for<'a>(
+    session: &'a mut session::Session,
+    composition: &'a composition::Store,
+    window: Option<window::Id>,
+    table: Option<interaction::Id>,
+) -> Option<Table<'a>> {
+    let (window, model) = table_model(composition, window, table)?;
+    Some(Table {
+        session,
+        model,
+        window,
+    })
 }
 
 pub(super) fn claim(
@@ -87,14 +94,8 @@ pub(super) fn claim(
     args: &dyn Any,
     cx: &command_context::Context,
 ) -> command::Result<Option<responder::Claim>> {
-    let Some((window, table)) = base_table_for(composition, window, table) else {
+    let Some(mut service) = table_for(session, composition, window, table) else {
         return Ok(None);
-    };
-    let mut service = Table {
-        session,
-        composition,
-        window,
-        table,
     };
     Ok(service_target::claim(
         RESPONDER_NAME,
@@ -118,13 +119,7 @@ pub(super) fn invoke(
     args: Box<dyn Any + Send>,
     cx: &mut command_context::Context,
 ) -> Option<response::AnyResponse> {
-    let (window, table) = base_table_for(composition, window, table)?;
-    let mut service = Table {
-        session,
-        composition,
-        window,
-        table,
-    };
+    let mut service = table_for(session, composition, window, table)?;
     service_target::invoke(
         RESPONDER_NAME,
         &targets(),
@@ -141,7 +136,7 @@ pub(super) fn contextual_target_types(
     window: Option<window::Id>,
     table: Option<interaction::Id>,
 ) -> Vec<TypeId> {
-    base_table_for(composition, window, table)
+    table_model(composition, window, table)
         .map(|_| vec![TypeId::of::<document::SelectAll>()])
         .unwrap_or_default()
 }

@@ -1264,10 +1264,12 @@ Tables contribute their existing keyed selection domain, the focal provider
 row, and the exact cell facet to that path. Secondary-clicking an unselected row
 makes it the sole selection; secondary-clicking a selected row preserves the
 whole multiselection. Canonical Select All is owned by the table's bounded
-provider domain and uses the existing all-except representation. The focal row
-is distinct from selection anchor, active key, and membership. It remains
-pinned while merely dematerialized and dismisses the context session when the
-provider deletes it.
+provider domain and uses the existing all-except representation. Runtime table
+service admission resolves that provider model once and lends the same borrowed
+model through state and invocation; it does not retain only the keys and then
+re-look up, clone, or assert the admitted model. The focal row is distinct from
+selection anchor, active key, and membership. It remains pinned while merely
+dematerialized and dismisses the context session when the provider deletes it.
 
 Each contextual path frame owns exactly one semantic location: none, table,
 row, or cell. Row and cell locations derive their table identity from the keyed
