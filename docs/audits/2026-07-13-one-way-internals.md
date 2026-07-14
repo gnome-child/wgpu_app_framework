@@ -3612,6 +3612,45 @@ Correction `1465344a` (`Make draft preedit target atomic`).
    the remaining visibility/failure inventories. This cell does not close
    Rung 5.
 
+### R5-25 — interaction target provenance and capture resistance
+
+Status: **complete resistance ruling; no production correction admitted**.
+
+1. **Question and complete trace.** The reverse target sweep traced every
+   `interaction::Target` constructor through retained/node/table-cell identity,
+   command binding provenance, view-role projection, pointer down/move/up,
+   capture and cursor retention, gesture-history coalescing, removal pruning,
+   menus, palettes, scrollbars, text selection, sliders, and hit routing.
+2. **Co-occurrence matrix.** Source and capture are independent axes with all
+   four live combinations: an ordinary command button has source without
+   capture; a slider command has source and capture; a passive label has
+   neither; and text, scroll, scrollbar, and divider targets capture without a
+   command source. No combination is invalid or unproduced.
+3. **Authority ruling.** Source is command provenance and participates in target
+   equality/hash so menu and palette identity remain distinct. Capture is
+   pointer-routing policy, deliberately excluded from semantic identity and
+   consumed separately with the resolved cursor. Deriving capture from kind
+   would fail for command buttons versus sliders; nesting it under source would
+   fail for text and scrolling; merging the axes into species would encode the
+   full valid product less directly.
+4. **Reduction and naming ruling.** No field, constructor, helper, visibility,
+   name, or call site changed. The simple existing `Target` and its namespaced
+   `interaction::Kind` retain their public spellings; no intermediate or alias
+   was invented merely to replace a valid boolean.
+5. **Behavior and economics.** Target equality, focus keys, command provenance,
+   capture admission/release, retained cursor, drag routing, gesture-history
+   grouping, pruning, allocation, layout, scene, renderer, and presentation
+   work remain byte-for-byte unchanged.
+6. **Proof and gauge.** The ordinary command, captured command slider, and
+   captured text-area witnesses passed directly; passive target construction is
+   covered by the target and hover suites. The R5-24 full proof and every gauge
+   remain the current boundary because this cell changes only the ledger.
+7. **Fixed point and next frontier.** Target source/capture remains an
+   intentional non-merge with a complete product of valid states. The reverse
+   sweep continues through pointer/session state, view/layout roles,
+   widget/theme facts, and the visibility/failure inventories; this cell does
+   not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
