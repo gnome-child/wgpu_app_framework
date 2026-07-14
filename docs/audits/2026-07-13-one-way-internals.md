@@ -1325,6 +1325,66 @@ from view state`).
    disturbing committed display, selection, shaping, or hit testing. Cell
    closed.
 
+## Rung 2 closure — text, geometry, and paint
+
+Status: **complete**. Production boundary `20d02bb4`; cell-ledger boundary
+`bef2a9ed`. The repository was clean at the boundary, remained nine commits
+ahead of `origin/master` and not behind, and preserved
+`comparison_open: true`.
+
+Rung 2 resolved three bounded ownership questions. Renderer-neutral logical
+area and point facts moved to geometry while paint retained snapping and
+renderer-ready policy; shaped glyphon buffers became opaque text-owned handles
+through scene and paint; and the text subsystem separated selection/view
+projection, mutation/history, command/clipboard ownership, and transient IME
+lifecycle without a gate. The final re-scan found no text-to-paint import, no
+glyphon path in scene or paint, no mutation import from selection/surface/
+layout/view, and no higher framework dependency in geometry.
+
+### Boundary gauge
+
+| Metric | Rung 1 | Rung 2 |
+|---|---:|---:|
+| Top-level production modules | 45 | 45 |
+| Unique production module edges | 323 | 324 |
+| Unique test-only module edges | 97 | 99 |
+| Provisional cross-slot edges | 43 | 42 |
+| Provisional forbidden internal edges | 14 | 13 |
+| Provisional heavy external-boundary violations | 2 | 1 |
+| Provisional slot SCCs | 1 | 1 |
+| Production `pub(crate)` declarations | 1,737 | 1,756 |
+| Cross-slot test-only edges | 77 | 79 |
+| `CARGO_MANIFEST_DIR` mentions | 104 | 108 |
+| Filesystem read calls | 298 | 318 |
+| `#[allow(...)]` attributes | 10 | 10 |
+| Production `panic!` calls | 9 | 9 |
+| Production `.expect(...)` calls | 102 | 102 |
+
+Production edges rise by one because the former false text/paint cycle became
+truthful shared dependencies on geometry; the forbidden text-to-paint edge and
+the scene glyphon boundary question are both deleted. Visibility grew at named
+text crossings rather than through a state bag: opaque shaped-buffer transit,
+explicit selection application, and the eight framework-only composition
+entrypoints. Rung 6 still owns their symbol-level future-workspace disposition.
+The four source-root mentions and twenty filesystem-read calls are focused
+architecture receipts assigned to the same Rung 6 witness consolidation.
+
+### Boundary proof and next frontier
+
+- full library: 1,069 passed, 10 ignored, 0 failed;
+- all targets and all five examples compiled without warnings;
+- fourteen focused preedit witnesses and the lower-owner architecture
+  witnesses passed;
+- `cargo fmt --check`, `git diff --check`, tombstone searches, and the full
+  census passed;
+- renderer order, batching/pass fusion, shaping identity, hit testing,
+  presentation clocks, and frame economics retain their existing routes.
+
+Rung 3 begins with the complete command-context and responder capability trace,
+starting at the concrete clipboard/layout crossings but following input,
+keymap, targets, focused text, tasks, notifications, and effects through every
+consumer before admitting any lower contract.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
