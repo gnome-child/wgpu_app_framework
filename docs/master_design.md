@@ -1517,6 +1517,12 @@ coalescing declaration to its window and focused target before timeline reuse.
 `HistoryGroup` carries its coalescing window: generic groups use the command
 default, while document typing supplies `text::edit::TYPING_UNDO_COALESCE_WINDOW`
 so the runtime timeline and text buffer consume the same typing-pause fact.
+Before dispatch, runtime converts public command history policy into one private
+transaction plan: `Automatic` owns its prepared snapshot, while `Unrecorded`
+owns none. Completion consumes that plan directly, so automatic history cannot
+arrive without its snapshot and committed/ignored work cannot carry one.
+Public `Committed` and `Ignored` meanings remain distinct command policy even
+though both use the same no-runtime-snapshot completion species.
 
 `clipboard`
 

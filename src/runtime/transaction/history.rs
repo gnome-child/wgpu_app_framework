@@ -10,21 +10,25 @@ pub(in crate::runtime) struct ActiveGroup {
     recorded_at: Instant,
 }
 
+pub(in crate::runtime) enum Plan<M: state::State> {
+    Automatic(state::PendingSnapshot<M>),
+    Unrecorded,
+}
+
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
-    pub(in crate::runtime) fn snapshot_before_transaction(
+    pub(in crate::runtime) fn prepare_transaction_history(
         &mut self,
         history: command::History,
-    ) -> Option<state::PendingSnapshot<M>> {
+    ) -> Plan<M> {
         match history {
-            command::History::Automatic => Some(self.store.prepare_snapshot()),
-            command::History::Committed | command::History::Ignored => None,
+            command::History::Automatic => Plan::Automatic(self.store.prepare_snapshot()),
+            command::History::Committed | command::History::Ignored => Plan::Unrecorded,
         }
     }
 
     pub(in crate::runtime) fn finish_transaction(
         &mut self,
-        before: Option<state::PendingSnapshot<M>>,
-        history: command::History,
+        history: Plan<M>,
         history_group: Option<command::HistoryGroup>,
         window: Option<window::Id>,
         focus: Option<session::Focus>,
@@ -33,7 +37,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         changed: bool,
     ) {
         if !changed {
-            if let Some(before) = before {
+            if let Plan::Automatic(before) = history {
                 self.store.restore_prepared_snapshot(before);
             }
             self.deliver_departed();
@@ -41,8 +45,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         match history {
-            command::History::Automatic => {
-                let before = before.expect("automatic history snapshots before dispatch");
+            Plan::Automatic(before) => {
                 if self.active_automatic_gesture() {
                     self.mark_automatic_gesture_changed();
                     self.clear_history_group();
@@ -54,7 +57,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 }
                 self.store.commit_retaining_current(reason);
             }
-            command::History::Committed | command::History::Ignored => {
+            Plan::Unrecorded => {
                 self.clear_history_group();
                 if self.revision() == revision_before {
                     self.store.commit(reason);

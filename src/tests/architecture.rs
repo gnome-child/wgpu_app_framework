@@ -320,6 +320,21 @@ fn standard_menu_projected_entry_separates_catalog_and_authored_lifecycles() {
 }
 
 #[test]
+fn transaction_history_plan_owns_automatic_snapshot_presence() {
+    let history = include_str!("../runtime/transaction/history.rs");
+
+    assert!(
+        history.contains("enum Plan<M: state::State> {")
+            && history.contains("Automatic(state::PendingSnapshot<M>),")
+            && history.contains("Unrecorded,")
+            && history.contains("fn prepare_transaction_history(")
+            && history.contains(") -> Plan<M>")
+    );
+    assert!(!history.contains("before: Option<state::PendingSnapshot<M>>"));
+    assert!(!history.contains("automatic history snapshots before dispatch"));
+}
+
+#[test]
 fn table_track_species_owns_column_only_resize_facts() {
     let table = include_str!("../layout/table.rs");
     let track = table

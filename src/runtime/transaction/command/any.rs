@@ -32,7 +32,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .registry
             .history_for(command_type)
             .unwrap_or(command::History::Automatic);
-        let before = self.snapshot_before_transaction(history);
+        let history = self.prepare_transaction_history(history);
         let revision_before = self.revision();
         let task_sink = self.tasks.sink();
         let scope = window
@@ -62,7 +62,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 drop(chain);
                 drop(cx);
                 self.finish_transaction(
-                    before,
                     history,
                     history_group.clone(),
                     window,
@@ -80,7 +79,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 drop(chain);
                 drop(cx);
                 self.finish_transaction(
-                    before,
                     history,
                     history_group.clone(),
                     window,
@@ -102,7 +100,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             Err(error) => {
                 log::error!("command observer failed for {command_name} from {source:?}: {error}");
                 self.finish_transaction(
-                    before,
                     history,
                     history_group.clone(),
                     window,
@@ -121,7 +118,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let changed = response.is_ok() && (command_changed || observer_changed);
 
         self.finish_transaction(
-            before,
             history,
             history_group,
             window,

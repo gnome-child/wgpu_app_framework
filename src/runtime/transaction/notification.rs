@@ -19,6 +19,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         payload: N::Payload,
         source: command_context::Source,
     ) -> notification::Reaction {
+        let history = self.prepare_transaction_history(command::History::Ignored);
         let revision_before = self.revision();
         let mut chain = self
             .responders
@@ -36,8 +37,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         drop(chain);
 
         self.finish_transaction(
-            None,
-            command::History::Ignored,
+            history,
             None,
             window,
             focus,

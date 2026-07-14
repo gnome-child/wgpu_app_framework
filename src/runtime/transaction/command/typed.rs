@@ -27,7 +27,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     ) -> Response<C::Output> {
         let history = C::HISTORY;
         let history_group = C::history_group(&args);
-        let before = self.snapshot_before_transaction(history);
+        let history = self.prepare_transaction_history(history);
         let revision_before = self.revision();
         let task_sink = self.tasks.sink();
         let scope = window
@@ -62,7 +62,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     source
                 );
                 self.finish_transaction(
-                    before,
                     history,
                     history_group,
                     window,
@@ -81,7 +80,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let changed = response.is_ok() && (command_changed || observer_changed);
 
         self.finish_transaction(
-            before,
             history,
             history_group,
             window,
