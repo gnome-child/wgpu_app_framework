@@ -4399,6 +4399,71 @@ Correction `2d2ce117` (`Make draft change implications structural`).
    lifecycles, and the complete visibility/failure/intermediate inventories;
    this cell does not close Rung 5.
 
+### R5-38 — valid resolved-press admission species
+
+Status: **complete; target and intent nested under their admission**.
+Correction `a513cb33` (`Make resolved press admission structural`).
+
+1. **Question and complete trace.** The reverse pointer/cursor sweep traced
+   last-presented hit acquisition through ordinary, selectable-row, text,
+   slider, scrollbar, divider, indicator, menu, palette, parent, popup,
+   modifier-change, capture, down, drag, up, leave, task-focus departure, and
+   stationary reprojection paths. It included every `ResolvedPress` consumer
+   and the pointer/cursor/platform witnesses.
+2. **Invalid states and retained axes.** `ResolvedPress` stored optional target,
+   `PressAdmission`, and optional press intent independently. The representation
+   admitted an inert or selection-only target with an intent, an admitted press
+   without one, and an intent whose target could drift from admission. A runtime
+   `expect` asserted the intended agreement. Hit presence, selectable-row
+   gesture, optional task focus, cursor, and menu/palette surface membership
+   remain separate because their combinations have witnessed meanings.
+3. **Correction and displaced paths.** `PressAdmission` is now
+   `Inert | SelectionOnly(Target) | Target { target, intent }`. Target projection
+   derives from that species; admitted cursor selection matches it; pointer-down
+   exhaustively obtains the same target and intent before constructing one
+   action. The two parallel options, agreement comparison, target/intent
+   re-pairing helper, and its assertion are deleted.
+4. **Adjacent failure-path reduction.** The same admitted pointer-down path
+   checked an optional focus transition for rejection and then expected the
+   option to be present. An ownership-preserving match now consumes the rejected
+   species directly and retains accepted absence/presence for later composition;
+   that second runtime assertion is also deleted without changing transition
+   policy.
+5. **Boundary and naming ruling.** `ResolvedPress` and `PressAdmission` remain
+   private runtime concepts; `interaction::pointer::PressIntent` remains a
+   namespaced supporting type and is not flattened. Public input still exposes
+   gesture meaning rather than internal admission. No compound declaration,
+   alias, visibility widening, or public application spelling was introduced.
+6. **Behavior and economics.** Cursor meaning, selection-only defaults, row
+   focalization, task-focus rejection, click classification, capture, text and
+   slider manipulation, menu/palette dismissal, pointer action order, layout,
+   scene order, renderer topology, batching/pass fusion, invalidation, and
+   presentation clocks are unchanged. One enum payload replaces two options
+   and stores the admitted target once without a heap object, callback, lookup,
+   or traversal.
+7. **Doctrine and witnesses.** Master design now states exactly which target
+   and intent facts each admission species owns. The existing resolved-press
+   architecture witness now pins the sum and cursor match, tombstones both
+   parallel fields and both assertions, and continues to require the one shared
+   resolver for move, down, up, drag, leave, modifiers, and presentation.
+8. **Proof and gauge delta from R5-37.** Forty-eight pointer and eighteen cursor
+   witnesses passed. The full library discovered 1,121 tests and passed 1,111
+   with 10 ignored; all targets and all five examples compiled without warnings.
+   All nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Production/test edges remain 325/111; split
+   responsibilities, slot edges, forbidden/external/SCC counts, visibility,
+   cross-slot test edges, source-root mentions, filesystem reads, allowances,
+   and panics remain 3, 54, 0/0/0, 1,814 in 191 files, 90, 118, 361, 6, and 6.
+   Production expects fall 89 -> 87.
+9. **Fixed point and next frontier.** Admission can no longer disagree with its
+   target or intent, and pointer departure consumes rejection without asserted
+   optional presence. The scene target-visual flags resist merging as a full
+   valid product across capture, manipulation, menus, hover, and selection. The
+   reverse sweep continues through pointer-release actions, contextual
+   departure, session scopes, theme patch semantics, remaining layout
+   lifecycles, and the complete visibility/failure/intermediate inventories;
+   this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
