@@ -2637,6 +2637,67 @@ map correction `67c5ba6e` (`Model split source responsibilities`).
    broader source assignment survives. Rung 5 continues with the theme-selected
    window default, the sole remaining forbidden edge.
 
+### R5-04 — lower window vocabulary versus facade configuration
+
+Status: **complete; final forbidden edge and slot cycle retired**. Correction
+`136d9252` (`Separate window facade configuration`).
+
+1. **Question and complete trace.** The remaining `window -> theme` edge was
+   traced through `window::DEFAULT_CANVAS_COLOR`, `Options::new/default`, title,
+   size, canvas and kind configuration, session window construction, runtime
+   fallback clears, platform application/popup realization, unthemed scene
+   clears, examples, and default-value witnesses. Theme owns the one canvas
+   token. `Options` selects it for application configuration, while `Kind` is
+   lower window vocabulary consumed independently by session, shell, platform,
+   backend reports, and tests.
+2. **Current and proposed graph.** The window parent declared the public default
+   projection and imported theme, while `options.rs` mixed facade configuration
+   with the lower `Kind` declaration. Assigning all of window to facade would
+   falsely raise identity/facts/presentation vocabulary; copying the color bytes
+   downward would create competing theme truth. The admitted graph isolates
+   exact default declarations and `Options` as facade sources, isolates `Kind`
+   as lower window vocabulary, and leaves the theme token authoritative.
+3. **Reduction and rewire.** Added focused `window/defaults.rs` and
+   `window/kind.rs` housing, moved the unchanged declarations, and made the
+   parent project them exactly. The width/height implementation constants now
+   use sibling visibility instead of crate visibility. `options.rs` consumes
+   lower `Kind` plus the facade defaults; no lower window source imports theme,
+   and no duplicate constant, color value, or conversion survives.
+4. **Naming and API ruling.** `window::Kind`, `window::Options`,
+   `window::DEFAULT_TITLE`, and `window::DEFAULT_CANVAS_COLOR` remain the exact
+   established public spellings and values. Their declarations use those same
+   canonical names; the parent performs exact re-exports. No `WindowKind`,
+   `WindowOptions`, renamed default, compound alias, or compatibility path is
+   introduced. Moving the declarations does not authorize call-site churn.
+5. **Doctrine and ratchet.** Master design now distinguishes lower window
+   vocabulary from facade configuration. The existing canvas-owner witness now
+   pins the dedicated sources, exact parent projections, simple names, facade
+   assignments for defaults/options, lower assignment for kind, and theme
+   confinement to the default-projection source.
+6. **Behavior and economics.** Default title, 800x600 size, canvas bytes,
+   application kind, explicit overrides, popup kind, scene clears, runtime
+   fallback, platform realization, and every public method are unchanged. The
+   same Copy `Kind` and `Color` values reach the same paths. No layout, scene,
+   renderer, presentation clock, allocation, or frame work changed.
+7. **Proof and gauge delta from R5-03.** The library discovered 1,090 tests:
+   1,080 passed, 10 standing ignores, and 0 failed. All targets and all five
+   examples compiled without warnings; focused default/token witnesses, all
+   nine census witnesses, the full census, formatting, diff, and protected-state
+   checks passed. Production/test module edges remain 325/109. Two additional
+   split responsibilities lower slot edges 55 -> 54, forbidden edges 1 -> 0,
+   and SCCs 1 -> 0. Narrowing two constants lowers production `pub(crate)`
+   declarations 1,808 -> 1,806 in the same 190 files. Cross-slot test edges,
+   external violations, source-root mentions, allowances, panics, and expects
+   remain 90, 0, 117, 9, 7, and 90; the strengthened witness raises filesystem
+   reads 355 -> 359 for Rung 6 consolidation.
+8. **Fixed point and next frontier.** Every accepted virtual owner now points
+   one way in the gauge: zero forbidden internal edges, zero external boundary
+   violations, and zero slot cycles. Theme owns the token, facade owns
+   application window configuration, and lower window owns its facts. Rung 5
+   now re-scans the cohesive UI state machine for state-shape, intermediate,
+   repetition, lifecycle, visibility, naming, and housing findings before
+   closure; a clean import graph alone is not the rung exit.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
