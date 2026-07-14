@@ -4,7 +4,8 @@ use super::{Runtime, fuzzy, services::Services, transaction};
 use crate::{
     command::{self, Error},
     context as command_context, input, interaction, responder, response, session, state, subject,
-    view, window,
+    view::{self, CommandPalette, command_palette},
+    window,
 };
 
 const PAGE_SIZE: usize = 8;
@@ -19,7 +20,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime) fn command_palette_projection(
         &mut self,
         window: window::Id,
-    ) -> Option<view::CommandPalette> {
+    ) -> Option<CommandPalette> {
         let query = self.session.command_palette_query(window)?;
         let selected = self
             .session
@@ -41,7 +42,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .map(|entry| {
                 let command = entry.command;
                 let section = section_for(command.claim().provenance(), &subject_path);
-                view::CommandPaletteEntry::new(
+                command_palette::Entry::new(
                     command.trigger(),
                     command
                         .state()
@@ -53,7 +54,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             })
             .collect();
 
-        Some(view::CommandPalette::new(
+        Some(CommandPalette::new(
             query,
             selected,
             entries,

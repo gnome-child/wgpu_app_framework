@@ -456,6 +456,21 @@ fn scene_visual_parent_projects_only_the_central_owner() {
 }
 
 #[test]
+fn view_command_palette_parent_projects_only_its_namesake_type() {
+    let view = include_str!("../view/mod.rs");
+    let runtime = include_str!("../runtime/palette.rs");
+
+    assert!(
+        view.contains("pub(crate) mod command_palette;")
+            && view.contains("pub(crate) use command_palette::CommandPalette;")
+            && !view.contains("CommandPaletteEntry")
+            && !view.contains("Entry as")
+            && runtime.contains("view::{self, CommandPalette, command_palette}")
+            && runtime.contains("command_palette::Entry::new(")
+    );
+}
+
+#[test]
 fn layout_chrome_parent_projects_only_its_namesake_type() {
     let layout = include_str!("../layout/mod.rs");
     let chrome = include_str!("../layout/chrome.rs");

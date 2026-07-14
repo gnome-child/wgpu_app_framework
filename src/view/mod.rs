@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 mod action;
 mod binding;
-mod command_palette;
+pub(crate) mod command_palette;
 mod commit;
 mod context;
 mod context_menu;
@@ -26,7 +26,7 @@ mod style;
 
 pub(crate) use action::{Action, FocusDirection};
 pub use binding::Binding;
-pub(crate) use command_palette::{CommandPalette, Entry as CommandPaletteEntry};
+pub(crate) use command_palette::CommandPalette;
 pub(crate) use commit::TextCommit;
 pub use context::Context;
 pub(crate) use context_menu::ContextMenu;
