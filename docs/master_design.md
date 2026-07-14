@@ -1184,6 +1184,16 @@ notification." A responder chain says "these are the current places where a
 request may be answered or a fact may be delivered." They should stay typed at
 the edges and erase only inside routing machinery.
 
+`context`
+
+Owns the command invocation environment: its source and the narrow
+capabilities available for that query or invocation. Runtime supplies the
+capabilities and retains their engines. A command that needs visual text
+motion receives the text-owned `selection::CaretMap` contract; the concrete UI
+layout service never crosses into command context. Capability absence keeps
+its established domain meaning rather than becoming a generic service-locator
+failure.
+
 `response`
 
 Owns the result vocabulary for command handling: changed state, effects,

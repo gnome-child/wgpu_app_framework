@@ -420,6 +420,48 @@ fn read_only_text_vocabulary_does_not_depend_on_mutation() {
 }
 
 #[test]
+fn command_context_consumes_caret_mapping_without_concrete_layout() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let context = std::fs::read_to_string(src_dir.join("context").join("mod.rs"))
+        .expect("command context source should read");
+    let layout_engine = std::fs::read_to_string(src_dir.join("layout").join("engine.rs"))
+        .expect("layout engine source should read");
+    let document_edit = std::fs::read_to_string(src_dir.join("document").join("edit.rs"))
+        .expect("document command targets should read");
+
+    assert!(
+        context.contains("dyn text::selection::CaretMap")
+            && context.contains("fn with_caret_map(")
+            && context.contains("fn caret_map(&self)"),
+        "command context must name the lower caret-mapping capability"
+    );
+    for forbidden in [
+        "layout::".to_owned(),
+        "TextService".to_owned(),
+        format!("{}{}", "with_text_", "service"),
+        format!("{}{}", "text_", "service"),
+    ] {
+        assert!(
+            !context.contains(&forbidden),
+            "command context must not retain concrete layout service vocabulary: {forbidden}"
+        );
+    }
+    assert!(
+        layout_engine.contains("fn text_caret_map(")
+            && document_edit.contains("cx.caret_map()")
+            && document_edit.contains("apply_selection_with_caret_map"),
+        "runtime layout must realize the narrow capability consumed by document selection"
+    );
+    assert_source_patterns_absent(
+        &src_dir,
+        &[
+            format!("{}{}", "with_text_", "service"),
+            format!("{}{}", "text_", "service()"),
+        ],
+    );
+}
+
+#[test]
 fn preedit_projection_is_explicit_and_draft_input_owns_its_lifecycle() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let text_dir = src_dir.join("text");

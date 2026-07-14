@@ -2,13 +2,14 @@ mod source;
 
 pub use source::Source;
 
-use super::{clipboard::Clipboard, layout, task};
+use std::{cell::RefCell, fmt, rc::Rc};
 
-#[derive(Debug)]
+use super::{clipboard::Clipboard, task, text};
+
 pub struct Context {
     source: Source,
     clipboard: Option<Clipboard>,
-    text: Option<layout::TextService>,
+    caret_map: Option<Rc<RefCell<dyn text::selection::CaretMap>>>,
     tasks: Option<task::Sink>,
 }
 
@@ -17,7 +18,7 @@ impl Default for Context {
         Self {
             source: Source::Programmatic,
             clipboard: None,
-            text: None,
+            caret_map: None,
             tasks: None,
         }
     }
@@ -32,7 +33,7 @@ impl Context {
         Self {
             source,
             clipboard: Some(clipboard.clone()),
-            text: None,
+            caret_map: None,
             tasks: None,
         }
     }
@@ -45,13 +46,16 @@ impl Context {
         Self {
             source,
             clipboard: Some(clipboard.clone()),
-            text: None,
+            caret_map: None,
             tasks: Some(tasks),
         }
     }
 
-    pub(super) fn with_text_service(mut self, text: layout::TextService) -> Self {
-        self.text = Some(text);
+    pub(super) fn with_caret_map(
+        mut self,
+        caret_map: Rc<RefCell<dyn text::selection::CaretMap>>,
+    ) -> Self {
+        self.caret_map = Some(caret_map);
         self
     }
 
@@ -59,7 +63,7 @@ impl Context {
         Self {
             source,
             clipboard: self.clipboard.clone(),
-            text: self.text.clone(),
+            caret_map: self.caret_map.clone(),
             tasks: self.tasks.clone(),
         }
     }
@@ -82,7 +86,18 @@ impl Context {
         self.clipboard.clone()
     }
 
-    pub(super) fn text_service(&self) -> Option<layout::TextService> {
-        self.text.clone()
+    pub(super) fn caret_map(&self) -> Option<Rc<RefCell<dyn text::selection::CaretMap>>> {
+        self.caret_map.clone()
+    }
+}
+
+impl fmt::Debug for Context {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Context")
+            .field("source", &self.source)
+            .field("clipboard", &self.clipboard)
+            .field("caret_map", &self.caret_map.is_some())
+            .field("tasks", &self.tasks)
+            .finish()
     }
 }

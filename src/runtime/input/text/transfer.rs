@@ -18,7 +18,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             task_sink,
             command_context::Source::Input,
         )
-        .with_text_service(self.layout.text_service());
+        .with_caret_map(self.layout.text_caret_map());
         let mut chain = self.responders.chain_for(&mut self.store, focus);
 
         let response = self

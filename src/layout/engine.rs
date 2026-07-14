@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use crate::text as text_engine;
 
@@ -16,8 +16,8 @@ impl Engine {
         }
     }
 
-    pub(crate) fn text_service(&self) -> text::Service {
-        self.text.clone()
+    pub(crate) fn text_caret_map(&self) -> Rc<RefCell<dyn text_engine::selection::CaretMap>> {
+        self.text.caret_map()
     }
 
     pub(super) fn label_width_with_style(

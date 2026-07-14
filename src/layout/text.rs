@@ -49,6 +49,10 @@ impl Service {
         }
     }
 
+    pub(super) fn caret_map(&self) -> Rc<RefCell<dyn text_engine::selection::CaretMap>> {
+        self.inner.clone()
+    }
+
     pub(super) fn resolve_overflow(
         &self,
         label: &str,

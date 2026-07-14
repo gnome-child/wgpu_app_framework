@@ -272,6 +272,44 @@ fn document_selection_bumps_app_revision_without_document_dirty() {
 }
 
 #[test]
+fn document_selection_consumes_the_context_caret_map_capability() {
+    struct FixedCaretMap(text::buffer::Position);
+
+    impl text::selection::CaretMap for FixedCaretMap {
+        fn position_for_motion(
+            &mut self,
+            _: &text::Buffer,
+            _: text::selection::State,
+            motion: text::selection::Motion,
+        ) -> Option<text::buffer::Position> {
+            assert_eq!(motion, text::selection::Motion::VisualDown);
+            Some(self.0)
+        }
+    }
+
+    let mut document = TextDocument::from_multiline_text("one\ntwo");
+    document.apply_selection(text::selection::Operation::set_position(
+        text::buffer::Position::new(0),
+    ));
+    let caret_map = Rc::new(RefCell::new(FixedCaretMap(text::buffer::Position::new(4))));
+    let mut cx = Context::default().with_caret_map(caret_map);
+
+    let outcome = <TextDocument as crate::target::Target<document::ApplySelection>>::invoke(
+        &mut document,
+        text::selection::Operation::move_position(text::selection::Motion::VisualDown),
+        &mut cx,
+    )
+    .output
+    .expect("visual selection should succeed through the context capability");
+
+    assert!(outcome.selection_changed());
+    assert_eq!(
+        document.buffer().position_for_state(document.text_state()),
+        text::buffer::Position::new(4)
+    );
+}
+
+#[test]
 fn document_text_command_outcome_is_framework_owned() {
     let mut app = text_editor::app(text_editor::State {
         document: TextDocument::from_text("alpha"),

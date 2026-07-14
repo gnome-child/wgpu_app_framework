@@ -23,8 +23,8 @@ impl Target<ApplySelection> for Document {
         operation: text::selection::Operation,
         cx: &mut Context,
     ) -> Response<Outcome> {
-        let outcome = if let Some(mut text) = cx.text_service() {
-            self.apply_selection_with_caret_map(operation, &mut text)
+        let outcome = if let Some(caret_map) = cx.caret_map() {
+            self.apply_selection_with_caret_map(operation, &mut *caret_map.borrow_mut())
         } else {
             self.apply_selection(operation)
         };

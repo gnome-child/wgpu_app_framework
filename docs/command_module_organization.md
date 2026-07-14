@@ -117,6 +117,15 @@ focused object, and framework services. Runtime builds a nearest-first chain
 from these responders plus services. Claim provenance is routing and diagnostic
 data; user-facing palette labels come from subject ancestry.
 
+`context::Context`
+
+Carries the invocation source and the narrow capabilities available during one
+state query or invocation. Runtime supplies those capabilities; Context does
+not own their engines. In particular, visual text motion crosses as the
+text-owned `text::selection::CaretMap` contract rather than a concrete UI
+layout service. Clipboard and task access retain their own result and absence
+semantics.
+
 `response`
 
 Response owns command output, changed-state reporting, and follow-up effects.

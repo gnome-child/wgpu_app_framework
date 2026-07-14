@@ -41,7 +41,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .unwrap_or_else(|| responder::Scope::focused(focus));
         let mut cx =
             command_context::Context::with_services_source(&mut self.clipboard, task_sink, source)
-                .with_text_service(self.layout.text_service());
+                .with_caret_map(self.layout.text_caret_map());
         let services = Services::new(
             &mut self.timeline,
             &mut self.session,
