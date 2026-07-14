@@ -5764,6 +5764,77 @@ removed**. Correction `78e9cc49` (`Carry responder service claimant identity`).
    remaining layout/session visibility, failure, intermediate, housing, and
    naming inventories. This cell does not close Rung 5.
 
+### R5-60 — typed-table projection and ordering assertions
+
+Status: **resistance; private heterogeneous boundary retained without
+correction**.
+
+1. **Question and complete trace.** The assertion inventory traced free and
+   typed table construction, every text/Boolean/custom column builder, lazy
+   `Source::new` and bounded `Source::records`, derived sortable and custom
+   headers, projected sort state, ascending/descending/tied ordering, stable
+   key lookup, compact/expanded row materialization, one-record-per-row
+   caching, and every public `Provider` implementation and consumer. The four
+   production expects in the slice are the two record downcasts performed by
+   an ordering projection, the just-populated projected-record cache, and the
+   cell projection selected by a declared column id.
+2. **Owner and invariant.** Typed construction captures one homogeneous record
+   type while producing heterogeneous columns for the record-agnostic `Table`
+   and public free-provider path. One optional ordering projection is the sole
+   capability truth: its presence derives the header affordance and the same
+   value orders bounded records. `TypedColumn` fields are private, and
+   `Table::typed` creates the column list, cell map, and ordering map in one
+   pass, so no external caller can pair a projection with another record type,
+   omit a declared cell projection, or address the cache before the cell path
+   populates it.
+3. **Challenge and rejected rewrites.** A generic comparator in
+   `TypedProvider<R>` removes the downcasts only by storing a second sortable
+   flag or id set for record-agnostic headers; that creates competing retained
+   truth forbidden by standing doctrine. Querying the typed map through a
+   closure or new private adapter trait hides the same dependency behind a
+   callback/helper boundary and adds dispatch plus another intermediate. A
+   default method on public `Provider` spends permanent public surface on an
+   implementation detail. Making `Table`, `Column`, or the free provider path
+   generic broadens and couples the established escape hatch. Deferring typed
+   assembly until node conversion adds a second builder lifecycle merely to
+   move the same proof in time. None deletes more machinery or yields a
+   smaller contract.
+4. **Ruling.** Retain `Any` at this one private erased boundary and retain the
+   four expects as construction-invariant assertions. They do not translate an
+   operational absence into a panic: record type, declared projection, and
+   populated-cache membership are all established immediately upstream by
+   the same private constructor/path. Lazy providers remain unenumbered and
+   application-ordered; bounded providers alone consume the comparator. This
+   is the same typed-capture-then-private-erasure law already practiced by the
+   command, task, notification, and table systems, not a public type-erasure
+   API.
+5. **Naming, visibility, and behavior.** No declaration, projection, parent
+   re-export, alias, call-site spelling, visibility, module housing, public
+   API, or dependency edge changes. The canonical namesake-module law is
+   therefore satisfied without opportunistic naming work. Selection, active
+   cells, editing, validation, stable identity, sorting, virtualization,
+   allocation, layout, paint order, renderer topology, batching/pass fusion,
+   invalidation, and presentation clocks remain byte-for-byte on their prior
+   paths.
+6. **Proof.** All five table owner tests passed, including std capability
+   admission, one parse/validation pass, Boolean projection, shared header and
+   bounded-record ordering, ties, reverse order, key lookup, replacement, and
+   one record projection across visible cells. The architecture witness pins
+   extinction of framework capability mirrors and a single optional ordering
+   projection with no sortable flag. All four table doctests passed, including
+   the three negative capability cases. The immediately preceding full
+   R5-59 boundary remains the repository-wide green proof because this cell
+   changes no production or doctrine path.
+7. **Gauge and next frontier.** Every gauge remains unchanged: production/test
+   edges 325/109, split responsibilities 3, slot edges 54, forbidden/external/
+   SCC counts 0/0/0, production `pub(crate)` 1,825 in 192 files, cross-slot
+   upper bound 1,778, cross-slot test edges 90, source-root mentions 118,
+   filesystem reads 363, allowances 6, panics 5, and expects 46. The table
+   assertion slice is at fixed point; the reverse sweep continues through the
+   remaining layout/session/runtime visibility, failure, intermediate,
+   housing, and naming inventories. This zero-change cell does not close
+   Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
