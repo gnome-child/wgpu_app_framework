@@ -2574,6 +2574,69 @@ Status: **complete; independent document seam admitted**. Correction
    remains. Rung 5 continues with the diagnostics-bearing view callback
    context, then the theme-selected window default.
 
+### R5-03 — application view callback context versus declarative UI
+
+Status: **complete; split source responsibility made explicit**. Instrument and
+map correction `67c5ba6e` (`Model split source responsibilities`).
+
+1. **Question and complete trace.** `view::Context` was traced from the public
+   Runtime builder callback type through per-window render/render-all
+   invocation, runtime snapshot construction, public window and diagnostics
+   accessors, the text-editor instrument panel, and the surrounding declarative
+   view module. The context is created only when runtime invokes application
+   view construction. No node, style, binding, control, composition, layout, or
+   scene path consumes diagnostics.
+2. **Current and proposed graph.** The top-level-module gauge assigned all of
+   `view` to UI, so the dedicated `src/view/context.rs` callback envelope made
+   the honest facade-to-diagnostics contract appear as a forbidden
+   UI-to-diagnostics edge. Moving the type to runtime would make orchestration
+   own an application API; moving its public spelling would create needless API
+   churn; and passing diagnostics separately or through a callback would smear
+   the same facade contract. The admitted graph keeps declarative view in UI
+   and assigns the already-isolated callback source to facade responsibility.
+3. **Instrument correction.** The census now accepts exact Rust-file source
+   responsibilities as real virtual owners. It resolves each internal and
+   external receipt from that effective owner, while retaining top-level module
+   and module-edge counts. Configured paths and slots must exist; ordinary files
+   continue to inherit their module owner. This is not an exception table: the
+   assigned owner participates in direction checks, slot edges and cycles,
+   cross-slot test counts, external-boundary checks, and reports.
+4. **Naming and API ruling.** The simple canonical declaration and established
+   `view::Context` projection remain exact; no `ViewContext`, callback-context
+   alias, second public root, wrapper, or generic resource bag is introduced.
+   Runtime still supplies one immutable value containing window identity and a
+   cloned diagnostics snapshot. A later physical facade may expose that value
+   beside UI types without requiring the monolith to pretend both
+   responsibilities have one owner.
+5. **Doctrine and ratchet.** Master design now distinguishes the application
+   callback envelope from declarative view data and forbids every other view
+   source from depending on diagnostics. The architecture witness pins runtime
+   construction, the public projection, the exact source assignment, and
+   diagnostics confinement. A ninth census witness proves that one assigned
+   receipt resolves facade-to-diagnostics while an ordinary receipt from the
+   same top-level module remains UI-to-diagnostics and would still be judged on
+   that direction.
+6. **Behavior and economics.** No Rust production source, public signature,
+   callback timing, clone, snapshot, layout, scene, renderer, presentation
+   clock, allocation, or frame path changed. The cell changes only the gauge,
+   doctrine, and structural witnesses.
+7. **Proof and gauge delta from R5-02.** The library discovered 1,090 tests:
+   1,080 passed, 10 standing ignores, and 0 failed. All targets and all five
+   examples compiled without warnings; all nine census witnesses, the full
+   census, formatting, diff, and protected-state checks passed. Production/test
+   module edges remain 325/109. One explicit split responsibility lowers slot
+   edges 56 -> 55 and forbidden edges 2 -> 1; the remaining SCC sheds
+   diagnostics and renderer and is now command/document/foundation/text/UI.
+   Visibility, cross-slot test edges, external violations, allowances, panics,
+   and expects remain 1,808 in 190 files, 90, 0, 9, 7, and 90. The new ratchet
+   raises source-root mentions 116 -> 117 and filesystem reads 349 -> 355 for
+   Rung 6 consolidation.
+8. **Fixed point and next frontier.** Facade owns the application callback
+   envelope; UI owns declarative view; runtime constructs and invokes the
+   contract; diagnostics remains an observer. No false view back-edge or
+   broader source assignment survives. Rung 5 continues with the theme-selected
+   window default, the sole remaining forbidden edge.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
