@@ -155,6 +155,21 @@ fn virtual_list_frame_resolves_viewport_and_request_together() {
 }
 
 #[test]
+fn view_binding_trigger_species_keeps_slider_factory_with_current_trigger() {
+    let binding = include_str!("../view/binding.rs");
+
+    assert!(
+        binding.contains("enum Trigger {")
+            && binding.contains("Fixed(command::AnyTrigger),")
+            && binding.contains("Slider {")
+            && binding.contains("current: command::AnyTrigger,")
+            && binding.contains("factory: command::AnyValueTrigger<f64>,")
+            && binding.contains("trigger: Trigger,")
+    );
+    assert!(!binding.contains("slider_trigger: Option<command::AnyValueTrigger<f64>>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))

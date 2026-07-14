@@ -272,6 +272,11 @@ and action metadata. View answers "what is being presented?" It should not own
 input dispatch, command execution, mutation history, platform rendering, or
 task execution.
 
+A view binding owns one trigger species. Ordinary and resolved actions carry a
+fixed trigger; a slider-change binding carries its current value-derived
+trigger together with the value-trigger factory that can derive its successor.
+Those facts never travel as an independent trigger plus optional factory.
+
 The application view callback is a facade contract around that declarative
 territory. Its `view::Context` input is not node data: it is a per-window
 callback envelope containing the window identity and an immutable diagnostics

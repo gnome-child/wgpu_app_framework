@@ -7,12 +7,39 @@ use super::Action;
 
 #[derive(Clone)]
 pub struct Binding {
-    trigger: command::AnyTrigger,
+    trigger: Trigger,
     state: command::State,
     description: Option<&'static str>,
     source: Source,
     route: responder::Route,
-    slider_trigger: Option<command::AnyValueTrigger<f64>>,
+}
+
+#[derive(Clone)]
+enum Trigger {
+    Fixed(command::AnyTrigger),
+    Slider {
+        current: command::AnyTrigger,
+        factory: command::AnyValueTrigger<f64>,
+    },
+}
+
+impl Trigger {
+    fn current(&self) -> &command::AnyTrigger {
+        match self {
+            Self::Fixed(trigger) => trigger,
+            Self::Slider { current, .. } => current,
+        }
+    }
+
+    fn with_slider_value(&self, value: f64) -> Option<Self> {
+        let Self::Slider { factory, .. } = self else {
+            return None;
+        };
+        Some(Self::Slider {
+            current: factory.trigger(value),
+            factory: factory.clone(),
+        })
+    }
 }
 
 impl Binding {
@@ -26,12 +53,11 @@ impl Binding {
 
     pub(crate) fn from_trigger(trigger: command::AnyTrigger, source: Source) -> Self {
         Self {
-            trigger,
+            trigger: Trigger::Fixed(trigger),
             state: command::State::hidden(),
             description: None,
             source,
             route: responder::Route::Chain,
-            slider_trigger: None,
         }
     }
 
@@ -40,30 +66,33 @@ impl Binding {
         source: Source,
         slider_trigger: command::AnyValueTrigger<f64>,
     ) -> Self {
+        let current = slider_trigger.trigger(value);
         Self {
-            trigger: slider_trigger.trigger(value),
+            trigger: Trigger::Slider {
+                current,
+                factory: slider_trigger,
+            },
             state: command::State::hidden(),
             description: None,
             source,
             route: responder::Route::Chain,
-            slider_trigger: Some(slider_trigger),
         }
     }
 
     pub fn command_name(&self) -> &'static str {
-        self.trigger.command_name()
+        self.trigger.current().command_name()
     }
 
     pub fn command_type(&self) -> std::any::TypeId {
-        self.trigger.command_type()
+        self.trigger.current().command_type()
     }
 
     pub(crate) fn history_group(&self) -> Option<command::HistoryGroup> {
-        self.trigger.history_group()
+        self.trigger.current().history_group()
     }
 
     pub(crate) fn trigger(&self) -> command::AnyTrigger {
-        self.trigger.clone()
+        self.trigger.current().clone()
     }
 
     pub fn state(&self) -> &command::State {
@@ -96,12 +125,11 @@ impl Binding {
 
     pub(crate) fn from_resolved(action: command::ResolvedAction, source: Source) -> Self {
         Self {
-            trigger: action.trigger(),
+            trigger: Trigger::Fixed(action.trigger()),
             state: action.state().clone(),
             description: action.description(),
             source,
             route: action.route(),
-            slider_trigger: None,
         }
     }
 
@@ -111,12 +139,11 @@ impl Binding {
             state.shortcut = None;
         }
         Self {
-            trigger: action.trigger(),
+            trigger: Trigger::Fixed(action.trigger()),
             state,
             description: action.description(),
             source: Source::Menu,
             route: responder::Route::Chain,
-            slider_trigger: None,
         }
     }
 
@@ -151,8 +178,11 @@ impl Binding {
         cx: &CommandContext,
     ) {
         let cx = cx.sourced(self.source);
-        self.state = self.trigger.state_on(self.route, registry, chain, &cx);
-        self.description = registry.description(self.trigger.command_type());
+        self.state = self
+            .trigger
+            .current()
+            .state_on(self.route, registry, chain, &cx);
+        self.description = registry.description(self.trigger.current().command_type());
     }
 
     pub(crate) fn invoke<M: state::State>(
@@ -161,19 +191,18 @@ impl Binding {
         chain: &mut responder::Chain<'_, M>,
         cx: &mut CommandContext,
     ) -> response::AnyResponse {
-        self.trigger.invoke_on(self.route, registry, chain, cx)
+        self.trigger
+            .current()
+            .invoke_on(self.route, registry, chain, cx)
     }
 
     fn with_slider_value(&self, value: f64) -> Option<Self> {
-        let slider_trigger = self.slider_trigger.clone()?;
-
         Some(Self {
-            trigger: slider_trigger.trigger(value),
+            trigger: self.trigger.with_slider_value(value)?,
             state: self.state.clone(),
             description: self.description,
             source: self.source,
             route: self.route,
-            slider_trigger: Some(slider_trigger),
         })
     }
 }
