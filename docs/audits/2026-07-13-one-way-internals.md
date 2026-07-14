@@ -4851,6 +4851,62 @@ namespaced`).
    intermediate, housing, and naming inventories. This cell does not close
    Rung 5.
 
+### R5-45 — total sorted table-header geometry
+
+Status: **complete; false indicator absence removed at the geometry owner**.
+Correction `676ee193` (`Make sorted header geometry total`).
+
+1. **Question and complete trace.** The remaining layout-geometry assertion was
+   traced from table header presentation and sort direction through label
+   measurement, trailing-indicator reservation, scene icon paint, header hit
+   routing, divider resize, ascending/descending application order, expanded
+   overflow, and all four standing scale witnesses.
+2. **False absence.** The shared header helper returned an optional indicator
+   because unsorted headers legitimately have none. The explicitly sorted
+   `table_sort_indicator_rect` call then invoked that helper with `true` and
+   asserted the requested indicator existed. Absence belongs only to the
+   unsorted/sorted decision; it is impossible after the sorted species has been
+   selected.
+3. **Correction and displaced path.** A private
+   `sorted_table_header_parts -> (Rect, Rect)` now resolves label and indicator
+   geometry together. The optional shared projection wraps that total pair only
+   when a caller supplies the sort-presence boolean, while the explicit
+   indicator request consumes the total result directly. The production
+   assertion and its false optional recovery are deleted.
+4. **Boundary and naming ruling.** Layout remains the sole geometry owner and
+   scene remains a consumer. The helper is private, introduces no transport
+   type, crosses no seam, and receives no projection or alias. Existing
+   namespaced layout functions and every public table/header spelling remain
+   exact; no compound declaration, supporting parent export, or unrelated
+   naming cleanup was introduced.
+5. **Behavior and economics.** Content padding, indicator extent, centered
+   geometry, label gap, ellipsis width, sort icon choice, header target,
+   divider hit zone, resize behavior, table order, allocation, scene order,
+   renderer topology, batching/pass fusion, invalidation, and presentation
+   clocks are unchanged. Sorted requests perform the same arithmetic once and
+   no longer construct and unwrap an `Option`.
+6. **Doctrine and ratchet.** Master design now states that sorted-header label
+   and indicator rectangles are one total pair. A focused architecture witness
+   failed against the asserted optional path, then pinned the total helper and
+   tombstoned the assertion. Existing end-to-end witnesses continue to compare
+   painted label and chevron rectangles against the layout owner.
+7. **Proof.** The architecture witness, the control-gallery sort/resize
+   journey, and the expanded single-line sort-header journey passed directly.
+   The full library discovered 1,127 tests and passed 1,117 with 10 ignored;
+   all five examples, all ten census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed.
+8. **Gauge delta and next frontier.** Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, and panic gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,819 in 191
+   files, cross-slot upper bound 1,772, cross-slot test edges 90, source-root
+   mentions 118, filesystem reads 362, allowances 6, and panics 6. Production
+   expects fall 78 -> 77. Sorted-header geometry is at fixed point; the reverse
+   sweep continues through group/ghost projection, retained tree/layout
+   admission, frame construction, and the complete visibility, failure,
+   intermediate, housing, and naming inventories. This cell does not close
+   Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
