@@ -2415,6 +2415,20 @@ fn frame_content_is_the_single_role_payload_representation() {
 }
 
 #[test]
+fn sorted_table_header_geometry_is_total() {
+    let control = include_str!("../layout/control.rs");
+
+    assert!(
+        control.contains("fn sorted_table_header_parts(") && control.contains(") -> (Rect, Rect)"),
+        "sorted table headers must resolve label and indicator geometry together"
+    );
+    assert!(
+        !control.contains("expect(\"requested table sort indicator geometry\")"),
+        "requesting sorted-header geometry must not recover from false absence"
+    );
+}
+
+#[test]
 fn widget_label_text_species_are_structural() {
     let label = include_str!("../widget/control/label.rs");
 

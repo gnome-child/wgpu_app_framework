@@ -232,6 +232,12 @@ fn table_header_parts(
         return (content, None);
     }
 
+    let (label, indicator) = sorted_table_header_parts(rect, theme);
+    (label, Some(indicator))
+}
+
+fn sorted_table_header_parts(rect: Rect, theme: &theme::Theme) -> (Rect, Rect) {
+    let content = table_content_rect(rect, theme);
     let extent = control_content_extent(theme.control().height, theme)
         .min(content.width())
         .min(content.height())
@@ -256,7 +262,7 @@ fn table_header_parts(
             .saturating_sub(content.x()),
         content.height(),
     );
-    (label, Some(indicator))
+    (label, indicator)
 }
 
 pub(crate) fn table_header_label_rect(
@@ -268,9 +274,7 @@ pub(crate) fn table_header_label_rect(
 }
 
 pub(crate) fn table_sort_indicator_rect(rect: Rect, theme: &theme::Theme) -> Rect {
-    table_header_parts(rect, true, theme)
-        .1
-        .expect("requested table sort indicator geometry")
+    sorted_table_header_parts(rect, theme).1
 }
 
 pub(crate) fn table_choice_mark_rect(rect: Rect, theme: &theme::Theme) -> Rect {

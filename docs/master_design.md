@@ -489,6 +489,9 @@ consume that same projection rather than retaining a second copy on text
 content or the common frame.
 Bound presentation remains a common typed optional because ordinary Elements,
 controls, menu bindings, and palette Labels can all truthfully carry commands.
+Sorted table-header geometry resolves its label and indicator rectangles as one
+total pair; optional indicator geometry exists only at the unsorted/sorted
+projection boundary, never inside an explicitly sorted request.
 Its measurement contract is constraints down and size hints up: hints are
 advisory, constraints are law, and parents place children.
 Padding and gap are separate layout concepts: padding is edge inset inside a
