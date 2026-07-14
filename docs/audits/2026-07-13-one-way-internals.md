@@ -101,13 +101,16 @@ Reject or redraw the seam instead.
 
 - Names describe the domain concept, not its implementation trick.
 - When a public module and its central type have the same name, the parent
-  re-exports only that type. Call sites import both as `{module, Module}`;
-  supporting concepts keep simple names inside the module and are spelled
-  `module::Type` at use sites.
-- Do not preserve a compound declaration merely to re-export it under a
-  simpler name. Collapse the declaration to the public re-exported name,
-  including when that re-export is at a parent module; callers that need to
-  distinguish a supporting concept use its module namespace instead.
+  publicly re-exports that type and no sibling types. Call sites import the
+  module and central type together as `{module, Module}`; every supporting
+  concept keeps its simple name inside the module and is spelled
+  `module::Type` at the use site.
+- A public re-export's name is the declaration's canonical name. If a compound
+  declaration is exposed under a simpler name, collapse the declaration to
+  that simpler name rather than preserving an alias. This law holds through
+  parent-module re-exports as well as direct ones; callers resolve collisions
+  by qualifying supporting concepts through their module, not by retaining a
+  compound declaration.
 - No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
 - Moving or re-housing a concept does not authorize renaming it.
 - Existing overloaded-name cleanup remains under its established census and
@@ -1218,11 +1221,12 @@ text`).
 
 ### R2-03 — read-only text projection versus mutation capability
 
-Status: **in progress; two independently green production checkpoints**.
+Status: **in progress; three independently green production checkpoints**.
 Vocabulary correction `979878ef` (`Separate read-only text vocabulary`);
 operation correction `60fff63d` (`Separate selection operations from text
-mutation`). The cell remains open for the action/clipboard/history split and
-IME/preedit ownership trace below.
+mutation`); action reduction `bf01aef4` (`Remove text action clipboard
+intermediate`). The cell remains open for the IME/preedit ownership trace
+below.
 
 1. **Question and trace so far.** Text buffer state, caret motion, selection,
    field-mode capability, surface projection, view state, direct pointer/key
@@ -1253,37 +1257,49 @@ IME/preedit ownership trace below.
    spelling was not propagated: framework call sites use parent-projected
    `text::Edit`, while `text::edit::Editor` and `text::edit::History` remain
    namespaced supporting machinery.
-4. **Behavior and lifecycle preservation.** Editable mutation, read-only
+4. **Action and clipboard reduction.** The complete action trace found no
+   independent text-library owner for `text::edit::Action`, its clipboard
+   trait/adapter, `ActionResult`, or `ActionOutcome`. Document commands and
+   focused drafts already own the real Copy/Cut/Delete/Paste/SelectAll
+   contracts; production history never consumed the action route. Those two
+   source files, the adapter, the editor branch, the public
+   `Document::apply_action` intermediate, and duplicated low-level command
+   tests were deleted. Document command targets now call selection, mutation,
+   and framework clipboard contracts directly while preserving confirmed-write
+   Cut, empty-versus-failed Paste, availability, and outcome laws. History's
+   real result is now `text::edit::history::Outcome`; `History` is its only
+   parent projection, the coalescing constant stays namespaced, and the old
+   compound `HistoryKind` declaration collapsed to private `history::Kind`.
+5. **Behavior and lifecycle preservation.** Editable mutation, read-only
    selection, disabled-field rejection, stale table-draft rejection,
    single/double/triple click and drag, Unicode motion, selection collapse,
    reveal, caret blink, clipboard behavior, draft validation, feedback
    clearing, undo/redo, and application revision versus document-dirty clocks
    retain their existing paths. A focused owner witness proves selection
    clears active preedit without changing text or entering mutation history.
-5. **Proof and ratchet.** Architecture witnesses require first-class
+6. **Proof and ratchet.** Architecture witnesses require first-class
    always-present modules, the central parent projections, absence of old
    compatibility paths, distinct selection/mutation input and command types,
-   a selection-only pointer view action, and a private typed keymap sum. Full
-   library: 1,071 passed, 10 ignored, 0 failed; all targets compiled without
-   warnings; formatting and diff checks passed. Shaping, hit testing, renderer
-   topology, batching/pass fusion, presentation clocks, and frame economics
-   are unchanged because the same buffers, states, positions, and resolved
+   a selection-only pointer view action, a private typed keymap sum, and the
+   extinction of the text action/clipboard intermediate. Full library: 1,067
+   passed, 10 ignored, 0 failed; all targets compiled without warnings;
+   formatting and diff checks passed. Shaping, hit testing, renderer topology,
+   batching/pass fusion, presentation clocks, and frame economics are
+   unchanged because the same buffers, states, positions, and resolved
    operation order reach the same owners.
-6. **Gauge delta from R2-02.** Production/test module edges, slot edges,
-   forbidden edges, external questions, SCCs, and cross-slot test edges remain
-   325/98, 42, 13, 1, 1, and 78. Explicit crossing/application surfaces raise
-   production `pub(crate)` declarations 1,746 -> 1,751. The two architecture
-   receipts raise source-root mentions 105 -> 107 and filesystem reads
-   302 -> 313; Rung 6 retains their consolidation. Allowances, panics, and
-   expects remain 10, 9, and 102.
-7. **Open residuals.** `text::edit::Action` still mixes read-only Copy and
-   SelectAll with Cut/Delete/Paste/Undo/Redo and is still executed by mutation
-   machinery; this keeps clipboard action availability and history coupled to
-   the mutation seam. `text::view::ViewState` still owns optional `Preedit`, so
+7. **Gauge delta from R2-02.** Production module edges fall 325 -> 324 while
+   test-only edges rise 98 -> 99 and cross-slot test edges 78 -> 79 from the
+   strengthened command-boundary witness. Slot edges, forbidden edges,
+   external questions, and SCCs remain 42, 13, 1, and 1. The three
+   checkpoints net production `pub(crate)` declarations 1,746 -> 1,748.
+   Architecture receipts raise source-root mentions 105 -> 107 and filesystem
+   reads 302 -> 313; Rung 6 retains their consolidation. Allowances, panics,
+   and expects remain 10, 9, and 102.
+8. **Open residual.** `text::view::ViewState` still owns optional `Preedit`, so
    the always-present presentation vocabulary still carries mutation/IME
-   state. Both require their complete consumer, failure, lifecycle, and
-   feature-off traces before this cell can reach fixed point. R2-03 is not
-   closed by either checkpoint.
+   state. Its complete producer, consumer, clearing, cancellation, host, and
+   feature-off trace is required before this cell can reach fixed point. R2-03
+   is not closed by these checkpoints.
 
 ## Initial hypotheses and queue
 
