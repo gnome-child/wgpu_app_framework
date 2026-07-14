@@ -3651,6 +3651,68 @@ Status: **complete resistance ruling; no production correction admitted**.
    widget/theme facts, and the visibility/failure inventories; this cell does
    not close Rung 5.
 
+### R5-26 — atomic pointer press lifecycle
+
+Status: **complete; target, intent, and conditional capture made one unit**.
+Correction `90cfcdae` (`Make pointer press lifecycle atomic`).
+
+1. **Question and complete trace.** The reverse pointer-state sweep traced raw
+   and resolved pointer down, hover replacement, captured and uncaptured
+   presses, cursor retention, activation-versus-manipulation intent, drag
+   demotion, release, pointer leave, cancellation, target removal, gesture
+   cancellation, click classification, text selection, sliders, table
+   dividers, scroll chrome, menus, palettes, and the session/runtime action
+   crossings.
+2. **Invalid states and retained species.** `Pointer` stored optional pressed
+   target, capture, and press intent independently even though every press has
+   one target and intent, and capture—when present—owns that same target plus
+   its resolved cursor. The representation admitted target without intent,
+   intent without target, capture without a press, and capture of a different
+   target. Captured and uncaptured presses both remain valid: pointer leave
+   retains the former and retires the latter.
+3. **Correction.** One private optional
+   `Press::{Captured { capture, intent }, Uncaptured { target, intent }}` now
+   owns the lifecycle. Press admission derives the species from the target's
+   capture policy; target, capture, and activation queries project from it;
+   drag intent changes the nested fact; release, cancellation, leave, and
+   removal retire the unit atomically. The three parallel options and duplicate
+   captured-target storage are deleted.
+4. **Boundary and naming ruling.** In the touched namesake seam,
+   `interaction::Pointer` is the sole parent projection. The supporting
+   `Capture`, `ClickCount`, and `PressIntent` declarations remain simple names
+   inside crate-visible `interaction::pointer` housing and call sites qualify
+   them as `interaction::pointer::Type`; no compound declaration, aliased
+   projection, or flattened supporting re-export remains. `Press` stays private
+   to its owner.
+5. **Behavior and economics.** Hover replacement, capture cursor, press
+   classification, activation, manipulation, drag routing, leave behavior,
+   click counting, gesture grouping/cancellation, target pruning, allocation,
+   layout, scene, renderer topology, and presentation work are unchanged. The
+   captured species stores its target once rather than in both pressed and
+   capture state; one outer option and one species replace three option
+   discriminants without a heap object, lookup, callback, or traversal.
+6. **Doctrine and witnesses.** Master design now states the one press lifecycle,
+   its two species, and their retirement laws. The architecture witness pins
+   the sum and tombstones all three parallel fields; the existing resolved-
+   cursor witness now consumes the namespaced capture support type. Focused
+   leave, drag, capture-removal, and architecture witnesses passed.
+7. **Proof and gauge delta from R5-25.** The full library discovered 1,107 tests
+   and passed 1,097 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Production/test edges remain 325/110; split
+   responsibilities, slot edges, forbidden edges, external violations, and
+   SCCs remain 3, 54, 0, 0, and 0. Making the supporting module an explicit
+   crate crossing raises production `pub(crate)` declarations 1,806 -> 1,807
+   and the cross-slot upper bound 1,759 -> 1,760. Cross-slot test edges,
+   source-root mentions, filesystem reads, allowances, panics, and expects
+   remain 90, 118, 361, 6, 7, and 90.
+8. **Fixed point and next frontier.** Pointer press state now carries only valid
+   target/intent/capture combinations from admission through retirement, and
+   the touched seam practices the canonical parent-projection law. The reverse
+   sweep continues through pointer position/surface, session lifecycles,
+   view/layout roles, widget/theme facts, and the remaining visibility/failure
+   inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
