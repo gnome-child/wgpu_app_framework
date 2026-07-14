@@ -8,6 +8,7 @@ const PALETTE_RUNTIME: &str = include_str!("../runtime/palette.rs");
 const TEXT_SERVICE: &str = include_str!("../runtime/services/text/mod.rs");
 const INTERACTION_MENU: &str = include_str!("../interaction/menu.rs");
 const MENU_SESSION: &str = include_str!("../session/interaction/menu.rs");
+const GEOMETRY: &str = include_str!("../geometry/mod.rs");
 const LAYOUT_ALGORITHM: &str = include_str!("../layout/algorithm.rs");
 const LAYOUT_CONTROL: &str = include_str!("../layout/control.rs");
 const SCENE_PAINT: &str = include_str!("../scene/paint/mod.rs");
@@ -71,7 +72,13 @@ fn contextual_menus_reuse_menu_lifecycle_and_row_presentation() {
 
 #[test]
 fn platform_hosts_supply_bounds_without_owning_menu_policy() {
-    assert!(LAYOUT_ALGORITHM.contains("PlacementRequest"));
+    assert!(
+        GEOMETRY.contains("pub(crate) mod placement;")
+            && !GEOMETRY.contains("PlacementAnchor")
+            && !GEOMETRY.contains("PlacementRequest")
+            && LAYOUT_ALGORITHM.contains("geometry::placement::Request"),
+        "placement support stays namespaced with one canonical spelling"
+    );
     assert!(NATIVE_POPUP.contains("placement.resolve(available)"));
     assert!(!NATIVE_POPUP.contains("TrackPopupMenu"));
     assert!(!WINDOWS_SYS.contains("TrackPopupMenu"));

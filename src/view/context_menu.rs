@@ -28,7 +28,7 @@ impl View {
     pub(crate) fn project_context_menu(&mut self, menu: ContextMenu) {
         let mut panel = Node::floating_panel(interaction::Menu::context_id())
             .with_panel_placement(
-                geometry::PlacementAnchor::Point(menu.anchor),
+                geometry::placement::Anchor::Point(menu.anchor),
                 menu.available,
             )
             .with_popup_context(menu.fingerprint);

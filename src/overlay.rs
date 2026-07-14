@@ -16,7 +16,7 @@ pub(crate) struct Draft {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
-    placement: Option<geometry::PlacementRequest>,
+    placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
     force_group_at_full_opacity: bool,
@@ -32,7 +32,7 @@ struct Entry {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
-    placement: Option<geometry::PlacementRequest>,
+    placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
     opacity: f32,
@@ -63,7 +63,7 @@ struct RetiringPopup {
     scene: scene::Scene,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
-    placement: Option<geometry::PlacementRequest>,
+    placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     started_at: Instant,
     duration: Duration,
@@ -129,7 +129,7 @@ pub(crate) struct Layer {
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
     text_caret_rect: Option<geometry::Rect>,
-    placement: Option<geometry::PlacementRequest>,
+    placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
     force_group_at_full_opacity: bool,
@@ -189,7 +189,7 @@ pub(crate) struct PopupPresentation {
     parent: window::Id,
     id: interaction::Id,
     local_bounds: geometry::Rect,
-    placement: Option<geometry::PlacementRequest>,
+    placement: Option<geometry::placement::Request>,
     scene: scene::Scene,
     opacity: f32,
     fade: PopupFade,
@@ -236,7 +236,7 @@ struct Live {
     native_animation: bool,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
-    placement: Option<geometry::PlacementRequest>,
+    placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     appeared_at: Instant,
     demotion_logged: bool,
@@ -284,7 +284,7 @@ impl Draft {
         self
     }
 
-    pub(crate) fn placement(mut self, placement: Option<geometry::PlacementRequest>) -> Self {
+    pub(crate) fn placement(mut self, placement: Option<geometry::placement::Request>) -> Self {
         self.placement = placement;
         self
     }
@@ -488,7 +488,7 @@ impl Layer {
         self.text_caret_rect
     }
 
-    pub(crate) fn placement(&self) -> Option<geometry::PlacementRequest> {
+    pub(crate) fn placement(&self) -> Option<geometry::placement::Request> {
         self.placement
     }
 
@@ -583,7 +583,7 @@ impl PopupPresentation {
         parent: window::Id,
         id: interaction::Id,
         local_bounds: geometry::Rect,
-        placement: Option<geometry::PlacementRequest>,
+        placement: Option<geometry::placement::Request>,
         scene: scene::Scene,
         opacity: f32,
         fade: PopupFade,
@@ -625,7 +625,7 @@ impl PopupPresentation {
         self.local_bounds
     }
 
-    pub(crate) fn placement(&self) -> Option<geometry::PlacementRequest> {
+    pub(crate) fn placement(&self) -> Option<geometry::placement::Request> {
         self.placement
     }
 

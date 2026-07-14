@@ -34,7 +34,7 @@ impl View {
                     Hint::from_feedback(severity, text),
                     Auxiliary::WindowFeedback,
                 )
-                .with_panel_anchor(geometry::PlacementAnchor::Point(
+                .with_panel_anchor(geometry::placement::Anchor::Point(
                     geometry::Point::new(12, 12),
                 )),
             );

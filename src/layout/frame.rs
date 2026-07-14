@@ -153,7 +153,7 @@ struct VirtualGeometry {
 struct FloatingPanelContent {
     force_overlay_group: bool,
     native_popup_material_preference: view::NativePopupMaterialPreference,
-    popup_placement: Option<crate::geometry::PlacementRequest>,
+    popup_placement: Option<crate::geometry::placement::Request>,
     popup_context: Option<crate::popup::ContextFingerprint>,
     policy: view::PanelPolicy,
 }
@@ -530,7 +530,7 @@ impl Frame {
 
     pub(super) fn set_popup_placement(
         &mut self,
-        placement: Option<crate::geometry::PlacementRequest>,
+        placement: Option<crate::geometry::placement::Request>,
     ) {
         if let FrameContent::FloatingPanel(content) = &mut self.content {
             content.popup_placement = placement;
@@ -796,7 +796,7 @@ impl Frame {
             })
     }
 
-    pub(crate) fn popup_placement(&self) -> Option<crate::geometry::PlacementRequest> {
+    pub(crate) fn popup_placement(&self) -> Option<crate::geometry::placement::Request> {
         self.content
             .floating_panel()
             .and_then(|content| content.popup_placement)

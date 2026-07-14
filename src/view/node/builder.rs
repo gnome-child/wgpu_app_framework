@@ -333,7 +333,7 @@ impl Node {
 
     pub(crate) fn with_panel_placement(
         mut self,
-        anchor: crate::geometry::PlacementAnchor,
+        anchor: crate::geometry::placement::Anchor,
         available: crate::geometry::Rect,
     ) -> Self {
         if let Some(panel) = self.content.panel_mut() {
@@ -347,7 +347,7 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_panel_anchor(mut self, anchor: crate::geometry::PlacementAnchor) -> Self {
+    pub(crate) fn with_panel_anchor(mut self, anchor: crate::geometry::placement::Anchor) -> Self {
         if let Some(panel) = self.content.panel_mut() {
             panel.attachment = Some(super::PanelAttachment::Geometry {
                 anchor,

@@ -659,7 +659,7 @@ fn root_floating_panel_rect(
     engine: &mut engine::Engine,
     theme: &theme::Theme,
     profile: keymap::Profile,
-) -> (Rect, Option<geometry::PlacementRequest>) {
+) -> (Rect, Option<geometry::placement::Request>) {
     let attachment = floating_panel_attachment(node, frames, theme);
     let anchor = attachment.map(|(anchor, _, _)| anchor);
     let width = match node.style().width() {
@@ -688,7 +688,7 @@ fn root_floating_panel_rect(
 
     if let Some(anchor) = anchor {
         let clearance = attachment.map_or(0, |(_, clearance, _)| clearance);
-        let request = geometry::PlacementRequest::new(anchor, Size::new(width, height))
+        let request = geometry::placement::Request::new(anchor, Size::new(width, height))
             .with_clearance(clearance);
         let available = attachment
             .and_then(|(_, _, available)| available)
@@ -724,17 +724,17 @@ fn floating_panel_attachment(
     node: &view::Node,
     frames: &[Frame],
     theme: &theme::Theme,
-) -> Option<(geometry::PlacementAnchor, i32, Option<Rect>)> {
+) -> Option<(geometry::placement::Anchor, i32, Option<Rect>)> {
     match node.panel_attachment()? {
         view::PanelAttachment::Geometry { anchor, available } => Some((anchor, 0, available)),
         view::PanelAttachment::Pointer(point) => Some((
-            geometry::PlacementAnchor::Point(point),
+            geometry::placement::Anchor::Point(point),
             theme.auxiliary_panel().pointer_clearance,
             None,
         )),
         view::PanelAttachment::Element(id) => frames.iter().find_map(|frame| {
             (frame.target().and_then(interaction::Target::element_id) == Some(id))
-                .then(|| (geometry::PlacementAnchor::Rect(frame.rect()), 0, None))
+                .then(|| (geometry::placement::Anchor::Rect(frame.rect()), 0, None))
         }),
     }
 }

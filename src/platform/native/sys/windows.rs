@@ -178,7 +178,7 @@ pub(super) fn configure_popup_bounds(
 
 pub(super) fn popup_available_bounds(
     window: &winit::window::Window,
-    anchor: crate::geometry::PlacementAnchor,
+    anchor: crate::geometry::placement::Anchor,
 ) -> Option<crate::geometry::Rect> {
     let parent_origin = window.inner_position().ok()?;
     let scale = window.scale_factor();

@@ -491,7 +491,7 @@ mod placement_tests {
     fn contextual_floating_panel_uses_the_shared_edge_solver() {
         let panel = view::Node::floating_panel("context")
             .with_panel_placement(
-                crate::geometry::PlacementAnchor::Point(Point::new(95, 75)),
+                crate::geometry::placement::Anchor::Point(Point::new(95, 75)),
                 Rect::new(0, 0, 100, 80),
             )
             .with_style(
@@ -523,7 +523,7 @@ mod placement_tests {
         let available = Rect::new(10, 10, 40, 30);
         let panel = view::Node::floating_panel("nested-context")
             .with_panel_placement(
-                crate::geometry::PlacementAnchor::Point(Point::new(48, 38)),
+                crate::geometry::placement::Anchor::Point(Point::new(48, 38)),
                 available,
             )
             .with_style(

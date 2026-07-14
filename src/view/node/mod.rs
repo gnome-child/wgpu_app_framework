@@ -100,7 +100,7 @@ impl PanelPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PanelAttachment {
     Geometry {
-        anchor: crate::geometry::PlacementAnchor,
+        anchor: crate::geometry::placement::Anchor,
         available: Option<crate::geometry::Rect>,
     },
     Pointer(crate::geometry::Point),

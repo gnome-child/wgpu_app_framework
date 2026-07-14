@@ -74,7 +74,7 @@ pub(in crate::platform::native) fn configure_popup_bounds(
 
 pub(in crate::platform::native) fn popup_available_bounds(
     window: &winit::window::Window,
-    anchor: geometry::PlacementAnchor,
+    anchor: geometry::placement::Anchor,
 ) -> Option<geometry::Rect> {
     #[cfg(target_os = "windows")]
     return windows::popup_available_bounds(window, anchor)

@@ -3350,7 +3350,7 @@ fn invalid_text_box_and_indicator_hover_share_the_error_tip() {
         .expect("invalid TextBox should reveal one hover panel");
     assert_eq!(
         panel.popup_placement().expect("hover placement").anchor(),
-        geometry::PlacementAnchor::Point(box_point)
+        geometry::placement::Anchor::Point(box_point)
     );
     assert_eq!(
         panel.auxiliary_hint().map(view::Hint::description),
@@ -3384,7 +3384,7 @@ fn invalid_text_box_and_indicator_hover_share_the_error_tip() {
             .popup_placement()
             .expect("retained hover placement")
             .anchor(),
-        geometry::PlacementAnchor::Point(box_point),
+        geometry::placement::Anchor::Point(box_point),
         "the visible panel remains fixed to its reveal snapshot"
     );
     drop(moved);
@@ -3430,7 +3430,7 @@ fn invalid_text_box_and_indicator_hover_share_the_error_tip() {
             .popup_placement()
             .expect("indicator hover placement")
             .anchor(),
-        geometry::PlacementAnchor::Point(indicator_point)
+        geometry::placement::Anchor::Point(indicator_point)
     );
     assert_eq!(
         indicator_panel
@@ -11683,7 +11683,7 @@ fn command_hint_visually_wins_without_erasing_the_independent_description() {
             .popup_placement()
             .expect("hover panel placement request")
             .anchor(),
-        geometry::PlacementAnchor::Point(point),
+        geometry::placement::Anchor::Point(point),
         "hover revelation attaches to the pointer snapshot rather than the whole target rectangle"
     );
     let clearance = Theme::default().auxiliary_panel().pointer_clearance;
@@ -11822,7 +11822,7 @@ fn warning_feedback_uses_shared_panel_without_trapping_focus() {
             .popup_placement()
             .expect("window feedback must enter the common placement-request path")
             .anchor(),
-        geometry::PlacementAnchor::Point(geometry::Point::new(12, 12))
+        geometry::placement::Anchor::Point(geometry::Point::new(12, 12))
     );
     assert!(panel.target().is_none());
     assert!(visible.scene().icons().iter().any(|icon| {
