@@ -4151,6 +4151,81 @@ valid**. Correction `4ec5958c` (`Make floating panel state structural`).
    session lifecycles, and the complete visibility/failure/intermediate
    inventories; this cell does not close Rung 5.
 
+### R5-34 — structural residual layout-frame projections
+
+Status: **complete; scroll, text-input, and label facts given their valid
+lifetimes**. Correction `133f7bf2` (`Make layout frame projections
+structural`).
+
+1. **Question and complete trace.** The continuing view/layout role sweep
+   traced ordinary and table scroll construction through viewport resolution,
+   table projection, track paint, scrollbar chrome, target lookup, reveal, and
+   tests; active and inactive TextBox layout through draft projection, input
+   decomposition, indicator paint/hit, shaping, caret/selection, and table-cell
+   display; and resolved label overflow through source projection, visible
+   measurement, text hit mapping, hover eligibility, and auxiliary-panel
+   explanation. Every producer and consumer of `table_projection`,
+   `input_parts`, and `overflow_projection` was included.
+2. **Invalid states and retained common state.** `Frame` stored a table
+   projection independently from common frame content even though only a table
+   scroll can own one and it is resolved with that scroll's viewport. Input
+   parts occupied every frame even though they are derived only beside a
+   TextBox model; text content then represented an inactive TextBox as an Area
+   with an optional input, allowing its role truth to collapse back to a text
+   area. A selectable overflow projection was duplicated between Area content
+   and the common frame, while optional label text, total label width, and that
+   projection described one resolved label lifetime. Labels themselves remain
+   common because label, button, bound-control, TextArea, and inactive TextBox
+   presentation truthfully consume them.
+3. **Correction and displaced paths.** `ScrollContent` now distinguishes
+   ordinary and table species; one resolved private `TableScroll` owns the
+   table viewport and projection together, and one `with_table_scroll` step
+   replaces the sequential viewport/projection protocol. `TextContent` now
+   distinguishes Area, InactiveField, and Field; both TextBox species own a
+   private `TextBoxContent` containing the model and its input-part geometry.
+   One common private `LabelContent` owns visible text, measured width, and the
+   optional overflow projection. The three common frame fields, the duplicated
+   Area projection, the optional inactive input, the independent label-width
+   field, and `with_table_projection` are deleted.
+4. **Boundary and naming ruling.** `Frame`, `Viewport`, and all existing
+   table/text/indicator/overflow queries retain their exact crate spellings.
+   `TableScroll`, `TextBoxContent`, and `LabelContent` are private owner-local
+   concepts with no parent projection, alias, or flattened supporting export;
+   the cell introduces no compound declaration re-exported under a simpler
+   name and does not reopen unrelated naming cleanup.
+5. **Behavior and economics.** Ordinary and table scroll offsets, viewport
+   clips, table widths/tracks, reveal, scrollbar hits, active and inactive
+   TextBox shaping, input-indicator geometry and targets, invalid-input hover,
+   visible overflow text, source-range mapping, hover-panel content, label
+   measurement, allocation, scene order, renderer topology, batching/pass
+   fusion, invalidation, and presentation clocks are unchanged. One table
+   projection clone was already required for layout's nested table context;
+   the frame now stores it beside the same viewport, while the duplicate
+   selectable projection clone is removed.
+6. **Doctrine and witnesses.** Master design now states the ordinary/table
+   scroll species, active/inactive text-field species, TextBox-owned input
+   geometry, and the resolved label lifetime. The existing FrameContent
+   architecture witness now tombstones every displaced common field and the
+   former table builder while requiring the three structural payloads.
+7. **Proof and gauge delta from R5-33.** The 154-test layout-scene slice passed,
+   including ordinary/table scroll, inactive table editors, input indicators,
+   overflow mapping, and hover explanation. The full library discovered 1,117
+   tests and passed 1,107 with 10 ignored; all targets and all five examples
+   compiled without warnings. All nine census parser witnesses, the full
+   census, formatting, diff, and protected-state checks passed. Every gauge is
+   unchanged: production/test edges 325/111, split responsibilities 3, slot
+   edges 54, forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,809
+   in 190 files, cross-slot upper bound 1,762, cross-slot test edges 90,
+   source-root mentions 118, filesystem reads 361, allowances 6, panics 6, and
+   expects 89.
+8. **Fixed point and next frontier.** A table projection cannot inhabit an
+   ordinary frame or separate from its viewport; input geometry cannot exist
+   without its TextBox; inactive and active fields have explicit species; and
+   visible label text, width, and overflow mapping have one owner. The reverse
+   sweep continues through widget/theme state, remaining layout/session
+   lifecycles, and the complete visibility/failure/intermediate inventories;
+   this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
