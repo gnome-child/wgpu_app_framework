@@ -209,17 +209,24 @@ the other (already true; the witness keeps it true). Facade re-exports all.
 | 13 | layout → diagnostics | 4 | census |
 | 14 | widget → document (`TextArea::from_document`) | 3/5 | census; the compression constructor needs an owner ruling |
 
-The witness compares the live graph against this list: any edge not in the
-allowlist and not in the allowed-direction table fails the suite; entries
-may only be removed, never added — additions require amending this ledger
-with evidence, which is deliberately louder than passing a test.
+This list is **gauge information, not a suite gate** (ruling: an
+allowlist-as-failing-test would moderate exploration and reward laundering
+edges past the parser through erasure — the failure mode worse than
+re-tangling). The census parser runs as a report at cell and wave
+boundaries; the ledger records the count. Enforcement is per-cell: each
+completed cell's Ratchet step adds a narrow structural-absence tombstone
+for the specific structure it burned (the established house pattern —
+pinning the past, never gating the future). If an area demonstrably
+re-tangles across audits, that evidence admits a narrow witness there —
+enforcement obeys the same admission law as everything else.
 
 ### Wave 0 acceptance
 
-- The census parser is productionized as an architecture witness (same
-  sweep rules validated this session: `crate::`/`super::` resolution,
-  grouped uses, `cfg(test)` separation), keyed to the slot and direction
-  tables above, with the allowlist as the only tolerated violations.
+- The census parser is productionized as a **gauge tool** (same sweep
+  rules validated this session: `crate::`/`super::` resolution, grouped
+  uses, `cfg(test)` separation), keyed to the slot and direction tables
+  above, producing the forbidden-edge report on demand — not wired into
+  the suite.
 - The recount replaces the seed list above (order-of-15 expected; the
   metric is forbidden edges, not the 24 raw mutual pairs — intra-slot
   cycles are lawful).
