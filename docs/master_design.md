@@ -195,6 +195,12 @@ an empty source has one boundary and therefore renders no phantom dot.
 Text layout owns shaped-buffer cache mechanics through `ShapingCache`; area
 lines, field surfaces, and inline text/icons supply domain keys and retention
 limits, while the shared owner mediates lookup, insertion, and `FontSystem` use.
+The concrete glyph buffer remains text implementation vocabulary. Scene and
+private paint surfaces may carry a cloned text-owned `ShapedBuffer` handle, but
+they do not name glyphon types or expose the buffer through public scene/text
+APIs. Render is the only downstream layer that borrows the concrete buffer.
+This preserves zero-copy shaping identity without making transit layers owners
+of the shaping implementation.
 
 Text has three provenance contracts. Author text is written by the program and
 must fit; layout reports an `author_text_overflows` diagnostic instead of

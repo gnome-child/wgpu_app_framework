@@ -1159,6 +1159,63 @@ geometry`).
    direct scene `glyphon` dependency, followed by the complete read-only text
    projection versus mutation/history/IME trace.
 
+### R2-02 — shaped text ownership versus transit-layer renderer types
+
+Status: **complete**. Correction `04202403` (`Keep shaped buffers behind
+text`).
+
+1. **Question and trace.** Scene's sole direct `glyphon` use was the shared
+   buffer inside editable `TextSurface`; private paint repeated the same
+   concrete field. Text layout creates and shapes that buffer, retains it in
+   field and text-area caches, uses it for hit/highlight/reveal projection, and
+   emits the same `Rc` through render surfaces. Scene adds semantic placement
+   and presentation color, native lowering snaps the placement and converts the
+   color, and render alone borrows the buffer for glyphon preparation. The
+   trace covered field and area creation, cache hit/miss and color-only change,
+   scene translation/grouping, popup lowering, batch ordering, per-batch
+   viewports, render borrowing, and test inspection.
+2. **Challenge and admission.** Moving shaping into scene or render would
+   duplicate text authority and reshape cached surfaces; storing the whole
+   `TextAreaSurface` in scene would drag source-line, hit-test, and geometry
+   metadata through a consumer that needs none of it. A type alias would merely
+   hide the dependency syntactically. A text-owned opaque handle is admitted
+   because it makes the concrete renderer type unrepresentable in transit
+   layers while preserving the shaped buffer's shared identity and borrow
+   lifetime.
+3. **Reduction and rewire.** Added crate-private
+   `text::layout::ShapedBuffer`, a one-field shared handle whose only downstream
+   operation is borrowing at render. Text surfaces project that handle; scene
+   and paint retain their existing viewport/surface grammar but store the
+   handle instead of `Rc<RefCell<glyphon::Buffer>>`. No buffer is copied or
+   reshaped. Removed the now-unused `Rc`/`RefCell` imports from scene and paint,
+   and narrowed the unconsumed public `TextAreaSurface::buffer` escape hatch to
+   text-internal access. Rectangles, color conversion, text ordering, and
+   viewport grouping are unchanged.
+4. **Proof and ratchet.** The new architecture witness requires the text-owned
+   handle, forbids a public glyphon-buffer accessor, and proves all scene and
+   paint sources are free of `glyphon` paths. The existing cache-identity,
+   current-color, editable-text scene, native paint conversion, popup, batching,
+   per-batch viewport, and renderer witnesses passed in the full library:
+   1,068 passed, 10 ignored, 0 failed. All targets and all five examples
+   compiled without warnings; formatting and diff checks passed. Renderer
+   topology and economics are identical: the same `Rc` clone reaches the same
+   batch, is borrowed once at preparation, and is never reshaped at a transit
+   boundary.
+5. **Gauge delta.** The `scene -> glyphon` heavy-boundary question is closed:
+   provisional external violations fall 2 -> 1, and the external-user set is
+   now exactly text plus render. Production/test module edges, slot edges,
+   forbidden edges, SCCs, and cross-slot test edges remain 325/98, 42, 13, 1,
+   and 78. The four explicit handle/crossing declarations raise production
+   `pub(crate)` declarations 1,742 -> 1,746. The architecture receipt raises
+   source-root mentions 104 -> 105 and filesystem reads 299 -> 302. Allowances,
+   panics, and expects remain 10, 9, and 102.
+6. **Fixed point and next frontier.** Text owns both shaping mechanics and the
+   concrete shaped output representation; scene and paint transport an opaque
+   capability; render is the sole downstream concrete consumer. No concrete
+   glyphon dependency remains in semantic scene or private paint grammar. Rung
+   2 now continues with the complete read-only selection/caret projection
+   versus mutation, history, draft, and IME machinery trace.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
