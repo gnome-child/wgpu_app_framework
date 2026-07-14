@@ -6077,6 +6077,64 @@ removed**. Correction `4ce4c644` (`Collapse scrollbar chrome support`).
    table tracks, layout text, scene visuals, and command-palette support before
    Rung 5 closes.
 
+### R5-65 — namespaced layout table-track species
+
+Status: **complete; compound parent aliases removed and projector narrowed**.
+Correction `1a703f29` (`Namespace layout table tracks`).
+
+1. **Question and complete trace.** The touched-parent sweep traced table-track
+   construction from resolved header/row frames through column boundaries,
+   resize hit zones/actions, clipping, floating-layer ownership, table-node
+   identity, scene grid-rule projection, shared clips, compact/expanded tables,
+   horizontal scroll, pinned rows, resize/rebuild, and every track-inspection
+   witness.
+2. **Naming contradiction.** Private `layout::table` declared meaningful
+   `Axis::{Column, Row}` and `Track`, while the layout parent changed their
+   spellings to `TableTrackAxis` and `TableTrack`. Scene paint and tests used
+   those compounds to reconstruct context already supplied by the module.
+   Unlike chrome, the axis is a real two-species distinction and the track is
+   a coherent crossing value; deleting either would replace a structural
+   distinction with booleans or duplicate paint policy.
+3. **Correction and visibility guard.** `layout::table` is now crate-visible;
+   its consumers use `layout::table::Axis` and `layout::table::Track`, and the
+   parent aliases are deleted. The projector function, which has only the
+   layout parent as a consumer, narrows from `pub(crate)` to `pub(super)` so
+   namespacing the real crossing types does not expose construction. The
+   existing `Projection` visibility is deliberately retained because
+   crate-visible `Frame::table_projection` and integration witnesses consume
+   its inferred type and `content_width`; Rung 6 owns that explicit test/
+   visibility disposition rather than this naming cell inventing adapters.
+4. **Ownership and non-merge ruling.** Layout table owns resolved column/row
+   track species, boundaries, rule geometry, clips, resize identity, and hit
+   zones. Scene paint consumes the structural axis to select an ordinary rule
+   orientation; table widget/provider state remains a separate semantic owner.
+   No scene type moves into layout, no table provider learns paint, and no
+   callback or facade module conceals the crossing.
+5. **Naming law.** Declaration and callsite spellings are now identical;
+   support is qualified by its owning module and no alternate parent spelling
+   survives. Because the module has no namesake central `Table` type, it exports
+   no central type at the parent. No public API or external application path
+   changes.
+6. **Behavior and economics.** Track construction/order, column/row identity,
+   resize precedence, clipping, rule rects and thickness, layer ownership,
+   table scroll, allocation, layout invalidation, paint order, renderer
+   topology, batching/pass fusion, and presentation clocks are unchanged. The
+   change is path-only plus one visibility narrowing.
+7. **Ratchet and proof.** The existing track-species witness now also pins the
+   namespaced module, extinction of both compounds, and the parent-only
+   projector. All targets compiled without warnings. The full library
+   discovered 1,139 tests and passed 1,129 with ten standing ignores. All five
+   examples, all ten census parser tests, the full census, formatting, diff
+   hygiene, and protected `comparison_open: true` check passed.
+8. **Gauge and next frontier.** Production `pub(crate)` declarations fall
+   1,821 -> 1,820 and the cross-slot-provider upper bound falls 1,774 -> 1,773.
+   Every other gauge remains unchanged: production/test edges 325/109, split
+   responsibilities 3, slot edges 54, forbidden/external/SCC counts 0/0/0,
+   192 visibility-bearing files, cross-slot test edges 90, source-root mentions
+   118, filesystem reads 363, allowances 6, panics 5, and expects 44. Table
+   track naming is at fixed point; the sweep continues through layout text,
+   scene visuals, and command-palette support before Rung 5 closes.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
