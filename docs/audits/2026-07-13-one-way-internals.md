@@ -5633,6 +5633,67 @@ their owner**. Correction `7e05017a` (`Make text cache admission structural`).
    remaining layout/session visibility, failure, intermediate, housing, and
    naming inventories. This cell does not close Rung 5.
 
+### R5-58 — borrowed table-service model admission
+
+Status: **complete; admitted provider model lent through typed service work**.
+Correction `78b2a5e7` (`Lend admitted table service models`).
+
+1. **Question and complete trace.** The remaining runtime table-service
+   assertion was traced from contextual and focused table scopes through
+   composition lookup, typed provider claim/state/invoke, exact and broad
+   responder routing, canonical Select All, session selection, all-except
+   representation, provider deletion, and contextual target enumeration. The
+   generic typed-target adapter and the surrounding service precedence path were
+   included.
+2. **Duplicate lookup and false absence.** Service admission proved that the
+   scoped window/table still resolved one virtual-list model, but stored only
+   the two keys. Each provider-target construction then repeated the composition
+   lookup, cloned the model, and asserted presence. Typed invocation constructs
+   a target for state and another for invoke, so one admitted service value
+   performed the same lookup and clone twice even though no intervening service
+   operation can replace its borrowed composition.
+3. **Correction and displaced paths.** One `table_model` projection resolves
+   window plus borrowed model. `table_for` constructs the service from that
+   admitted value; `Table` and `SelectionTarget` lend the same model reference
+   through state and invocation. Claim, invoke, and contextual enumeration use
+   that projection. The retained composition/table-key fields, repeated lookup,
+   two model clones, false optional recovery, and assertion are deleted.
+4. **Revalidation resistance.** Responder-chain claim and later invocation
+   remain separate live command operations and continue to revalidate their
+   route. This cell does not cache command availability or let a model borrow
+   escape the service transaction. Whether the generic service claim receipt
+   should carry more typed invocation identity is a broader responder-protocol
+   question kept visible for the next sweep rather than presumed here.
+5. **Boundary and naming ruling.** Composition remains model-projection owner,
+   runtime services own contextual command realization, and session owns keyed
+   selection mutation. The existing private `Table` and `SelectionTarget`
+   declarations are not re-exported or aliased; no public name, compound-to-
+   simple projection, supporting parent export, or visibility changes.
+6. **Behavior and economics.** Table versus focused-text precedence, exact
+   routes, command state, disabled/missing outcomes, Select All membership,
+   million-row all-except behavior, contextual ordering, selection
+   reconciliation, allocation, layout, scene order, renderer topology,
+   invalidation, and presentation clocks are unchanged. Each admitted table
+   service value now performs one model lookup and no model clone.
+7. **Doctrine and proof.** Master design now requires the table service to lend
+   its admitted model. The architecture witness pins the borrowed model, one
+   projection/construction path, and extinct key/relookup/clone/assertion path.
+   Sixty-two table-focused tests passed, including table context precedence and
+   bounded million-row Select All. The full library discovered 1,135 tests and
+   passed 1,125 with ten standing ignores. All targets and all five examples
+   compiled without warnings; all ten census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed.
+8. **Gauge delta and next frontier.** Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, and panic gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,824 in 192
+   files, cross-slot upper bound 1,777, cross-slot test edges 90, source-root
+   mentions 118, filesystem reads 363, allowances 6, and panics 5. Production
+   expects fall 47 -> 46. Table-model admission is at fixed point; the reverse
+   sweep continues through the responder service claim/invoke protocol and the
+   remaining layout/session visibility, failure, intermediate, housing, and
+   naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
