@@ -17,8 +17,16 @@ pub(crate) enum MaterialFidelity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct RealizedMaterialParts {
-    backdrop_frost: bool,
-    surface_tint: bool,
+    parts: Parts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Parts {
+    #[default]
+    None,
+    Frost {
+        surface_tint: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,25 +60,21 @@ impl MaterialCapabilities {
 
 impl RealizedMaterialParts {
     pub(crate) const fn none() -> Self {
-        Self {
-            backdrop_frost: false,
-            surface_tint: false,
-        }
+        Self { parts: Parts::None }
     }
 
     pub(crate) const fn frost(surface_tint: bool) -> Self {
         Self {
-            backdrop_frost: true,
-            surface_tint,
+            parts: Parts::Frost { surface_tint },
         }
     }
 
     pub(crate) const fn backdrop_frost(self) -> bool {
-        self.backdrop_frost
+        matches!(self.parts, Parts::Frost { .. })
     }
 
     pub(crate) const fn surface_tint(self) -> bool {
-        self.surface_tint
+        matches!(self.parts, Parts::Frost { surface_tint: true })
     }
 }
 

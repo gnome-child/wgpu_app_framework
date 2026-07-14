@@ -635,6 +635,10 @@ they are diagnostics, not assembly instructions. In-frame material is the
 all-platform-`None` case and can still reach `Full` through renderer sampling;
 platform `None` is not itself fallback.
 
+A material-parts receipt is either empty or realized frost, with surface tint
+recorded only inside the frost species. Surface tint without realized backdrop
+frost is not a reportable outcome and must be unrepresentable.
+
 Overlay backend choice follows window capability, not material identity. A
 floating panel that prefers `NativePopup` uses it whenever the platform probe
 supports native popup windows; unsupported platforms fall back to `InFrame`.

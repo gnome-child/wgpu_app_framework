@@ -88,6 +88,20 @@ fn interaction_pruning_receipt_encodes_capture_implication() {
 }
 
 #[test]
+fn realized_material_parts_encode_tint_inside_frost() {
+    let region = include_str!("../scene/region.rs");
+
+    assert!(
+        region.contains("enum Parts {")
+            && region.contains("Frost {")
+            && region.contains("surface_tint: bool,")
+            && region.contains("parts: Parts,")
+    );
+    assert!(!region.contains("struct RealizedMaterialParts {\n    backdrop_frost: bool,"));
+    assert!(!region.contains("struct RealizedMaterialParts {\r\n    backdrop_frost: bool,"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
