@@ -1957,6 +1957,94 @@ Status: **complete; renderer projection owner established**. Correction
     capability, safe window targets, composition visuals, and surface
     realization before admitting an abstraction.
 
+### R4-03 — renderer dependency types versus native surface realization
+
+Status: **complete; final external-boundary violation retired**. Correction
+`198461f6` (`Own GPU surface boundary in renderer`).
+
+1. **Question and complete trace.** Every direct `wgpu`/`wgpu-hal` use under
+   platform was traced through explicit `WGPU_BACKEND`, Windows DX12-first and
+   ordinary fallback attempts, context/device creation, selected adapter
+   identity, safe winit targets, unsafe composition-visual targets, surface
+   format/alpha choice, renderer-cache identity, popup material fallback,
+   offscreen scene-format selection, DX12 HAL access, DXGI swapchain cloning,
+   resize, acquire, draw, present, and popup prewarm. Parent and popup surfaces,
+   redirected and composition-backed hosts, all acquire outcomes, and failure
+   before tenancy completion were included.
+2. **Current graph.** Platform named raw backend sets, adapter/backend values,
+   texture formats, alpha modes, context options, unsafe surface targets, and
+   the wgpu surface/HAL escape hatch. Some were real platform decisions, but
+   their representation made the native adapter a second owner of renderer
+   dependency types and spread one boundary across four platform files. The
+   old parent projections also exposed supporting `Options`/`Outcome` types
+   under compound aliases contrary to the established naming law.
+3. **Admission.** Renderer owns GPU dependency representation and platform owns
+   native attempt sequencing, window/visual lifetimes, fallback lifecycle, and
+   COM realization. First-party `render::context::Backends` and `Backend`
+   preserve backend-set and selected-backend capability; opaque
+   `render::surface::Format` preserves exact renderer-cache identity;
+   `surface::WindowsPopupSupport` preserves the alpha/format decision and its
+   two distinct failure reasons; and `surface::Target` preserves the unsafe
+   native-target lifetime contract. These values make invalid cross-seam raw
+   dependency use unrepresentable rather than merely renaming wgpu types.
+4. **Context and surface rewire.** Native context creation still owns the one
+   explicit/DX12-first/fallback attempt loop, but constructs renderer-owned
+   options from first-party backend sets. Canvas options now accept semantic
+   scene color and convert only inside render. Surface alone selects and
+   exposes opaque render/cache formats and resolved popup support. The deleted
+   platform `render_format_for_canvas` recomputation is now one
+   `Surface::render_format` decision consumed by parent, popup, prewarm, and
+   renderer construction.
+5. **Windows interop seam.** `surface::Target::composition_visual` encodes the
+   unsafe wgpu target while the native owner supplies and retains the live
+   `IDCompositionVisual`. `Surface::dx12` returns the scoped HAL guard whose
+   borrow cannot outlive the surface; platform clones the live DXGI swapchain
+   and continues to own every WinRT/COM tree operation. No service callback,
+   raw-pointer ownership transfer, transmute, renderer import of Windows
+   policy, or second surface representation was introduced.
+6. **Naming and visibility reduction.** The render parent now projects exactly
+   `Canvas`, `Context`, `Frame`, and `Surface` as the same-named central types.
+   Supporting `canvas::Options`, `context::Options`/`Backends`/`Backend`,
+   `frame::Outcome`, and surface contracts remain namespaced. The compound
+   parent aliases `CanvasOptions`, `ContextOptions`, and `FrameOutcome` are
+   deleted. Raw context device/instance/adapter/queue access and canvas
+   color/alpha access narrowed to render; platform contains no `wgpu::` or
+   `wgpu_hal::` spelling.
+7. **Behavior, clocks, and economics.** Explicit backend choice remains the
+   sole attempt; implicit Windows still tries DX12 then the ordinary set; the
+   same device requirements and `DxgiFromVisual` option are used. The popup
+   availability matrix remains exactly available, non-sRGB-format unavailable,
+   or premultiplied-alpha unavailable with the same diagnostics. The same
+   surface format keys the same renderer, the same sRGB offscreen format and
+   pack pass are selected, and the same visual and cloned swapchain reach the
+   same composition tree. Allocation, pipelines, draw order, batching/pass
+   fusion, acquisition, submission, acknowledgement, and every presentation
+   clock are unchanged.
+8. **Proof and platform scope.** The ratchet recursively forbids `wgpu::` and
+   `wgpu_hal::` under platform, pins all first-party contracts and central-type
+   projections, and assigns both dependencies to renderer in the gauge. The 48
+   native lifecycle tests, nine surface/context tests, eight active renderer
+   topology tests, and 109 architecture witnesses passed. The exact Windows
+   interop calls compile on the current target; live DX12 composition tenancy
+   was not newly hardware-verified, so this cell inherits the standing native
+   hardware scope rather than claiming a broader guarantee.
+9. **Full verification and gauge.** The library discovered 1,088 tests: 1,078
+   passed, 10 standing ignores, and 0 failed. All targets and all five examples
+   compiled without warnings; census parser, formatting, diff, and protected
+   example checks passed. Production/test edges, slot edges, forbidden edges,
+   SCCs, and cross-slot test edges remain 327/107, 52, 4, 1, and 88. External
+   violations fall 1 -> 0. Explicit first-party crossings raise production
+   `pub(crate)` declarations 1,786 -> 1,804 in 192 files; source-root mentions
+   rise 113 -> 115 and filesystem reads 339 -> 345. Allowances, panics, and
+   expects remain 10, 9, and 102.
+10. **Fixed point and next frontier.** Renderer dependency types and HAL access
+    now have one renderer owner; native platform consumes stable first-party
+    contracts and retains only OS realization. No raw GPU dependency crossing,
+    duplicate capability decision, compatibility alias, or concealed callback
+    remains. Rung 4 continues with a bidirectional renderer/runtime/platform
+    sweep over presentation clocks, native-popup retirement, remaining paint
+    crossings, allowances, panics, and visibility before closure.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
