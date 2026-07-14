@@ -2,7 +2,7 @@ use std::any::TypeId;
 
 use super::super::super::Runtime;
 use super::field::CommitAttempt;
-use crate::{error::Error, input, response, session, state, window};
+use crate::{command::Error, input, response, session, state, window};
 
 pub(in crate::runtime) struct TaskTransition {
     accepted: bool,

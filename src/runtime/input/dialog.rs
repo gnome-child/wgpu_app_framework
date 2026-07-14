@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use super::super::Runtime;
 use crate::{
-    command, context as command_context, document, error::Error, input, notification, session,
-    state, window,
+    command::{self, Error},
+    context as command_context, document, input, notification, session, state, window,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {

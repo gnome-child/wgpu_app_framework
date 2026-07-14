@@ -2,9 +2,8 @@ use std::any::{Any, TypeId};
 
 use super::{Kind, Responder};
 use crate::{
-    command::{self, Command, State},
+    command::{self, Command, Error, Result, State},
     context::Context,
-    error::{Error, Result},
     interaction,
     notification::{Notification, Reaction},
     response::{AnyResponse, Response},

@@ -1,5 +1,5 @@
 use super::super::{
-    error::Error, geometry, input, interaction, layout, pointer, response, session, state, text,
+    command::Error, geometry, input, interaction, layout, pointer, response, session, state, text,
     view, virtual_list, window,
 };
 use super::Runtime;

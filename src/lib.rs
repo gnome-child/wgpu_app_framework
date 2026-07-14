@@ -59,10 +59,10 @@ mod text_editor;
 
 pub use clipboard::Clipboard;
 pub use command::Command;
+pub use command::Error;
 pub use context::Context;
 pub use diagnostics::Diagnostics;
 pub use document::Document;
-pub use error::Error;
 pub use host::Host;
 pub use input::Input;
 pub use notification::{Listener, Notification};

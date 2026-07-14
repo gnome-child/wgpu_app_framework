@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use super::super::{Runtime, transaction};
 use crate::{
-    command, context as command_context, document, error::Error, input, interaction, response,
-    session, state, window,
+    command::{self, Error},
+    context as command_context, document, input, interaction, response, session, state, window,
 };
 
 mod field;

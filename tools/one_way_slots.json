@@ -34,7 +34,6 @@
       "modules": [
         "command",
         "context",
-        "error",
         "input",
         "keymap",
         "notification",
@@ -96,7 +95,7 @@
       ]
     },
     "facade": {
-      "modules": ["lib"],
+      "modules": ["error", "lib"],
       "may_depend_on": [
         "foundation",
         "icons",

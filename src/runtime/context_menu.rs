@@ -51,7 +51,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime) fn open_context_menu_for_focus(
         &mut self,
         window: window::Id,
-    ) -> std::result::Result<crate::input::Outcome, crate::error::Error> {
+    ) -> std::result::Result<crate::input::Outcome, crate::command::Error> {
         let Some(focus) = self.session.focused(window) else {
             return Ok(crate::input::Outcome::ignored());
         };
@@ -193,7 +193,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         window: window::Id,
         size: geometry::Size,
         point: geometry::Point,
-    ) -> std::result::Result<crate::input::Outcome, crate::error::Error> {
+    ) -> std::result::Result<crate::input::Outcome, crate::command::Error> {
         self.open_context_menu_on_surface(window, size, point, crate::popup::Surface::Parent)
     }
 
@@ -203,7 +203,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         _size: geometry::Size,
         point: geometry::Point,
         surface: crate::popup::Surface,
-    ) -> std::result::Result<crate::input::Outcome, crate::error::Error> {
+    ) -> std::result::Result<crate::input::Outcome, crate::command::Error> {
         let Some(node) = self
             .presented_layout(window)
             .and_then(|layout| layout.context_node_at_surface(point, surface))

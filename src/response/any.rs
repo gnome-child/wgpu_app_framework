@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use super::{Effect, Response};
-use crate::error::{Error, Result};
+use crate::command::{Error, Result};
 
 pub(crate) struct AnyResponse {
     output: Result<Box<dyn Any + Send>>,

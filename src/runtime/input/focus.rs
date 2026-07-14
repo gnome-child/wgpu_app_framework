@@ -1,9 +1,8 @@
 use super::super::Runtime;
 use crate::{
+    command::Error,
     command::{self, Command},
-    context as command_context,
-    error::Error,
-    response,
+    context as command_context, response,
     response::Response,
     session, state, window,
 };

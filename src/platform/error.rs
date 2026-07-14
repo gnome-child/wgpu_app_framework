@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::super::Error as FrameworkError;
+use crate::command::Error as FrameworkError;
 
 #[derive(Debug)]
 pub enum Error<E> {

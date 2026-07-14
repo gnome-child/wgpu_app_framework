@@ -1,7 +1,6 @@
 use crate::{
-    command,
+    command::{self, Error},
     context::Context,
-    error::Error,
     response::{self, Response},
     state,
 };

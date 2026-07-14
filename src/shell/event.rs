@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::text;
 
-use crate::{Error, geometry, input, interaction, pointer, state::State, window};
+use crate::{command::Error, geometry, input, interaction, pointer, state::State, window};
 
 use super::{Shell, Work};
 

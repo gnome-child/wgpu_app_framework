@@ -1,6 +1,6 @@
 use std::any::{Any, TypeId};
 
-use crate::{context, error::Result, responder, response::AnyResponse, session, state, timeline};
+use crate::{command::Result, context, responder, response::AnyResponse, session, state, timeline};
 
 use super::{Services, target};
 

@@ -3,8 +3,8 @@ use std::any::TypeId;
 use super::super::Runtime;
 use crate::{
     command::Command,
+    command::Error,
     context::Source,
-    error::Error,
     response::{self, Response},
     state,
 };

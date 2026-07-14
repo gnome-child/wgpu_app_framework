@@ -1,5 +1,6 @@
 pub mod menu;
 
+mod error;
 mod observer;
 mod population;
 mod registry;
@@ -10,6 +11,8 @@ mod trigger;
 
 use std::time::Duration;
 
+pub use error::Error;
+pub(crate) use error::Result;
 pub use observer::Observation;
 pub(crate) use observer::Observers;
 pub(crate) use population::{BarAction, BarProjection, Population, ResolvedAction};

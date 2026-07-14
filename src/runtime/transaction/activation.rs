@@ -1,5 +1,5 @@
 use super::{super::Runtime, AnyInvocation};
-use crate::{error::Error, response, session, state, view, window};
+use crate::{command::Error, response, session, state, view, window};
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime) fn activate_with_focus(

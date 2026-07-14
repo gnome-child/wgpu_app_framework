@@ -1,5 +1,5 @@
 use super::super::Runtime;
-use crate::{context as command_context, error::Error, input, session, state, view, window};
+use crate::{command::Error, context as command_context, input, session, state, view, window};
 
 fn text_for_key(
     key: input::Key,

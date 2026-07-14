@@ -86,7 +86,7 @@ pub(super) fn claim(
     command_name: &'static str,
     args: &dyn Any,
     cx: &command_context::Context,
-) -> crate::error::Result<Option<responder::Claim>> {
+) -> command::Result<Option<responder::Claim>> {
     let Some((window, table)) = base_table_for(composition, window, table) else {
         return Ok(None);
     };

@@ -1,5 +1,5 @@
 use super::super::{
-    context as command_context, error::Error, input, response, state, view, window,
+    command::Error, context as command_context, input, response, state, view, window,
 };
 use super::Runtime;
 

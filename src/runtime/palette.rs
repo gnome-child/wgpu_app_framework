@@ -2,8 +2,9 @@ use std::{any::TypeId, cmp::Ordering};
 
 use super::{Runtime, fuzzy, services::Services, transaction};
 use crate::{
-    command, context as command_context, error::Error, input, interaction, responder, response,
-    session, state, subject, view, window,
+    command::{self, Error},
+    context as command_context, input, interaction, responder, response, session, state, subject,
+    view, window,
 };
 
 const PAGE_SIZE: usize = 8;

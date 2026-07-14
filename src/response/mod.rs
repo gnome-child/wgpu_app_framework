@@ -5,7 +5,7 @@ pub use effect::{Effect, Invalidation};
 
 pub(crate) use any::AnyResponse;
 
-use super::error::{Error, Result};
+use super::command::{Error, Result};
 
 pub struct Response<O: Send + 'static> {
     pub(super) output: Result<O>,

@@ -2,9 +2,8 @@ use std::any::{Any, TypeId};
 
 use super::{Selector, Target};
 use crate::{
-    command::{Command, State},
+    command::{Command, Error, Result, State},
     context::Context,
-    error::{Error, Result},
     response::AnyResponse,
     state,
 };

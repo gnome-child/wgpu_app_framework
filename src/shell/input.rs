@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use crate::{Error, geometry, input, interaction, pointer, state::State, window as app_window};
+use crate::{
+    command::Error, geometry, input, interaction, pointer, state::State, window as app_window,
+};
 
 use super::Shell;
 

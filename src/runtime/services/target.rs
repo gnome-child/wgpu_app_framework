@@ -1,9 +1,8 @@
 use std::any::{Any, TypeId};
 
 use super::super::super::{
-    command::{self, Command},
+    command::{self, Command, Error, Result},
     context::Context,
-    error::{Error, Result},
     response::AnyResponse,
     target::Target,
 };

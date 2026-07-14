@@ -1,6 +1,7 @@
 use super::super::Runtime;
 use crate::{
-    context as command_context, error::Error, input, interaction, response, session, state, window,
+    command::Error, context as command_context, input, interaction, response, session, state,
+    window,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {

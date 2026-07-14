@@ -4,8 +4,10 @@ use super::super::super::{Runtime, services::Services};
 use super::super::AnyInvocation;
 use super::super::outcome::Outcome;
 use crate::{
-    command, context as command_context, error::Error, responder, response::AnyResponse, state,
-    timeline,
+    command::{self, Error},
+    context as command_context, responder,
+    response::AnyResponse,
+    state, timeline,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {

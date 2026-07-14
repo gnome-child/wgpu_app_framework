@@ -1,6 +1,6 @@
 use super::super::Runtime;
 use crate::{
-    error::Error, input, interaction, response, selection, session, state, virtual_list, window,
+    command::Error, input, interaction, response, selection, session, state, virtual_list, window,
 };
 
 #[derive(Clone, Copy)]

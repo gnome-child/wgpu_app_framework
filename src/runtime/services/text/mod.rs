@@ -43,7 +43,7 @@ pub(super) fn state(
     command_name: &'static str,
     args: &dyn Any,
     cx: &command_context::Context,
-) -> crate::error::Result<Option<command::State>> {
+) -> command::Result<Option<command::State>> {
     let Some((window, focus)) = base_text_for(composition, window, focus) else {
         return Ok(None);
     };
@@ -76,7 +76,7 @@ pub(super) fn claim(
     command_name: &'static str,
     args: &dyn Any,
     cx: &command_context::Context,
-) -> crate::error::Result<Option<responder::Claim>> {
+) -> command::Result<Option<responder::Claim>> {
     let Some((window, focus)) = base_text_for(composition, window, focus) else {
         return Ok(None);
     };

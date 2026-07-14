@@ -1715,6 +1715,28 @@ fn state_change_reasons_do_not_import_command_contracts() {
 }
 
 #[test]
+fn command_failure_is_owned_below_the_public_error_facade() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let owner = src_dir.join("command").join("error.rs");
+    let facade = src_dir.join("error.rs");
+    let owner_source = std::fs::read_to_string(&owner).expect("command error owner should read");
+    let facade_source = std::fs::read_to_string(&facade).expect("error facade should read");
+
+    assert!(
+        owner_source.contains("pub enum Error")
+            && owner_source.contains("UnknownCommand")
+            && owner_source.contains("AmbiguousTarget"),
+        "command must own registration, routing, and invocation failures"
+    );
+    assert_eq!(
+        facade_source.trim(),
+        "pub use crate::command::Error;",
+        "the established error module must remain a facade, not a second owner"
+    );
+    assert_imports_only_under_any(&src_dir, &[facade, owner], &["error"]);
+}
+
+#[test]
 fn resting_geometry_snapping_has_no_primitive_mode_axis() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let scene_primitive = std::fs::read_to_string(src_dir.join("scene").join("primitive.rs"))

@@ -1,6 +1,6 @@
 use super::super::Runtime;
 use crate::{
-    context as command_context, error::Error, input, interaction, pointer, response, session,
+    command::Error, context as command_context, input, interaction, pointer, response, session,
     state, view, window,
 };
 

@@ -5,12 +5,13 @@ use std::{
 
 use super::super::{
     context::Context,
-    error::{Error, Result},
     input, keymap, responder,
     response::{AnyResponse, Response},
     state,
 };
-use super::{Command, History, HistoryGroup, KeyChord, Population, Set, Spec, Standard, State};
+use super::{
+    Command, Error, History, HistoryGroup, KeyChord, Population, Result, Set, Spec, Standard, State,
+};
 #[derive(Default)]
 pub struct Registry {
     pub(in crate::command) commands: HashMap<TypeId, AnyCommand>,

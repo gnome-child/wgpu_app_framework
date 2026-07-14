@@ -4,7 +4,7 @@ mod window;
 pub use event::{Event, WindowEvent};
 pub use window::Window;
 
-use super::{Error, session, shell, state::State, window as app_window};
+use super::{command::Error, session, shell, state::State, window as app_window};
 use crate::animation;
 
 pub struct Host<M: State, E: Send + 'static = ()> {

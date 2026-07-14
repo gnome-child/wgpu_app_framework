@@ -1,7 +1,6 @@
 use super::super::{
-    command,
+    command::{self, Error},
     context::Context,
-    error::Error,
     response::{self, Response},
     target::Target,
     window,

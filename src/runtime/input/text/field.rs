@@ -2,8 +2,8 @@ use crate::text;
 
 use super::super::super::Runtime;
 use crate::{
-    command, context, draft, error::Error, input, interaction, keymap, response, session, state,
-    view, window,
+    command::{self, Error},
+    context, draft, input, interaction, keymap, response, session, state, view, window,
 };
 
 pub(in crate::runtime) enum CommitAttempt {

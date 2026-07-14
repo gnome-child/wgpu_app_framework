@@ -6,12 +6,11 @@ use std::{
 
 use super::super::{
     context::Context,
-    error::Error,
     responder,
     response::{AnyResponse, Response},
     state,
 };
-use super::{Command, HistoryGroup, Registry, State};
+use super::{Command, Error, HistoryGroup, Registry, State};
 pub struct Trigger<C: Command> {
     args: C::Args,
     _command: PhantomData<C>,

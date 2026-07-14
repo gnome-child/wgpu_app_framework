@@ -5,11 +5,10 @@ use std::{
 
 use super::super::{
     context::Source,
-    error::{Error, Result},
     response::{AnyResponse, Effect, Response},
     state,
 };
-use super::Command;
+use super::{Command, Error, Result};
 #[derive(Debug, Clone)]
 pub struct Observation {
     source: Source,

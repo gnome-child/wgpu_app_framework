@@ -4,7 +4,7 @@ use std::{
 };
 
 use super::super::{
-    composition, context, error::Error, interaction, responder, response::AnyResponse, session,
+    command::Error, composition, context, interaction, responder, response::AnyResponse, session,
     state, timeline::Timeline, window,
 };
 use super::Runtime;

@@ -1,5 +1,5 @@
 use super::super::super::Runtime;
-use crate::{context as command_context, document, error::Error, input, response, state, window};
+use crate::{command::Error, context as command_context, document, input, response, state, window};
 use std::time::Instant;
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
