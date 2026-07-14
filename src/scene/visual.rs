@@ -12,7 +12,7 @@ pub(crate) struct Visuals {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Target {
+pub(super) struct Target {
     hovered: bool,
     pressed: bool,
     active: bool,
@@ -20,7 +20,7 @@ pub(crate) struct Target {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Scalar {
+pub(super) enum Scalar {
     Moving {
         value: f32,
         from: f32,
@@ -33,7 +33,7 @@ pub(crate) enum Scalar {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Scrollbar {
+pub(super) struct Scrollbar {
     opacity: f32,
     thickness: i32,
     thickness_motion: Motion,
@@ -42,36 +42,68 @@ pub(crate) struct Scrollbar {
 }
 
 impl Visuals {
-    pub(crate) fn set_target(&mut self, target: interaction::Target, state: Target) {
+    pub(crate) fn set_target(
+        &mut self,
+        target: interaction::Target,
+        hovered: bool,
+        pressed: bool,
+        active: bool,
+        selected: bool,
+    ) {
+        let state = Target {
+            hovered,
+            pressed,
+            active,
+            selected,
+        };
         if state != Target::default() {
             self.targets.insert(target, state);
         }
     }
 
-    pub(crate) fn target(&self, target: &interaction::Target) -> Target {
+    pub(super) fn target(&self, target: &interaction::Target) -> Target {
         self.targets.get(target).copied().unwrap_or_default()
+    }
+
+    pub(crate) fn target_is_hovered_or_pressed(&self, target: &interaction::Target) -> bool {
+        let state = self.target(target);
+        state.hovered() || state.pressed()
     }
 
     pub(crate) fn set_caret_visible(&mut self, target: interaction::Target, visible: bool) {
         self.carets.insert(target, visible);
     }
 
-    pub(crate) fn caret_visible(&self, target: &interaction::Target) -> bool {
+    pub(super) fn caret_visible(&self, target: &interaction::Target) -> bool {
         self.carets.get(target).copied().unwrap_or(true)
     }
 
-    pub(crate) fn set_slider_track_scale_y(
+    pub(crate) fn set_moving_slider_track_scale_y(
         &mut self,
         target: interaction::Target,
-        scale_y: Scalar,
+        value: f32,
+        from: f32,
+        target_value: f32,
+        progress: f32,
     ) {
-        self.slider_track_scale_y
-            .insert(target, scale_y.sanitized_scale());
+        self.slider_track_scale_y.insert(
+            target,
+            Scalar::moving(value, from, target_value, progress).sanitized_scale(),
+        );
     }
 
-    pub(crate) fn slider_track_scale_y(&self, target: &interaction::Target) -> Scalar {
+    pub(crate) fn set_resting_slider_track_scale_y(
+        &mut self,
+        target: interaction::Target,
+        value: f32,
+    ) {
         self.slider_track_scale_y
-            .get(target)
+            .insert(target, Scalar::resting(value).sanitized_scale());
+    }
+
+    pub(super) fn slider_track_scale_y(&self, target: Option<&interaction::Target>) -> Scalar {
+        target
+            .and_then(|target| self.slider_track_scale_y.get(target))
             .copied()
             .unwrap_or_else(|| Scalar::resting(1.0))
     }
@@ -97,34 +129,25 @@ impl Visuals {
         );
     }
 
-    pub(crate) fn scrollbar(&self, target: &interaction::Target) -> Scrollbar {
+    pub(super) fn scrollbar(&self, target: &interaction::Target) -> Scrollbar {
         self.scrollbars.get(target).copied().unwrap_or_default()
     }
 }
 
 impl Target {
-    pub(crate) fn new(hovered: bool, pressed: bool, active: bool, selected: bool) -> Self {
-        Self {
-            hovered,
-            pressed,
-            active,
-            selected,
-        }
-    }
-
-    pub(crate) fn hovered(self) -> bool {
+    pub(super) fn hovered(self) -> bool {
         self.hovered
     }
 
-    pub(crate) fn pressed(self) -> bool {
+    pub(super) fn pressed(self) -> bool {
         self.pressed
     }
 
-    pub(crate) fn active(self) -> bool {
+    pub(super) fn active(self) -> bool {
         self.active
     }
 
-    pub(crate) fn selected(self) -> bool {
+    pub(super) fn selected(self) -> bool {
         self.selected
     }
 }
@@ -198,23 +221,23 @@ impl Scalar {
 }
 
 impl Scrollbar {
-    pub(crate) fn opacity(self) -> f32 {
+    pub(super) fn opacity(self) -> f32 {
         self.opacity
     }
 
-    pub(crate) fn thickness(self) -> i32 {
+    pub(super) fn thickness(self) -> i32 {
         self.thickness
     }
 
-    pub(crate) fn thickness_motion(self) -> Motion {
+    pub(super) fn thickness_motion(self) -> Motion {
         self.thickness_motion
     }
 
-    pub(crate) fn hovered(self) -> bool {
+    pub(super) fn hovered(self) -> bool {
         self.hovered
     }
 
-    pub(crate) fn pressed(self) -> bool {
+    pub(super) fn pressed(self) -> bool {
         self.pressed
     }
 }

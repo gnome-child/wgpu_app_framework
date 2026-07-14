@@ -22,7 +22,6 @@ pub(crate) use region::{
     MaterialRenderer, RealizedMaterialParts,
 };
 pub(crate) use visual::Visuals;
-pub(crate) use visual::{Scalar as VisualScalar, Target as TargetVisual};
 
 use super::{composition, geometry, layout, overlay, theme, theme::Theme};
 

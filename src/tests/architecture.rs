@@ -424,9 +424,9 @@ fn table_track_species_owns_column_only_resize_facts() {
 fn visual_scalar_species_separates_moving_and_resting_state() {
     let visual = include_str!("../scene/visual.rs");
     let scalar = visual
-        .split("pub(crate) enum Scalar")
+        .split("pub(super) enum Scalar")
         .nth(1)
-        .and_then(|source| source.split("pub(crate) struct Scrollbar").next())
+        .and_then(|source| source.split("pub(super) struct Scrollbar").next())
         .expect("scalar declaration precedes scrollbar state");
 
     assert!(
@@ -438,6 +438,21 @@ fn visual_scalar_species_separates_moving_and_resting_state() {
             && scalar.contains("value: f32,")
     );
     assert!(!scalar.contains("motion: Motion"));
+}
+
+#[test]
+fn scene_visual_parent_projects_only_the_central_owner() {
+    let scene = include_str!("../scene/mod.rs");
+    let visual = include_str!("../scene/visual.rs");
+
+    assert!(
+        scene.contains("pub(crate) use visual::Visuals;")
+            && !scene.contains("Scalar as VisualScalar")
+            && !scene.contains("Target as TargetVisual")
+            && visual.contains("pub(super) enum Scalar")
+            && visual.contains("pub(super) struct Target")
+            && visual.contains("pub(super) struct Scrollbar")
+    );
 }
 
 #[test]

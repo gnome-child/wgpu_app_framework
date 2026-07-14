@@ -102,13 +102,11 @@ impl Animations {
             };
             seen.insert(key.clone());
 
-            let target_visual = visuals.target(&target);
-            let desired =
-                if frame.is_enabled() && (target_visual.hovered() || target_visual.pressed()) {
-                    SLIDER_TRACK_HOVER_SCALE_Y
-                } else {
-                    SLIDER_TRACK_IDLE_SCALE_Y
-                };
+            let desired = if frame.is_enabled() && visuals.target_is_hovered_or_pressed(&target) {
+                SLIDER_TRACK_HOVER_SCALE_Y
+            } else {
+                SLIDER_TRACK_IDLE_SCALE_Y
+            };
 
             let transition = self.transitions.entry(key.clone()).or_insert_with(|| {
                 VisualTransition::settled(
@@ -122,17 +120,17 @@ impl Animations {
 
             let value = transition.value_at(now);
             let is_animating = transition.is_animating_at(now);
-            let scalar = if is_animating {
-                scene::VisualScalar::moving(
+            if is_animating {
+                visuals.set_moving_slider_track_scale_y(
+                    target,
                     value,
                     transition.from(),
                     transition.target(),
                     transition.eased_progress_at(now),
-                )
+                );
             } else {
-                scene::VisualScalar::resting(value)
-            };
-            visuals.set_slider_track_scale_y(target, scalar);
+                visuals.set_resting_slider_track_scale_y(target, value);
+            }
 
             if is_animating {
                 schedule = schedule.merge(animation::Schedule::NextFrame);
@@ -300,12 +298,10 @@ impl Animations {
 
             visuals.set_target(
                 target.clone(),
-                scene::TargetVisual::new(
-                    hovered == Some(&target),
-                    pressed == Some(&target),
-                    active,
-                    selected,
-                ),
+                hovered == Some(&target),
+                pressed == Some(&target),
+                active,
+                selected,
             );
 
             if let Some(visible) = caret_visible_for(frame, now) {

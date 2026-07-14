@@ -14,10 +14,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
     let fill = geometry::Rect::new(track.x(), track.y(), filled_width, track.height());
     let thumb = layout::slider_thumb_rect(rect, slider, frame.label_width(), theme);
     let slider_theme = theme.slider();
-    let scale_y = frame
-        .target()
-        .map(|target| visuals.slider_track_scale_y(target))
-        .unwrap_or_else(|| super::super::VisualScalar::resting(1.0));
+    let scale_y = visuals.slider_track_scale_y(frame.target());
     let transform = Transform::scale_y_about_rect_center(track, scale_y.value())
         .with_motion(scale_y.motion())
         .with_scale_motion(
