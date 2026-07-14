@@ -5835,6 +5835,68 @@ correction**.
    housing, and naming inventories. This zero-change cell does not close
    Rung 5.
 
+### R5-61 — fixed-cardinality panel-placement fallback
+
+Status: **complete; discarded nonempty proof removed**. Correction
+`211e9069` (`Preserve placement cardinality structurally`).
+
+1. **Question and complete trace.** The production-assertion sweep traced the
+   one pure geometry placement request from point-anchored context menus and
+   hover tips, rectangle-anchored panels, layout projection, overlay retention,
+   native work-area projection, in-frame realization, and the Windows native
+   popup position adapter. It covered first-fitting right/down preference,
+   every horizontal and vertical flip, pointer clearance, oversized desired
+   panels, negative available origins, no-resize fallback, equal intersection
+   areas, and native versus in-frame consumers.
+2. **Discarded proof.** `candidates` already returns `[Rect; 4]`, making
+   cardinality and nonemptiness structural. `Request::resolve` converted that
+   fixed array into an iterator, used the optional result of `max_by_key`, and
+   immediately recovered the proof with
+   `expect("panel placement always has four candidates")`. The `Option` added
+   no absence state, failure model, identity, or lifecycle; it merely forgot a
+   fact the type had already established.
+3. **Correction.** The fallback now destructures the four rectangles and folds
+   the remaining three from the first value. `>=` deliberately preserves
+   `Iterator::max_by_key`'s established last-wins behavior for equal
+   intersection areas. The first-contained short circuit, candidate order,
+   intersection law, saturating arithmetic, origin clamp, desired size, and
+   clearance are unchanged. No helper, wrapper, collection, callback, trait,
+   or new type replaces the deleted optional protocol.
+4. **Ownership and boundary ruling.** Geometry continues to own the pure
+   anchor/desired/available placement law. Layout supplies logical anchors and
+   desired size; platform supplies work-area facts and projects the resolved
+   logical origin physically; overlay owns panel lifecycle. No consumer learns
+   candidate ordering or performs a parallel fit/clamp decision. The
+   correction therefore strengthens the existing lower seam without moving or
+   widening it.
+5. **Naming and visibility.** No declaration, public or parent re-export,
+   call-site spelling, visibility, module housing, feature surface, or public
+   API changes. The canonical namesake-module and projection laws are
+   satisfied without unrelated naming cleanup.
+6. **Behavior and economics.** The four-element stack array, first-fit scan,
+   fallback comparisons, and clamp remain allocation-free and bounded. Equal
+   areas still choose the final candidate; a focused witness uses a panel wider
+   than the available rect but vertically movable so a changed tie rule would
+   produce observably different geometry. Layout invalidation, overlay
+   retention, native realization, paint order, renderer topology,
+   batching/pass fusion, and presentation clocks are untouched.
+7. **Proof.** All five geometry-placement owner tests passed, including all
+   edge flips, clearance, oversized no-resize clamp, rectangle anchors, and the
+   new equal-area tie receipt. The full library discovered 1,138 tests and
+   passed 1,128 with ten standing ignores. All targets and all five examples
+   compiled without warnings; all ten census parser tests, the full census,
+   formatting, diff hygiene, and protected `comparison_open: true` check
+   passed.
+8. **Gauge and next frontier.** Production expects fall 46 -> 45. Every other
+   gauge remains unchanged: production/test edges 325/109, split
+   responsibilities 3, slot edges 54, forbidden/external/SCC counts 0/0/0,
+   production `pub(crate)` 1,825 in 192 files, cross-slot upper bound 1,778,
+   cross-slot test edges 90, source-root mentions 118, filesystem reads 363,
+   allowances 6, and panics 5. Placement fallback is at fixed point; the
+   reverse sweep continues through remaining layout/session/runtime
+   visibility, failure, intermediate, housing, and naming inventories. This
+   cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
