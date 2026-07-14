@@ -4,20 +4,21 @@ use super::super::{
 };
 use super::Runtime;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum PressAdmission {
     Inert,
-    SelectionOnly,
-    Target,
+    SelectionOnly(interaction::Target),
+    Target {
+        target: interaction::Target,
+        intent: interaction::pointer::PressIntent,
+    },
 }
 
 pub(super) struct ResolvedPress {
     hit: Option<layout::Hit>,
-    target: Option<interaction::Target>,
     row: Option<VirtualRowGesture>,
     task_focus: Option<session::Focus>,
     admission: PressAdmission,
-    intent: Option<interaction::pointer::PressIntent>,
     cursor: pointer::Cursor,
     cursor_after_release: pointer::Cursor,
     inside_palette: bool,
@@ -30,7 +31,12 @@ impl ResolvedPress {
     }
 
     fn target(&self) -> Option<&interaction::Target> {
-        self.target.as_ref()
+        match &self.admission {
+            PressAdmission::Inert => None,
+            PressAdmission::SelectionOnly(target) | PressAdmission::Target { target, .. } => {
+                Some(target)
+            }
+        }
     }
 
     fn row(&self) -> Option<&VirtualRowGesture> {
@@ -41,25 +47,12 @@ impl ResolvedPress {
         self.task_focus.clone()
     }
 
-    fn admission(&self) -> PressAdmission {
-        self.admission
-    }
-
     pub(super) fn cursor(&self) -> pointer::Cursor {
         self.cursor
     }
 
     fn cursor_after_release(&self) -> pointer::Cursor {
         self.cursor_after_release
-    }
-
-    fn press_action(&self, target: interaction::Target) -> view::Action {
-        view::Action::pointer_press(
-            target,
-            self.intent
-                .expect("a resolved target press must carry its intent"),
-            self.cursor_after_release,
-        )
     }
 }
 
@@ -90,16 +83,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let row = hit
             .as_ref()
             .and_then(|hit| self.virtual_row_gesture_for_hit(window, hit, point));
-        let admission = if target.is_none() {
-            PressAdmission::Inert
-        } else if row
-            .as_ref()
-            .is_some_and(|row| !row.permits_participation(modifiers))
-        {
-            PressAdmission::SelectionOnly
-        } else {
-            PressAdmission::Target
-        };
         let task_focus = hit.as_ref().and_then(|hit| {
             let target = target.as_ref()?;
             if target.kind() == interaction::Kind::TableDivider || hit.is_chrome() {
@@ -118,22 +101,34 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 None
             }
         });
-        let intent = hit.as_ref().and_then(|hit| {
-            target.as_ref()?;
-            Some(
-                if hit.is_chrome() || hit.frame().role() == view::Role::Slider {
-                    interaction::pointer::PressIntent::Manipulate
-                } else if matches!(
-                    hit.frame().role(),
-                    view::Role::TextArea | view::Role::TextBox
-                ) && hit.frame().is_focused()
+        let admission = match target {
+            None => PressAdmission::Inert,
+            Some(target)
+                if row
+                    .as_ref()
+                    .is_some_and(|row| !row.permits_participation(modifiers)) =>
+            {
+                PressAdmission::SelectionOnly(target)
+            }
+            Some(target) => {
+                let intent = if hit
+                    .as_ref()
+                    .is_some_and(|hit| hit.is_chrome() || hit.frame().role() == view::Role::Slider)
                 {
+                    interaction::pointer::PressIntent::Manipulate
+                } else if hit.as_ref().is_some_and(|hit| {
+                    matches!(
+                        hit.frame().role(),
+                        view::Role::TextArea | view::Role::TextBox
+                    ) && hit.frame().is_focused()
+                }) {
                     interaction::pointer::PressIntent::Manipulate
                 } else {
                     interaction::pointer::PressIntent::Activate
-                },
-            )
-        });
+                };
+                PressAdmission::Target { target, intent }
+            }
+        };
         let hit_cursor = hit
             .as_ref()
             .map(|hit| {
@@ -159,7 +154,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 }
             })
             .unwrap_or(pointer::Cursor::Default);
-        let cursor_after_release = if admission == PressAdmission::Target {
+        let cursor_after_release = if matches!(&admission, PressAdmission::Target { .. }) {
             hit_cursor
         } else {
             pointer::Cursor::Default
@@ -179,11 +174,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         ResolvedPress {
             hit,
-            target,
             row,
             task_focus,
             admission,
-            intent,
             cursor,
             cursor_after_release,
             inside_palette,
@@ -384,24 +377,28 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
         let selection = resolved.row();
         let selection_row = selection.is_some();
-        let Some(target) = resolved.target().cloned() else {
-            let transition = self.attempt_clear_focus_transition(window)?;
-            if !transition.is_accepted() {
-                self.session.cancel_click_sequence(window);
+        let (target, press_intent) = match &resolved.admission {
+            PressAdmission::Inert => {
+                let transition = self.attempt_clear_focus_transition(window)?;
+                if !transition.is_accepted() {
+                    self.session.cancel_click_sequence(window);
+                    return Ok(transition.into_outcome());
+                }
+                let selection_changed = selection
+                    .as_ref()
+                    .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
+                    .unwrap_or(false);
+                if selection_changed {
+                    self.session
+                        .request_invalidation(window, response::Invalidation::Layout);
+                    return Ok(
+                        transition.then(input::Outcome::handled(false, response::Effect::Layout))
+                    );
+                }
                 return Ok(transition.into_outcome());
             }
-            let selection_changed = selection
-                .as_ref()
-                .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
-                .unwrap_or(false);
-            if selection_changed {
-                self.session
-                    .request_invalidation(window, response::Invalidation::Layout);
-                return Ok(
-                    transition.then(input::Outcome::handled(false, response::Effect::Layout))
-                );
-            }
-            return Ok(transition.into_outcome());
+            PressAdmission::SelectionOnly(target) => (target.clone(), None),
+            PressAdmission::Target { target, intent } => (target.clone(), Some(*intent)),
         };
 
         if target.kind() == interaction::Kind::Indicator {
@@ -418,22 +415,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .task_focus()
             .map(|focus| self.attempt_focus_transition(window, focus))
             .transpose()?;
-        if transition
-            .as_ref()
-            .is_some_and(|transition| !transition.is_accepted())
-        {
-            self.session.cancel_click_sequence(window);
-            return Ok(transition
-                .expect("rejected transition is present")
-                .into_outcome());
-        }
+        let transition = match transition {
+            Some(transition) if !transition.is_accepted() => {
+                self.session.cancel_click_sequence(window);
+                return Ok(transition.into_outcome());
+            }
+            transition => transition,
+        };
 
         let selection_changed = selection
             .as_ref()
             .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
             .unwrap_or(false);
         let dismissed_overlays = self.dismiss_overlays_for_press(window, &resolved);
-        if resolved.admission() == PressAdmission::SelectionOnly {
+        let Some(press_intent) = press_intent else {
             self.session.cancel_click_sequence(window);
             let mut outcome = transition
                 .map(|transition| transition.into_outcome())
@@ -445,7 +440,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             let effect = outcome.effect().clone().then(response::Effect::Layout);
             outcome = input::Outcome::handled(outcome.changed_state(), effect);
             return Ok(self.with_overlay_dismissal(window, outcome, dismissed_overlays));
-        }
+        };
 
         let click_count =
             self.session
@@ -455,16 +450,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             interaction::pointer::ClickCount::Double => text::selection::PointerKind::DoubleClick,
             interaction::pointer::ClickCount::Triple => text::selection::PointerKind::TripleClick,
         };
+        let pointer_down = view::Action::pointer_press(
+            target.clone(),
+            press_intent,
+            resolved.cursor_after_release(),
+        );
 
         let action = if target.kind() == interaction::Kind::TableDivider {
-            resolved.press_action(target)
+            pointer_down
         } else if hit.is_chrome() {
-            resolved.press_action(target)
+            pointer_down
         } else if matches!(
             hit.frame().role(),
             view::Role::TextArea | view::Role::TextBox
         ) {
-            let pointer_down = resolved.press_action(target.clone());
             hit.text_action_at_with_engine(point, text_click, &mut self.layout)
                 .map(|action| view::Action::sequence([pointer_down.clone(), action]))
                 .unwrap_or(pointer_down)
@@ -473,14 +472,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 .map(|action| {
                     view::Action::sequence([
                         view::Action::focus(session::Focus::control(&target).pointer()),
-                        resolved.press_action(target.clone()),
+                        pointer_down.clone(),
                         action,
                     ])
                 })
                 .unwrap_or_else(|| {
                     view::Action::sequence([
                         view::Action::focus(session::Focus::control(&target).pointer()),
-                        resolved.press_action(target),
+                        pointer_down,
                     ])
                 })
         } else if is_pointer_focusable(hit.frame())
@@ -488,10 +487,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         {
             view::Action::sequence([
                 view::Action::focus(session::Focus::control(&target).pointer()),
-                resolved.press_action(target),
+                pointer_down,
             ])
         } else {
-            resolved.press_action(target)
+            pointer_down
         };
 
         let mut outcome = self.handle_view(window, action)?;

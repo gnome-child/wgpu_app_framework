@@ -2120,11 +2120,24 @@ fn resolved_press_is_the_one_cursor_semantics_owner() {
         runtime_pointer.contains("struct ResolvedPress")
             && runtime_pointer.contains("enum PressAdmission")
             && runtime_pointer.contains("pub(super) fn resolve_press(")
-            && runtime_pointer.contains("if admission == PressAdmission::Target")
+            && runtime_pointer.contains("SelectionOnly(interaction::Target)")
+            && runtime_pointer.contains("PressAdmission::Target { target, intent }")
+            && runtime_pointer.contains("matches!(&admission, PressAdmission::Target { .. })")
             && runtime_pointer.matches(".resolve_press(").count() >= 6
             && runtime_access.contains("self.resolve_press("),
         "move, down, up, drag, leave, modifiers, and presentation must share one prospective press resolver"
     );
+    for displaced in [
+        "target: Option<interaction::Target>",
+        "intent: Option<interaction::pointer::PressIntent>",
+        "a resolved target press must carry its intent",
+        "rejected transition is present",
+    ] {
+        assert!(
+            !runtime_pointer.contains(displaced),
+            "resolved press species must not restore a parallel protocol: {displaced}"
+        );
+    }
     assert_eq!(
         runtime_pointer.matches("pointer::Cursor::Text").count(),
         1,
@@ -2234,6 +2247,7 @@ fn resolved_press_is_the_one_cursor_semantics_owner() {
     assert!(
         master.contains("one private `ResolvedPress`")
             && master.contains("`PressAdmission` determines")
+            && master.contains("The admission species owns its facts")
             && master.contains("Applications do not assign cursors")
             && master.contains("does not parse, validate, resolve commands")
             && master.contains("physical surface, and modifiers as truth"),

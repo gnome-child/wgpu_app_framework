@@ -530,9 +530,12 @@ clip-aware hit truth, retained pointer point/surface/modifiers, capture, target
 meaning, task focus, and selectable-row pre-gesture focality. Its
 `PressAdmission` determines whether the exact target is inert, selection-only,
 or admitted; cursor projection and pointer-down consume that same answer.
-Selection-only members keep the default cursor. After a first click focalizes a
-row, only successful presentation of that new truth may re-resolve a stationary
-pointer to the member cursor.
+The admission species owns its facts: inert owns no target, selection-only owns
+the target but no press intent, and an admitted target owns both target and
+intent. Those facts must not be stored as parallel options. Selection-only
+members keep the default cursor. After a first click focalizes a row, only
+successful presentation of that new truth may re-resolve a stationary pointer
+to the member cursor.
 
 Selectable text surfaces use the text cursor only where the admitted press can
 place or drag a caret or selection. Read-only selectable text qualifies;
