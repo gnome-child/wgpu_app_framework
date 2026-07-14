@@ -3510,6 +3510,53 @@ Correction `ad24f9a3` (`Make hover tip lifecycle valid`).
    view/layout role state, widget/session/theme facts, and all remaining
    visibility/failure inventories; this cell does not close Rung 5.
 
+### R5-23 — exclusive active command-surface species
+
+Status: **complete; menu and palette coexistence made unrepresentable**.
+Correction `efa2168d` (`Make command surface exclusive`).
+
+1. **Question and complete trace.** The reverse interaction-surface sweep traced
+   menu open/toggle/switch/close, command-palette capture/open/navigation/close,
+   pointer menu switching, key routing, contextual removal, query-draft cleanup,
+   focus capture/restoration, view projection, visual state, and the explicit
+   bidirectional replacement witnesses.
+2. **Invalid state and distinct lifecycles.** `Interaction` stored optional open
+   menu and optional command palette independently even though every admission
+   path replaces the other. Their payloads and focus-restoration rules remain
+   distinct, but simultaneous presence has no routing, projection, or product
+   meaning and contradicted the replacement witnesses.
+3. **Correction.** One private
+   `Surface::{Menu(Menu), CommandPalette(CommandPalette)}` under one option now
+   owns the active command surface. Existing menu and palette queries project
+   their species; open/toggle/close, mutable palette navigation, and contextual
+   pruning consume the same fact. The two parallel options are deleted.
+4. **Boundary and naming ruling.** Private `Surface` uses the interaction-module
+   namespace and receives no parent re-export or alias. Public `interaction::Menu`
+   and all crate-visible `Interaction` queries retain their exact names and
+   visibility; internal command-palette state remains unprojected publicly.
+5. **Behavior and economics.** Menu switching, palette capture, query focus,
+   restoration, text-draft cleanup, contextual pruning, pointer behavior,
+   visual active state, overlay creation/retirement, allocation, and
+   presentation work are unchanged. One option discriminant replaces two, with
+   no heap object, callback, lookup, or traversal.
+6. **Doctrine and witnesses.** Master design now states that a window has one
+   active menu-or-palette command surface while preserving their distinct
+   session focus lifecycles. The architecture witness pins the private sum and
+   tombstones both former fields; existing replacement witnesses prove both
+   transition directions.
+7. **Proof and gauge delta from R5-22.** The focused architecture witness and
+   both menu/palette replacement witnesses passed; the full library discovered
+   1,105 tests and passed 1,095 with 10 ignored; all targets compiled without
+   warnings. All nine census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains unchanged.
+8. **Fixed point and next frontier.** Command-surface interaction state now has
+   one active species from admission through projection and dismissal. Overlay
+   placement/context remains intentional independent state; the reverse sweep
+   continues through view/layout role state, widget/session/theme facts, and
+   the remaining visibility/failure inventories. This cell does not close
+   Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
