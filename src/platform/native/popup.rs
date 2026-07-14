@@ -1345,7 +1345,6 @@ fn popup_generation_transition(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn popup_needs_concealment(
     exposed: bool,
     current_material: Option<overlay::PopupMaterial>,
