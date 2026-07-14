@@ -5212,6 +5212,63 @@ content`).
    the complete visibility, failure, intermediate, housing, and naming
    inventories. This cell does not close Rung 5.
 
+### R5-51 — table and virtual-child topology resistance
+
+Status: **complete resistance ruling; no production correction admitted**.
+
+1. **Question and complete trace.** The remaining layout-topology sweep traced
+   the sole table widget producer through its outer table, horizontal scroll,
+   surface, header, virtual body, retained composition, table projection,
+   layout, scene, and hit consumers. It also traced virtual-list model
+   construction, request/refinement, the sole materialization assignment,
+   provider-row stamping, reconciliation keys, selection projection, pinning,
+   fixed and variable layout, frame projection, scene paint, and runtime
+   reveal. Every surface/header and provided-row assertion or optional
+   projection was included.
+2. **Table topology ruling.** A table scroll has one surface and that surface
+   begins with its header, but both relationships currently live in the same
+   recursive `Node::children` tree consumed by composition, generic stack
+   layout, scene, hits, and public inspection. Passing a surface to a revised
+   constructor would still leave header presence dynamic; separately storing
+   header or surface would duplicate the node and its identity; flattening the
+   surface would change frame and stack topology. The two local assertions
+   therefore remain honest guards over the one private producer.
+3. **Virtual topology ruling.** `Model::materialize` is the sole producer of
+   virtual children and stamps every provider key/index before one assignment
+   to the virtual-list node. The row fact semantically belongs to that
+   parent-child edge, yet `Node` exposes one homogeneous child slice and the
+   same child may also carry table-row meaning. A local row wrapper, checked
+   iterator, or centralized assertion would not prevent an unstamped child;
+   filtering or defaulting would corrupt layout, selection, reconciliation,
+   and stable identity rather than represent absence truthfully.
+4. **Required structural threshold.** Making these laws unrepresentable
+   requires one broader recursive-child design: parent-specific child species
+   that carry edge metadata while preserving generic traversal, retained-tree
+   alignment, public `children()` behavior, and table-row co-occurrence. That
+   entails a new recursive envelope and migration of every composition/view/
+   layout traversal. No second consumer or observed defect currently pays for
+   that campaign inside this bounded cell, and a second common node envelope
+   repeats the resistance already recorded by R5-49.
+5. **Boundary and naming ruling.** No intermediate, visibility, projection,
+   alias, or call-site import was added. `view::Node` remains the sole parent
+   projection and support remains namespaced under `view::node`; inventing a
+   flattened `VirtualRowNode`, `TableSurfaceNode`, or aliased compound type
+   would violate the canonical naming law without making topology structural.
+6. **Behavior and economics.** Table geometry, virtual measurement/refinement,
+   provider identity, selection, pinned rows, reconciliation, child order,
+   frame and scene order, renderer topology, batching/pass fusion,
+   invalidation, allocation, and presentation clocks remain byte-for-byte
+   unchanged. Defaults, truncating zips, and silent omission remain rejected.
+7. **Proof, gauge, and next frontier.** The source census found one table-scroll
+   producer, one virtual-list materialization assignment, and one provider-row
+   stamping route; all consumers resolve through those paths. R5-50's unchanged
+   full boundary remains the proof: 1,118 passed with ten ignored; all targets,
+   examples, census witnesses, formatting, diff, and protected state green.
+   Every gauge remains unchanged, including 59 production expects. The reverse
+   sweep continues with post-insertion collection recovery and the remaining
+   standard-menu, layout, visibility, failure, intermediate, housing, and
+   naming inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
