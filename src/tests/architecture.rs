@@ -44,6 +44,28 @@ fn root_source_tree_has_no_empty_concept_buckets() {
 }
 
 #[test]
+fn animation_vocabulary_is_platform_neutral() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let animation = std::fs::read_to_string(root.join("src/animation.rs"))
+        .expect("animation source should read");
+    let native_runner = std::fs::read_to_string(root.join("src/platform/runner/native.rs"))
+        .expect("native runner source should read");
+
+    assert!(
+        !animation.contains("winit")
+            && !animation.contains("ControlFlow")
+            && !animation.contains("control_flow"),
+        "platform-neutral schedule vocabulary must not realize an event-loop policy"
+    );
+    assert!(
+        native_runner.contains("fn control_flow(schedule: animation::Schedule")
+            && native_runner.contains("ControlFlow::WaitUntil(deadline)")
+            && native_runner.contains("event_loop.set_control_flow(control_flow)"),
+        "the winit runner must own Schedule-to-ControlFlow realization"
+    );
+}
+
+#[test]
 fn table_std_capabilities_have_no_framework_trait_mirrors() {
     let table = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/table.rs"),

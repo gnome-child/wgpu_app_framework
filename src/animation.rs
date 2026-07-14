@@ -1,7 +1,5 @@
 use std::time::{Duration, Instant};
 
-use winit::event_loop::ControlFlow;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Frame {
     now: Instant,
@@ -53,14 +51,6 @@ impl Schedule {
             Self::Idle => false,
             Self::At(deadline) => deadline <= now,
             Self::NextFrame => true,
-        }
-    }
-
-    pub(crate) fn control_flow(self, now: Instant) -> ControlFlow {
-        match self {
-            Self::Idle => ControlFlow::Wait,
-            Self::At(deadline) if deadline > now => ControlFlow::WaitUntil(deadline),
-            Self::At(_) | Self::NextFrame => ControlFlow::Poll,
         }
     }
 }
@@ -164,20 +154,6 @@ mod tests {
 
         assert_eq!(Schedule::NextFrame.merge(timer), Schedule::NextFrame);
         assert_eq!(timer.merge(Schedule::NextFrame), Schedule::NextFrame);
-    }
-
-    #[test]
-    fn schedule_maps_to_event_loop_control_flow() {
-        let now = Instant::now();
-        let deadline = now + Duration::from_millis(10);
-
-        assert_eq!(Schedule::Idle.control_flow(now), ControlFlow::Wait);
-        assert_eq!(
-            Schedule::At(deadline).control_flow(now),
-            ControlFlow::WaitUntil(deadline)
-        );
-        assert_eq!(Schedule::At(now).control_flow(now), ControlFlow::Poll);
-        assert_eq!(Schedule::NextFrame.control_flow(now), ControlFlow::Poll);
     }
 
     #[test]

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use winit::{
     event::WindowEvent as WinitWindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
 };
 
 use super::super::{Error, Native, NativeError, Platform, RunError};
@@ -137,7 +137,7 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         } else {
             self.platform.animation_schedule()
         };
-        let control_flow = schedule.control_flow(Instant::now());
+        let control_flow = control_flow(schedule, Instant::now());
         event_loop.set_control_flow(control_flow);
     }
 
@@ -151,6 +151,38 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         } else {
             false
         }
+    }
+}
+
+fn control_flow(schedule: animation::Schedule, now: Instant) -> ControlFlow {
+    match schedule {
+        animation::Schedule::Idle => ControlFlow::Wait,
+        animation::Schedule::At(deadline) if deadline > now => ControlFlow::WaitUntil(deadline),
+        animation::Schedule::At(_) | animation::Schedule::NextFrame => ControlFlow::Poll,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use winit::event_loop::ControlFlow;
+
+    use super::control_flow;
+    use crate::animation::Schedule;
+
+    #[test]
+    fn event_loop_projection_preserves_every_schedule_outcome() {
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(10);
+
+        assert_eq!(control_flow(Schedule::Idle, now), ControlFlow::Wait);
+        assert_eq!(
+            control_flow(Schedule::At(deadline), now),
+            ControlFlow::WaitUntil(deadline)
+        );
+        assert_eq!(control_flow(Schedule::At(now), now), ControlFlow::Poll);
+        assert_eq!(control_flow(Schedule::NextFrame, now), ControlFlow::Poll);
     }
 }
 
