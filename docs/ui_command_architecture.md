@@ -156,16 +156,18 @@ fix is in the wrong layer.
 ## Text Editing Boundary
 
 The text engine is a lower engine, not a widget. `text::Buffer` owns document
-text. `text::edit::State` owns the persistent cursor and selection marks used
-for editing. `text::edit::ViewState` owns surface presentation facts: scroll,
-preedit, caret blink, reveal intent, and preferred caret position.
-`text::edit::Editor` applies edits against an explicit buffer and edit state;
-surface code passes the separate view state when it projects or interacts with
-that editing session.
+text. `text::selection::State` owns the persistent cursor and selection marks
+used by both selection and editing. `text::view::ViewState` owns ordinary
+surface presentation facts: scroll, caret blink, reveal intent, and preferred
+caret position. `text::Preedit` is the immutable composition projection shared
+with layout; draft input owns its target and lifetime and passes it separately
+only while composition is active. `text::edit::Editor` applies mutations
+against an explicit buffer and selection state.
 
 Framework widgets and document commands should pass explicit edit state through
-the text engine. They should not reintroduce hidden buffer-owned cursor state or
-widget-local text editing logic.
+the text engine. They should not reintroduce hidden buffer-owned cursor state,
+store composition inside ordinary view state, or add widget-local text editing
+logic.
 
 ## Remaining Pressure Points
 

@@ -57,7 +57,7 @@ pub enum WindowEvent {
         text: String,
     },
     TextPreedit {
-        preedit: text::view::Preedit,
+        preedit: text::Preedit,
     },
 }
 

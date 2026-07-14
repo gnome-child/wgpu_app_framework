@@ -15,7 +15,7 @@ pub(crate) use store::DEFAULT_DRAFT_LIMIT;
 pub(crate) struct Input {
     target: Option<Target>,
     drafts: Store,
-    preedit: Option<text::view::Preedit>,
+    preedit: Option<text::Preedit>,
     caret_epochs: HashMap<Target, Instant>,
 }
 
@@ -62,11 +62,11 @@ impl Input {
     }
 
     #[cfg(test)]
-    pub fn preedit(&self) -> Option<&text::view::Preedit> {
+    pub fn preedit(&self) -> Option<&text::Preedit> {
         self.preedit.as_ref()
     }
 
-    pub fn preedit_for(&self, target: &Target) -> Option<&text::view::Preedit> {
+    pub fn preedit_for(&self, target: &Target) -> Option<&text::Preedit> {
         (self.target.as_ref() == Some(target))
             .then_some(self.preedit.as_ref())
             .flatten()
@@ -82,7 +82,7 @@ impl Input {
         changed
     }
 
-    pub(crate) fn set_preedit(&mut self, target: Target, preedit: text::view::Preedit) -> bool {
+    pub(crate) fn set_preedit(&mut self, target: Target, preedit: text::Preedit) -> bool {
         if preedit.text().is_empty() {
             if self.target.as_ref() == Some(&target) && self.drafts.contains(&target) {
                 let changed = self.preedit.is_some();
@@ -394,10 +394,7 @@ mod tests {
         let mut input = Input::default();
 
         input.activate(target.clone(), "alpha");
-        input.set_preedit(
-            target.clone(),
-            text::view::Preedit::new("compose", Some((0, 7))),
-        );
+        input.set_preedit(target.clone(), text::Preedit::new("compose", Some((0, 7))));
 
         let change = input.select(
             target.clone(),

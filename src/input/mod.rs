@@ -40,7 +40,7 @@ pub enum Input {
     TextSelection(text::selection::Operation),
     TextEdit(text::Edit),
     TextCommit(String),
-    TextPreedit(text::view::Preedit),
+    TextPreedit(text::Preedit),
     TextDrop(TextDrop),
 }
 
@@ -65,7 +65,7 @@ impl Input {
         Self::TextCommit(text.into())
     }
 
-    pub fn text_preedit(preedit: text::view::Preedit) -> Self {
+    pub fn text_preedit(preedit: text::Preedit) -> Self {
         Self::TextPreedit(preedit)
     }
 

@@ -2,10 +2,11 @@ use crate::geometry::{area, point};
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use super::super::{
+    Preedit,
     buffer::{Buffer, Position},
     document::{Style, TextDirection, Weight},
     selection::State,
-    surface::{Field, FieldProjection, PreeditProjection, projected_state_for_field},
+    surface::{Field, FieldProjection, PreeditProjection, projected_preedit_for_field},
     view::ViewState,
 };
 use super::{
@@ -74,10 +75,13 @@ impl Engine {
         style: Style,
         area: area::Logical,
         state: ViewState,
+        preedit: Option<&Preedit>,
         now: Instant,
     ) -> TextFieldLayout {
-        self.text_field_paint_layout_at_for_state(buffer, edit_state, style, area, state, now)
-            .layout
+        self.text_field_paint_layout_at_for_state(
+            buffer, edit_state, style, area, state, preedit, now,
+        )
+        .layout
     }
 
     fn text_field_paint_layout_at_for_state(
@@ -87,9 +91,10 @@ impl Engine {
         style: Style,
         area: area::Logical,
         state: ViewState,
+        preedit: Option<&Preedit>,
         now: Instant,
     ) -> TextFieldPaintLayout {
-        let projection = PreeditProjection::new(buffer, edit_state, &state);
+        let projection = PreeditProjection::new(buffer, edit_state, preedit);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
         let prepared_buffer = prepared.borrow();
@@ -166,14 +171,27 @@ impl Engine {
         state: ViewState,
         now: Instant,
     ) -> TextFieldPaintLayout {
+        self.text_field_paint_layout_for_field_with_preedit_at(field, style, area, state, None, now)
+    }
+
+    pub(crate) fn text_field_paint_layout_for_field_with_preedit_at(
+        &mut self,
+        field: &Field,
+        style: Style,
+        area: area::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+        now: Instant,
+    ) -> TextFieldPaintLayout {
         let projection = FieldProjection::new(field);
-        let state = projected_state_for_field(field, state);
+        let preedit = projected_preedit_for_field(field, preedit);
         let mut layout = self.text_field_paint_layout_at_for_state(
             &projection.buffer,
             projection.edit_state,
             style,
             area,
             state,
+            preedit.as_deref(),
             now,
         );
         if !field.paints_caret() {
@@ -190,14 +208,27 @@ impl Engine {
         state: ViewState,
         now: Instant,
     ) -> TextFieldLayout {
+        self.text_field_layout_for_field_with_preedit_at(field, style, area, state, None, now)
+    }
+
+    pub(crate) fn text_field_layout_for_field_with_preedit_at(
+        &mut self,
+        field: &Field,
+        style: Style,
+        area: area::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+        now: Instant,
+    ) -> TextFieldLayout {
         let projection = FieldProjection::new(field);
-        let state = projected_state_for_field(field, state);
+        let preedit = projected_preedit_for_field(field, preedit);
         let mut layout = self.text_field_layout_at_for_state(
             &projection.buffer,
             projection.edit_state,
             style,
             area,
             state,
+            preedit.as_deref(),
             now,
         );
         if !field.paints_caret() {
@@ -214,8 +245,9 @@ impl Engine {
         area: area::Logical,
         position: point::Logical,
         state: ViewState,
+        preedit: Option<&Preedit>,
     ) -> Option<Position> {
-        let projection = PreeditProjection::new(buffer, edit_state, &state);
+        let projection = PreeditProjection::new(buffer, edit_state, preedit);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
         let prepared = prepared.borrow();
@@ -235,8 +267,22 @@ impl Engine {
         position: point::Logical,
         state: ViewState,
     ) -> Option<Position> {
+        self.text_field_position_at_for_field_with_preedit(
+            field, style, area, position, state, None,
+        )
+    }
+
+    pub(crate) fn text_field_position_at_for_field_with_preedit(
+        &mut self,
+        field: &Field,
+        style: Style,
+        area: area::Logical,
+        position: point::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+    ) -> Option<Position> {
         let projection = FieldProjection::new(field);
-        let state = projected_state_for_field(field, state);
+        let preedit = projected_preedit_for_field(field, preedit);
         let display = self.text_field_position_at_for_state(
             &projection.buffer,
             projection.edit_state,
@@ -244,6 +290,7 @@ impl Engine {
             area,
             position,
             state,
+            preedit.as_deref(),
         )?;
         Some(projection.source_position(display))
     }
@@ -270,8 +317,9 @@ impl Engine {
         style: Style,
         area: area::Logical,
         state: ViewState,
+        preedit: Option<&Preedit>,
     ) -> ViewState {
-        let projection = PreeditProjection::new(buffer, edit_state, &state);
+        let projection = PreeditProjection::new(buffer, edit_state, preedit);
         let (prepared, vertical_offset) =
             self.prepare_text_field_buffer(&projection.buffer, style, area);
         let prepared = prepared.borrow();
@@ -298,13 +346,26 @@ impl Engine {
         area: area::Logical,
         state: ViewState,
     ) -> ViewState {
+        self.ensure_caret_visible_for_field_with_preedit(field, style, area, state, None)
+    }
+
+    pub(crate) fn ensure_caret_visible_for_field_with_preedit(
+        &mut self,
+        field: &Field,
+        style: Style,
+        area: area::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+    ) -> ViewState {
         let projection = FieldProjection::new(field);
+        let preedit = projected_preedit_for_field(field, preedit);
         self.ensure_caret_visible_for_state(
             &projection.buffer,
             projection.edit_state,
             style,
             area,
-            projected_state_for_field(field, state),
+            state,
+            preedit.as_deref(),
         )
     }
 

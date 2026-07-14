@@ -1,7 +1,6 @@
-use super::super::buffer::{Buffer, normalize_for_buffer};
-use super::super::{selection::State, view::ViewState};
+use super::super::buffer::Buffer;
+use super::super::selection::State;
 use super::mode::FieldMode;
-use super::projection::{composed_presentation_text, preedit_replacement_range};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Area {
@@ -126,17 +125,6 @@ impl Area {
 
     pub fn presentation_text(&self) -> String {
         self.buffer.text()
-    }
-
-    pub fn presentation_text_for_state(&self, state: &ViewState) -> String {
-        let source = self.presentation_text();
-        let Some(preedit) = state.preedit() else {
-            return source;
-        };
-
-        let range = preedit_replacement_range(&self.buffer, self.state, &source);
-        let preedit_text = normalize_for_buffer(&self.buffer, preedit.text());
-        composed_presentation_text(&source, range, &preedit_text)
     }
 }
 

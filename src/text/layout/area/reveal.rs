@@ -2,6 +2,7 @@ use crate::geometry::area;
 use std::time::Instant;
 
 use super::super::super::{
+    Preedit,
     buffer::Cursor,
     document::Style,
     surface::{Area, PreeditProjection},
@@ -39,6 +40,25 @@ impl Engine {
         state: ViewState,
         observed_layout: Option<&TextFieldLayout>,
     ) -> ViewState {
+        self.ensure_caret_visible_for_area_with_preedit(
+            area_model,
+            style,
+            viewport,
+            state,
+            None,
+            observed_layout,
+        )
+    }
+
+    pub(crate) fn ensure_caret_visible_for_area_with_preedit(
+        &mut self,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+        observed_layout: Option<&TextFieldLayout>,
+    ) -> ViewState {
         if state.reveal_intent().should_ensure_caret_visible()
             && let Some(layout) = observed_layout
             && let Some(caret_layout) = layout.caret_layout()
@@ -52,7 +72,7 @@ impl Engine {
             return next;
         }
 
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), preedit);
         let source = &projection.buffer;
         let committed = !projection.has_preedit();
         let source_cursor = projection.cursor();

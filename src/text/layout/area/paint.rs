@@ -2,6 +2,7 @@ use crate::geometry::area;
 use std::time::Instant;
 
 use super::super::super::{
+    Preedit,
     buffer::{Cursor, local_cursor_range_for_source_line},
     document::Style,
     surface::{Area, AreaWrap, PreeditProjection},
@@ -24,6 +25,7 @@ struct AreaPaintRequest<'a> {
     style: Style,
     viewport: area::Logical,
     state: ViewState,
+    preedit: Option<&'a Preedit>,
     now: Instant,
     content_area: Option<area::Logical>,
 }
@@ -49,7 +51,7 @@ impl Engine {
         _now: Instant,
     ) -> TextFieldLayout {
         self.diagnostics.text_area_metrics_layout_calls += 1;
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), None);
         let content_height = self.text_area_content_height(
             area_model,
             &projection.buffer,
@@ -92,12 +94,27 @@ impl Engine {
         state: ViewState,
         now: Instant,
     ) -> TextAreaPaintLayout {
+        self.text_area_paint_layout_for_area_with_preedit_at(
+            area_model, style, viewport, state, None, now,
+        )
+    }
+
+    pub(crate) fn text_area_paint_layout_for_area_with_preedit_at(
+        &mut self,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+        now: Instant,
+    ) -> TextAreaPaintLayout {
         self.text_area_layout_for_area_at_with_observation(
             AreaPaintRequest {
                 area_model,
                 style,
                 viewport,
                 state,
+                preedit,
                 now,
                 content_area: None,
             },
@@ -114,12 +131,34 @@ impl Engine {
         now: Instant,
         content_area: area::Logical,
     ) -> TextAreaPaintLayout {
+        self.text_area_render_layout_for_area_with_preedit_at(
+            area_model,
+            style,
+            viewport,
+            state,
+            None,
+            now,
+            content_area,
+        )
+    }
+
+    pub(crate) fn text_area_render_layout_for_area_with_preedit_at(
+        &mut self,
+        area_model: &Area,
+        style: Style,
+        viewport: area::Logical,
+        state: ViewState,
+        preedit: Option<&Preedit>,
+        now: Instant,
+        content_area: area::Logical,
+    ) -> TextAreaPaintLayout {
         self.text_area_layout_for_area_at_with_observation(
             AreaPaintRequest {
                 area_model,
                 style,
                 viewport,
                 state,
+                preedit,
                 now,
                 content_area: Some(content_area),
             },
@@ -136,7 +175,7 @@ impl Engine {
         now: Instant,
         content_area: area::Logical,
     ) -> TextFieldLayout {
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), None);
         let committed = !projection.has_preedit();
         let segments = self.text_area_display_segments(
             area_model,
@@ -168,7 +207,7 @@ impl Engine {
         content_area: area::Logical,
         surfaces: &[TextAreaSurface],
     ) -> TextFieldLayout {
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), None);
         let selection = projection.selection_bounds();
         let (preedit_underline, preedit_selection) = projection.highlight_ranges();
         let mut spans = HighlightSpans::default();
@@ -256,7 +295,7 @@ impl Engine {
         let projection = PreeditProjection::new(
             request.area_model.buffer(),
             request.area_model.state(),
-            &request.state,
+            request.preedit,
         );
         let committed = !projection.has_preedit();
 

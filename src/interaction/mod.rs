@@ -305,11 +305,7 @@ impl Interaction {
         self.scroll.clear_reveal(target)
     }
 
-    pub(super) fn set_text_preedit(
-        &mut self,
-        target: Target,
-        preedit: text::view::Preedit,
-    ) -> bool {
+    pub(super) fn set_text_preedit(&mut self, target: Target, preedit: text::Preedit) -> bool {
         self.text_input.set_preedit(target, preedit)
     }
 

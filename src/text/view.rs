@@ -311,15 +311,8 @@ pub struct ViewState {
     scroll_x: f32,
     scroll_y: f32,
     caret_epoch: Instant,
-    preedit: Option<Preedit>,
     reveal_intent: RevealIntent,
     preferred_caret_x: Option<f32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Preedit {
-    text: String,
-    selection: Option<(usize, usize)>,
 }
 
 impl ViewState {
@@ -332,7 +325,6 @@ impl ViewState {
             scroll_x: scroll_x.max(0.0),
             scroll_y: 0.0,
             caret_epoch,
-            preedit: None,
             reveal_intent: RevealIntent::None,
             preferred_caret_x: None,
         }
@@ -408,15 +400,6 @@ impl ViewState {
         self.reveal_intent.should_reveal()
     }
 
-    pub fn with_preedit(mut self, preedit: Option<Preedit>) -> Self {
-        self.preedit = preedit;
-        self
-    }
-
-    pub fn preedit(&self) -> Option<&Preedit> {
-        self.preedit.as_ref()
-    }
-
     pub fn caret_visible(&self, now: Instant) -> bool {
         let elapsed = now.saturating_duration_since(self.caret_epoch);
         let interval = TEXT_FIELD_CARET_BLINK_INTERVAL.as_millis();
@@ -446,22 +429,5 @@ impl ViewState {
 impl Default for ViewState {
     fn default() -> Self {
         Self::new(0.0)
-    }
-}
-
-impl Preedit {
-    pub fn new(text: impl Into<String>, selection: Option<(usize, usize)>) -> Self {
-        Self {
-            text: text.into(),
-            selection,
-        }
-    }
-
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-
-    pub fn selection(&self) -> Option<(usize, usize)> {
-        self.selection
     }
 }

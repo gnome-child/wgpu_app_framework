@@ -893,7 +893,7 @@ fn palette_scope_gives_standard_text_commands_to_query_and_rows_to_captured_docu
     assert_eq!(text_draft(&app, window, query_focus).text(), "");
     assert_eq!(app.timeline().undo_depth(), app_undo_depth);
 
-    let preedit = text::view::Preedit::new("界", Some((0, 3)));
+    let preedit = text::Preedit::new("界", Some((0, 3)));
     app.handle_input(window, Input::text_preedit(preedit.clone()))
         .expect("palette query should accept IME preedit");
     assert_eq!(

@@ -420,6 +420,48 @@ fn read_only_text_vocabulary_does_not_depend_on_mutation() {
 }
 
 #[test]
+fn preedit_projection_is_explicit_and_draft_input_owns_its_lifecycle() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let text_dir = src_dir.join("text");
+    let text_mod =
+        std::fs::read_to_string(text_dir.join("mod.rs")).expect("text module should read");
+    let preedit = std::fs::read_to_string(text_dir.join("preedit.rs"))
+        .expect("text preedit module should read");
+    let view =
+        std::fs::read_to_string(text_dir.join("view.rs")).expect("text view module should read");
+    let draft_input = std::fs::read_to_string(src_dir.join("draft/input/mod.rs"))
+        .expect("draft input module should read");
+    let layout_text = std::fs::read_to_string(src_dir.join("layout/text.rs"))
+        .expect("layout text bridge should read");
+
+    assert!(
+        text_mod.contains("pub mod preedit;")
+            && text_mod.contains("pub use preedit::Preedit;")
+            && preedit.contains("pub struct Preedit"),
+        "preedit should have one same-named module/type owner and one parent projection"
+    );
+    for forbidden in ["Preedit", "preedit"] {
+        assert!(
+            !view.contains(forbidden),
+            "always-present view state must not absorb IME composition: {forbidden}"
+        );
+    }
+    assert!(
+        draft_input.contains("preedit: Option<text::Preedit>")
+            && draft_input.contains("fn set_preedit(")
+            && draft_input.contains("fn clear_preedit("),
+        "draft input should own preedit identity and lifecycle"
+    );
+    assert!(
+        layout_text.contains("text_area.preedit()")
+            && layout_text.contains("text_box.preedit()")
+            && layout_text.contains("_with_preedit"),
+        "layout should receive composition explicitly from the active input projection"
+    );
+    assert_source_patterns_absent(&src_dir, &[concat!("text::view::", "Preedit").to_owned()]);
+}
+
+#[test]
 fn selection_operations_are_structurally_distinct_from_text_mutation() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let text_dir = src_dir.join("text");

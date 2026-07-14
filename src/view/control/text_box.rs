@@ -19,7 +19,7 @@ pub struct TextBox {
     focus_visible: bool,
     cursor: Option<usize>,
     selection: Option<Range<usize>>,
-    preedit: Option<text::view::Preedit>,
+    preedit: Option<text::Preedit>,
     caret_epoch: Option<Instant>,
     indicator_hint: Option<Hint>,
 }
@@ -116,7 +116,7 @@ impl TextBox {
         self.selection.clone()
     }
 
-    pub fn preedit(&self) -> Option<&text::view::Preedit> {
+    pub fn preedit(&self) -> Option<&text::Preedit> {
         self.preedit.as_ref()
     }
 

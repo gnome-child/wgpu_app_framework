@@ -18,8 +18,11 @@ use super::layout::{
 };
 use super::selection::{self, Motion, PointerKind, State};
 use super::surface::{Area, Field};
-use super::view::{Preedit, ViewState, Viewport, Visibility};
 use super::{Buffer, Color, Document, Edit, edit, layout};
+use super::{
+    Preedit,
+    view::{ViewState, Viewport, Visibility},
+};
 
 thread_local! {
     static TEST_ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
@@ -788,14 +791,16 @@ delta",
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(13.0);
     let viewport = area::logical(240.0, 120.0);
-    let state = ViewState::default().with_preedit(Some(Preedit::new("x", None)));
+    let state = ViewState::default();
+    let preedit = Preedit::new("x", None);
     let content_area = area::logical(240.0, 360.0);
 
-    let layout = engine.text_area_render_layout_for_area_at(
+    let layout = engine.text_area_render_layout_for_area_with_preedit_at(
         &area_model,
         style,
         viewport,
         state,
+        Some(&preedit),
         Instant::now(),
         content_area,
     );
@@ -912,9 +917,16 @@ fn text_area_preedit_projection_is_not_cached() {
         .text_area_paint_layout_for_area_at(&area_model, style, viewport, state.clone(), now)
         .into_interaction_parts()
         .1;
-    let preedit_state = state.with_preedit(Some(Preedit::new("x", None)));
+    let preedit_input = Preedit::new("x", None);
     let preedit = engine
-        .text_area_paint_layout_for_area_at(&area_model, style, viewport, preedit_state, now)
+        .text_area_paint_layout_for_area_with_preedit_at(
+            &area_model,
+            style,
+            viewport,
+            state,
+            Some(&preedit_input),
+            now,
+        )
         .into_interaction_parts()
         .1;
     let after = engine
@@ -1731,13 +1743,14 @@ fn mixed_direction_preedit_spans_are_projected_inline() {
     let mut engine = engine();
     let buffer = Buffer::from_text("abc אבג");
     let field = Field::new(buffer);
-    let state =
-        ViewState::default().with_preedit(Some(Preedit::new("שלום", Some((0, "של".len())))));
-    let layout = engine.text_field_layout_for_field_at(
+    let state = ViewState::default();
+    let preedit = Preedit::new("שלום", Some((0, "של".len())));
+    let layout = engine.text_field_layout_for_field_with_preedit_at(
         &field,
         Style::default().with_size(18.0),
         area::logical(400.0, 32.0),
         state,
+        Some(&preedit),
         Instant::now(),
     );
 
@@ -1794,16 +1807,16 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
     let mut buffer = Buffer::from_text("hello");
     let mut edit_state = buffer.initial_state();
     apply_selection(&buffer, &mut edit_state, selection::Operation::SelectAll);
-    let state = ViewState::default().with_preedit(Some(Preedit::new("xy", Some((0, 1)))));
+    let state = ViewState::default();
+    let preedit = Preedit::new("xy", Some((0, 1)));
     let field = Field::new(buffer.clone()).with_state(edit_state);
 
-    assert_eq!(field.presentation_text_for_state(&state), "xy");
-
-    let layout = engine.text_field_layout_for_field_at(
+    let layout = engine.text_field_layout_for_field_with_preedit_at(
         &field,
         Style::default().with_size(16.0),
         area::logical(240.0, 32.0),
         state,
+        Some(&preedit),
         Instant::now(),
     );
 
@@ -1826,6 +1839,28 @@ fn text_field_preedit_renders_inline_text_spans_and_commit_clears_projection() {
 }
 
 #[test]
+fn obscured_text_field_preedit_uses_the_single_composed_projection() {
+    let mut engine = engine();
+    let field = Field::new("ab").obscured_dot();
+    let preedit = Preedit::new("界", Some((0, "界".len())));
+    let paint = engine.text_field_paint_layout_for_field_with_preedit_at(
+        &field,
+        Style::default().with_size(16.0),
+        area::logical(240.0, 32.0),
+        ViewState::default(),
+        Some(&preedit),
+        Instant::now(),
+    );
+
+    assert_eq!(
+        surface_line_text(std::slice::from_ref(paint.surface().unwrap()), 0),
+        "•••"
+    );
+    assert!(!paint.layout().preedit_underline_spans().is_empty());
+    assert!(!paint.layout().preedit_selection_spans().is_empty());
+}
+
+#[test]
 fn text_field_preedit_caret_uses_composed_projection() {
     let mut engine = engine();
     let buffer = Buffer::from_text("hello");
@@ -1837,12 +1872,14 @@ fn text_field_preedit_caret_uses_composed_projection() {
         .text_field_layout_for_field_at(&field, style, viewport, ViewState::default(), now)
         .caret()
         .expect("committed caret should be visible");
+    let preedit = Preedit::new(" world", None);
     let composed = engine
-        .text_field_layout_for_field_at(
+        .text_field_layout_for_field_with_preedit_at(
             &field,
             style,
             viewport,
-            ViewState::default().with_preedit(Some(Preedit::new(" world", None))),
+            ViewState::default(),
+            Some(&preedit),
             now,
         )
         .caret()
@@ -2938,17 +2975,24 @@ fn text_area_preedit_reveal_scroll_uses_composed_projection() {
     let area_model = Area::new(buffer).with_state(edit_state);
     let style = Style::default().with_size(16.0);
     let viewport = area::logical(120.0, 36.0);
-    let state =
-        ViewState::default().with_preedit(Some(Preedit::new("\nthree\nfour\nfive\nsix", None)));
+    let state = ViewState::default();
+    let preedit = Preedit::new("\nthree\nfour\nfive\nsix", None);
 
-    let revealed =
-        engine.ensure_caret_visible_for_area(&area_model, style, viewport, state.clone(), None);
+    let revealed = engine.ensure_caret_visible_for_area_with_preedit(
+        &area_model,
+        style,
+        viewport,
+        state,
+        Some(&preedit),
+        None,
+    );
     let layout = engine
-        .text_area_paint_layout_for_area_at(
+        .text_area_paint_layout_for_area_with_preedit_at(
             &area_model,
             style,
             viewport,
             revealed.clone(),
+            Some(&preedit),
             Instant::now(),
         )
         .into_interaction_parts()

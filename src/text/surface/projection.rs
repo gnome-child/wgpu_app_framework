@@ -1,13 +1,12 @@
+use std::borrow::Cow;
+
 use super::super::buffer::{
     Affinity, Buffer, Cursor, CursorSelection, Position, normalize_for_buffer,
 };
 use super::super::unicode::{
     display_index, floor_grapheme_boundary, grapheme_range_in_text, source_grapheme_boundaries,
 };
-use super::super::{
-    selection::State,
-    view::{Preedit, ViewState},
-};
+use super::super::{Preedit, selection::State};
 use super::{Field, Obscuring};
 
 type CursorRange = Option<(Cursor, Cursor)>;
@@ -199,8 +198,8 @@ impl FieldProjection {
 }
 
 impl PreeditProjection {
-    pub(crate) fn new(buffer: &Buffer, edit_state: State, state: &ViewState) -> Self {
-        let Some(preedit) = state.preedit() else {
+    pub(crate) fn new(buffer: &Buffer, edit_state: State, preedit: Option<&Preedit>) -> Self {
+        let Some(preedit) = preedit else {
             return Self::committed(buffer, edit_state);
         };
 
@@ -306,16 +305,15 @@ fn preedit_selection_range(text: &str, start: usize, end: usize) -> std::ops::Ra
     grapheme_range_in_text(text, start.min(end)..start.max(end))
 }
 
-pub(crate) fn projected_state_for_field(field: &Field, state: ViewState) -> ViewState {
+pub(crate) fn projected_preedit_for_field<'a>(
+    field: &Field,
+    preedit: Option<&'a Preedit>,
+) -> Option<Cow<'a, Preedit>> {
     if field.obscuring() != Obscuring::Dot {
-        return state;
+        return preedit.map(Cow::Borrowed);
     }
 
-    let Some(preedit) = state.preedit().cloned() else {
-        return state;
-    };
-
-    state.with_preedit(Some(obscured_preedit(&preedit)))
+    preedit.map(|preedit| Cow::Owned(obscured_preedit(preedit)))
 }
 
 fn obscured_preedit(preedit: &Preedit) -> Preedit {
@@ -329,20 +327,6 @@ fn obscured_preedit(preedit: &Preedit) -> Preedit {
     });
 
     Preedit::new(text, selection)
-}
-
-pub(super) fn composed_presentation_text(
-    source: &str,
-    replace_range: std::ops::Range<usize>,
-    preedit_text: &str,
-) -> String {
-    let mut text = String::with_capacity(
-        source.len() - (replace_range.end - replace_range.start) + preedit_text.len(),
-    );
-    text.push_str(&source[..replace_range.start]);
-    text.push_str(preedit_text);
-    text.push_str(&source[replace_range.end..]);
-    text
 }
 
 pub(super) fn obscured_dot_text(text: &str) -> String {

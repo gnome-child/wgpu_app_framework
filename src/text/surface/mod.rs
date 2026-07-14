@@ -8,11 +8,11 @@ pub use field::{Field, Obscuring};
 pub use mode::FieldMode;
 
 pub(crate) use projection::{
-    FieldProjection, PositionMap, PreeditProjection, projected_state_for_field,
+    FieldProjection, PositionMap, PreeditProjection, projected_preedit_for_field,
 };
 
 use super::buffer::Buffer;
-use super::{selection::State, view::ViewState};
+use super::selection::State;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Surface {
@@ -131,13 +131,6 @@ impl Surface {
         match self {
             Self::Field(field) => field.presentation_text(),
             Self::Area(area) => area.presentation_text(),
-        }
-    }
-
-    pub fn presentation_text_for_state(&self, state: &ViewState) -> String {
-        match self {
-            Self::Field(field) => field.presentation_text_for_state(state),
-            Self::Area(area) => area.presentation_text_for_state(state),
         }
     }
 }

@@ -5,6 +5,7 @@ pub mod edit;
 mod input;
 pub mod layout;
 mod overflow;
+pub mod preedit;
 pub mod selection;
 pub mod surface;
 mod unicode;
@@ -17,6 +18,7 @@ pub use edit::Edit;
 pub(crate) use input::Decision as InputDecision;
 pub use input::Input;
 pub use overflow::Overflow;
+pub use preedit::Preedit;
 pub use surface::Surface;
 pub use view::View;
 #[cfg(test)]

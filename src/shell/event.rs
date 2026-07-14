@@ -91,7 +91,7 @@ pub enum Event {
     },
     TextPreedit {
         window: window::Id,
-        preedit: text::view::Preedit,
+        preedit: text::Preedit,
     },
     FilePathSelected {
         window: window::Id,

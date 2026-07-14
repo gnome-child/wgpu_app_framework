@@ -1,8 +1,7 @@
-use super::super::buffer::{Buffer, normalize_for_buffer};
-use super::super::unicode::{display_index, source_grapheme_boundaries};
-use super::super::{selection::State, view::ViewState};
+use super::super::buffer::Buffer;
+use super::super::selection::State;
 use super::mode::FieldMode;
-use super::projection::{composed_presentation_text, obscured_dot_text, preedit_replacement_range};
+use super::projection::obscured_dot_text;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -125,38 +124,6 @@ impl Field {
         match self.obscuring {
             Obscuring::None => self.buffer.text(),
             Obscuring::Dot => obscured_dot_text(&self.buffer.text()),
-        }
-    }
-
-    pub fn presentation_text_for_state(&self, state: &ViewState) -> String {
-        let source = self.presentation_text();
-        let Some(preedit) = state.preedit() else {
-            return source;
-        };
-
-        match self.obscuring {
-            Obscuring::None => {
-                let range = preedit_replacement_range(&self.buffer, self.state, &source);
-                let preedit_text = normalize_for_buffer(&self.buffer, preedit.text());
-                composed_presentation_text(&source, range, &preedit_text)
-            }
-            Obscuring::Dot => {
-                let source_text = self.buffer.text();
-                let source_boundaries = source_grapheme_boundaries(&source_text);
-                let range = if let Some(range) = self.buffer.selected_range_for_state(self.state) {
-                    display_index(&source_boundaries, range.start)
-                        ..display_index(&source_boundaries, range.end)
-                } else {
-                    let index = self
-                        .buffer
-                        .text_index_for_cursor(self.buffer.cursor_for_state(self.state));
-                    let index = display_index(&source_boundaries, index);
-                    index..index
-                };
-                let preedit_text =
-                    obscured_dot_text(&normalize_for_buffer(&self.buffer, preedit.text()));
-                composed_presentation_text(&source, range, &preedit_text)
-            }
         }
     }
 }

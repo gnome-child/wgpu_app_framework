@@ -180,10 +180,10 @@ fn ime_window_event(ime: &Ime) -> Option<host::WindowEvent> {
     match ime {
         Ime::Commit(text) => Some(host::WindowEvent::TextCommitted { text: text.clone() }),
         Ime::Preedit(text, selection) => Some(host::WindowEvent::TextPreedit {
-            preedit: text::view::Preedit::new(text.clone(), *selection),
+            preedit: text::Preedit::new(text.clone(), *selection),
         }),
         Ime::Disabled => Some(host::WindowEvent::TextPreedit {
-            preedit: text::view::Preedit::new("", None),
+            preedit: text::Preedit::new("", None),
         }),
         Ime::Enabled => None,
     }

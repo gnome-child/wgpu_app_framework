@@ -2,6 +2,7 @@ use crate::geometry::{area, point};
 use std::rc::Rc;
 
 use super::super::super::{
+    Preedit,
     buffer::Position,
     document::Style,
     surface::{Area, PreeditProjection},
@@ -23,7 +24,7 @@ impl Engine {
         position: point::Logical,
         state: ViewState,
     ) -> Option<Position> {
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), None);
         let segments = self.text_area_display_segments(
             area_model,
             &projection.buffer,
@@ -44,10 +45,10 @@ impl Engine {
         &mut self,
         area_model: &Area,
         position: point::Logical,
-        state: ViewState,
+        _state: ViewState,
         observed_layout: &TextAreaPaintLayout,
     ) -> Option<Position> {
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), None);
         self.text_area_position_at_for_surfaces(
             observed_layout.interaction_surfaces(),
             position,
@@ -64,7 +65,26 @@ impl Engine {
         scroll_x: f32,
         observed_surfaces: &[TextAreaSurface],
     ) -> Option<Position> {
-        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), &state);
+        self.text_area_position_at_for_observed_surfaces_with_preedit(
+            area_model,
+            position,
+            state,
+            None,
+            scroll_x,
+            observed_surfaces,
+        )
+    }
+
+    pub(crate) fn text_area_position_at_for_observed_surfaces_with_preedit(
+        &mut self,
+        area_model: &Area,
+        position: point::Logical,
+        _state: ViewState,
+        preedit: Option<&Preedit>,
+        scroll_x: f32,
+        observed_surfaces: &[TextAreaSurface],
+    ) -> Option<Position> {
+        let projection = PreeditProjection::new(area_model.buffer(), area_model.state(), preedit);
         self.text_area_position_at_for_surfaces(
             observed_surfaces,
             position,

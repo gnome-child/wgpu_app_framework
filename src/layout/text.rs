@@ -174,22 +174,25 @@ impl Service {
             text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let layout_now = text_area.caret_epoch().unwrap_or(now);
         let mut state = text_area.view_state_at(layout_now);
+        let preedit = text_area.preedit();
         let paint_layout = {
             let mut engine = self.inner.borrow_mut();
             if state.caret_visibility_pending() {
-                state = engine.ensure_caret_visible_for_area(
+                state = engine.ensure_caret_visible_for_area_with_preedit(
                     &area_model,
                     style,
                     logical_viewport,
                     state,
+                    preedit,
                     None,
                 );
             }
-            let mut paint_layout = engine.text_area_paint_layout_for_area_at(
+            let mut paint_layout = engine.text_area_paint_layout_for_area_with_preedit_at(
                 &area_model,
                 style,
                 logical_viewport,
                 state.clone(),
+                preedit,
                 layout_now,
             );
             let clamped_state =
@@ -198,11 +201,12 @@ impl Service {
                 || clamped_state.scroll_y() != state.scroll_y()
             {
                 state = clamped_state;
-                paint_layout = engine.text_area_paint_layout_for_area_at(
+                paint_layout = engine.text_area_paint_layout_for_area_with_preedit_at(
                     &area_model,
                     style,
                     logical_viewport,
                     state.clone(),
+                    preedit,
                     layout_now,
                 );
             }
@@ -235,10 +239,11 @@ impl Service {
 
         self.inner
             .borrow_mut()
-            .text_area_position_at_for_observed_surfaces(
+            .text_area_position_at_for_observed_surfaces_with_preedit(
                 &area_model,
                 local,
                 layout.state.clone(),
+                text_area.preedit(),
                 layout.state.scroll_x(),
                 layout.interaction_surfaces(),
             )
@@ -255,19 +260,22 @@ impl Service {
         let style = field_style(theme, theme.text_input().foreground);
         let viewport = text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let epoch = text_box.caret_epoch().unwrap_or(now);
-        let mut state = text_engine::view::ViewState::new_at(0.0, epoch)
-            .with_preedit(text_box.preedit().cloned());
+        let mut state = text_engine::view::ViewState::new_at(0.0, epoch);
+        let preedit = text_box.preedit();
         let mut engine = self.inner.borrow_mut();
 
         if text_box.cursor().is_some() {
-            state = engine.ensure_caret_visible_for_field(&field, style, viewport, state);
+            state = engine.ensure_caret_visible_for_field_with_preedit(
+                &field, style, viewport, state, preedit,
+            );
         }
 
-        let paint_layout = engine.text_field_paint_layout_for_field_at(
+        let paint_layout = engine.text_field_paint_layout_for_field_with_preedit_at(
             &field,
             style,
             viewport,
             state.clone(),
+            preedit,
             epoch,
         );
         let (layout, render_surface) = paint_layout.into_parts();
@@ -295,13 +303,16 @@ impl Service {
             position.y().saturating_sub(rect.y()) as f32,
         );
 
-        self.inner.borrow_mut().text_field_position_at_for_field(
-            &field,
-            style,
-            viewport,
-            local,
-            layout.state.clone(),
-        )
+        self.inner
+            .borrow_mut()
+            .text_field_position_at_for_field_with_preedit(
+                &field,
+                style,
+                viewport,
+                local,
+                layout.state.clone(),
+                text_box.preedit(),
+            )
     }
 }
 

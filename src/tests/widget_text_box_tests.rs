@@ -1079,7 +1079,7 @@ fn numeric_text_box_never_filters_preedit_and_evaluates_ime_commit_once() {
 
     app.handle_input(
         window,
-        Input::text_preedit(text::view::Preedit::new("composition", None)),
+        Input::text_preedit(text::Preedit::new("composition", None)),
     )
     .expect("preedit should remain uninterrupted by numeric policy");
     let target = interaction::Target::text_area(focus);
@@ -1087,7 +1087,7 @@ fn numeric_text_box_never_filters_preedit_and_evaluates_ime_commit_once() {
         app.session()
             .interaction(window)
             .and_then(|interaction| interaction.text_input().preedit_for(&target))
-            .map(text::view::Preedit::text),
+            .map(text::Preedit::text),
         Some("composition")
     );
 

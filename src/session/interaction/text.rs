@@ -29,11 +29,7 @@ impl Session {
             .activate_text_draft(interaction::Target::text_area(focus), base)
     }
 
-    pub fn set_text_preedit(
-        &mut self,
-        id: app_window::Id,
-        preedit: text::view::Preedit,
-    ) -> Option<bool> {
+    pub fn set_text_preedit(&mut self, id: app_window::Id, preedit: text::Preedit) -> Option<bool> {
         let window = self.window_mut(id)?;
         let target = interaction::Target::text_area(window.focus?);
 
@@ -44,7 +40,7 @@ impl Session {
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
-        preedit: text::view::Preedit,
+        preedit: text::Preedit,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;

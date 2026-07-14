@@ -85,7 +85,7 @@ fn host_window_event_mapper_routes_common_window_events() {
         Some(&target)
     );
 
-    let preedit = text::view::Preedit::new("世", Some((0, "世".len())));
+    let preedit = text::Preedit::new("世", Some((0, "世".len())));
     host.handle_event(host::Event::window(
         window,
         host::WindowEvent::TextPreedit {

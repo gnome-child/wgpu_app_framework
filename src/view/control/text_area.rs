@@ -17,7 +17,7 @@ pub struct TextArea {
     focus_visible: bool,
     scroll: interaction::ScrollOffset,
     reveal: bool,
-    preedit: Option<text::view::Preedit>,
+    preedit: Option<text::Preedit>,
     caret_epoch: Option<Instant>,
 }
 
@@ -109,8 +109,7 @@ impl TextArea {
     pub(crate) fn view_state_at(&self, now: Instant) -> text::view::ViewState {
         let epoch = self.caret_epoch.unwrap_or(now);
         let state = text::view::ViewState::new_at(0.0, epoch)
-            .with_scroll(self.scroll.x() as f32, self.scroll.y() as f32)
-            .with_preedit(self.preedit.clone());
+            .with_scroll(self.scroll.x() as f32, self.scroll.y() as f32);
 
         if self.reveal {
             state.ensure_caret_visible(now)
@@ -139,7 +138,7 @@ impl TextArea {
         self.focus_visible
     }
 
-    pub fn preedit(&self) -> Option<&text::view::Preedit> {
+    pub fn preedit(&self) -> Option<&text::Preedit> {
         self.preedit.as_ref()
     }
 
