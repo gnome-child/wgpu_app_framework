@@ -82,11 +82,13 @@ impl State {
     }
 
     pub fn toml_patch(&self) -> String {
+        let tint = self.tint.hex();
         format!(
-            "[floating-panel]\nmaterial = {{ kind = \"glass\", recipe = \"panel-dark\", blur-sigma = {:.2}, tint = \"{}\", tint-opacity = {:.2}, luminosity-opacity = {:.2}, noise-opacity = {:.3}, fallback = \"#1c1c1e\" }}",
+            "[floating-panel]\nmaterial = {{ kind = \"glass\", recipe = \"panel-dark\", blur-sigma = {:.2}, tint = \"{}\", tint-opacity = {:.2}, luminosity-color = \"{}\", luminosity-opacity = {:.2}, noise-opacity = {:.3}, fallback = \"#1c1c1e\" }}",
             self.blur_sigma,
-            self.tint.hex(),
+            tint,
             self.tint_opacity,
+            tint,
             self.luminosity_opacity,
             self.noise_opacity,
         )

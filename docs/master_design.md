@@ -1029,6 +1029,15 @@ appearance. Presentation transforms such as command palette section uppercasing
 render a label without mutating the stored label, subject, or future accessible
 name.
 
+Theme TOML is an authoring patch language, not unresolved runtime state. An
+absent variant selects the dark base; absent sections and fields inherit the
+selected base or the current material recipe. Glass fields are independent
+overrides: supplying one must preserve the other facts already carried by the
+recipe. The resolved `Theme` contains total runtime tokens. Serialization emits
+every publicly mutable material fact—including both luminosity color and
+opacity—so a programmatic theme round-trips without silently recovering a
+different value from its variant recipe.
+
 Theme also owns the framework default canvas color. Unthemed scene clears,
 window defaults, and examples that choose the framework default consume that
 one token; `window::DEFAULT_CANVAS_COLOR` remains its public projection. The

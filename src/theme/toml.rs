@@ -312,6 +312,7 @@ enum MaterialToml {
         blur_sigma: Option<f32>,
         tint: Option<BrushToml>,
         tint_opacity: Option<f32>,
+        luminosity_color: Option<String>,
         luminosity_opacity: Option<f32>,
         noise_opacity: Option<f32>,
         fallback: Option<BrushToml>,
@@ -1095,6 +1096,7 @@ fn material_from_toml(
             blur_sigma,
             tint,
             tint_opacity,
+            luminosity_color,
             luminosity_opacity,
             noise_opacity,
             fallback,
@@ -1126,8 +1128,21 @@ fn material_from_toml(
                 glass = glass.with_tint(tint, tint_opacity.unwrap_or(current_opacity));
             }
 
-            if let Some(opacity) = luminosity_opacity {
-                glass = glass.with_luminosity_opacity(opacity);
+            if luminosity_color.is_some() || luminosity_opacity.is_some() {
+                let current = glass.luminosity().unwrap_or(scene::Luminosity::new(
+                    scene::Color::rgb(255, 255, 255),
+                    0.0,
+                ));
+                let color = match luminosity_color {
+                    Some(color) => {
+                        parse_color("floating-panel.material.luminosity-color", &color, palette)?
+                    }
+                    None => current.color(),
+                };
+                glass = glass.with_luminosity(scene::Luminosity::new(
+                    color,
+                    luminosity_opacity.unwrap_or(current.opacity()),
+                ));
             }
 
             if let Some(opacity) = noise_opacity {
@@ -1777,6 +1792,8 @@ fn material_to_toml(
                 blur_sigma: Some(blur.sigma()),
                 tint: Some(brush_to_toml(tint, palette)),
                 tint_opacity: Some(tint_opacity),
+                luminosity_color: luminosity
+                    .map(|luminosity| color_string(luminosity.color(), palette)),
                 luminosity_opacity: luminosity.map(|luminosity| luminosity.opacity()),
                 noise_opacity: noise.map(|noise| noise.opacity()),
                 fallback: Some(brush_to_toml(glass.fallback(), palette)),
@@ -1878,6 +1895,7 @@ fn material_literal(value: &MaterialToml) -> String {
             blur_sigma,
             tint,
             tint_opacity,
+            luminosity_color,
             luminosity_opacity,
             noise_opacity,
             fallback,
@@ -1898,6 +1916,12 @@ fn material_literal(value: &MaterialToml) -> String {
             }
             if let Some(tint_opacity) = tint_opacity {
                 fields.push(format!("tint-opacity = {}", f32_literal(*tint_opacity)));
+            }
+            if let Some(luminosity_color) = luminosity_color {
+                fields.push(format!(
+                    "luminosity-color = {}",
+                    toml_string(luminosity_color)
+                ));
             }
             if let Some(luminosity_opacity) = luminosity_opacity {
                 fields.push(format!(
@@ -2566,7 +2590,7 @@ mod tests {
             .expect("theme should serialize");
 
         assert!(serialized.contains("rounding = { fixed = 4.0 }\n"));
-        assert!(serialized.contains("material = { kind = \"glass\", recipe = \"panel-dark\", blur-sigma = 44.55, tint = \"#1c1c1e\", tint-opacity = 0.4, luminosity-opacity = 0.92, noise-opacity = 0.022, fallback = \"#1c1c1e\" }\n"));
+        assert!(serialized.contains("material = { kind = \"glass\", recipe = \"panel-dark\", blur-sigma = 44.55, tint = \"#1c1c1e\", tint-opacity = 0.4, luminosity-color = \"#1c1c1e\", luminosity-opacity = 0.92, noise-opacity = 0.022, fallback = \"#1c1c1e\" }\n"));
         assert!(serialized.contains("content-gap = 6\n"));
         assert!(serialized.contains("[viewport]\n"));
         assert!(serialized.contains("[scrollbar]\n"));
@@ -2590,5 +2614,40 @@ mod tests {
 
             assert_eq!(parsed, theme);
         }
+    }
+
+    #[test]
+    fn round_trips_programmatic_glass_luminosity_color() {
+        let color_only = Theme::from_toml_str(
+            r##"
+            [floating-panel]
+            material = { kind = "glass", recipe = "panel-dark", luminosity-color = "#123456" }
+            "##,
+        )
+        .expect("luminosity color patch should parse");
+        let color_only = match color_only.floating_panel().material() {
+            scene::Material::Glass(glass) => glass
+                .luminosity()
+                .expect("the panel-dark recipe should retain luminosity"),
+            scene::Material::Solid(_) => panic!("the glass patch should produce glass"),
+        };
+        assert_eq!(color_only.color(), scene::Color::rgb(18, 52, 86));
+        assert_eq!(color_only.opacity(), 0.92);
+
+        let mut theme = Theme::dark();
+        theme
+            .floating_panel_mut()
+            .set_material(scene::Material::glass(
+                scene::Glass::panel_light()
+                    .with_luminosity(scene::Luminosity::new(scene::Color::rgb(18, 52, 86), 0.37)),
+            ));
+
+        let serialized = theme
+            .to_toml_string()
+            .expect("custom glass theme should serialize");
+        assert!(serialized.contains("luminosity-color = \"#123456\""));
+        let parsed = Theme::from_toml_str(&serialized).expect("custom glass theme should parse");
+
+        assert_eq!(parsed, theme);
     }
 }

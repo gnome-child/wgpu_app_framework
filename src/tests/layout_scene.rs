@@ -11476,10 +11476,24 @@ fn glass_tuner_projects_live_theme_values_and_hit_tests_panel_controls() {
     assert!(tuned_glass.surface_layers().iter().any(|layer| {
         matches!(layer, scene::SurfaceLayer::Noise(noise) if noise.opacity() == 0.04)
     }));
+    assert!(tuned_glass.backdrop_layers().iter().any(|layer| {
+        matches!(
+            layer,
+            scene::BackdropLayer::Luminosity(luminosity)
+                if luminosity.color() == scene::Color::rgb(80, 28, 30)
+        )
+    }));
     assert!(rendered.scene().texts().iter().any(|text| {
         text.value().contains("tint = \"#501c1e\"")
             || text.value().contains("noise-opacity = 0.040")
     }));
+    assert!(
+        rendered
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| { text.value().contains("luminosity-color = \"#501c1e\"") })
+    );
     assert!(rendered.scene().texts().iter().any(|text| {
         text.value() == "Noise opacity: 0.04" && text.wrap() == scene::TextWrap::None
     }));
