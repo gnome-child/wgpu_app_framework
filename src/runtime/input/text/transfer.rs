@@ -19,7 +19,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         )
         .with_tasks(task_sink)
         .with_caret_map(self.layout.text_caret_map());
-        let mut chain = self.responders.chain_for(&mut self.store, focus);
+        let mut chain = self
+            .responders
+            .chain_for(&mut self.store, focus.and_then(|focus| focus.target_id()));
 
         let response = self
             .registry

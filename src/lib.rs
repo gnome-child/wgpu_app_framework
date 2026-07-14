@@ -40,6 +40,7 @@ mod animation;
 mod color;
 mod composition;
 mod draft;
+mod identity;
 mod ime;
 mod layout;
 mod overlay;

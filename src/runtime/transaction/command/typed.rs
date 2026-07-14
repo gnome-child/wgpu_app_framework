@@ -1,7 +1,7 @@
 use super::super::super::{Runtime, services::Services};
 use crate::{
     command::{self, Command},
-    context as command_context, responder,
+    context as command_context,
     response::Response,
     session, state, window,
 };
@@ -32,7 +32,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let task_sink = self.tasks.sink();
         let scope = window
             .map(|window| self.session.command_scope(window, focus))
-            .unwrap_or_else(|| responder::Scope::focused(focus));
+            .unwrap_or_else(|| session::CommandScope::focused(focus));
         let mut cx = command_context::Context::with_clipboard_source(&mut self.clipboard, source)
             .with_tasks(task_sink)
             .with_caret_map(self.layout.text_caret_map());
@@ -45,7 +45,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         );
         let mut chain = self
             .responders
-            .chain_for(&mut self.store, focus)
+            .chain_for_scope(&mut self.store, scope.routing())
             .with_service(services);
         let mut response = self.registry.invoke::<C>(&mut chain, args, &mut cx);
         let command_changed = response.is_ok() && response.changed_state();

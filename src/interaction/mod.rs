@@ -1,5 +1,4 @@
 mod command_palette;
-mod id;
 mod menu;
 mod pointer;
 mod scroll;
@@ -7,8 +6,8 @@ mod selection;
 mod table;
 mod target;
 
+pub use crate::identity::Id;
 pub(crate) use command_palette::CommandPalette;
-pub use id::Id;
 pub use menu::Menu;
 pub(crate) use pointer::{Capture, ClickCount, Pointer, PressIntent};
 pub(crate) use scroll::Scroll;

@@ -1060,6 +1060,53 @@ fn responder_chain_uses_service_responders_not_framework_fallbacks() {
 }
 
 #[test]
+fn responder_scope_contains_routing_facts_not_ui_service_state() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let lib = std::fs::read_to_string(src.join("lib.rs")).expect("crate root should read");
+    let identity =
+        std::fs::read_to_string(src.join("identity.rs")).expect("identity source should read");
+    let interaction = std::fs::read_to_string(src.join("interaction/mod.rs"))
+        .expect("interaction source should read");
+    let responder_scope = std::fs::read_to_string(src.join("responder/scope.rs"))
+        .expect("responder scope source should read");
+    let command_scope = std::fs::read_to_string(src.join("session/command_scope.rs"))
+        .expect("session command scope source should read");
+
+    assert!(
+        identity.contains("pub struct Id(&'static str);")
+            && lib.contains("mod identity;")
+            && !lib.contains("pub mod identity;")
+            && interaction.contains("pub use crate::identity::Id;")
+            && !src.join("interaction/id.rs").exists(),
+        "one lower declaration must own authored identity while interaction retains the established public projection"
+    );
+    assert!(
+        responder_scope.contains("responder: Option<identity::Id>")
+            && responder_scope.contains("kind: Kind")
+            && !responder_scope.contains("focus: Option")
+            && !responder_scope.contains("table"),
+        "responder Scope must retain only route identity and traversal kind"
+    );
+    assert!(
+        command_scope.contains("routing: responder::Scope")
+            && command_scope.contains("focus: Option<Focus>")
+            && command_scope.contains("table: Option<identity::Id>")
+            && command_scope.contains("pub(crate) fn routing(self) -> responder::Scope")
+            && command_scope.contains("Focus::table_cell_identity"),
+        "session CommandScope must align the lower route with UI facts used to realize services"
+    );
+    assert_source_patterns_absent(
+        &src.join("responder"),
+        &[
+            "interaction::".to_owned(),
+            "session::".to_owned(),
+            "crate::table".to_owned(),
+        ],
+    );
+}
+
+#[test]
 fn fuzzy_matching_stays_with_palette_runtime() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");

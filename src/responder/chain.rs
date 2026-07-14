@@ -4,7 +4,7 @@ use super::{Kind, Responder};
 use crate::{
     command::{self, Command, Error, Result, State},
     context::Context,
-    interaction,
+    identity,
     notification::{Notification, Reaction},
     response::{AnyResponse, Response},
     state,
@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Route {
     Chain,
-    Responder(interaction::Id),
+    Responder(identity::Id),
     Service(&'static str),
 }
 
@@ -421,7 +421,7 @@ impl<'a, M: state::State> Chain<'a, M> {
 
     fn responder_claim_exact(
         &mut self,
-        identity: interaction::Id,
+        identity: identity::Id,
         command_type: TypeId,
         command_name: &'static str,
         args: &dyn Any,

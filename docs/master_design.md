@@ -175,6 +175,15 @@ floats are linear, and glyphon color bytes are sRGB. Platform-packed formats
 are named at their platform boundary; conversion happens once through `color`
 rather than being re-derived by native adapters.
 
+`identity`
+
+Owns the stable authored `Id` datum shared by reconciliation, interaction, and
+command routing. It is lower vocabulary, not an interaction state machine:
+it carries no focus, table, target, session, or responder policy.
+`interaction::Id` is the established public projection of that one declaration;
+the lower owner is private implementation housing rather than a second public
+spelling.
+
 `text`
 
 Owns document, buffer, edit, surface, layout, and unicode concepts. The text
@@ -988,13 +997,17 @@ instead of parallel ranks. An active table editor makes its text task frame the
 context root, so its Select All consumes before the table; the same cell at rest
 is inspected table-to-row-to-facet and the table consumes Select All.
 
-Context identity is not keyboard focus. A contextual scope may name an exact
-responder and an optional text focus independently; opening a context menu
-never manufactures focus to discover a target. The route that advertised an
-automatic responder or service action is also the route revalidated for
-invocation, so a disappearing local owner cannot fall through to a broader
-target. Sessions retain owner and anchor, never command availability; state is
-re-resolved while the menu remains open.
+Context identity is not keyboard focus. The lower `responder::Scope` contains
+only an optional responder identity and the routing kind. The higher
+`session::CommandScope` aligns that route with optional focus and table facts
+for runtime service realization. A contextual scope may therefore name an
+exact responder and an optional text focus independently; opening a context
+menu never manufactures focus to discover a target. Responder never imports
+session, interaction, or table state. The route that advertised an automatic
+responder or service action is also the route revalidated for invocation, so a
+disappearing local owner cannot fall through to a broader target. Sessions
+retain owner and anchor, never command availability; state is re-resolved while
+the menu remains open.
 
 Tables contribute their existing keyed selection domain, the focal provider
 row, and the exact cell facet to that path. Secondary-clicking an unselected row

@@ -227,7 +227,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             Some(window),
             scope,
         );
-        let path = responder::Path::single(scope);
+        let path = responder::Path::single(scope.routing());
         let mut chain = self
             .responders
             .chain_for_path(&mut self.store, &path, responder::Traversal::Task)

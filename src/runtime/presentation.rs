@@ -1,6 +1,6 @@
 use super::super::{
-    context as command_context, geometry, interaction, layout, responder, response, scene, session,
-    state, view, window,
+    context as command_context, geometry, interaction, layout, response, scene, session, state,
+    view, window,
 };
 use super::{CachedLayout, Runtime, services::Services, work};
 use crate::{animation, ime, text};
@@ -678,7 +678,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let command_scope = self
             .context_menu_scope(window)
             .or_else(|| self.session.command_palette_captured_scope(window))
-            .unwrap_or_else(|| responder::Scope::focused(command_focus));
+            .unwrap_or_else(|| session::CommandScope::focused(command_focus));
         let cx = command_context::Context::with_clipboard(&mut self.clipboard);
         {
             let services = Services::new(
@@ -690,13 +690,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             );
             let mut chain = self
                 .responders
-                .chain_for_scope(&mut self.store, command_scope)
+                .chain_for_scope(&mut self.store, command_scope.routing())
                 .with_service(services);
 
             view.resolve_commands(&self.registry, &mut chain, &cx);
         }
         if view.has_standard_menu_bar() {
-            let live_scope = responder::Scope::focused(command_focus);
+            let live_scope = session::CommandScope::focused(command_focus);
             let services = Services::new(
                 &mut self.timeline,
                 &mut self.session,
@@ -706,7 +706,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             );
             let mut chain = self
                 .responders
-                .chain_for_scope(&mut self.store, live_scope)
+                .chain_for_scope(&mut self.store, live_scope.routing())
                 .with_service(services);
             view.resolve_standard_menu_extensions(&self.registry, &mut chain, &cx);
             let population = self.registry.population();

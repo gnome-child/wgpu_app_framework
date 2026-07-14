@@ -2,8 +2,8 @@ use std::{any::TypeId, collections::HashSet};
 
 use super::{Runtime, services};
 use crate::{
-    command, context as command_context, geometry, interaction, responder, response, state, view,
-    window,
+    command, context as command_context, geometry, interaction, responder, response, session,
+    state, view, window,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -26,7 +26,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime) fn context_menu_scope(
         &self,
         window: window::Id,
-    ) -> Option<responder::Scope> {
+    ) -> Option<session::CommandScope> {
         let (path, _) = self.captured_context_path(window)?;
         let owner = path.last()?;
         Some(scope_for(owner))
@@ -100,7 +100,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     ) -> Vec<Vec<command::ResolvedAction>> {
         let scopes = path.iter().map(scope_for).collect::<Vec<_>>();
         let task_frame = scopes.len().saturating_sub(1);
-        let responder_path = responder::Path::new(scopes, task_frame);
+        let responder_path = responder::Path::new(
+            scopes.iter().copied().map(session::CommandScope::routing),
+            task_frame,
+        );
         let mut consumed = HashSet::<TypeId>::new();
         let mut sections = Vec::new();
 
@@ -175,7 +178,7 @@ fn context_traversal(
         .unwrap_or(responder::Traversal::Inspection)
 }
 
-fn scope_for(owner: &view::ContextOwner) -> responder::Scope {
+fn scope_for(owner: &view::ContextOwner) -> session::CommandScope {
     let responder = if owner.is_application() {
         None
     } else {
@@ -184,7 +187,7 @@ fn scope_for(owner: &view::ContextOwner) -> responder::Scope {
     let table = owner
         .table()
         .or_else(|| owner.cell().map(crate::table::Cell::table));
-    responder::Scope::contextual_table(responder, owner.focus(), table)
+    session::CommandScope::contextual(responder, owner.focus(), table)
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {

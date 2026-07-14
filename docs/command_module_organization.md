@@ -115,7 +115,10 @@ return `response::Response<C::Output>`.
 Responder builders describe the available command scopes: app, object,
 focused object, and framework services. Runtime builds a nearest-first chain
 from these responders plus services. Claim provenance is routing and diagnostic
-data; user-facing palette labels come from subject ancestry.
+data; user-facing palette labels come from subject ancestry. The lower
+`responder::Scope` carries only responder identity and routing kind. Session's
+private `CommandScope` pairs that route with focus and table facts when runtime
+must realize services; those UI facts do not enter responder vocabulary.
 
 `context::Context`
 

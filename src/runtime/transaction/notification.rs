@@ -20,7 +20,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         source: command_context::Source,
     ) -> notification::Reaction {
         let revision_before = self.revision();
-        let mut chain = self.responders.chain_for(&mut self.store, focus);
+        let mut chain = self
+            .responders
+            .chain_for(&mut self.store, focus.and_then(|focus| focus.target_id()));
         let reaction = chain.notify::<N>(&payload);
         let changed = reaction.changed_state();
         log::debug!(

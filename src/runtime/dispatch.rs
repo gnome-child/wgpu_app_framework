@@ -1,8 +1,8 @@
 use super::super::{
     command::{self, Command},
-    context as command_context, responder,
+    context as command_context,
     response::Response,
-    state, window,
+    session, state, window,
 };
 use super::{Runtime, services::Services};
 
@@ -16,12 +16,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             &mut self.clipboard,
             command_context::Source::Programmatic,
         );
+        let scope = session::CommandScope::focused(None);
         let services = Services::new(
             &mut self.timeline,
             &mut self.session,
             &mut self.composition,
             None,
-            responder::Scope::focused(None),
+            scope,
         );
         let mut chain = self
             .responders
@@ -57,7 +58,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         );
         let mut chain = self
             .responders
-            .chain_for(&mut self.store, focus)
+            .chain_for_scope(&mut self.store, scope.routing())
             .with_service(services);
 
         self.registry.state::<C>(&mut chain, trigger.args(), &cx)

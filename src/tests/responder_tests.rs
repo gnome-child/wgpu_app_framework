@@ -22,7 +22,7 @@ fn nearest_responder_target_wins() {
         .target::<Save>();
     responders.app().target::<Save>();
 
-    let mut chain = responders.chain_for(&mut store, Some(session::Focus::text("document")));
+    let mut chain = responders.chain_for(&mut store, Some(crate::identity::Id::new("document")));
     let trigger = command::Trigger::<Save>::command(());
 
     assert!(
@@ -60,7 +60,7 @@ fn hidden_target_falls_through_to_next_responder() {
         .target::<Save>();
     responders.app().target::<Save>();
 
-    let mut chain = responders.chain_for(&mut store, Some(session::Focus::text("passive")));
+    let mut chain = responders.chain_for(&mut store, Some(crate::identity::Id::new("passive")));
     let trigger = command::Trigger::<Save>::command(());
 
     assert_eq!(
@@ -101,7 +101,7 @@ fn disabled_target_claims_and_blocks_invocation() {
         .target::<Save>();
     responders.app().target::<Save>();
 
-    let mut chain = responders.chain_for(&mut store, Some(session::Focus::text("document")));
+    let mut chain = responders.chain_for(&mut store, Some(crate::identity::Id::new("document")));
     let trigger = command::Trigger::<Save>::command(());
 
     assert!(

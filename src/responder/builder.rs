@@ -3,8 +3,9 @@ use std::{marker::PhantomData, rc::Rc};
 use super::{Chain, Kind, Path, Responder, Scope, Traversal};
 use crate::{
     command::Command,
+    identity,
     notification::{self, Notification},
-    session, state,
+    state,
     target::{AnyTarget, Target},
 };
 
@@ -68,9 +69,9 @@ impl<M: state::State> Builder<M> {
     pub(crate) fn chain_for<'a>(
         &'a self,
         store: &'a mut state::Store<M>,
-        focus: Option<session::Focus>,
+        responder: Option<identity::Id>,
     ) -> Chain<'a, M> {
-        self.chain_for_scope(store, Scope::focused(focus))
+        self.chain_for_scope(store, Scope::focused(responder))
     }
 
     pub(crate) fn chain_for_scope<'a>(
@@ -116,10 +117,7 @@ impl<M: state::State> Builder<M> {
         Chain::nearest_first(store, responders)
     }
 
-    pub(crate) fn target_types_for(
-        &self,
-        identity: crate::interaction::Id,
-    ) -> Vec<std::any::TypeId> {
+    pub(crate) fn target_types_for(&self, identity: identity::Id) -> Vec<std::any::TypeId> {
         self.specs
             .iter()
             .find(|responder| responder.identity() == identity)
@@ -133,8 +131,8 @@ impl<M: state::State> Builder<M> {
             .unwrap_or_default()
     }
 
-    pub(crate) fn app_identity() -> crate::interaction::Id {
-        crate::interaction::Id::new("app")
+    pub(crate) fn app_identity() -> identity::Id {
+        identity::Id::new("app")
     }
 }
 

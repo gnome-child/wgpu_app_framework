@@ -7,7 +7,7 @@ use crate::{
     command::{self, Error},
     context as command_context, responder,
     response::AnyResponse,
-    state, timeline,
+    session, state, timeline,
 };
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -38,7 +38,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let scope = window
             .and_then(|window| self.context_menu_scope(window))
             .or_else(|| window.map(|window| self.session.command_scope(window, focus)))
-            .unwrap_or_else(|| responder::Scope::focused(focus));
+            .unwrap_or_else(|| session::CommandScope::focused(focus));
         let mut cx = command_context::Context::with_clipboard_source(&mut self.clipboard, source)
             .with_tasks(task_sink)
             .with_caret_map(self.layout.text_caret_map());
@@ -51,7 +51,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         );
         let mut chain = self
             .responders
-            .chain_for_scope(&mut self.store, scope)
+            .chain_for_scope(&mut self.store, scope.routing())
             .with_service(services);
         let mut response = match invoke(&self.registry, &mut chain, &mut cx) {
             Ok(Some(response)) => response,

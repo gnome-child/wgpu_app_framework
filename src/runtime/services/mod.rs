@@ -19,7 +19,7 @@ pub(super) struct Services<'a, M: state::State> {
     session: &'a mut session::Session,
     composition: &'a mut composition::Store,
     window: Option<window::Id>,
-    scope: responder::Scope,
+    scope: session::CommandScope,
 }
 
 impl<'a, M: state::State> Services<'a, M> {
@@ -28,7 +28,7 @@ impl<'a, M: state::State> Services<'a, M> {
         session: &'a mut session::Session,
         composition: &'a mut composition::Store,
         window: Option<window::Id>,
-        scope: responder::Scope,
+        scope: session::CommandScope,
     ) -> Self {
         Self {
             timeline,

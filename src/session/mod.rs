@@ -1,3 +1,4 @@
+mod command_scope;
 mod focus;
 mod interaction;
 mod request;
@@ -13,6 +14,7 @@ pub use service::{CloseWindow, OpenCommandPalette};
 pub use snapshot::Snapshot;
 pub use window::{Window, WindowSnapshot};
 
+pub(crate) use command_scope::CommandScope;
 pub(crate) use service::{Service, register};
 
 use super::{draft, pointer, window as app_window};

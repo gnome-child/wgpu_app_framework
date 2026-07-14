@@ -60,14 +60,14 @@ impl Path {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{interaction, responder};
+    use crate::{identity, responder};
 
     #[test]
     fn one_path_supports_task_and_inspection_questions() {
-        let table = responder::Scope::contextual(Some(interaction::Id::new("table")), None);
-        let row = responder::Scope::contextual(Some(interaction::Id::new("row")), None);
-        let facet = responder::Scope::contextual(Some(interaction::Id::new("facet")), None);
-        let detail = responder::Scope::contextual(Some(interaction::Id::new("detail")), None);
+        let table = responder::Scope::contextual(Some(identity::Id::new("table")));
+        let row = responder::Scope::contextual(Some(identity::Id::new("row")));
+        let facet = responder::Scope::contextual(Some(identity::Id::new("facet")));
+        let detail = responder::Scope::contextual(Some(identity::Id::new("detail")));
         let path = Path::new([table, row, facet, detail], 2);
 
         assert_eq!(
