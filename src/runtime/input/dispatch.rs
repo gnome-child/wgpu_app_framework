@@ -32,7 +32,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 if let Some(focus) = active_text_focus {
                     self.session.clear_text_draft(window, focus);
                     self.session
-                        .request_invalidation(window, response::Invalidation::Rebuild);
+                        .request_invalidation(window, response::effect::Invalidation::Rebuild);
                     return Ok(self.window_outcome(window, false, response::Effect::Rebuild));
                 }
 

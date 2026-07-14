@@ -6,7 +6,7 @@ pub struct Presentation {
     window: window::Id,
     revision: state::Revision,
     epoch: window::PresentationEpoch,
-    invalidation: response::Invalidation,
+    invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     scene: Scene,
 }
@@ -16,7 +16,7 @@ impl Presentation {
         window: window::Id,
         revision: state::Revision,
         epoch: window::PresentationEpoch,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
         layout: layout::Layout,
         scene: Scene,
     ) -> Self {
@@ -34,7 +34,7 @@ impl Presentation {
         window: window::Id,
         revision: state::Revision,
         epoch: window::PresentationEpoch,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
         layout: layout::Layout,
         scene: Scene,
     ) -> Self {
@@ -53,7 +53,7 @@ impl Presentation {
         self.epoch
     }
 
-    pub(crate) fn invalidation(&self) -> response::Invalidation {
+    pub(crate) fn invalidation(&self) -> response::effect::Invalidation {
         self.invalidation
     }
 

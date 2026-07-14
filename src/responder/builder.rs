@@ -50,13 +50,11 @@ impl<M: state::State> Builder<M> {
     where
         T: 'static,
     {
+        let index = self.specs.len();
         self.specs.push(Responder::new(kind, name));
 
         Object {
-            spec: self
-                .specs
-                .last_mut()
-                .expect("a responder spec was just pushed"),
+            spec: &mut self.specs[index],
             selector: Rc::new(selector),
             _target: PhantomData,
         }

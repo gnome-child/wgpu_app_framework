@@ -120,7 +120,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .is_some_and(|base| self.session.activate_text_draft(window, focus, base));
             if activated || focused {
                 self.session
-                    .request_invalidation(window, response::Invalidation::Rebuild);
+                    .request_invalidation(window, response::effect::Invalidation::Rebuild);
             }
             return Some(input::Outcome::handled(
                 false,
@@ -338,7 +338,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             self.session.reveal_active_descendant(window, target);
         }
         self.session
-            .request_invalidation(window, response::Invalidation::Rebuild);
+            .request_invalidation(window, response::effect::Invalidation::Rebuild);
     }
 
     fn leave_table(

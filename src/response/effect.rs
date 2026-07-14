@@ -25,10 +25,14 @@ impl Effect {
         collect_effects(self, &mut effects);
         collect_effects(next, &mut effects);
 
-        match effects.len() {
-            0 => Self::None,
-            1 => effects.pop().expect("length was checked"),
-            _ => Self::Batch(effects),
+        let Some(last) = effects.pop() else {
+            return Self::None;
+        };
+        if effects.is_empty() {
+            last
+        } else {
+            effects.push(last);
+            Self::Batch(effects)
         }
     }
 
@@ -108,6 +112,19 @@ mod tests {
                 .then(Effect::Layout)
                 .invalidation(),
             Some(Invalidation::Rebuild)
+        );
+    }
+
+    #[test]
+    fn effect_composition_collapses_cardinality_without_reordering() {
+        assert_eq!(Effect::None.then(Effect::None), Effect::None);
+        assert_eq!(
+            Effect::None.then(Effect::OpenFileDialog),
+            Effect::OpenFileDialog
+        );
+        assert_eq!(
+            Effect::OpenFileDialog.then(Effect::SaveFileDialog),
+            Effect::Batch(vec![Effect::OpenFileDialog, Effect::SaveFileDialog])
         );
     }
 

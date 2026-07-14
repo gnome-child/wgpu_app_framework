@@ -390,7 +390,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     .unwrap_or(false);
                 if selection_changed {
                     self.session
-                        .request_invalidation(window, response::Invalidation::Layout);
+                        .request_invalidation(window, response::effect::Invalidation::Layout);
                     return Ok(
                         transition.then(input::Outcome::handled(false, response::Effect::Layout))
                     );
@@ -435,7 +435,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 .unwrap_or_else(input::Outcome::ignored);
             if selection_changed {
                 self.session
-                    .request_invalidation(window, response::Invalidation::Layout);
+                    .request_invalidation(window, response::effect::Invalidation::Layout);
             }
             let effect = outcome.effect().clone().then(response::Effect::Layout);
             outcome = input::Outcome::handled(outcome.changed_state(), effect);
@@ -499,7 +499,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         if selection_changed {
             self.session
-                .request_invalidation(window, response::Invalidation::Layout);
+                .request_invalidation(window, response::effect::Invalidation::Layout);
             outcome = input::Outcome::handled(
                 outcome.changed_state(),
                 outcome.effect().clone().then(response::Effect::Layout),
@@ -736,7 +736,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         self.session
-            .request_invalidation(window, response::Invalidation::Rebuild);
+            .request_invalidation(window, response::effect::Invalidation::Rebuild);
         input::Outcome::handled(
             outcome.changed_state(),
             outcome.effect().clone().then(response::Effect::Rebuild),

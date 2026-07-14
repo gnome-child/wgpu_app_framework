@@ -328,7 +328,7 @@ fn slider_hover_animates_track_transform_without_tint_or_layout_shift() {
         .expect("hovering the slider should be handled");
     assert_eq!(
         moved.effect().invalidation(),
-        Some(response::Invalidation::Paint)
+        Some(response::effect::Invalidation::Paint)
     );
 
     let hovered = app

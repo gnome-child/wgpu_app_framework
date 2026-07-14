@@ -335,6 +335,36 @@ fn transaction_history_plan_owns_automatic_snapshot_presence() {
 }
 
 #[test]
+fn command_collections_consume_cardinality_and_keep_support_namespaced() {
+    let responder = include_str!("../responder/mod.rs");
+    let builder = include_str!("../responder/builder.rs");
+    let response = include_str!("../response/mod.rs");
+    let effect = include_str!("../response/effect.rs");
+
+    assert!(
+        responder.contains("pub mod builder;")
+            && responder.contains("pub use builder::Builder;")
+            && !responder.contains("pub use builder::Object;")
+    );
+    assert!(
+        builder.contains("let index = self.specs.len();")
+            && builder.contains("spec: &mut self.specs[index]")
+            && !builder.contains("a responder spec was just pushed")
+    );
+
+    assert!(
+        response.contains("pub mod effect;")
+            && response.contains("pub use effect::Effect;")
+            && !response.contains("Invalidation")
+    );
+    assert!(
+        effect.contains("let Some(last) = effects.pop() else")
+            && effect.contains("effects.push(last);")
+            && !effect.contains("length was checked")
+    );
+}
+
+#[test]
 fn table_track_species_owns_column_only_resize_facts() {
     let table = include_str!("../layout/table.rs");
     let track = table

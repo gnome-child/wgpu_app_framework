@@ -6,7 +6,7 @@ use super::{FileDialog, Focus, Session, Snapshot};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub(super) facts: app_window::Facts,
-    pub(super) invalidation: Option<response::Invalidation>,
+    pub(super) invalidation: Option<response::effect::Invalidation>,
     pub(super) projected_revision: Option<state::Revision>,
     pub(super) desired_presentation_epoch: app_window::PresentationEpoch,
     pub(super) acknowledged_presentation_epoch: Option<app_window::PresentationEpoch>,
@@ -37,7 +37,7 @@ impl Window {
     pub(super) fn new(facts: app_window::Facts, draft_limit: usize) -> Self {
         Self {
             facts,
-            invalidation: Some(response::Invalidation::Rebuild),
+            invalidation: Some(response::effect::Invalidation::Rebuild),
             projected_revision: None,
             desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             acknowledged_presentation_epoch: None,
@@ -58,7 +58,7 @@ impl Window {
             .restore(snapshot.table_widths, snapshot.table_active_columns);
         Self {
             facts: snapshot.facts,
-            invalidation: Some(response::Invalidation::Rebuild),
+            invalidation: Some(response::effect::Invalidation::Rebuild),
             projected_revision: None,
             desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             acknowledged_presentation_epoch: None,
@@ -99,7 +99,7 @@ impl Window {
         self.invalidation.is_some()
     }
 
-    pub(crate) fn invalidation(&self) -> Option<response::Invalidation> {
+    pub(crate) fn invalidation(&self) -> Option<response::effect::Invalidation> {
         self.invalidation
     }
 
@@ -257,7 +257,7 @@ impl Session {
     }
 
     pub fn request_redraw(&mut self, id: app_window::Id) -> bool {
-        self.request_invalidation(id, response::Invalidation::Rebuild)
+        self.request_invalidation(id, response::effect::Invalidation::Rebuild)
     }
 
     pub fn report_feedback(
@@ -301,7 +301,7 @@ impl Session {
     pub(crate) fn request_invalidation(
         &mut self,
         id: app_window::Id,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;
@@ -316,7 +316,7 @@ impl Session {
     pub(crate) fn retry_invalidation(
         &mut self,
         id: app_window::Id,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;

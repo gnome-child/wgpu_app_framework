@@ -162,7 +162,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         epoch: window::PresentationEpoch,
-        invalidation: super::super::response::Invalidation,
+        invalidation: super::super::response::effect::Invalidation,
         layout: &super::super::layout::Layout,
         report: super::super::diagnostics::RenderReport,
     ) -> bool {

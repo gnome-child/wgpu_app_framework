@@ -80,7 +80,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     ) {
         if changed_state {
             self.session
-                .request_invalidation(window, response::Invalidation::Rebuild);
+                .request_invalidation(window, response::effect::Invalidation::Rebuild);
         }
 
         self.apply_window_effect(window, effect);
@@ -107,7 +107,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 if self.session.close_menu(window) {
                     log::debug!("closed floating panel for window {window:?}");
                     self.session
-                        .request_invalidation(window, response::Invalidation::Rebuild);
+                        .request_invalidation(window, response::effect::Invalidation::Rebuild);
                 }
             }
             response::Effect::Batch(effects) => {
@@ -126,7 +126,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     ) {
         if binding.source() == command_context::Source::Menu && self.session.close_menu(window) {
             self.session
-                .request_invalidation(window, response::Invalidation::Rebuild);
+                .request_invalidation(window, response::effect::Invalidation::Rebuild);
         }
     }
 }

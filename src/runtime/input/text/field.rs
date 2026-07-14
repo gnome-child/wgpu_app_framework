@@ -92,7 +92,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             && self.session.reset_command_palette_selection(window)
         {
             self.session
-                .request_invalidation(window, response::Invalidation::Rebuild);
+                .request_invalidation(window, response::effect::Invalidation::Rebuild);
         }
 
         let outcome =

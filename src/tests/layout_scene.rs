@@ -3015,7 +3015,7 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         .expect("invalid numeric submit should be handled as rejection");
     assert_eq!(
         rejected_outcome.effect().invalidation(),
-        Some(response::Invalidation::Rebuild),
+        Some(response::effect::Invalidation::Rebuild),
         "creating an anchored panel must rebuild immediately instead of waiting for unrelated input"
     );
     assert_eq!(app.state().records[0].count, 42);
@@ -10832,7 +10832,7 @@ fn menu_popup_rows_paint_hover_tint_from_pointer_projection() {
     assert!(moved.is_handled());
     assert_eq!(
         moved.effect().invalidation(),
-        Some(response::Invalidation::Paint)
+        Some(response::effect::Invalidation::Paint)
     );
     assert!(moved.effect().contains_invalidation());
 

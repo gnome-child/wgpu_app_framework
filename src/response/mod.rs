@@ -1,7 +1,7 @@
 mod any;
-mod effect;
+pub mod effect;
 
-pub use effect::{Effect, Invalidation};
+pub use effect::Effect;
 
 pub(crate) use any::AnyResponse;
 

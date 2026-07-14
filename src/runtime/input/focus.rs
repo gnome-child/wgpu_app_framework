@@ -12,7 +12,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let changed = self.session.focus(window, focus);
         if changed {
             self.session
-                .request_invalidation(window, response::Invalidation::Layout);
+                .request_invalidation(window, response::effect::Invalidation::Layout);
         }
 
         changed
@@ -22,7 +22,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let changed = self.session.clear_focus(window);
         if changed {
             self.session
-                .request_invalidation(window, response::Invalidation::Layout);
+                .request_invalidation(window, response::effect::Invalidation::Layout);
         }
 
         changed

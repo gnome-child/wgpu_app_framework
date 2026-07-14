@@ -11,14 +11,14 @@ const MAX_VIRTUAL_REFINEMENT_PASSES: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameNeed {
     Idle,
-    Invalidated(response::Invalidation),
+    Invalidated(response::effect::Invalidation),
 }
 
 struct PreparedFrame {
     window: window::Id,
     revision: state::Revision,
     epoch: window::PresentationEpoch,
-    invalidation: response::Invalidation,
+    invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     scene: scene::Scene,
     layers: Vec<crate::overlay::Layer>,
@@ -34,14 +34,14 @@ struct RealizedFrame {
 }
 
 impl FrameNeed {
-    fn immediate_invalidation(self) -> response::Invalidation {
+    fn immediate_invalidation(self) -> response::effect::Invalidation {
         match self {
-            Self::Idle => response::Invalidation::Paint,
+            Self::Idle => response::effect::Invalidation::Paint,
             Self::Invalidated(invalidation) => invalidation,
         }
     }
 
-    fn pending_invalidation(self) -> Option<response::Invalidation> {
+    fn pending_invalidation(self) -> Option<response::effect::Invalidation> {
         match self {
             Self::Idle => None,
             Self::Invalidated(invalidation) => Some(invalidation),
@@ -65,7 +65,7 @@ impl PreparedFrame {
                         self.capabilities,
                         self.native_popup_dark,
                         &mut popup_presentations,
-                        self.invalidation == response::Invalidation::Paint,
+                        self.invalidation == response::effect::Invalidation::Paint,
                     );
                 }
                 crate::overlay::LayerKind::Ghost => {
@@ -246,9 +246,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             self.session.request_invalidation(
                 window,
                 if hover_tip_due {
-                    response::Invalidation::Rebuild
+                    response::effect::Invalidation::Rebuild
                 } else {
-                    response::Invalidation::Paint
+                    response::effect::Invalidation::Paint
                 },
             );
         }
@@ -265,7 +265,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             || self.composition.get(window).is_none();
 
         if stale {
-            Some(FrameNeed::Invalidated(response::Invalidation::Rebuild))
+            Some(FrameNeed::Invalidated(
+                response::effect::Invalidation::Rebuild,
+            ))
         } else {
             Some(
                 window_state
@@ -486,10 +488,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         theme: &crate::theme::Theme,
         frame: animation::Frame,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
         popup_surfaces: layout::PopupSurfaces,
     ) -> Option<layout::Layout> {
-        if invalidation == response::Invalidation::Paint
+        if invalidation == response::effect::Invalidation::Paint
             && let Some(layout) = self.cached_layout(window, size, theme, popup_surfaces)
         {
             if self.apply_active_descendant_reveals(window, &layout, theme) {
@@ -900,16 +902,16 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
         size: geometry::Size,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
         theme: &crate::theme::Theme,
         now: Instant,
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
         let frame_started_at = Instant::now();
         let revision = self.revision();
-        let rebuilt = invalidation == response::Invalidation::Rebuild;
+        let rebuilt = invalidation == response::effect::Invalidation::Rebuild;
         let rebuild_started_at = Instant::now();
-        if invalidation == response::Invalidation::Rebuild {
+        if invalidation == response::effect::Invalidation::Rebuild {
             self.present(window)?;
         }
         let rebuild_elapsed = rebuild_started_at.elapsed();
@@ -997,7 +999,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
         size: geometry::Size,
-        invalidation: response::Invalidation,
+        invalidation: response::effect::Invalidation,
         theme: &crate::theme::Theme,
         now: Instant,
     ) -> Option<PreparedFrame> {

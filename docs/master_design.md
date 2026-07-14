@@ -1488,6 +1488,13 @@ notification." A responder chain says "these are the current places where a
 request may be answered or a fact may be delivered." They should stay typed at
 the edges and erase only inside routing machinery.
 
+Responder registration is ordered collection admission. A builder records the
+pre-insertion index, pushes exactly one responder, and lends that admitted slot
+to its fluent object builder; it does not recover the slot through an optional
+collection query. `responder::Builder` is the builder module's sole parent
+projection. Its supporting fluent type remains `responder::builder::Object`
+and is not flattened beside the central type.
+
 `context`
 
 Owns the command invocation environment: its source and the narrow
@@ -1507,6 +1514,12 @@ Invalidation effects merge by maximum depth: `Paint < Layout < Rebuild`.
 `Paint` changes pixels only, `Layout` recomposes frames from retained
 composition, and `Rebuild` rebuilds/projects the view and reconciles
 composition.
+Effect normalization consumes its resulting collection cardinality directly:
+empty becomes `None`, one element becomes that effect, and multiple elements
+retain their normalized order and allocation as a batch. It never re-queries a
+checked length through an optional pop. `response::Effect` is the effect
+module's sole parent projection; supporting invalidation depth remains
+`response::effect::Invalidation`.
 
 `timeline`
 
