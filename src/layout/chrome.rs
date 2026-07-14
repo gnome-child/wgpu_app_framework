@@ -7,7 +7,7 @@ pub(crate) struct Chrome {
     target: interaction::Target,
     scroll_target: interaction::Target,
     scope: ViewportScope,
-    kind: Kind,
+    scrollbar: Scrollbar,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,19 +15,14 @@ struct ViewportScope {
     clips: Vec<Clip>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Kind {
-    Scrollbar(Scrollbar),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Axis {
+enum Axis {
     Horizontal,
     Vertical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Scrollbar {
+struct Scrollbar {
     axis: Axis,
     track: Rect,
     thumb: Rect,
@@ -54,46 +49,50 @@ impl Chrome {
         &self.scroll_target
     }
 
-    pub(crate) fn kind(&self) -> &Kind {
-        &self.kind
-    }
-
     pub(crate) fn clips(&self) -> &[Clip] {
         &self.scope.clips
     }
 
     pub(crate) fn accepts_hit(&self, point: super::super::geometry::Point) -> bool {
-        self.scope.contains(point)
-            && match &self.kind {
-                Kind::Scrollbar(scrollbar) => scrollbar.track.contains(point),
-            }
+        self.scope.contains(point) && self.scrollbar.track.contains(point)
     }
 
     pub(crate) fn scroll_offset_at(
         &self,
         point: super::super::geometry::Point,
     ) -> interaction::ScrollOffset {
-        match self.kind {
-            Kind::Scrollbar(scrollbar) => scrollbar.scroll_offset_at(point),
-        }
+        self.scrollbar.scroll_offset_at(point)
+    }
+
+    pub(crate) fn resolved_scroll(&self) -> interaction::ScrollOffset {
+        self.scrollbar.viewport.resolved_scroll()
+    }
+
+    pub(crate) fn track_with_thickness(&self, thickness: i32) -> Rect {
+        self.scrollbar.track_with_thickness(thickness)
+    }
+
+    pub(crate) fn thumb_with_thickness(&self, thickness: i32) -> Rect {
+        self.scrollbar.thumb_with_thickness(thickness)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn viewport(&self) -> Viewport {
+        self.scrollbar.viewport
+    }
+
+    #[cfg(test)]
+    pub(crate) fn track(&self) -> Rect {
+        self.scrollbar.track
     }
 }
 
 impl Scrollbar {
-    #[cfg(test)]
-    pub(crate) fn track(self) -> Rect {
-        self.track
-    }
-
-    pub(crate) fn viewport(self) -> Viewport {
-        self.viewport
-    }
-
-    pub(crate) fn track_with_thickness(self, thickness: i32) -> Rect {
+    fn track_with_thickness(self, thickness: i32) -> Rect {
         resize_cross_axis(self.track, self.axis, thickness.max(1))
     }
 
-    pub(crate) fn thumb_with_thickness(self, thickness: i32) -> Rect {
+    fn thumb_with_thickness(self, thickness: i32) -> Rect {
         resize_cross_axis(self.thumb, self.axis, thickness.max(1))
     }
 
@@ -145,7 +144,7 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
             target: scrollbar_target(frame, Axis::Vertical),
             scroll_target: scroll_target.clone(),
             scope: scope.clone(),
-            kind: Kind::Scrollbar(scrollbar),
+            scrollbar,
         });
     }
     if viewport.max_scroll().x() > 0
@@ -156,7 +155,7 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
             target: scrollbar_target(frame, Axis::Horizontal),
             scroll_target,
             scope,
-            kind: Kind::Scrollbar(scrollbar),
+            scrollbar,
         });
     }
 

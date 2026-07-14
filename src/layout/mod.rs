@@ -22,7 +22,7 @@ mod text;
 mod typography;
 mod viewport;
 
-pub(crate) use chrome::{Chrome, Kind as ChromeKind, Scrollbar};
+pub(crate) use chrome::Chrome;
 pub(crate) use control::{
     choice_label_rect, choice_mark_rect, control_content_extent, menu_row_parts, palette_row_parts,
     slider_label_rect, slider_thumb_rect, slider_track_rect, table_choice_label_rect,

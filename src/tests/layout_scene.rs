@@ -1356,13 +1356,13 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     let viewport = horizontal.viewport().expect("horizontal viewport");
     assert_eq!(viewport.content().width(), 310);
     assert_eq!(viewport.max_scroll(), interaction::ScrollOffset::new(70, 0));
-    assert!(initial.layout().chrome().iter().any(|chrome| {
-        matches!(
-            chrome.kind(),
-            layout::ChromeKind::Scrollbar(scrollbar)
-                if scrollbar.viewport() == viewport
-        )
-    }));
+    assert!(
+        initial
+            .layout()
+            .chrome()
+            .iter()
+            .any(|chrome| chrome.viewport() == viewport)
+    );
     assert!(
         initial
             .scene()
@@ -1389,12 +1389,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
             .layout()
             .chrome()
             .iter()
-            .find_map(|chrome| match chrome.kind() {
-                layout::ChromeKind::Scrollbar(scrollbar) if scrollbar.viewport() == viewport => {
-                    Some(scrollbar.track())
-                }
-                layout::ChromeKind::Scrollbar(_) => None,
-            })
+            .find_map(|chrome| (chrome.viewport() == viewport).then(|| chrome.track()))
             .expect("table body should project a vertical scrollbar");
         (viewport, track)
     };
@@ -1947,12 +1942,7 @@ fn table_gutter_scrollbar_and_body_clip_share_visible_viewport_geometry() {
     let track = layout
         .chrome()
         .iter()
-        .find_map(|chrome| match chrome.kind() {
-            layout::ChromeKind::Scrollbar(scrollbar) if scrollbar.viewport() == viewport => {
-                Some(scrollbar.track())
-            }
-            layout::ChromeKind::Scrollbar(_) => None,
-        })
+        .find_map(|chrome| (chrome.viewport() == viewport).then(|| chrome.track()))
         .expect("table body gutter scrollbar");
 
     assert_eq!(
@@ -6028,9 +6018,7 @@ fn late_scrollbar_chrome_retains_its_owner_viewport_clip_for_paint_and_hit() {
         .iter()
         .find(|chrome| chrome.scroll_target() == area_target)
         .expect("text area should project scrollbar chrome");
-    let track = match chrome.kind() {
-        layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
-    };
+    let track = chrome.track();
     assert!(
         track.bottom() > clip.bottom(),
         "text-area track {track:?} should extend below inherited clip {clip:?}"
@@ -6408,9 +6396,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .layout()
         .chrome()
         .iter()
-        .map(|chrome| match chrome.kind() {
-            layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
-        })
+        .map(layout::Chrome::track)
         .next()
         .expect("scrollbar chrome should be projected");
     let press = geometry::Point::new(track.x().saturating_add(track.width() / 2), track.y() + 1);
@@ -8428,9 +8414,7 @@ fn scrollbar_drag_does_not_dismiss_owning_palette() {
         .chrome()
         .iter()
         .find(|chrome| chrome.scroll_target() == &target)
-        .map(|chrome| match chrome.kind() {
-            layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
-        })
+        .map(layout::Chrome::track)
         .expect("palette results should project scrollbar chrome");
     let press = frame_point_at(track);
     let drag = geometry::Point::new(
@@ -12356,9 +12340,7 @@ fn first_scrollbar_track(layout: &layout::Layout) -> geometry::Rect {
     layout
         .chrome()
         .iter()
-        .map(|chrome| match chrome.kind() {
-            layout::ChromeKind::Scrollbar(scrollbar) => scrollbar.track(),
-        })
+        .map(layout::Chrome::track)
         .next()
         .expect("scrollbar chrome should be projected")
 }

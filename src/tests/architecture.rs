@@ -434,6 +434,21 @@ fn visual_scalar_species_separates_moving_and_resting_state() {
 }
 
 #[test]
+fn layout_chrome_parent_projects_only_its_namesake_type() {
+    let layout = include_str!("../layout/mod.rs");
+    let chrome = include_str!("../layout/chrome.rs");
+
+    assert!(
+        layout.contains("mod chrome;")
+            && layout.contains("pub(crate) use chrome::Chrome;")
+            && !layout.contains("ChromeKind")
+            && !layout.contains("use chrome::{")
+            && !chrome.contains("enum Kind")
+            && chrome.contains("scrollbar: Scrollbar,")
+    );
+}
+
+#[test]
 fn hover_tip_lifecycle_is_idle_waiting_or_visible() {
     let pointer = include_str!("../interaction/pointer.rs");
     let lifecycle = pointer

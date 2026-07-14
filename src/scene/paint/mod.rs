@@ -472,16 +472,11 @@ fn project_chrome(
     visuals: &Visuals,
     late_chrome: &mut Vec<viewport_chrome::Projection>,
 ) {
-    match chrome.kind() {
-        layout::ChromeKind::Scrollbar(scrollbar) => {
-            project_scrollbar(chrome, *scrollbar, theme, visuals, late_chrome);
-        }
-    }
+    project_scrollbar(chrome, theme, visuals, late_chrome);
 }
 
 fn project_scrollbar(
     chrome: &layout::Chrome,
-    scrollbar: layout::Scrollbar,
     theme: &Theme,
     visuals: &Visuals,
     late_chrome: &mut Vec<viewport_chrome::Projection>,
@@ -505,8 +500,8 @@ fn project_scrollbar(
     let thickness = match visual.thickness_motion() {
         super::Motion::Moving | super::Motion::Resting => visual.thickness().max(base_thickness),
     };
-    let track = scrollbar.track_with_thickness(thickness);
-    let thumb = scrollbar.thumb_with_thickness(thickness);
+    let track = chrome.track_with_thickness(thickness);
+    let thumb = chrome.thumb_with_thickness(thickness);
     let appearance = theme_scrollbar.appearance;
     let scope = viewport_chrome::Scope::new(
         chrome
