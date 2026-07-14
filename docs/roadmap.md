@@ -6,6 +6,18 @@ is next.
 
 ## In flight
 
+34. **One Resolved Press — Cursor Truth From Press Admission** — make the
+    platform cursor a projection of the same runtime-owned prospective primary
+    press that pointer execution consumes. Presented geometry, retained pointer
+    position/surface/modifiers, capture, task focus, selectable-row focality,
+    and deterministic member admission resolve once through private
+    `ResolvedPress` / `PressAdmission`; capture preserves that resolved cursor
+    meaning. Selection-only rows and selection-modified gestures must not
+    advertise text participation, including while the pointer is stationary.
+    No application cursor metadata, hover-time validation, speculative cursor
+    vocabulary, or table-local exception. Ledger:
+    `docs/audits/2026-07-13-one-resolved-press-campaign.md`.
+
 ## Specced and ready
 
 ## Pending manual verification
