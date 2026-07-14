@@ -1613,6 +1613,74 @@ Status: **complete; domain fact retained at its owner**. Correction `947eb32b`
     target semantics before deciding whether the top-level module has one owner
     or split responsibilities.
 
+### R3-04 — keyboard facts versus runtime input ingress
+
+Status: **complete; input responsibility split and reclassified**. Correction
+`61162f20` (`Separate keyboard facts from runtime input`).
+
+1. **Question and trace.** The entire public `input` module was traced through
+   native event translation, host and shell events, runtime dispatch and view
+   routing, session pointer state, interaction targets and menus, focus,
+   scrolling, shortcuts, keymap profiles, text selection/mutation/preedit/drop,
+   file-dialog outcomes, command registry matching, and public tests/examples.
+   The trace separated raw key/modifier facts from runtime ingress, handling
+   outcomes, and compound payloads.
+2. **Current and proposed graph.** The provisional command placement was false:
+   `Input` is the event sum accepted by `Runtime::handle_input`, and therefore
+   legitimately names UI focus/targets plus command and text operations. Only
+   `Key` and `Modifiers` were independently consumed below runtime by command,
+   keymap, and interaction state. Keeping them under input forced command to
+   depend upward; moving all input into UI would merely reverse the same leak.
+   The admitted graph places dependency-free keyboard facts in foundation and
+   the remaining input module in runtime.
+3. **Admission.** Keyboard facts have independent command, UI, runtime, host,
+   and platform consumers and no higher reason for existence, but do not earn a
+   standalone virtual crate; they join foundation responsibility. Runtime input
+   has one sentence of ownership—ingress plus its outcome/payload values—and
+   its dependencies match the executor that consumes it. No callback, erased
+   service, or visibility widening is required.
+4. **Naming and API ruling.** `Key` and `Modifiers` keep their simple canonical
+   declaration names. Private `keyboard` housing is not a second public API;
+   `input::Key` and `input::Modifiers` remain the exact established projections.
+   The old `input/key.rs` path is tombstoned, and no compound compatibility name
+   or alias survives.
+5. **Reduction and rewire.** Command registration/spec matching, keymap policy,
+   interaction pointer state, and session pointer projection now consume the
+   lower declarations directly. Input publicly projects them while retaining
+   `Input`, `Outcome`, and `TextDrop`. The provisional map moves input from
+   command to runtime and adds keyboard to foundation. Every higher host,
+   platform, runtime, and application call site retains its public spelling.
+6. **Behavior and economics.** Key normalization, all platform profiles,
+   standard and authored shortcuts, modifier propagation through parent and
+   popup events, text motion/edit routing, focus/cancel, pointer gestures,
+   scrolling, IME, drops, and file-dialog results are unchanged. The same Copy
+   enums/struct cross the same runtime paths; no allocation, renderer,
+   presentation-clock, or frame behavior changed.
+7. **Proof and ratchet.** The new architecture witness requires one private
+   lower declaration, the exact input projections, extinction of the former
+   declaration path, retention of runtime-ingress variants, and absence of
+   `input::Key`/`input::Modifiers` dependencies in command, keymap, interaction,
+   and session pointer sources. Focused keymap, command, text-input, and
+   host/shell suites passed.
+8. **Full verification.** The library discovered 1,084 tests: 1,074 passed, 10
+   standing ignores, and 0 failed. All targets and all five examples compiled
+   without warnings; all census parser witnesses, formatting, diff checks, and
+   protected example state passed.
+9. **Gauge delta from R3-03.** Top-level modules rise 46 -> 47 and production
+   edges 324 -> 325 as the one false input owner becomes truthful shared
+   keyboard dependencies; test-only edges remain 100. Slot edges fall 44 -> 43
+   and forbidden edges fall 7 -> 5, retiring both `input -> interaction/session`
+   crossings without creating a command-to-runtime replacement. External
+   questions, SCCs, visibility, and cross-slot test edges remain 1, 1, 1,764,
+   and 80. The witness raises source-root mentions 110 -> 111 and filesystem
+   reads 330 -> 334; allowances, panics, and expects remain 10, 9, and 102.
+10. **Fixed point and next frontier.** Command meaning no longer imports runtime
+    input or UI state; input's higher dependencies are truthful at runtime; raw
+    keyboard facts have one lower owner. Rung 3 now re-scans command context,
+    responders, input, keymap, targets, clipboard, tasks, text, notifications,
+    and effects for remaining concrete-service, concealed-callback, ownership,
+    visibility, and intermediate findings before declaring the rung complete.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
