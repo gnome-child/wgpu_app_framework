@@ -3860,6 +3860,12 @@ fn renderer_alpha_conventions_have_one_blend_owner() {
         "filtered and pixel-aligned composite pipelines must use premultiplied source-over"
     );
     assert!(popup_pack.contains("render::alpha::FragmentOutput::Replace"));
+    assert!(
+        popup_pack.contains("pipelines.entry(output_format)")
+            && !popup_pack.contains("ensure_pipeline")
+            && !popup_pack.contains("pipeline should be initialized"),
+        "popup pack pipelines must be initialized and consumed through one cache entry"
+    );
     assert!(filter_shader.contains("return vec4<f32>(color.rgb * coverage, color.a * coverage);"));
     let renderer =
         std::fs::read_to_string(render.join("renderer.rs")).expect("renderer source should read");

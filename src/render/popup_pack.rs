@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 
 use crate::render;
 
@@ -61,7 +61,13 @@ impl Packer {
         output: &wgpu::TextureView,
         output_format: wgpu::TextureFormat,
     ) {
-        self.ensure_pipeline(render_context, output_format);
+        let mut pipelines = self.pipelines.borrow_mut();
+        let pipeline = match pipelines.entry(output_format) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                entry.insert(self.create_pipeline(render_context, output_format))
+            }
+        };
         let bind_group = render_context
             .device()
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -78,10 +84,6 @@ impl Packer {
                     },
                 ],
             });
-        let pipelines = self.pipelines.borrow();
-        let pipeline = pipelines
-            .get(&output_format)
-            .expect("popup pack pipeline should be initialized");
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Popup Premultiplied sRGB Pack Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -104,15 +106,11 @@ impl Packer {
         pass.draw(0..3, 0..1);
     }
 
-    fn ensure_pipeline(
+    fn create_pipeline(
         &self,
         render_context: &render::Context,
         output_format: wgpu::TextureFormat,
-    ) {
-        if self.pipelines.borrow().contains_key(&output_format) {
-            return;
-        }
-
+    ) -> wgpu::RenderPipeline {
         let shader = render_context
             .device()
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -127,35 +125,32 @@ impl Packer {
                     bind_group_layouts: &[Some(&self.bind_group_layout)],
                     immediate_size: 0,
                 });
-        let pipeline =
-            render_context
-                .device()
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("Popup Premultiplied sRGB Pack Pipeline"),
-                    layout: Some(&pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[],
-                        compilation_options: Default::default(),
-                    },
-                    primitive: wgpu::PrimitiveState::default(),
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_main"),
-                        targets: &[Some(render::alpha::color_target(
-                            output_format,
-                            render::alpha::FragmentOutput::Replace,
-                        ))],
-                        compilation_options: Default::default(),
-                    }),
-                    multiview_mask: None,
-                    cache: None,
-                });
-
-        self.pipelines.borrow_mut().insert(output_format, pipeline);
+        render_context
+            .device()
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Popup Premultiplied sRGB Pack Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(render::alpha::color_target(
+                        output_format,
+                        render::alpha::FragmentOutput::Replace,
+                    ))],
+                    compilation_options: Default::default(),
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
     }
 }
 
