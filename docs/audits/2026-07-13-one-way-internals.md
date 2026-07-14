@@ -1551,6 +1551,68 @@ Status: **complete; shared authored identity lowered**. Correction `43bcd3f0`
     `window -> notification` crossing, tracing departure publication and
     effect consumption before admitting any move.
 
+### R3-03 — window departure fact versus notification binding
+
+Status: **complete; domain fact retained at its owner**. Correction `947eb32b`
+(`Move departure binding to notification`).
+
+1. **Question and trace.** `window::Departed` was traced from session close and
+   its single-drain queue through started/event/transaction delivery, ten
+   runtime cleanup listeners, responder-ordered application listeners, state
+   commit and redraw reaction, shell/host closed-window projection, native
+   popup/IME/cursor purge, duplicate and missing close, and snapshot restore.
+   Document cancellation facts and generic notification absence, ordering,
+   effect, and history laws were compared as sibling cases.
+2. **Current and proposed graph.** Window owned the correct pure fact and
+   payload meaning, but its source file also implemented the command-owned
+   `Notification` trait. That one binding created the forbidden
+   `window -> notification` edge. Moving the fact itself would make generic
+   notification machinery own a window-domain name; a facade impl would fail a
+   later cross-crate orphan check. The trait owner can lawfully bind a lower
+   domain type, so notification now owns a private window binding and depends
+   downward on the unchanged fact.
+3. **Admission and naming.** The split is admitted because declaration and
+   protocol conformance have different stable owners and the future physical
+   command crate may implement its own trait for the foundation-owned type.
+   `window::Departed`, its simple declaration name, payload `window::Id`, and
+   stable `window.departed` name remain exact; no alias or second public
+   projection is introduced.
+4. **Reduction and rewire.** `window/departed.rs` is now the pure two-line fact.
+   Private `notification/window.rs` contains the sole generic delivery impl.
+   The queue, publisher, internal listener registry, responder registrations,
+   platform listener, and all call sites are byte-for-byte unchanged.
+5. **Resistance.** The centralized runtime listener array is retained: it is
+   the one explicit registry over runtime-owned per-window stores, while each
+   store still owns its purge implementation. Replacing it with callbacks,
+   registration objects, or another cleanup trait would add machinery without
+   deleting authority. Snapshot restore remains a distinct whole-runtime reset,
+   not a series of false departure events.
+6. **Behavior and economics.** One successful close still emits once; missing
+   and duplicate closes remain inert; internal cleanup precedes application
+   delivery; zero-to-many listeners retain chain order; only changed app
+   reactions commit notification reason and request redraw. No allocation,
+   render, presentation, or frame path changed.
+7. **Proof and ratchet.** The existing per-window lifecycle witness now
+   requires the pure window declaration, forbids notification vocabulary there,
+   pins the private trait-owner binding, and retains every cleanup listener and
+   native purge. Focused notification and departure witnesses passed.
+8. **Full verification.** The library discovered 1,083 tests: 1,073 passed, 10
+   standing ignores, and 0 failed. All targets and all five examples compiled
+   without warnings; all six census parser witnesses, formatting, diff checks,
+   and protected example state passed.
+9. **Gauge delta from R3-02.** Production/test module edges remain 324/100.
+   The reversed module edge joins an existing legal command-to-foundation slot
+   relation, so slot edges fall 45 -> 44 and forbidden edges fall 8 -> 7.
+   External questions, SCCs, visibility, cross-slot test edges, source-root
+   mentions, allowances, panics, and expects remain 1, 1, 1,764, 80, 110, 10,
+   9, and 102. The strengthened witness raises filesystem reads 328 -> 330.
+10. **Fixed point and next frontier.** Window declares its close fact without
+    importing command machinery; notification alone binds that fact to generic
+    delivery; runtime remains the one publisher. Rung 3 continues with the two
+    remaining command/UI back-edges in `input`, tracing their full focus and
+    target semantics before deciding whether the top-level module has one owner
+    or split responsibilities.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
