@@ -2347,6 +2347,35 @@ fn frame_content_is_the_single_role_payload_representation() {
 }
 
 #[test]
+fn widget_label_text_species_are_structural() {
+    let label = include_str!("../widget/control/label.rs");
+
+    for required in [
+        "content: Content",
+        "enum Content {",
+        "Author(String)",
+        "World {",
+        "wrap: view::Wrap",
+        "overflow: crate::text::Overflow",
+    ] {
+        assert!(
+            label.contains(required),
+            "widget Label must retain its structural text species: {required}"
+        );
+    }
+    for displaced in [
+        "overflow: Option<crate::text::Overflow>",
+        "wrap: Option<view::Wrap>",
+        "labels cannot ellipsize and wrap together",
+    ] {
+        assert!(
+            !label.contains(displaced),
+            "widget Label invalid-state protocol must stay absent: {displaced}"
+        );
+    }
+}
+
+#[test]
 fn layout_reveal_stays_palette_agnostic() {
     let layout_mod = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

@@ -261,6 +261,9 @@ private part of the save transaction and is document-owned dependency weight.
 Owns ergonomic builders for view data. Widgets produce nodes. Widgets do not
 execute behavior. A widget may project an app-facing concept into declarative
 view/action data, but it should not become the runtime for that concept.
+`Label` has structural author-text and world-text species. World text owns its
+wrap and overflow policy together; independent wrap/overflow options and an
+impossible ellipsize-plus-wrap branch are not part of the builder state.
 `TextArea::from_document` is the named value-semantics projection of a
 `document::Document`; `from_buffer` remains the general constructor. Document
 code does not depend back on widgets.
