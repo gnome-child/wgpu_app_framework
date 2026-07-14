@@ -774,6 +774,59 @@ Status: **complete; investigation map redrawn**. Correction `2248151a`
    coordinates state without absorbing it; presentation freshness remains a
    separate clock. Cell closed.
 
+### R1-07 — feedback vocabulary versus ranked stacks
+
+Status: **complete; investigation map redrawn**. Correction `dd59d4ff`
+(`Reduce feedback storage to its semantic seam`).
+
+1. **Question and trace.** `Severity` ranks runtime facts; `Stack` eagerly
+   formats reports, retains one independent fact per severity, suppresses
+   unchanged replacement, and projects the highest current fact. Draft input
+   owns target identity and rejection lifetime; window session owns window
+   identity and ephemeral lifetime; runtime exposes report/clear operations;
+   view maps the winning fact into established hit-transparent presentation.
+   The trace covered duplicate reports, priority fallback, per-severity and
+   complete clearing, invalid draft mutation/success/cancel/eviction/removal/
+   destruction, window destruction, hover explanation from both the invalid
+   field and glyph, and nontrapping window feedback.
+2. **Current graph.** Feedback was provisionally grouped into foundation.
+   Splitting public `Severity` from private ranking/formatting would separate
+   the fact vocabulary from its only coexistence law. Inside the stack,
+   however, private `Entry { severity, text }` repeated severity already
+   encoded by the array slot and merely transported the same pair back to two
+   consumers.
+3. **Admission and reduction.** The vocabulary/stack split is rejected and a
+   dependency-free `feedback` virtual owner is admitted. The redundant
+   `Entry` is deleted: `Stack` now stores formatted strings directly and its
+   winner projects `(Severity, &str)`. This preserves eager single formatting,
+   unchanged suppression, ranked coexistence, and fallback while removing a
+   type with no identity, authority, lifecycle, or invalid-state prevention.
+4. **Rewire and boundaries.** Draft input and window session consume the
+   direct winning projection. The map removes feedback from foundation and
+   gives UI, runtime, and facade the honest seam. `feedback::Severity` remains
+   the complete public vocabulary; `Stack` remains private crossing machinery
+   pending Rung 6 visibility disposition. Typed stores still own identities
+   and lifetimes, and view/overlay still own chrome, placement, exposure, and
+   hit transparency. No established name changed.
+5. **Proof and ratchet.** The owner tests pin one-time `Display` formatting and
+   Error/Warning/Info fallback. Focused witnesses pin rejection-at-most-draft,
+   inline projection without an eager panel, field-and-glyph hover explanation,
+   ranked window truth, both destruction paths, and nontrapping presentation.
+   Full library: 1,061 passed, 10 ignored, 0 failed; all examples, formatting,
+   census parser tests, and diff checks passed. Renderer topology and frame
+   economics are unchanged because the same winning projection reaches the
+   same presentation path.
+6. **Gauge delta.** Production/test edges, forbidden internal edges, external
+   questions, and the SCC remain 325/96, 15, 2, and 1. The two live UI/runtime
+   consumer relationships raise cross-slot edges 41 -> 43; feedback remains
+   outside the SCC. Deleting `Entry` and four associated methods lowers
+   production `pub(crate)` declarations 1,740 -> 1,735. All remaining gauge
+   counts are unchanged.
+7. **Fixed point.** Feedback has one owner for fact shape, formatting, and
+   ranking; typed stores own retention; presentation owns communication.
+   Neither a universal anchor nor a second stack/message wrapper is admitted.
+   Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
