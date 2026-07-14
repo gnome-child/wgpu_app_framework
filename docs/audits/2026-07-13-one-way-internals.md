@@ -827,6 +827,59 @@ Status: **complete; investigation map redrawn**. Correction `dd59d4ff`
    Neither a universal anchor nor a second stack/message wrapper is admitted.
    Cell closed.
 
+### R1-08 — command failure versus generic error housing
+
+Status: **complete**. Correction `c863f06a` (`Move command failures to their
+semantic owner`).
+
+1. **Question and trace.** The root `Error` flows from command registration,
+   shortcut resolution, typed argument/output erasure, responder claims,
+   availability, routing, invocation, response transport, shell/host
+   propagation, and the platform's explicit framework/backend sum. Every
+   variant names command meaning: unknown command, missing/ambiguous/disabled
+   target, argument/target/output mismatch, ambiguous shortcut, or shortcut
+   arguments. Outcomes traced include absence, disabled claims, ambiguity,
+   type mismatch, successful typed output, backend failure, and public error
+   formatting/source propagation.
+2. **Current graph.** The enum lived in generic top-level `error.rs` and most
+   internal consumers imported that root path, although the provisional map
+   already assigned the file to command. In contrast, clipboard unavailability,
+   document I/O, renderer preparation/presentation, theme parsing, native
+   realization, event-loop failure, and backend failure already retain their
+   own typed errors and failure models. Merging those operational failures
+   would erase owner and recovery distinctions.
+3. **Admission.** Command owns the framework error enum and its crate-internal
+   `Result` alias. The alias is retained because several command consumers use
+   the same standard sum and it names that failure domain; it does not absorb
+   any low-level error. The established public `wgpu_l3::Error` and
+   `wgpu_l3::error::Error` names remain facade projections of the one command
+   type. No rename or compatibility enum is introduced.
+4. **Reduction/rewire.** Moved the definition and `thiserror` derive to
+   `command::error`, exported `command::Error`, and migrated every production
+   consumer from the generic root facade to `command::Error` or
+   `command::Result`. Top-level `error.rs` is now a one-line facade reexport and
+   the virtual map assigns that compatibility surface to facade rather than
+   pretending it owns the type. Root `Error` now reexports from command.
+5. **Proof and ratchet.** Focused command coverage passed 110 registration,
+   shortcut, state, routing, response, and invocation witnesses; disabled,
+   ambiguous-target, missing-target, and facade-type cases passed directly.
+   The architecture ratchet pins the command definition, the one-line public
+   facade, and absence of internal root-error imports outside the owner/facade
+   witness. Full library: 1,063 passed, 10 ignored, 0 failed; all examples,
+   formatting, census parser tests, and diff checks passed. No presentation,
+   renderer, or performance path changed.
+6. **Gauge delta.** Production module edges fall 325 -> 322. Slot edges,
+   forbidden internal edges, external questions, and the SCC remain 43, 15,
+   2, and 1. The named command `Result` definition/export raises production
+   `pub(crate)` declarations 1,735 -> 1,737. The new behavioral and ownership
+   witnesses raise test-only edges 96 -> 97, cross-slot test edges 76 -> 77,
+   source-root mentions 103 -> 104, and filesystem reads 296 -> 298; Rung 6
+   remains responsible for consolidating those reads.
+7. **Fixed point.** Registration, routing, and invocation failure has one
+   command owner. The root error module is facade only, and lower operational
+   failures remain typed at the owners that can define their recovery and
+   lifetime. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
