@@ -2045,6 +2045,68 @@ Status: **complete; final external-boundary violation retired**. Correction
     sweep over presentation clocks, native-popup retirement, remaining paint
     crossings, allowances, panics, and visibility before closure.
 
+### R4-04 — renderer geometry projection versus native composition values
+
+Status: **complete; last production platform-to-paint edge retired**.
+Correction `7053ed93` (`Project composition geometry through renderer`).
+
+1. **Question and trace.** The remaining production `platform -> paint`
+   crossing was traced through Windows material-region projection, shadow
+   spread/offset/blur, all four scale-factor witnesses, rounded-rectangle
+   snapping, uniform-radius admission, opacity, keyed region realization,
+   unchanged-scene suppression, and the report-after-success path. Native
+   composition imported private paint only to clamp a scale and unpack the
+   renderer's snapped rectangle into physical COM values.
+2. **Current and proposed graph.** Renderer already owned the semantic-to-paint
+   projection and paint's device-grid policy. Letting platform construct
+   `paint::Grid` and inspect `paint::Rect` exposed a private renderer
+   representation without giving platform any independent decision. The
+   admitted graph makes renderer project the exact physical rectangle and
+   resolved radii; platform consumes those values while retaining COM geometry
+   creation, material identity, visual order, failure, and lifecycle.
+3. **Admission and type ruling.** `render::scene::Scale` preserves the clamped
+   scale invariant and `PhysicalRect` makes the logical-to-physical coordinate
+   transition structural. They are not transport aliases: raw scale and a
+   logical rectangle cannot be substituted after admission, and the private
+   paint grid/rectangle cannot cross the seam. Both supporting concepts remain
+   namespaced under `render::scene`; no parent alias or compound compatibility
+   name was introduced.
+4. **Reduction and rewire.** Renderer now performs the existing grid clamp,
+   snapped rounded-rectangle conversion, radius resolution, and physical-scale
+   multiplication once. Native shadow projection consumes the admitted scale;
+   native material geometry consumes the physical rectangle. The former
+   crate-visible paint-rectangle helper narrowed to its owner, and the last
+   production paint import under platform was deleted.
+5. **Retained test seam.** `platform::native::popup` still has a test-only
+   paint import solely to construct an unequal private scene for cache-change
+   coverage. It is not a production crossing or a second lowering route; its
+   future-owner housing remains an explicit Rung 6 test disposition rather
+   than being hidden in this production cell.
+6. **Behavior, clocks, and economics.** The same clamped factor, snapped
+   origin/area, resolved radii, uniform-radius rejection, opacity, and shadow
+   values reach the same COM calls. Scene identity, region keys, visual order,
+   invalidation, renderer batches/pass fusion, submission, acknowledgement,
+   and candidate/prepared/submitted/presented/committed clocks are unchanged.
+   No allocation or duplicate computation was added at the boundary.
+7. **Proof and ratchet.** Nine native-composition and seventeen renderer-scene
+   tests passed with the architecture witness. The witness now requires the
+   physical renderer projection and forbids private paint vocabulary in native
+   composition. The full library discovered 1,088 tests: 1,078 passed, 10
+   standing ignores, and 0 failed. All targets and all five examples compiled
+   without warnings; census parser, formatting, diff, and protected
+   `comparison_open: true` checks passed.
+8. **Gauge delta from R4-03.** Production edges fall 327 -> 326. Top-level
+   modules, test-only edges, slot edges, forbidden edges, external violations,
+   SCCs, and cross-slot test edges remain 47, 107, 52, 4, 0, 1, and 88. The
+   explicit physical-boundary values raise production `pub(crate)` declarations
+   1,804 -> 1,813 in the same 192 files. Source-root mentions, filesystem reads,
+   allowances, panics, and expects remain 115, 345, 10, 9, and 102.
+9. **Fixed point and next frontier.** No production platform source imports
+   private paint. Renderer owns projection through physical values and platform
+   owns OS realization from those values. Rung 4 continues with the full
+   presentation-clock, popup-retirement, allowance, panic/expect, visibility,
+   and naming sweep before its boundary can close.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
