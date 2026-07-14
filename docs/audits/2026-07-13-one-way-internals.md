@@ -100,17 +100,17 @@ Reject or redraw the seam instead.
 ### Naming follows the established house law
 
 - Names describe the domain concept, not its implementation trick.
-- When a public module and its central type have the same name, the parent
-  publicly re-exports that type and no sibling types. Call sites import the
-  module and central type together as `{module, Module}`; every supporting
-  concept keeps its simple name inside the module and is spelled
-  `module::Type` at the use site.
-- A public re-export's name is the declaration's canonical name. If a compound
-  declaration is exposed under a simpler name, collapse the declaration to
-  that simpler name rather than preserving an alias. This law holds through
-  parent-module re-exports as well as direct ones; callers resolve collisions
-  by qualifying supporting concepts through their module, not by retaining a
-  compound declaration.
+- When a public module and its central type share a name, the parent publicly
+  re-exports only that namesake type. Call sites import both as
+  `use parent::{module, Module};`. Supporting types keep simple names inside
+  the module, are not projected beside the namesake type, and are referenced
+  at call sites as `module::Type`.
+- A declaration's canonical name is the simple name under which the public API
+  exposes it. If `CompoundName` is re-exported as `Name`, rename the declaration
+  to `Name`; do not preserve `CompoundName` behind `as Name`. Apply this at
+  every projection layer, including parent-module re-exports: parents re-export
+  `module::Name`, never `module::CompoundName as Name`. Call sites resolve name
+  collisions with module qualification rather than compound declaration names.
 - No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
 - Moving or re-housing a concept does not authorize renaming it.
 - Existing overloaded-name cleanup remains under its established census and
