@@ -5440,6 +5440,70 @@ Correction `23395a65` (`Make transaction history planning structural`).
    and the remaining layout/session visibility, failure, intermediate, housing,
    and naming inventories. This cell does not close Rung 5.
 
+### R5-55 — total command collection cardinality and namespaced support
+
+Status: **complete; two false collection absences and two flattened support
+projections removed**. Correction `0cb0c624` (`Make command collection
+cardinality total`).
+
+1. **Question and complete trace.** The command/response collection sweep
+   traced responder builder registration through object target/listener
+   attachment, ordered exact and broad routing, focus and application
+   precedence, and every chain consumer. It also traced response-effect
+   composition through nested batches, duplicate removal, invalidation-depth
+   collapse, command/notification outcomes, runtime side-effect consumption,
+   and renderer invalidation scheduling.
+2. **False absence and retained semantics.** Responder registration pushed one
+   spec and immediately recovered it with `last_mut().expect(...)`; effect
+   normalization checked a vector length of one and then recovered that element
+   with `pop().expect(...)`. Neither option represented an application outcome.
+   Ordered responder registration, effect deduplication, noninvalidation order,
+   and maximum invalidation depth remain real owner laws and are unchanged.
+3. **Correction and displaced paths.** Responder builder now records the
+   pre-push index, pushes exactly one spec, and lends that inserted slot
+   directly. Effect normalization pops once: absence becomes `None`, an empty
+   remainder yields the sole effect, and a nonempty remainder receives the
+   popped tail again before becoming `Batch`. Both assertions and both false
+   optional recoveries are deleted while the existing vector allocation and
+   normalized order are preserved.
+4. **Repetition and naming ruling.** The two sites share a collection
+   postcondition, not domain meaning, so no helper, trait, wrapper, or lower
+   seam is admitted. Because both namesake seams were touched, the canonical
+   projection law applies fully: `responder::Builder` is the builder module's
+   only parent projection and support remains
+   `responder::builder::Object`; `response::Effect` is the effect module's only
+   parent projection and support remains
+   `response::effect::Invalidation`. The former flattened `responder::Object`
+   and `response::Invalidation` projections and every latter callsite are
+   retired without aliases.
+5. **Behavior and economics.** Responder identity, insertion and traversal
+   order, exact/broad claim precedence, target/listener attachment, effect
+   associativity, duplicate removal, invalidation strength, dialog/panel
+   effect order, allocation, layout, scene order, renderer topology,
+   batching/pass fusion, invalidation, and presentation clocks are unchanged.
+   The responder path avoids an impossible option branch; multi-effect
+   normalization reuses the same vector allocation and order.
+6. **Doctrine and witnesses.** Master design now names both direct cardinality
+   operations and both namespaced support surfaces. The architecture witness
+   pins the sole parent projections, public support modules, direct inserted
+   slot borrow, structural effect collapse, and extinction of the flattened
+   exports and assertions. A focused owner test proves zero, one, and multiple
+   effect cardinalities without reordering.
+7. **Proof.** The three effect-owner tests, four responder-chain tests, and the
+   architecture witness passed directly. The full library discovered 1,131
+   tests and passed 1,121 with ten standing ignores. All targets and all five
+   examples compiled without warnings; all ten census parser witnesses, the
+   full census, formatting, diff, and protected-state checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, visibility,
+   cross-slot test edges, source-root mentions, filesystem reads, allowances,
+   and panics remain 325/109, 3, 54, 0/0/0, 1,824 in 192 files, 90, 118, 363,
+   6, and 6. Production expects fall 54 -> 52. Command collection cardinality
+   and the touched naming surfaces are at fixed point; the reverse sweep
+   continues through required versus optional erased-command invocation and
+   the remaining layout/session visibility, failure, intermediate, housing,
+   and naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
