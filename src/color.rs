@@ -89,16 +89,16 @@ mod tests {
 
     #[test]
     fn conversion_sites_delegate_to_the_color_owner() {
-        let native_color = include_str!("platform/native/color.rs");
-        let native_paint = include_str!("platform/native/paint.rs");
+        let render_color = include_str!("render/color.rs");
+        let render_scene = include_str!("render/scene.rs");
         let layout_text = include_str!("layout/text.rs");
         let text_system = include_str!("text/layout/system.rs");
         let text_renderer = include_str!("render/text_renderer.rs");
         let sys = include_str!("platform/native/sys/mod.rs");
 
         for source in [
-            native_color,
-            native_paint,
+            render_color,
+            render_scene,
             layout_text,
             text_system,
             text_renderer,
@@ -106,7 +106,7 @@ mod tests {
         ] {
             assert!(source.contains("crate::color::"));
         }
-        assert!(!native_color.contains("powf"));
+        assert!(!render_color.contains("powf"));
         assert!(!sys.contains("<<"));
     }
 

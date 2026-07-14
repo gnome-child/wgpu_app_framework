@@ -243,6 +243,34 @@ fn renderer_publishes_render_facts_without_importing_diagnostics() {
 }
 
 #[test]
+fn semantic_scene_lowering_belongs_to_renderer() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let render_scene = std::fs::read_to_string(root.join("render").join("scene.rs"))
+        .expect("renderer scene projection should read");
+    let native = root.join("platform").join("native");
+    let surface = std::fs::read_to_string(native.join("surface.rs"))
+        .expect("native surface source should read");
+    let popup =
+        std::fs::read_to_string(native.join("popup.rs")).expect("native popup source should read");
+
+    assert!(
+        render_scene.contains("fn to_paint_scene_at_scale(")
+            && render_scene.contains("struct PopupProjection"),
+        "renderer must own semantic scene lowering and its scale-resolved popup projection"
+    );
+    assert!(
+        surface.contains("render::scene::to_paint_scene_at_scale")
+            && popup.contains("render::scene::to_paint_scene_at_scale")
+            && popup.contains("render::scene::PopupProjection::resolve"),
+        "native realization must consume the renderer scene contract"
+    );
+    assert!(
+        !native.join("paint.rs").exists() && !native.join("color.rs").exists(),
+        "the native adapter must not retain semantic-to-paint or renderer-color ownership"
+    );
+}
+
+#[test]
 fn renderer_paint_vocabulary_stays_private() {
     let lib = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2470,8 +2498,8 @@ fn scene_owns_refraction_constraints_before_paint_projection() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let scene_material = std::fs::read_to_string(root.join("src/scene/material.rs"))
         .expect("scene material source should read");
-    let native_paint = std::fs::read_to_string(root.join("src/platform/native/paint.rs"))
-        .expect("native paint source should read");
+    let render_scene = std::fs::read_to_string(root.join("src/render/scene.rs"))
+        .expect("renderer scene projection should read");
     let paint =
         std::fs::read_to_string(root.join("src/paint/mod.rs")).expect("paint source should read");
     let effects = std::fs::read_to_string(root.join("src/render/filter/effects.rs"))
@@ -2485,7 +2513,7 @@ fn scene_owns_refraction_constraints_before_paint_projection() {
         "scene Refraction must own its domain constraints"
     );
     assert!(
-        native_paint.contains("let refraction = refraction.clamped();"),
+        render_scene.contains("let refraction = refraction.clamped();"),
         "the scene-to-paint bridge must resolve refraction before projection"
     );
     assert!(
@@ -2509,18 +2537,17 @@ fn scene_no_longer_exposes_generic_filter_primitives() {
         std::fs::read_to_string(root.join("scene").join("mod.rs")).expect("scene mod should read");
     let scene_primitive = std::fs::read_to_string(root.join("scene").join("primitive.rs"))
         .expect("scene primitive source should read");
-    let native_paint =
-        std::fs::read_to_string(root.join("platform").join("native").join("paint.rs"))
-            .expect("native paint source should read");
+    let render_scene = std::fs::read_to_string(root.join("render").join("scene.rs"))
+        .expect("renderer scene projection should read");
 
-    for source in [&scene_mod, &scene_primitive, &native_paint] {
+    for source in [&scene_mod, &scene_primitive, &render_scene] {
         assert!(
             !source.contains("Primitive::Filter"),
             "scene-level filter primitive must not return after Pane"
         );
         assert!(
             !source.contains("scene::Filter"),
-            "native paint must not carry a scene filter bridge after Pane"
+            "renderer scene projection must not carry a generic filter bridge after Pane"
         );
         assert!(
             !source.contains("FilterOp"),
@@ -3405,8 +3432,8 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let renderer = std::fs::read_to_string(root.join("src/render/renderer.rs"))
         .expect("renderer source should read");
-    let native_paint = std::fs::read_to_string(root.join("src/platform/native/paint.rs"))
-        .expect("native paint source should read");
+    let render_scene = std::fs::read_to_string(root.join("src/render/scene.rs"))
+        .expect("renderer scene projection should read");
     let composition = std::fs::read_to_string(root.join("src/platform/native/composition.rs"))
         .expect("composition source should read");
     let native_window = std::fs::read_to_string(root.join("src/platform/native/window.rs"))
@@ -3420,9 +3447,9 @@ fn composition_popup_closeout_has_one_geometry_edge_and_timeline_owner() {
         "resolved material truth, not an empty operation list, must select the popup base"
     );
     assert!(
-        native_paint.contains("paint::shadow_visual_bounds")
-            && native_paint.contains("paint::union_visual_bounds")
-            && !native_paint.to_ascii_lowercase().contains("shadow_margin"),
+        render_scene.contains("paint::shadow_visual_bounds")
+            && render_scene.contains("paint::union_visual_bounds")
+            && !render_scene.to_ascii_lowercase().contains("shadow_margin"),
         "popup visual reach must consume shared shadow bounds without an arbitrary margin"
     );
     assert!(

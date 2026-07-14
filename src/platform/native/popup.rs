@@ -2,7 +2,7 @@ use crate::geometry::area;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use crate::{geometry, overlay, paint, pointer, render, window as app_window};
+use crate::{geometry, overlay, pointer, render, window as app_window};
 
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{
@@ -370,8 +370,8 @@ impl Native {
             material_resolution.fidelity(),
             material_resolution.region_fidelity()
         );
-        let scene = super::paint::translate_popup_scene(
-            super::paint::to_paint_scene_at_scale(
+        let scene = render::scene::translate_popup_scene(
+            render::scene::to_paint_scene_at_scale(
                 source_scene,
                 popup.host.window.canvas().scale_factor(),
             ),
@@ -626,7 +626,7 @@ impl Native {
         })?;
         let parent_scale = parent.scale_factor();
         let parent_handle = parent.handle();
-        let initial_projection = super::paint::PopupProjection::resolve(
+        let initial_projection = render::scene::PopupProjection::resolve(
             presentation.scene(),
             parent_scale as f32,
             presentation_mode == PopupPresentationMode::CompositionBacked,
@@ -711,7 +711,7 @@ impl Native {
         let canvas_options = || render::CanvasOptions {
             area: area::physical(inner_size.width, inner_size.height).clamp_min(1),
             scale_factor: handle.scale_factor() as f32,
-            color: render::color_to_wgpu(super::color::paint_color(clear)),
+            color: render::surface_color(clear),
             composite_alpha: presentation_mode.alpha_preference(),
         };
         #[cfg(target_os = "windows")]
@@ -980,7 +980,7 @@ impl Native {
                 .get(&key)
                 .expect("popup should exist before configuring");
             (
-                super::paint::PopupProjection::resolve(
+                render::scene::PopupProjection::resolve(
                     presentation.scene(),
                     popup.host.window.scale_factor() as f32,
                     popup.host.composition.is_some(),
@@ -1890,8 +1890,8 @@ fn queue_popup_parent_redraw(redraw_parents: &mut HashSet<app_window::Id>, paren
 fn popup_scene_needs_submission(
     exposed: bool,
     freshness_pending: bool,
-    last_presented: Option<&paint::Scene>,
-    requested: &paint::Scene,
+    last_presented: Option<&render::Scene>,
+    requested: &render::Scene,
 ) -> bool {
     if !exposed || freshness_pending {
         return true;
@@ -1942,11 +1942,11 @@ mod tests {
         popup_reveal_gate_open, popup_scene_needs_submission, queue_popup_parent_redraw,
     };
     use crate::platform::native::PopupGeometry;
-    use crate::{interaction, overlay, paint, window};
+    use crate::{interaction, overlay, paint, render, window};
 
     #[test]
     fn unchanged_composition_scene_does_not_submit_after_fresh_exposure() {
-        let scene = paint::Scene::new();
+        let scene = render::Scene::new();
         assert!(popup_scene_needs_submission(false, false, None, &scene));
         assert!(popup_scene_needs_submission(
             true,
@@ -1961,7 +1961,7 @@ mod tests {
             &scene
         ));
 
-        let mut changed = paint::Scene::new();
+        let mut changed = render::Scene::new();
         changed.clear(paint::Color::BLACK);
         assert!(popup_scene_needs_submission(
             true,

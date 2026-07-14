@@ -973,7 +973,7 @@ fn project_geometry(
     scale_factor: f32,
 ) -> Option<ProjectedRegion> {
     let grid = paint::Grid::new(scale_factor);
-    let rect = super::paint::into_paint_rounded_rect_at_scale(source, source_rounding, grid);
+    let rect = render::scene::into_paint_rounded_rect_at_scale(source, source_rounding, grid);
     let rounding = rect.rounding.resolve(rect.area);
     if !rounding
         .iter()

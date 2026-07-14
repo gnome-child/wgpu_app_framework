@@ -138,6 +138,12 @@ point facts; text does not import paint vocabulary. Renderer-neutral
 coordinates must not be duplicated under paint merely because paint consumes
 them.
 
+`render::scene` owns the one semantic-scene-to-paint projection, including
+scale snapping, color transfer, renderer material values, and the shared popup
+visual-reach projection. Native platform code consumes this renderer contract;
+it does not declare the renderer's grammar conversion or retain a second color
+bridge.
+
 The layout-to-paint boundary is a geometry boundary. Layout frames use integer
 logical coordinates. Paint consumes floating logical coordinates because a
 device-pixel-aligned edge may be fractional in logical space at scale factors
@@ -516,7 +522,7 @@ behavior; a future caller must earn and name that variant explicitly.
 
 Scene material values own their semantic constraints. In particular,
 `scene::Refraction::clamped` is the one refraction constraint computation;
-the native paint bridge applies it before projecting into the private display
+the renderer scene bridge applies it before projecting into the private display
 list, and paint/render forward the resolved values without reclamping them.
 
 `overlay`

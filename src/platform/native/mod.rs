@@ -7,13 +7,11 @@ use crate::{ime as app_ime, interaction, overlay, pointer, render, scene};
 use super::super::{session, window as app_window};
 
 mod adapter;
-mod color;
 #[cfg(target_os = "windows")]
 mod composition;
 mod context;
 mod error;
 mod ime;
-mod paint;
 mod poll;
 mod popup;
 mod request;
@@ -67,7 +65,7 @@ struct PopupWindow {
     border: PopupBorderState,
     presentation_prepared: bool,
     exposed: bool,
-    last_presented_scene: Option<crate::paint::Scene>,
+    last_presented_scene: Option<render::Scene>,
     first_present: PopupFirstPresentTrace,
     material_readiness: PopupMaterialReadiness,
     material: Option<overlay::PopupMaterial>,

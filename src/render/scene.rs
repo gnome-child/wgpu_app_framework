@@ -4,14 +4,14 @@ use crate::{paint, text};
 use crate::{geometry, scene};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(in crate::platform::native) struct PopupProjection {
+pub(crate) struct PopupProjection {
     visual_bounds: paint::Rect,
     panel_bounds: paint::Rect,
     scale_factor: f32,
 }
 
 impl PopupProjection {
-    pub(in crate::platform::native) fn resolve(
+    pub(crate) fn resolve(
         source: &scene::Scene,
         scale_factor: f32,
         include_visual_reach: bool,
@@ -34,22 +34,19 @@ impl PopupProjection {
         }
     }
 
-    pub(in crate::platform::native) fn panel_offset(self) -> point::Logical {
+    fn panel_offset(self) -> point::Logical {
         point::logical(
             self.panel_bounds.origin.x() - self.visual_bounds.origin.x(),
             self.panel_bounds.origin.y() - self.visual_bounds.origin.y(),
         )
     }
 
-    pub(in crate::platform::native) fn panel_offset_logical(self) -> geometry::Point {
+    pub(crate) fn panel_offset_logical(self) -> geometry::Point {
         let offset = self.panel_offset();
         geometry::Point::new(offset.x().round() as i32, offset.y().round() as i32)
     }
 
-    pub(in crate::platform::native) fn visual_bounds_at(
-        self,
-        panel: geometry::Rect,
-    ) -> geometry::Rect {
+    pub(crate) fn visual_bounds_at(self, panel: geometry::Rect) -> geometry::Rect {
         geometry::Rect::new(
             panel
                 .x()
@@ -63,7 +60,7 @@ impl PopupProjection {
     }
 
     #[cfg(test)]
-    pub(in crate::platform::native) fn panel_offset_physical(self) -> (i32, i32) {
+    fn panel_offset_physical(self) -> (i32, i32) {
         let offset = self.panel_offset();
         (
             (offset.x() * self.scale_factor).round() as i32,
@@ -71,19 +68,19 @@ impl PopupProjection {
         )
     }
 
-    pub(in crate::platform::native) fn visual_offset_physical(self) -> (i32, i32) {
+    pub(crate) fn visual_offset_physical(self) -> (i32, i32) {
         (
             (self.visual_bounds.origin.x() * self.scale_factor).round() as i32,
             (self.visual_bounds.origin.y() * self.scale_factor).round() as i32,
         )
     }
 
-    pub(in crate::platform::native) fn logical_area(self) -> area::Logical {
+    pub(crate) fn logical_area(self) -> area::Logical {
         self.visual_bounds.area
     }
 
     #[cfg(test)]
-    pub(in crate::platform::native) fn translate_scene(self, scene: paint::Scene) -> paint::Scene {
+    fn translate_scene(self, scene: paint::Scene) -> paint::Scene {
         scene.translated_from_origin(
             self.visual_bounds.origin,
             paint::Grid::new(self.scale_factor),
@@ -92,14 +89,11 @@ impl PopupProjection {
 }
 
 #[cfg(test)]
-pub(in crate::platform::native) fn to_paint_scene(source: &scene::Scene) -> paint::Scene {
+fn to_paint_scene(source: &scene::Scene) -> paint::Scene {
     to_paint_scene_at_scale(source, 1.0)
 }
 
-pub(in crate::platform::native) fn to_paint_scene_at_scale(
-    source: &scene::Scene,
-    scale_factor: f32,
-) -> paint::Scene {
+pub(crate) fn to_paint_scene_at_scale(source: &scene::Scene, scale_factor: f32) -> paint::Scene {
     let grid = paint::Grid::new(scale_factor);
     let mut scene = paint::Scene::new();
     scene.clear(super::color::paint_color(source.clear()));
@@ -131,7 +125,7 @@ pub(in crate::platform::native) fn to_paint_scene_at_scale(
     scene
 }
 
-pub(in crate::platform::native) fn translate_popup_scene(
+pub(crate) fn translate_popup_scene(
     scene: paint::Scene,
     realization: crate::popup::Realization,
 ) -> paint::Scene {
@@ -380,7 +374,7 @@ fn into_paint_rounded_rect(rect: geometry::Rect, rounding: scene::Rounding) -> p
     into_paint_rounded_rect_at_scale(rect, rounding, paint::Grid::new(1.0))
 }
 
-pub(super) fn into_paint_rounded_rect_at_scale(
+pub(crate) fn into_paint_rounded_rect_at_scale(
     rect: geometry::Rect,
     rounding: scene::Rounding,
     grid: paint::Grid,
@@ -576,7 +570,7 @@ mod tests {
     }
 
     #[test]
-    fn popup_material_layers_convert_to_native_paint() {
+    fn popup_material_layers_convert_to_renderer_paint() {
         let theme = Theme::dark();
         let view = view::View::new(
             view::Node::root()
@@ -741,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn rounded_clip_converts_to_native_paint_clip() {
+    fn rounded_clip_converts_to_renderer_paint_clip() {
         let rect = geometry::Rect::new(4, 8, 80, 32);
         let clip = scene::Clip::new(rect).with_rounding(scene::Rounding::fixed(10.0));
         let paint = to_paint_clip(&clip);
@@ -780,7 +774,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_viewport_clip_converts_to_native_paint_clip_stack() {
+    fn scroll_viewport_clip_converts_to_renderer_paint_clip_stack() {
         let view = widget::view(|ui| {
             ui.column(|ui| {
                 ui.add(
@@ -817,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn transform_converts_to_native_paint_space() {
+    fn transform_converts_to_renderer_paint_space() {
         let transform = scene::Transform::scale_about(12.0, 18.0, 1.25, 1.5);
         let paint = to_paint_transform(transform);
 
@@ -883,7 +877,7 @@ mod tests {
                 paint::Fill::Brush(paint::Brush::solid(track_color)),
                 expected_track,
             )
-            .expect("slider track should convert to a native paint quad");
+            .expect("slider track should convert to a renderer paint quad");
 
             assert!(
                 track_quad.transform().is_identity(),
@@ -956,7 +950,7 @@ mod tests {
             ))),
             expected_track,
         )
-        .expect("slider track should convert to a native paint quad");
+        .expect("slider track should convert to a renderer paint quad");
 
         assert_eq!(track_quad.transform().motion, paint::Motion::Moving);
         assert!(track_quad.transform().is_identity());
@@ -1049,7 +1043,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_outline_offset_and_rounding_convert_to_native_paint() {
+    fn focus_outline_offset_and_rounding_convert_to_renderer_paint() {
         let theme = Theme::default();
         let mut app = control_gallery::app(control_gallery::State::default());
 
@@ -1084,7 +1078,7 @@ mod tests {
                 paint::Item::Outline(outline) if outline.brush == expected_brush => Some(outline),
                 _ => None,
             })
-            .expect("focus outline should convert to native paint");
+            .expect("focus outline should convert to renderer paint");
 
         assert_eq!(
             outline.rect,
@@ -1154,7 +1148,7 @@ mod tests {
     }
 
     #[test]
-    fn clipped_focus_scope_survives_native_projection_at_supported_scales() {
+    fn clipped_focus_scope_survives_renderer_projection_at_supported_scales() {
         let focus = session::Focus::text("native.clipped.focus").keyboard();
         let mut app = Runtime::new(NativeTextBoxState)
             .started(|cx| {
@@ -1216,16 +1210,16 @@ mod tests {
                 .position(|item| {
                     matches!(item, paint::Item::Outline(outline) if outline.brush == focus_brush)
                 })
-                .expect("native projection should retain the focus outline");
+                .expect("renderer projection should retain the focus outline");
             let clip_index = projected.items()[..outline_index]
                 .iter()
                 .rposition(|item| matches!(item, paint::Item::Clip(_)))
-                .expect("native projection should retain the focus clip");
+                .expect("renderer projection should retain the focus clip");
             let pop_index = projected.items()[outline_index + 1..]
                 .iter()
                 .position(|item| matches!(item, paint::Item::PopClip))
                 .map(|offset| outline_index + 1 + offset)
-                .expect("native projection should close the focus clip");
+                .expect("renderer projection should close the focus clip");
 
             assert!(clip_index < outline_index, "scale {scale}");
             assert!(outline_index < pop_index, "scale {scale}");

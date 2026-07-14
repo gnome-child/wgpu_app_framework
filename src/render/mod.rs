@@ -1,6 +1,7 @@
 use crate::geometry::area;
 use thiserror::Error;
 
+pub(crate) use crate::paint::Scene;
 pub(crate) use canvas::{Canvas, Options as CanvasOptions};
 pub(crate) use context::{Context, Options as ContextOptions};
 pub(crate) use frame::{Frame, Outcome as FrameOutcome};
@@ -16,6 +17,7 @@ pub(crate) use surface::{
 mod alpha;
 mod batch;
 mod canvas;
+mod color;
 mod context;
 mod filter;
 mod frame;
@@ -25,6 +27,7 @@ mod primitive;
 mod quad;
 mod renderer;
 mod report;
+pub(crate) mod scene;
 mod silhouette;
 mod surface;
 mod text_renderer;
@@ -36,6 +39,10 @@ pub(crate) fn color_to_wgpu(color: crate::paint::Color) -> wgpu::Color {
         b: color.b as f64,
         a: color.a as f64,
     }
+}
+
+pub(crate) fn surface_color(color: crate::scene::Color) -> wgpu::Color {
+    color_to_wgpu(self::color::paint_color(color))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
