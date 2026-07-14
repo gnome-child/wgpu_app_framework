@@ -5269,6 +5269,57 @@ Status: **complete resistance ruling; no production correction admitted**.
    standard-menu, layout, visibility, failure, intermediate, housing, and
    naming inventories; this cell does not close Rung 5.
 
+### R5-52 — total post-insertion UI collection recovery
+
+Status: **complete; two false post-push absences removed**. Correction
+`3a0bd574` (`Borrow inserted UI entries directly`).
+
+1. **Question and complete trace.** The failure inventory traced composition
+   creation, replacement, lookup, reconciliation, removal, and window cleanup,
+   then traced selectable-list lookup, insertion, mutation, reconciliation,
+   snapshots, restore, and every selection consumer. Both stores used ordered
+   vectors for stable iteration and recovered an element immediately after
+   pushing it through `last[_mut]().expect(...)`.
+2. **False absence.** In each absent-key branch, the vector length is known,
+   exactly one value is pushed, and no intervening operation can remove or
+   reorder it. General `Vec::last` optionality therefore leaked a collection
+   query into an operation whose postcondition is total. Allocation failure
+   retains Rust's ordinary process behavior and is not an application-level
+   absence outcome.
+3. **Correction and displaced paths.** Each owner captures the pre-push length,
+   pushes the unchanged value, and borrows the inserted slot at that index.
+   Both option recoveries and assertions are deleted. Existing-key branches,
+   vector storage, uniqueness checks, order, and every consumer are unchanged.
+4. **Repetition and boundary ruling.** The two owners share a mechanical
+   postcondition, not domain meaning, so no common helper, collection wrapper,
+   trait, or lower seam is admitted. Composition still owns installed views and
+   retained trees; interaction still owns per-list selection state. Each local
+   three-step operation is the smallest truthful form.
+5. **Naming and visibility ruling.** No type, method, visibility, projection,
+   alias, or import changed. The touched namesake modules keep their existing
+   central projections and introduce no supporting name, compound declaration,
+   or flattened parent export.
+6. **Behavior and economics.** Window ordering, composition identity and
+   replacement, selection ordering, snapshot order, reconciliation, retained
+   rows, allocation count, layout, scene order, renderer topology,
+   invalidation, and presentation clocks are unchanged. Both operations avoid
+   constructing and branching on an impossible `Option` after insertion.
+7. **Proof.** Seventeen composition-focused and forty-one interaction-focused
+   witnesses passed. The full library passed 1,118 tests with ten standing
+   ignores; all targets and all five examples compiled without warnings. All
+   ten census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed.
+8. **Gauge delta and next frontier.** Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, and panic gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,825 in 192
+   files, cross-slot upper bound 1,778, cross-slot test edges 90, source-root
+   mentions 118, filesystem reads 363, allowances 6, and panics 6. Production
+   expects fall 59 -> 57. Post-insertion recovery is at fixed point; the reverse
+   sweep continues through standard-menu topology and the remaining layout,
+   visibility, failure, intermediate, housing, and naming inventories. This
+   cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
