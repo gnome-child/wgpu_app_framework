@@ -8,7 +8,7 @@ use super::buffer::{
     Affinity, Cursor, CursorSelection, Mark, Position, Range, TEXT_DOCUMENT_TARGET_LEAF_BYTES,
 };
 use super::document::{Align, Block, ResolvedTextDirection, Run, Style, Weight};
-use super::edit::{Action, ActionResult, Clipboard, ClipboardError, ClipboardResult, Editor};
+use super::edit::Editor;
 use super::layout::{
     Engine, HighlightStats, Measure, TEXT_AREA_FRAME_MAX_LOGICAL_LINES,
     TEXT_AREA_FRAME_MIN_OVERSCAN_LINES, TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
@@ -166,47 +166,6 @@ fn visual_group_source_range(
     }
     (start < end).then_some(start..end)
 }
-#[derive(Debug, Default)]
-struct MockClipboard {
-    text: Option<String>,
-    unavailable: bool,
-}
-
-impl MockClipboard {
-    fn with_text(text: &str) -> Self {
-        Self {
-            text: Some(text.to_owned()),
-            unavailable: false,
-        }
-    }
-
-    fn unavailable() -> Self {
-        Self {
-            text: None,
-            unavailable: true,
-        }
-    }
-}
-
-impl Clipboard for MockClipboard {
-    fn read_text(&mut self) -> ClipboardResult<Option<String>> {
-        if self.unavailable {
-            Err(ClipboardError::Unavailable)
-        } else {
-            Ok(self.text.clone())
-        }
-    }
-
-    fn write_text(&mut self, text: &str) -> ClipboardResult<()> {
-        if self.unavailable {
-            Err(ClipboardError::Unavailable)
-        } else {
-            self.text = Some(text.to_owned());
-            Ok(())
-        }
-    }
-}
-
 fn apply_edit(editor: &mut Editor, buffer: &mut Buffer, state: &mut State, edit: Edit) -> bool {
     editor.apply_edit(buffer, state, edit).buffer_changed()
 }
@@ -231,16 +190,6 @@ fn apply_selection_with_caret_map(
     caret_map: &mut dyn super::selection::CaretMap,
 ) -> bool {
     selection::apply_with_caret_map(buffer, state, operation, caret_map)
-}
-
-fn apply_action(
-    editor: &mut Editor,
-    buffer: &mut Buffer,
-    state: &mut State,
-    action: Action,
-    clipboard: &mut dyn Clipboard,
-) -> ActionResult {
-    editor.apply_action(buffer, state, action, clipboard).result
 }
 
 fn position(buffer: &Buffer, state: State) -> Position {
@@ -1338,79 +1287,6 @@ fn move_range_adjusts_forward_drop_position() {
 }
 
 #[test]
-fn text_command_copy_writes_selection_without_mutating_buffer() {
-    let mut editor = Editor::new();
-    let mut buffer = Buffer::from_text("hello");
-    let mut state = buffer.initial_state();
-    let mut clipboard = MockClipboard::default();
-
-    apply_selection(&buffer, &mut state, selection::Operation::SelectAll);
-    let result = apply_action(
-        &mut editor,
-        &mut buffer,
-        &mut state,
-        Action::Copy,
-        &mut clipboard,
-    );
-
-    assert_eq!(clipboard.text.as_deref(), Some("hello"));
-    assert_eq!(buffer.text(), "hello");
-    assert_eq!(selected_range(&buffer, state), Some(Range::new(0, 5)));
-    assert!(result.clipboard_changed);
-    assert!(!result.buffer_changed());
-    assert!(!result.unavailable);
-}
-
-#[test]
-fn text_command_cut_copies_and_deletes_selection() {
-    let mut editor = Editor::new();
-    let mut buffer = Buffer::from_text("hello");
-    let mut state = buffer.initial_state();
-    let mut clipboard = MockClipboard::default();
-
-    apply_selection(&buffer, &mut state, selection::Operation::SelectAll);
-    let result = apply_action(
-        &mut editor,
-        &mut buffer,
-        &mut state,
-        Action::Cut,
-        &mut clipboard,
-    );
-
-    assert_eq!(clipboard.text.as_deref(), Some("hello"));
-    assert_eq!(buffer.text(), "");
-    assert_eq!(selected_range(&buffer, state), None);
-    assert!(result.clipboard_changed);
-    assert!(result.text_changed);
-    assert!(result.selection_changed);
-    assert!(!result.unavailable);
-}
-
-#[test]
-fn text_command_paste_replaces_selection_and_normalizes_line_endings() {
-    let mut editor = Editor::new();
-    let mut buffer = Buffer::from_text("hello");
-    let mut state = buffer.initial_state();
-    let mut clipboard = MockClipboard::with_text("a\nb\rc");
-
-    apply_selection(&buffer, &mut state, selection::Operation::SelectAll);
-    let result = apply_action(
-        &mut editor,
-        &mut buffer,
-        &mut state,
-        Action::Paste,
-        &mut clipboard,
-    );
-
-    assert_eq!(buffer.text(), "a b c");
-    assert_eq!(selected_range(&buffer, state), None);
-    assert!(result.text_changed);
-    assert!(result.selection_changed);
-    assert!(!result.clipboard_changed);
-    assert!(!result.unavailable);
-}
-
-#[test]
 fn repeated_large_paste_updates_line_index_without_full_rebuild() {
     let mut editor = Editor::new();
     let text = (0..100_000)
@@ -1447,39 +1323,6 @@ fn repeated_large_paste_updates_line_index_without_full_rebuild() {
     assert_eq!(buffer.logical_line_count(), 100_000 + 128);
     assert!(buffer.text().ends_with("paste 63"));
 }
-#[test]
-fn text_command_paste_without_text_or_clipboard_does_not_mutate() {
-    let mut editor = Editor::new();
-    let mut buffer = Buffer::from_text("hello");
-    let mut state = buffer.initial_state();
-    let mut empty_clipboard = MockClipboard::default();
-
-    let empty = apply_action(
-        &mut editor,
-        &mut buffer,
-        &mut state,
-        Action::Paste,
-        &mut empty_clipboard,
-    );
-
-    assert_eq!(buffer.text(), "hello");
-    assert!(!empty.changed());
-    assert!(!empty.unavailable);
-
-    let mut unavailable_clipboard = MockClipboard::unavailable();
-    let unavailable = apply_action(
-        &mut editor,
-        &mut buffer,
-        &mut state,
-        Action::Paste,
-        &mut unavailable_clipboard,
-    );
-
-    assert_eq!(buffer.text(), "hello");
-    assert!(!unavailable.changed());
-    assert!(unavailable.unavailable);
-}
-
 #[test]
 fn buffer_shift_motion_extends_selection() {
     let buffer = Buffer::from_text("hello");
@@ -3924,10 +3767,7 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
         &mut edit_state,
         selection::Operation::pointer(PointerKind::Drag, Position::new(target_end)),
     );
-    let mut clipboard = MockClipboard::default();
-    let cut = editor
-        .apply_action(&mut buffer, &mut edit_state, Action::Cut, &mut clipboard)
-        .result;
+    let cut = editor.apply_edit(&mut buffer, &mut edit_state, Edit::insert(""));
     assert!(cut.text_changed);
     let _ = assert_command_preserves_scroll(
         &mut engine,
@@ -3952,10 +3792,7 @@ fn text_area_edit_commands_preserve_scroll_when_resulting_caret_is_visible() {
         &mut edit_state,
         selection::Operation::pointer(PointerKind::Drag, Position::new(target_end)),
     );
-    let mut clipboard = MockClipboard::with_text("XX");
-    let paste = editor
-        .apply_action(&mut buffer, &mut edit_state, Action::Paste, &mut clipboard)
-        .result;
+    let paste = editor.apply_edit(&mut buffer, &mut edit_state, Edit::insert("XX"));
     assert!(paste.text_changed);
     let _ = assert_command_preserves_scroll(
         &mut engine,

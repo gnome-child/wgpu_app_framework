@@ -780,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn text_edit_motion_mapping_is_profile_owned() {
+    fn text_operation_motion_mapping_is_profile_owned() {
         assert_eq!(
             Profile::windows().text_operation_for_key(
                 input::Key::ArrowLeft,

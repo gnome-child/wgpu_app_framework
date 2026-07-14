@@ -421,7 +421,7 @@ fn typing_history_group_carries_the_text_owned_coalesce_window() {
 
     assert_eq!(
         typing.coalesce_window(),
-        text::edit::TYPING_UNDO_COALESCE_WINDOW
+        text::edit::history::TYPING_UNDO_COALESCE_WINDOW
     );
     assert_eq!(generic.coalesce_window(), Duration::from_millis(1000));
     assert_ne!(

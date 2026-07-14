@@ -215,20 +215,6 @@ impl Document {
 
         Outcome::from_edit_result(result)
     }
-
-    pub fn apply_action(
-        &mut self,
-        action: text::edit::Action,
-        clipboard: &mut dyn text::edit::Clipboard,
-    ) -> Outcome {
-        let mut editor = text::edit::Editor::new();
-        let result = editor.apply_action(&mut self.buffer, &mut self.text_state, action, clipboard);
-        if result.result.text_changed {
-            self.edit_count += 1;
-        }
-
-        Outcome::from_command_result(result.result)
-    }
 }
 
 impl Default for Document {

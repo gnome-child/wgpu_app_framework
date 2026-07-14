@@ -1,5 +1,4 @@
 use super::Marker;
-use super::action::ActionResult;
 use super::transaction::{Change, Impact, Transaction};
 
 #[derive(Debug, Clone, Default)]
@@ -8,12 +7,6 @@ pub struct Outcome {
     pub(crate) selection_changed: bool,
     pub(crate) change: Option<Change>,
     pub(crate) impacts: Vec<Impact>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ActionOutcome {
-    pub result: ActionResult,
-    pub change: Option<Change>,
 }
 
 impl Outcome {

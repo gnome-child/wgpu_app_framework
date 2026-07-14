@@ -71,12 +71,18 @@ fn source_span_buffer_matches_reference_through_100k_edit_undo_operations() {
             redo.push(model.clone());
             model = undo.pop().unwrap();
             let outcome = history.undo(&mut buffer, &mut state);
-            assert!(!outcome.unavailable, "undo {operation} should be available");
+            assert!(
+                !outcome.unavailable(),
+                "undo {operation} should be available"
+            );
         } else if choice == 2 && !redo.is_empty() {
             undo.push(model.clone());
             model = redo.pop().unwrap();
             let outcome = history.redo(&mut buffer, &mut state);
-            assert!(!outcome.unavailable, "redo {operation} should be available");
+            assert!(
+                !outcome.unavailable(),
+                "redo {operation} should be available"
+            );
         } else {
             let boundaries = unicode::source_grapheme_boundaries(&model);
             random = next_random(random);

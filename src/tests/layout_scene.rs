@@ -8938,8 +8938,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut document = TextDocument::from_multiline_text(text);
-    let mut clipboard = Clipboard::default();
-    let selected = document.apply_action(text::edit::Action::SelectAll, &mut clipboard);
+    let selected = document.apply_selection(text::selection::Operation::SelectAll);
 
     assert!(selected.selection_changed());
 
@@ -9014,8 +9013,7 @@ fn text_area_selection_highlight_paints_below_menu_bar_chrome() {
         .collect::<Vec<_>>()
         .join("\n");
     let mut document = TextDocument::from_multiline_text(text);
-    let mut clipboard = Clipboard::default();
-    document.apply_action(text::edit::Action::SelectAll, &mut clipboard);
+    document.apply_selection(text::selection::Operation::SelectAll);
 
     let mut app = text_editor::app(text_editor::State {
         document,

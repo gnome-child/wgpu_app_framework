@@ -1,6 +1,4 @@
-use crate::text as text_engine;
-
-use super::{Clipboard, Payload, Representations};
+use super::{Payload, Representations};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Text(String);
@@ -26,18 +24,6 @@ impl Payload for Text {
 
     fn read(source: &Representations) -> Option<Self> {
         source.non_empty_text().map(Self)
-    }
-}
-
-impl text_engine::edit::Clipboard for Clipboard {
-    fn read_text(&mut self) -> text_engine::edit::ClipboardResult<Option<String>> {
-        self.text()
-            .map_err(|_| text_engine::edit::ClipboardError::Unavailable)
-    }
-
-    fn write_text(&mut self, text: &str) -> text_engine::edit::ClipboardResult<()> {
-        self.put(&Text::new(text))
-            .map_err(|_| text_engine::edit::ClipboardError::Unavailable)
     }
 }
 

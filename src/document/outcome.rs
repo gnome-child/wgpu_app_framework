@@ -36,15 +36,6 @@ impl Outcome {
         }
     }
 
-    pub(in crate::document) fn from_command_result(result: text::edit::ActionResult) -> Self {
-        Self {
-            text_changed: result.text_changed,
-            selection_changed: result.selection_changed,
-            clipboard_changed: result.clipboard_changed,
-            unavailable: result.unavailable,
-        }
-    }
-
     pub(crate) fn from_text_change(
         text_changed: bool,
         selection_changed: bool,

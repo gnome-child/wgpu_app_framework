@@ -1776,7 +1776,7 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
         .expect("document command source should read");
     let document_target = std::fs::read_to_string(src.join("document").join("edit.rs"))
         .expect("document edit target source should read");
-    let document = std::fs::read_to_string(src.join("text").join("edit").join("editor.rs"))
+    let text_editor = std::fs::read_to_string(src.join("text").join("edit").join("editor.rs"))
         .expect("text editor source should read");
     let focused = std::fs::read_to_string(
         src.join("runtime")
@@ -1805,16 +1805,27 @@ fn clipboard_outcomes_flow_from_system_to_text_commands() {
         "the system adapter must propagate read and write results"
     );
     assert!(
-        document.contains("Ok(()) =>")
-            && document.contains("Err(_) => result.unavailable = true")
+        document_target.contains("match clipboard.put(&clipboard::Text::new(selection))")
+            && document_target.contains("self.apply_edit(text::Edit::insert(\"\"))")
+            && document_target.contains("Err(_) => unavailable()")
             && focused.contains("Ok(()) => self.edit_response(text::Edit::Delete, true)")
             && focused
                 .contains("Err(_) => Response::output(document::Outcome::unavailable_result())"),
         "Cut must mutate text only after a confirmed clipboard write"
     );
     assert!(
-        focused.contains("Ok(None)") && focused.contains("Err(_)"),
+        document_target.contains("Ok(_) => unchanged()")
+            && document_target.contains("Err(_) => unavailable()")
+            && focused.contains("Ok(None)")
+            && focused.contains("Err(_)"),
         "Paste must distinguish an empty clipboard from a failed read"
+    );
+    assert!(
+        !src.join("text/edit/action.rs").exists()
+            && !src.join("text/edit/clipboard.rs").exists()
+            && !text_editor.contains("Clipboard")
+            && !text_editor.contains("Action"),
+        "text mutation must not retain the retired command/clipboard intermediate"
     );
     assert!(
         command.matches("unwrap_or(true)").count() == 1
@@ -2115,7 +2126,8 @@ fn history_coalescing_is_scoped_to_the_runtime_target() {
         "command HistoryGroup must own the generic coalescing default"
     );
     assert!(
-        document.contains(".with_coalesce_window(text::edit::TYPING_UNDO_COALESCE_WINDOW)")
+        document
+            .contains(".with_coalesce_window(text::edit::history::TYPING_UNDO_COALESCE_WINDOW)")
             && text_history.contains(
                 "pub const TYPING_UNDO_COALESCE_WINDOW: Duration = Duration::from_millis(1000)"
             ),

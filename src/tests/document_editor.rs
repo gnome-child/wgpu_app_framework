@@ -273,54 +273,87 @@ fn document_selection_bumps_app_revision_without_document_dirty() {
 
 #[test]
 fn document_text_command_outcome_is_framework_owned() {
-    let mut document = TextDocument::from_text("alpha");
-    let mut clipboard = Clipboard::default();
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_text("alpha"),
+        ..text_editor::State::default()
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    assert!(app.focus(window, session::Focus::text("document")));
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("select all should route to the focused document");
 
-    let selected = document.apply_selection(text::selection::Operation::SelectAll);
-    assert!(!selected.text_changed());
-    assert!(selected.selection_changed());
-
-    let copied = document.apply_action(text::edit::Action::Copy, &mut clipboard);
+    let copied = app
+        .invoke_focused(window, app.trigger::<document::Copy>(()))
+        .output
+        .expect("copy should return a document outcome");
 
     assert!(!copied.text_changed());
     assert!(!copied.selection_changed());
     assert!(copied.clipboard_changed());
     assert!(!copied.unavailable());
     assert_eq!(
-        clipboard
+        app.clipboard()
             .text()
             .expect("clipboard read should succeed")
             .as_deref(),
         Some("alpha")
     );
-    assert_eq!(document.text(), "alpha");
-    assert_eq!(document.edit_count(), 0);
+    assert_eq!(app.state().document.text(), "alpha");
+    assert_eq!(app.state().document.edit_count(), 0);
 }
 
 #[test]
 fn clipboard_failures_preserve_cut_text_and_differ_from_empty_paste() {
-    let mut document = TextDocument::from_text("alpha");
-    document.apply_selection(text::selection::Operation::SelectAll);
-    let mut unavailable = Clipboard::unavailable_system();
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_text("alpha"),
+        ..text_editor::State::default()
+    })
+    .with_clipboard(Clipboard::unavailable_system());
+    app.start();
+    let window = app.session().windows()[0].id();
+    assert!(app.focus(window, session::Focus::text("document")));
+    app.handle_input(
+        window,
+        Input::text_selection(text::selection::Operation::SelectAll),
+    )
+    .expect("select all should route to the focused document");
 
-    let cut = document.apply_action(text::edit::Action::Cut, &mut unavailable);
+    let cut = app
+        .invoke_focused(window, app.trigger::<document::Cut>(()))
+        .output
+        .expect("failed cut should return a document outcome");
 
-    assert_eq!(document.text(), "alpha");
+    assert_eq!(app.state().document.text(), "alpha");
     assert!(!cut.text_changed());
     assert!(!cut.clipboard_changed());
     assert!(cut.unavailable());
     assert_eq!(
-        unavailable.put(&clipboard::Text::new("replacement")),
+        app.clipboard().put(&clipboard::Text::new("replacement")),
         Err(clipboard::Error::Unavailable)
     );
-    assert_eq!(unavailable.text(), Err(clipboard::Error::Unavailable));
+    assert_eq!(app.clipboard().text(), Err(clipboard::Error::Unavailable));
 
-    let failed_paste = document.apply_action(text::edit::Action::Paste, &mut unavailable);
-    assert_eq!(document.text(), "alpha");
+    let failed_paste = app
+        .invoke_focused(window, app.trigger::<document::Paste>(()))
+        .output
+        .expect("failed paste should return a document outcome");
+    assert_eq!(app.state().document.text(), "alpha");
     assert!(failed_paste.unavailable());
 
-    let mut empty = Clipboard::default();
-    let empty_paste = document.apply_action(text::edit::Action::Paste, &mut empty);
+    let mut document = TextDocument::from_text("alpha");
+    let mut clipboard = Clipboard::default();
+    let mut cx = Context::with_clipboard(&mut clipboard);
+    let empty_paste = <TextDocument as crate::target::Target<document::Paste>>::invoke(
+        &mut document,
+        (),
+        &mut cx,
+    )
+    .output
+    .expect("empty paste should return a document outcome");
     assert_eq!(document.text(), "alpha");
     assert!(!empty_paste.unavailable());
     assert!(!empty_paste.buffer_changed());

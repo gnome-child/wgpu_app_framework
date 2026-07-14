@@ -3,8 +3,7 @@ use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{
-    Action, ActionResult, Edit, Editor, Marker, Outcome,
-    clipboard::Clipboard,
+    Edit, Editor, Marker, Outcome as EditOutcome,
     transaction::{Change, Transaction},
 };
 use crate::text::{Buffer, selection::State};
@@ -12,7 +11,7 @@ use crate::text::{Buffer, selection::State};
 pub const TYPING_UNDO_COALESCE_WINDOW: Duration = Duration::from_millis(1000);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HistoryKind {
+enum Kind {
     Typing(String),
     Boundary,
 }
@@ -22,7 +21,7 @@ struct Entry {
     before: Marker,
     after: Marker,
     transaction: Transaction,
-    kind: HistoryKind,
+    kind: Kind,
     recorded_at: Instant,
 }
 
@@ -33,8 +32,33 @@ pub struct History {
     current: Option<Marker>,
 }
 
-impl HistoryKind {
-    pub fn for_edit(edit: &Edit) -> Self {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Outcome {
+    text_changed: bool,
+    selection_changed: bool,
+    unavailable: bool,
+}
+
+impl Outcome {
+    pub fn text_changed(self) -> bool {
+        self.text_changed
+    }
+
+    pub fn selection_changed(self) -> bool {
+        self.selection_changed
+    }
+
+    pub fn buffer_changed(self) -> bool {
+        self.text_changed || self.selection_changed
+    }
+
+    pub fn unavailable(self) -> bool {
+        self.unavailable
+    }
+}
+
+impl Kind {
+    fn for_edit(edit: &Edit) -> Self {
         match edit {
             Edit::Insert(text) | Edit::ImeCommit(text) => typing_history_kind(text),
             Edit::ReplaceRange { .. }
@@ -82,9 +106,9 @@ impl History {
         buffer: &mut Buffer,
         state: &mut State,
         edit: Edit,
-    ) -> Outcome {
+    ) -> EditOutcome {
         self.sync(buffer, *state);
-        let kind = HistoryKind::for_edit(&edit);
+        let kind = Kind::for_edit(&edit);
         let outcome = editor.apply_edit(buffer, state, edit);
         if let Some(change) = outcome.change.clone() {
             self.record(change, kind, Instant::now());
@@ -92,23 +116,7 @@ impl History {
         outcome
     }
 
-    pub fn apply_action(
-        &mut self,
-        editor: &mut Editor,
-        buffer: &mut Buffer,
-        state: &mut State,
-        action: Action,
-        clipboard: &mut dyn Clipboard,
-    ) -> ActionResult {
-        self.sync(buffer, *state);
-        let outcome = editor.apply_action(buffer, state, action, clipboard);
-        if let Some(change) = outcome.change.clone() {
-            self.record(change, HistoryKind::Boundary, Instant::now());
-        }
-        outcome.result
-    }
-
-    pub(crate) fn record(&mut self, change: Change, kind: HistoryKind, now: Instant) {
+    fn record(&mut self, change: Change, kind: Kind, now: Instant) {
         if change.before == change.after {
             self.current = Some(change.after);
             return;
@@ -161,11 +169,11 @@ impl History {
         !self.redo.is_empty()
     }
 
-    pub fn undo(&mut self, buffer: &mut Buffer, state: &mut State) -> ActionResult {
+    pub fn undo(&mut self, buffer: &mut Buffer, state: &mut State) -> Outcome {
         let Some(entry) = self.undo.pop() else {
-            return ActionResult {
+            return Outcome {
                 unavailable: true,
-                ..ActionResult::default()
+                ..Outcome::default()
             };
         };
 
@@ -174,9 +182,9 @@ impl History {
 
         if !buffer.apply_transaction_for_state(state, &reverse) {
             self.undo.push(entry);
-            return ActionResult {
+            return Outcome {
                 unavailable: true,
-                ..ActionResult::default()
+                ..Outcome::default()
             };
         }
 
@@ -184,14 +192,14 @@ impl History {
         let after = buffer.marker_for_state(*state);
         self.current = Some(after.clone());
         self.redo.push(entry);
-        action_result_from_markers(before, after)
+        outcome_from_markers(before, after)
     }
 
-    pub fn redo(&mut self, buffer: &mut Buffer, state: &mut State) -> ActionResult {
+    pub fn redo(&mut self, buffer: &mut Buffer, state: &mut State) -> Outcome {
         let Some(entry) = self.redo.pop() else {
-            return ActionResult {
+            return Outcome {
                 unavailable: true,
-                ..ActionResult::default()
+                ..Outcome::default()
             };
         };
 
@@ -199,9 +207,9 @@ impl History {
 
         if !buffer.apply_transaction_for_state(state, &entry.transaction) {
             self.redo.push(entry);
-            return ActionResult {
+            return Outcome {
                 unavailable: true,
-                ..ActionResult::default()
+                ..Outcome::default()
             };
         }
 
@@ -209,32 +217,31 @@ impl History {
         let after = buffer.marker_for_state(*state);
         self.current = Some(after.clone());
         self.undo.push(entry);
-        action_result_from_markers(before, after)
+        outcome_from_markers(before, after)
     }
 }
 
-fn typing_history_kind(text: &str) -> HistoryKind {
+fn typing_history_kind(text: &str) -> Kind {
     let mut graphemes = text.graphemes(true);
     let Some(first) = graphemes.next() else {
-        return HistoryKind::Boundary;
+        return Kind::Boundary;
     };
     if graphemes.next().is_some() {
-        return HistoryKind::Boundary;
+        return Kind::Boundary;
     }
     if first
         .chars()
         .any(|ch| ch.is_whitespace() || ch.is_ascii_punctuation())
     {
-        return HistoryKind::Boundary;
+        return Kind::Boundary;
     }
-    HistoryKind::Typing(first.to_owned())
+    Kind::Typing(first.to_owned())
 }
 
-fn action_result_from_markers(before: Marker, after: Marker) -> ActionResult {
-    ActionResult {
+fn outcome_from_markers(before: Marker, after: Marker) -> Outcome {
+    Outcome {
         text_changed: before.revision != after.revision,
         selection_changed: before.cursor != after.cursor || before.selection != after.selection,
-        clipboard_changed: false,
         unavailable: false,
     }
 }

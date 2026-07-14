@@ -17,7 +17,7 @@ impl Command for ApplyEdit {
     fn history_group(args: &Self::Args) -> Option<command::HistoryGroup> {
         is_typing_edit(args).then_some(
             command::HistoryGroup::new("text.typing")
-                .with_coalesce_window(text::edit::TYPING_UNDO_COALESCE_WINDOW),
+                .with_coalesce_window(text::edit::history::TYPING_UNDO_COALESCE_WINDOW),
         )
     }
 }

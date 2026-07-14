@@ -1,19 +1,15 @@
-mod action;
 mod buffer;
-mod clipboard;
 mod diagnostics;
 mod editor;
-mod history;
+pub mod history;
 mod marker;
 mod operation;
 mod outcome;
 mod transaction;
 
-pub use action::{Action, ActionResult};
-pub use clipboard::{Clipboard, ClipboardError, ClipboardResult};
 pub use diagnostics::Diagnostics;
 pub use editor::Editor;
-pub use history::{History, HistoryKind, TYPING_UNDO_COALESCE_WINDOW};
+pub use history::History;
 pub(crate) use marker::Marker;
 pub use operation::Edit;
 pub use outcome::Outcome;

@@ -1,7 +1,7 @@
 use crate::text;
 
 use super::{ApplyEdit, ApplySelection, Copy, Cut, Delete, Document, Outcome, Paste, SelectAll};
-use crate::{command, context::Context, response::Response, target::Target};
+use crate::{clipboard, command, context::Context, response::Response, target::Target};
 
 impl Target<ApplyEdit> for Document {
     fn state(&self, _: &text::Edit, _: &Context) -> command::State {
@@ -9,12 +9,7 @@ impl Target<ApplyEdit> for Document {
     }
 
     fn invoke(&mut self, edit: text::Edit, _: &mut Context) -> Response<Outcome> {
-        let outcome = self.apply_edit(edit);
-        if outcome.buffer_changed() {
-            Response::changed(outcome)
-        } else {
-            Response::output(outcome)
-        }
+        respond(self.apply_edit(edit))
     }
 }
 
@@ -33,11 +28,7 @@ impl Target<ApplySelection> for Document {
         } else {
             self.apply_selection(operation)
         };
-        if outcome.buffer_changed() {
-            Response::changed(outcome)
-        } else {
-            Response::output(outcome)
-        }
+        respond(outcome)
     }
 }
 
@@ -51,7 +42,11 @@ impl Target<SelectAll> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        invoke_text_command(self, text::edit::Action::SelectAll, cx)
+        let Some(_clipboard) = cx.clipboard_mut() else {
+            return unavailable();
+        };
+
+        respond(self.apply_selection(text::selection::Operation::SelectAll))
     }
 }
 
@@ -65,7 +60,17 @@ impl Target<Copy> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        invoke_text_command(self, text::edit::Action::Copy, cx)
+        let Some(clipboard) = cx.clipboard_mut() else {
+            return unavailable();
+        };
+        let Some(selection) = self.selected_text() else {
+            return unchanged();
+        };
+
+        match clipboard.put(&clipboard::Text::new(selection)) {
+            Ok(()) => Response::output(Outcome::from_text_change(false, false, true)),
+            Err(_) => unavailable(),
+        }
     }
 }
 
@@ -79,7 +84,24 @@ impl Target<Cut> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        invoke_text_command(self, text::edit::Action::Cut, cx)
+        let Some(clipboard) = cx.clipboard_mut() else {
+            return unavailable();
+        };
+        let Some(selection) = self.selected_text() else {
+            return unchanged();
+        };
+
+        match clipboard.put(&clipboard::Text::new(selection)) {
+            Ok(()) => {
+                let edit = self.apply_edit(text::Edit::insert(""));
+                respond(Outcome::from_text_change(
+                    edit.text_changed(),
+                    edit.selection_changed(),
+                    true,
+                ))
+            }
+            Err(_) => unavailable(),
+        }
     }
 }
 
@@ -93,7 +115,11 @@ impl Target<Delete> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        invoke_text_command(self, text::edit::Action::Delete, cx)
+        let Some(_clipboard) = cx.clipboard_mut() else {
+            return unavailable();
+        };
+
+        respond(self.apply_edit(text::Edit::Delete))
     }
 }
 
@@ -103,23 +129,34 @@ impl Target<Paste> for Document {
     }
 
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<Outcome> {
-        invoke_text_command(self, text::edit::Action::Paste, cx)
+        let Some(clipboard) = cx.clipboard_mut() else {
+            return unavailable();
+        };
+
+        match clipboard.text() {
+            Ok(Some(text))
+                if !text::buffer::normalize_for_buffer(self.buffer(), &text).is_empty() =>
+            {
+                respond(self.apply_edit(text::Edit::insert(text)))
+            }
+            Ok(_) => unchanged(),
+            Err(_) => unavailable(),
+        }
     }
 }
 
-fn invoke_text_command(
-    document: &mut Document,
-    action: text::edit::Action,
-    cx: &mut Context,
-) -> Response<Outcome> {
-    let Some(mut clipboard) = cx.clipboard_mut() else {
-        return Response::output(Outcome::unavailable_result());
-    };
-    let result = document.apply_action(action, &mut clipboard);
-
-    if result.buffer_changed() {
-        Response::changed(result)
+fn respond(outcome: Outcome) -> Response<Outcome> {
+    if outcome.buffer_changed() {
+        Response::changed(outcome)
     } else {
-        Response::output(result)
+        Response::output(outcome)
     }
+}
+
+fn unchanged() -> Response<Outcome> {
+    Response::output(Outcome::from_text_change(false, false, false))
+}
+
+fn unavailable() -> Response<Outcome> {
+    Response::output(Outcome::unavailable_result())
 }

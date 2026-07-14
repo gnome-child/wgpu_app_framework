@@ -1,15 +1,13 @@
 use std::time::Instant;
 
 use super::super::{
-    buffer::{Buffer, CursorSelection, Range, normalize_for_buffer},
-    selection::{self, State},
+    buffer::{Buffer, CursorSelection, Range},
+    selection::State,
 };
 use super::{
-    action::{Action, ActionResult},
-    clipboard::Clipboard,
     diagnostics::Diagnostics,
     operation::Edit,
-    outcome::{self, Outcome},
+    outcome::Outcome,
     transaction::{Impact, Kind, Transaction},
 };
 
@@ -27,16 +25,6 @@ impl Editor {
 
     pub fn apply_edit(&mut self, buffer: &mut Buffer, state: &mut State, edit: Edit) -> Outcome {
         self.apply_edit_for_state(buffer, state, edit)
-    }
-
-    pub(crate) fn apply_action(
-        &mut self,
-        buffer: &mut Buffer,
-        state: &mut State,
-        action: Action,
-        clipboard: &mut dyn Clipboard,
-    ) -> outcome::ActionOutcome {
-        self.apply_action_for_state(buffer, state, action, clipboard)
     }
 
     fn apply_edit_for_state(
@@ -237,63 +225,6 @@ impl Editor {
                 .sum::<usize>();
         }
         result
-    }
-
-    fn apply_action_for_state(
-        &mut self,
-        buffer: &mut Buffer,
-        state: &mut State,
-        action: Action,
-        clipboard: &mut dyn Clipboard,
-    ) -> outcome::ActionOutcome {
-        let before = buffer.marker_for_state(*state);
-        let mut result = ActionResult::default();
-        let mut change = None;
-        match action {
-            Action::Copy => {
-                let Some(selection) = buffer.selected_text_for_state(*state) else {
-                    return outcome::ActionOutcome { result, change };
-                };
-                match clipboard.write_text(&selection) {
-                    Ok(()) => result.clipboard_changed = true,
-                    Err(_) => result.unavailable = true,
-                }
-            }
-            Action::Cut => {
-                let Some(selection) = buffer.selected_text_for_state(*state) else {
-                    return outcome::ActionOutcome { result, change };
-                };
-                match clipboard.write_text(&selection) {
-                    Ok(()) => {
-                        result.clipboard_changed = true;
-                        let edit_result = self.apply_edit(buffer, state, Edit::insert(""));
-                        change = edit_result.change;
-                    }
-                    Err(_) => result.unavailable = true,
-                }
-            }
-            Action::Delete => {
-                let edit_result = self.apply_edit(buffer, state, Edit::delete());
-                change = edit_result.change;
-            }
-            Action::Paste => match clipboard.read_text() {
-                Ok(Some(text)) if !normalize_for_buffer(buffer, &text).is_empty() => {
-                    let edit_result = self.apply_edit(buffer, state, Edit::insert(text));
-                    change = edit_result.change;
-                }
-                Ok(_) => {}
-                Err(_) => result.unavailable = true,
-            },
-            Action::SelectAll => {
-                selection::apply(buffer, state, selection::Operation::SelectAll);
-            }
-            Action::Undo | Action::Redo => result.unavailable = true,
-        }
-        let after = buffer.marker_for_state(*state);
-        result.text_changed = before.revision != after.revision;
-        result.selection_changed =
-            before.cursor != after.cursor || before.selection != after.selection;
-        outcome::ActionOutcome { result, change }
     }
 
     pub fn diagnostics(&self) -> Diagnostics {
