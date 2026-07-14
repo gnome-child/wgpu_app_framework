@@ -3330,6 +3330,50 @@ Correction `b299aeaa` (`Make view binding trigger species valid`).
    sweep continues across view-node roles, remaining layout payloads, session,
    theme, and scene inventories; this cell does not close Rung 5.
 
+### R5-19 — distinct standard-menu projected-entry lifecycles
+
+Status: **complete; catalog and authored entry state separated**. Correction
+`f3e4d07a` (`Separate standard menu entry lifecycles`).
+
+1. **Question and complete trace.** The reverse standard-menu sweep traced
+   registry topology, platform catalog slots, live bar actions, missing/hidden
+   nodes, authored item/section/category insertions and replacements, anchor
+   ordering, marker retention, final node filtering, menu construction, and the
+   complete command/menu witnesses.
+2. **Valid absence and invalid overlap.** Catalog entries legitimately retain
+   an optional standard marker even when no live node resolves, so node absence
+   cannot simply disappear. Authored entries, by contrast, always carry a node
+   and alone may carry an after-anchor. The prior three independent options
+   admitted markerless/nodeless authored entries and anchors on catalog entries.
+3. **Correction.** The existing private `ProjectedEntry` is now
+   `Catalog { standard, node } | Authored { node, after }`; no helper type was
+   added. Focused projections provide marker, anchor, and final-node views while
+   preserving replacement and ordering algorithms.
+4. **Boundary and naming ruling.** `ProjectedEntry` remains private to the
+   private standard-menu module; the existing crate-private
+   `StandardMenuExtension` housing/projection is untouched. No new re-export,
+   compound/simple alias, or visibility change was introduced.
+5. **Behavior and economics.** Platform topology, standard markers, hidden
+   commands, authored ordering, section/category replacement, shortcut policy,
+   final node order, allocation, cloning, and presentation work are unchanged.
+   One enum discriminant replaces the mixed option set without a heap object or
+   additional traversal.
+6. **Doctrine and witnesses.** Master design now names the catalog and authored
+   entry lifecycles and their distinct absence rules. The architecture witness
+   pins the two species and tombstones the authored-anchor field on the old
+   struct shape.
+7. **Proof and gauge delta from R5-18.** The architecture witness, focused
+   standard-menu tests, and all 30 command tests passed; the full library
+   discovered 1,101 tests and passed 1,091 with 10 ignored; all targets compiled
+   without warnings. All nine census parser witnesses, the full census,
+   formatting, diff, and protected-state checks passed. Every graph,
+   visibility, test-edge, source-root, filesystem, allowance, panic, and expect
+   gauge remains unchanged.
+8. **Fixed point and next frontier.** Standard-menu projection now preserves
+   legitimate marker absence without admitting cross-lifecycle state. The
+   reverse sweep continues across the remaining view/layout/widget/session/
+   theme/scene inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
