@@ -5567,7 +5567,71 @@ cardinality structural`).
    6, and 6. Production expects fall 52 -> 51. Erased-command cardinality is at
    fixed point; the reverse sweep continues through the remaining layout/
    session failure, visibility, intermediate, housing, and naming inventories.
-   This cell does not close Rung 5.
+    This cell does not close Rung 5.
+
+### R5-57 — structural text shaping and LRU cache admission
+
+Status: **complete; shaping cardinality and nonzero cache capacity encoded at
+their owner**. Correction `7e05017a` (`Make text cache admission structural`).
+
+1. **Question and complete trace.** The remaining text-layout cache assertions
+   were traced through area-line display shaping, field surfaces, inline text
+   and icons, height indices, render buffers, measurement, committed and preedit
+   retention, cache hits/misses/eviction, diagnostics, and every constructor.
+   All `ShapingCache`, direct `LruCache`, and measurement-FIFO capacity entrances
+   were included rather than treating the assertions as isolated syntax.
+2. **Distinct cardinalities and capacity semantics.** Area-line and field
+   preparation are total after their keys are admitted; neither preparation
+   function has an absence outcome. Inline text and icon preparation remains
+   legitimately optional because empty, multi-run, or unavailable glyph
+   preparation can decline. Every LRU cache requires positive capacity, while
+   the separate measurement FIFO deliberately supports zero as a disabled-cache
+   mode. One optional shaping entrance and one `usize` capacity policy could not
+   truthfully represent all three distinctions.
+3. **Correction and displaced paths.** `ShapingCache` now exposes
+   `shape_required` and `shape_optional`; both share one cache-hit projection and
+   one insertion path. Area and field consume the total entrance directly, and
+   field preparation returns its value rather than wrapping it. Inline text and
+   icon callsites name optionality explicitly, and absence never enters the
+   cache. The two total-result assertions and their false `Option` paths are
+   deleted.
+4. **Typed cache admission.** `ShapingCache::new` and both direct LRU
+   constructors now accept `NonZeroUsize`. Their fixed retention constants carry
+   that type from declaration to construction, deleting the shaping-cache panic
+   and two capacity assertions. The measurement FIFO stays `usize` and retains
+   its existing zero-disabled branch; the correction does not falsely erase
+   that independent policy.
+5. **Boundary and naming ruling.** Text layout remains the one shaping/cache
+   mechanics owner; area, field, and inline modules retain their domain keys and
+   retention limits. The two entrance names describe result cardinality and no
+   wrapper, alias, parent projection, support re-export, or visibility change is
+   introduced. No compound declaration is exposed under a simpler name and no
+   namesake parent surface is touched.
+6. **Behavior and economics.** Cache keys, capacity values, LRU/FIFO eviction,
+   committed versus transient retention, shaped-buffer identity, hit/miss and
+   shaping diagnostics, allocation, layout, scene order, renderer topology,
+   batching/pass fusion, invalidation, and presentation clocks are unchanged.
+   Required preparation removes an impossible option construction/branch; cache
+   lookup and insertion remain centralized and occur in the same order.
+7. **Doctrine and proof.** Master design now states required versus optional
+   shaping cardinality, typed positive LRU admission, and the measurement FIFO
+   exception. An owner witness covers required miss/hit and optional absence/
+   miss/hit; the architecture witness pins both entrances, typed constructors,
+   total callsites, optional inline callsites, and all displaced assertions.
+   The focused text slice passed 131 tests with two standing ignores. The full
+   library discovered 1,134 tests and passed 1,124 with ten standing ignores.
+   All targets and all five examples compiled without warnings; all ten census
+   parser witnesses, the full census, formatting, diff, and protected-state
+   checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, visibility,
+   cross-slot test edges, source-root mentions, filesystem reads, and allowances
+   remain 325/109, 3, 54, 0/0/0, 1,824 in 192 files, 90, 118, 363, and 6.
+   Removing the cache panic lowers production panics 6 -> 5; removing the four
+   runtime assertions lowers production expects 51 -> 47. Text shaping/cache
+   admission is at fixed point; the reverse sweep continues through the
+   remaining layout/session visibility, failure, intermediate, housing, and
+   naming inventories. This cell does not close Rung 5.
 
 ## Initial hypotheses and queue
 
