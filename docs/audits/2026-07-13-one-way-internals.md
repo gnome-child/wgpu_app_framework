@@ -3775,6 +3775,64 @@ lifetime**. Correction `4113956d` (`Make pointer location atomic`).
    view/layout role facts, widget/theme state, and the remaining visibility,
    failure, and intermediate inventories; this cell does not close Rung 5.
 
+### R5-28 — valid session cursor-publication species
+
+Status: **complete; cursor value and pending handoff made one lifecycle**.
+Correction `7e008361` (`Make cursor publication state valid`).
+
+1. **Question and complete trace.** The reverse session-window sweep traced
+   cursor resolution from pointer hits, capture, modifiers, successful
+   presentation, stationary-pointer reprojection, direct test injection, update
+   draining, platform deduplication, backend application, open/restore, and
+   window destruction. It also tested the neighboring invalidation, projected-
+   revision, desired/acknowledged epoch, focus-restoration, dialog, feedback,
+   and interaction fields for the same correlation.
+2. **Invalid state and resistance matrix.** Current cursor and
+   `cursor_changed` described one synced-or-pending publication lifecycle, yet
+   were independently representable. The neighboring facts resist merging:
+   invalidation may clear while the desired epoch remains; retry invalidation
+   deliberately does not mint an epoch; projected revision may precede or lag
+   presentation; acknowledgement advances only on successful presentation;
+   focus, optional menu restoration, dialogs, feedback, and interaction each
+   have separately witnessed absence and cleanup lifetimes.
+3. **Correction.** One private
+   `Cursor::{Synced(pointer::Cursor), Pending(pointer::Cursor)}` now owns both
+   the current value and publication state. Resolving a different cursor enters
+   `Pending`; resolving the same value preserves the species; draining returns
+   the pending value once and advances it to `Synced`. The parallel dirty flag,
+   agreement protocol, and field-level mutations are deleted.
+4. **Boundary and naming ruling.** Private `session::window::Cursor` is a simple
+   owner-local supporting concept and receives no parent projection or alias.
+   Public `session::Window::cursor`, `pointer::Cursor`, and `pointer::Update`
+   retain their established names and signatures. No visibility widened and no
+   compound declaration is exposed under a simpler spelling.
+5. **Behavior and economics.** Cursor semantics, same-value suppression,
+   pending replacement by the newest value, one-shot drain, window order,
+   platform active-cursor deduplication, backend calls, redraw independence,
+   capture, layout, scene, renderer topology, and presentation clocks are
+   unchanged. One enum discriminant replaces the boolean beside the same Copy
+   cursor value without allocation, lookup, callback, or traversal.
+6. **Doctrine and witnesses.** Master design now names synced and pending cursor
+   publication species. The architecture witness pins the sum and tombstones
+   the dirty flag. A direct owner witness covers initial sync, value visibility
+   while pending, one-shot handoff, final sync, and same-value suppression; all
+   eighteen cursor-focused behavior witnesses passed.
+7. **Proof and gauge delta from R5-27.** The full library discovered 1,111 tests
+   and passed 1,101 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every gauge remains unchanged: production/
+   test edges 325/111, split responsibilities 3, slot edges 54, forbidden/
+   external/SCC counts 0/0/0, production `pub(crate)` declarations 1,809 in
+   190 files, cross-slot upper bound 1,762, cross-slot test edges 90,
+   source-root mentions 118, filesystem reads 361, allowances 6, panics 7, and
+   expects 90.
+8. **Fixed point and next frontier.** Session cursor publication now advances
+   through one valid state while the independently clocked session facts remain
+   explicit resistance outcomes. The reverse sweep continues through menu
+   focus restoration, view/layout role facts, widget/theme state, and the
+   remaining visibility, failure, and intermediate inventories; this cell does
+   not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
