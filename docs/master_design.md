@@ -1169,6 +1169,12 @@ Label, chord, menu category, section, slot, shortcut visibility, and
 platform-specific relocation are projections of that meaning. Registration is
 the persistent vocabulary of an opt-in conventional bar; the current responder
 chain supplies live state and actor without reordering the cultural topology.
+
+Standard-menu projection keeps catalog and authored entries as distinct
+species. A catalog entry may retain an optional standard marker when its live
+action resolves to no node; an authored entry always carries its node and alone
+may carry an after-anchor. Those lifecycles never share parallel optional
+standard, node, and anchor fields.
 An application requests that projection with `ui.standard_menu_bar()` and
 declares static deviations through typed placement metadata. Dynamic or
 argument-bearing deviations use the typed mixed-bar builder. Fully authored

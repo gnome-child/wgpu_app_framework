@@ -37,10 +37,38 @@ struct ProjectedSection {
 }
 
 #[derive(Clone)]
-struct ProjectedEntry {
-    standard: Option<Standard>,
-    node: Option<Node>,
-    authored_after: Option<Standard>,
+enum ProjectedEntry {
+    Catalog {
+        standard: Option<Standard>,
+        node: Option<Node>,
+    },
+    Authored {
+        node: Node,
+        after: Option<Standard>,
+    },
+}
+
+impl ProjectedEntry {
+    fn standard(&self) -> Option<Standard> {
+        match self {
+            Self::Catalog { standard, .. } => *standard,
+            Self::Authored { .. } => None,
+        }
+    }
+
+    fn authored_after(&self) -> Option<Standard> {
+        match self {
+            Self::Catalog { .. } => None,
+            Self::Authored { after, .. } => *after,
+        }
+    }
+
+    fn into_node(self) -> Option<Node> {
+        match self {
+            Self::Catalog { node, .. } => node,
+            Self::Authored { node, .. } => Some(node),
+        }
+    }
 }
 
 impl Extension {
@@ -119,12 +147,11 @@ pub(super) fn project(projection: &command::BarProjection, extensions: &[Extensi
             .map(|section| ProjectedSection {
                 entries: section
                     .iter()
-                    .map(|entry| ProjectedEntry {
+                    .map(|entry| ProjectedEntry::Catalog {
                         standard: entry.standard(),
                         node: entry
                             .action()
                             .map(|action| Node::resolved_bar_action(action, entry.show_shortcut())),
-                        authored_after: None,
                     })
                     .collect(),
                 authored_after: None,
@@ -146,7 +173,7 @@ pub(super) fn project(projection: &command::BarProjection, extensions: &[Extensi
                     let nodes = section
                         .entries
                         .into_iter()
-                        .filter_map(|entry| entry.node)
+                        .filter_map(ProjectedEntry::into_node)
                         .collect::<Vec<_>>();
                     (!nodes.is_empty()).then_some(nodes)
                 })
@@ -183,7 +210,7 @@ fn apply_extension(categories: &mut [ProjectedCategory], extension: &Extension) 
             while section
                 .entries
                 .get(index)
-                .is_some_and(|entry| entry.authored_after == Some(anchor))
+                .is_some_and(|entry| entry.authored_after() == Some(anchor))
             {
                 index += 1;
             }
@@ -226,10 +253,9 @@ fn apply_extension(categories: &mut [ProjectedCategory], extension: &Extension) 
                 .entries
                 .iter()
                 .filter_map(|entry| {
-                    entry.standard.map(|standard| ProjectedEntry {
+                    entry.standard().map(|standard| ProjectedEntry::Catalog {
                         standard: Some(standard),
                         node: None,
-                        authored_after: None,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -257,10 +283,9 @@ fn authored_entries(nodes: &[Node], authored_after: Option<Standard>) -> Vec<Pro
     nodes
         .iter()
         .cloned()
-        .map(|node| ProjectedEntry {
-            standard: None,
-            node: Some(node),
-            authored_after,
+        .map(|node| ProjectedEntry::Authored {
+            node,
+            after: authored_after,
         })
         .collect()
 }
@@ -292,7 +317,7 @@ fn section_location(
             section
                 .entries
                 .iter()
-                .any(|entry| entry.standard == Some(anchor))
+                .any(|entry| entry.standard() == Some(anchor))
         }) {
             return (category, index);
         }
@@ -304,6 +329,6 @@ fn entry_index(section: &ProjectedSection, anchor: Standard) -> usize {
     section
         .entries
         .iter()
-        .position(|entry| entry.standard == Some(anchor))
+        .position(|entry| entry.standard() == Some(anchor))
         .expect("section location must contain its anchor")
 }

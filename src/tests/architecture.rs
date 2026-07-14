@@ -170,6 +170,27 @@ fn view_binding_trigger_species_keeps_slider_factory_with_current_trigger() {
 }
 
 #[test]
+fn standard_menu_projected_entry_separates_catalog_and_authored_lifecycles() {
+    let menu = include_str!("../view/node/standard_menu.rs");
+    let entry = menu
+        .split("enum ProjectedEntry")
+        .nth(1)
+        .and_then(|source| source.split("impl ProjectedEntry").next())
+        .expect("projected entry declaration precedes its implementation");
+
+    assert!(
+        menu.contains("enum ProjectedEntry {")
+            && menu.contains("Catalog {")
+            && menu.contains("standard: Option<Standard>,")
+            && menu.contains("node: Option<Node>,")
+            && menu.contains("Authored {")
+            && menu.contains("node: Node,")
+            && menu.contains("after: Option<Standard>,")
+    );
+    assert!(!entry.contains("authored_after: Option<Standard>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
