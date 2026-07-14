@@ -1,0 +1,118 @@
+{
+  "slots": {
+    "foundation": {
+      "modules": [
+        "animation",
+        "color",
+        "feedback",
+        "geometry",
+        "icon",
+        "state",
+        "subject",
+        "task",
+        "window"
+      ],
+      "may_depend_on": []
+    },
+    "text": {
+      "modules": ["text"],
+      "may_depend_on": ["foundation"]
+    },
+    "command": {
+      "modules": [
+        "command",
+        "context",
+        "error",
+        "input",
+        "keymap",
+        "notification",
+        "responder",
+        "response",
+        "target",
+        "timeline"
+      ],
+      "may_depend_on": ["foundation", "text"]
+    },
+    "ui": {
+      "modules": [
+        "composition",
+        "draft",
+        "interaction",
+        "layout",
+        "overlay",
+        "pointer",
+        "popup",
+        "scene",
+        "selection",
+        "session",
+        "table",
+        "theme",
+        "view",
+        "virtual_list",
+        "widget"
+      ],
+      "may_depend_on": ["foundation", "text", "command"]
+    },
+    "renderer": {
+      "modules": ["paint", "render"],
+      "may_depend_on": ["foundation", "text", "ui"]
+    },
+    "runtime": {
+      "modules": [
+        "clipboard",
+        "diagnostics",
+        "document",
+        "host",
+        "ime",
+        "runtime",
+        "shell"
+      ],
+      "may_depend_on": ["foundation", "text", "command", "ui"]
+    },
+    "platform": {
+      "modules": ["platform"],
+      "may_depend_on": [
+        "foundation",
+        "text",
+        "command",
+        "ui",
+        "renderer",
+        "runtime"
+      ]
+    },
+    "facade": {
+      "modules": ["lib"],
+      "may_depend_on": [
+        "foundation",
+        "text",
+        "command",
+        "ui",
+        "renderer",
+        "runtime",
+        "platform"
+      ]
+    }
+  },
+  "external_boundaries": {
+    "arboard": ["runtime"],
+    "bytemuck": ["renderer"],
+    "cosmic_text": ["text"],
+    "glyphon": ["text", "renderer"],
+    "iconflow": ["ui"],
+    "lru": ["text"],
+    "pollster": ["runtime", "platform"],
+    "rfd": ["platform"],
+    "serde": ["ui"],
+    "toml": ["ui"],
+    "unicode_bidi": ["text"],
+    "unicode_linebreak": ["text"],
+    "unicode_segmentation": ["text", "runtime"],
+    "wgpu": ["renderer"],
+    "wgpu_hal": ["platform"],
+    "windows": ["platform"],
+    "windows_future": ["platform"],
+    "windows_numerics": ["platform"],
+    "windows_sys": ["platform"],
+    "winit": ["platform"]
+  }
+}

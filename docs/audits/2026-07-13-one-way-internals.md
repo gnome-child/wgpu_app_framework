@@ -397,6 +397,118 @@ Re-run the loop bidirectionally across every accepted owner:
 Reopen any cell contradicted by the final graph. Continue correcting and
 re-sweeping until no admissible finding remains.
 
+## Rung 0 record — instruments and provisional map
+
+Status: **complete**. Production baseline `1d7278c1`; formulation/ignition
+checkpoint `b7a9a317`. The branch was three commits ahead of `origin/master`
+before ignition and not behind. Protected glass-tuner state remained
+`comparison_open: true`.
+
+### Behavioral and build baseline
+
+- `cargo test --lib`: 1,065 discovered; 1,055 passed, 10 deliberately ignored,
+  0 failed. Test-profile preparation took 44.43s; test execution took 4.74s.
+- `cargo check --examples`: all five examples passed in 6.80s on the warm
+  ordinary target.
+- `cargo fmt --check` and `git diff --check`: passed.
+- Isolated-target clean `cargo check --lib`: 47.934s.
+- Same-target no-change incremental `cargo check --lib`: 0.926s (Cargo-reported
+  work 0.80s).
+
+The isolated target is `target/one-way-rung0-baseline`, already covered by the
+repository's target ignore. These timings are local receipts, not promises
+about another machine.
+
+### Gauge instrument
+
+Rung 0 added:
+
+- `tools/one_way_census.py` — workspace-root discovery, Rust comment/literal
+  masking, grouped `crate::{...}` and relative `super::{...}` resolution,
+  cfg/test separation, module/slot edges, external-dependency users, SCCs,
+  visibility and witness counts, and Markdown/JSON reports;
+- `tools/one_way_slots.json` — the explicitly provisional slot/direction and
+  heavy external-boundary hypotheses; and
+- `tools/test_one_way_census.py` — five differently shaped parser witnesses
+  for grouped crate paths, direct/grouped relative paths, masked receipts, and
+  test-only separation.
+
+The tool is a gauge only. It is not wired into the Rust suite and its slot map
+is campaign data, not architecture law. Manual probes independently confirmed
+the 100 `CARGO_MANIFEST_DIR` mentions, the 1,881 raw production-plus-test
+`pub(crate)` spellings, and every high-priority external receipt before the
+map was accepted as a starting instrument.
+
+### Initial mechanical snapshot
+
+| Metric | Rung 0 |
+|---|---:|
+| Top-level production modules | 45 |
+| Unique production module edges | 325 |
+| Unique test-only module edges | 95 |
+| Provisional cross-slot edges | 30 |
+| Provisional forbidden internal module edges | 15 |
+| Provisional heavy external-boundary violations | 10 |
+| Provisional slot SCCs | 1 (command/foundation/renderer/runtime/text/UI) |
+| Production `pub(crate)` declarations | 1,738 in 183 files |
+| Cross-slot-provider `pub(crate)` upper bound | 1,738 |
+| Unique cross-slot test-only module edges | 75 |
+| `CARGO_MANIFEST_DIR` mentions | 100 |
+| Filesystem read calls | 288 |
+| `#[allow(...)]` attributes | 10 |
+| Production `panic!` calls | 9 |
+| Production `.expect(...)` calls | 103 |
+
+The visibility upper bound is intentionally labeled: every provisional slot
+currently provides something across a slot boundary, so a module-level census
+cannot truthfully identify which of its 1,738 declarations would cross. Cells
+disposition concrete surfaces as their consumers are traced; Rung 6 closes the
+remaining symbol-level budget. No false exact count is manufactured.
+
+### Revalidated candidate edges
+
+The mechanical gauge found more current production edges than the older hand
+census because grouped relative imports are now expanded. These are questions,
+not inherited violations:
+
+| Provisional direction | Candidate module edges |
+|---|---|
+| command -> runtime/UI | `context -> clipboard/layout`; `input -> interaction/session`; `responder -> interaction/session/table` |
+| foundation -> command/UI | `window -> notification/scene/theme` |
+| renderer -> runtime | `render -> diagnostics` |
+| text -> renderer | `text -> paint` |
+| UI -> runtime | `layout/view -> diagnostics`; `widget -> document` |
+
+Heavy external-boundary questions are:
+
+- `animation -> winit`;
+- `document -> windows/windows-sys`;
+- `pointer -> windows-sys`;
+- `icon -> iconflow` and `text -> iconflow`;
+- `task -> pollster`;
+- `scene -> glyphon` and `render -> cosmic-text`;
+- `platform -> wgpu`.
+
+The full receipts are reproducible with
+`python tools/one_way_census.py --format markdown` (or `json`). Each edge is
+admitted, redrawn, or rejected only after its own trace.
+
+### Provisional owner rulings and queue
+
+All 45 modules have a provisional slot in `one_way_slots.json`; every slot
+remains revisable. The dagger-like split questions from the investigation are
+preserved as cells rather than silently assigned: animation scheduling versus
+winit projection; icon identity versus pack realization; task/state/feedback
+vocabulary versus machinery; window facts versus UI policy; text geometry
+versus paint; command contracts versus service realization; diagnostics facts
+versus aggregation; semantic scene versus renderer payloads.
+
+Rung 1 begins with `animation::Schedule -> winit::ControlFlow`: the smallest
+unambiguous downward dependency, already behaviorally witnessed, and therefore
+the pilot for the complete cell loop. The remaining Rung 1 cells are ordered by
+dependency weight unlocked and independent provability, not by the old census
+table.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
