@@ -1227,10 +1227,12 @@ are one rectangle.
 Panel attachment is independent of meaning, severity, and lifetime. A hover
 revelation captures the pointer's retained-layout position when it becomes
 visible and keeps that snapshot for the panel generation; it does not borrow a
-live pointer clock. Context menus consume the same point-anchor solver without
-hover clearance, while persistent validation consumes its typed subject
-rectangle. The shared placement request alone applies clearance, edge flips,
-and final clamping.
+live pointer clock. Its lifecycle is exactly idle, waiting since one admission
+instant, or visible at one captured anchor; waiting time and visible geometry
+are never parallel optional facts. Context menus consume the same point-anchor
+solver without hover clearance, while persistent validation consumes its typed
+subject rectangle. The shared placement request alone applies clearance, edge
+flips, and final clamping.
 
 Accessibility consumes the semantic truths independently of panel visibility.
 `Spec::description` maps to direct AccessKit Description; node-supplied

@@ -15,11 +15,16 @@ pub(crate) struct Pointer {
     last_click: Option<Click>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct HoverTip {
-    started_at: Option<Instant>,
-    visible: bool,
-    anchor: Option<Point>,
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum HoverTip {
+    #[default]
+    Idle,
+    Waiting {
+        started_at: Instant,
+    },
+    Visible {
+        anchor: Point,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,14 +96,14 @@ impl Pointer {
     }
 
     pub(crate) fn hover_tip_visible(&self) -> bool {
-        self.hover_tip.visible
+        matches!(self.hover_tip, HoverTip::Visible { .. })
     }
 
     pub(crate) fn hover_tip_deadline(&self, delay: std::time::Duration) -> Option<Instant> {
-        (!self.hover_tip.visible)
-            .then_some(self.hover_tip.started_at)
-            .flatten()
-            .map(|started_at| started_at + delay)
+        match self.hover_tip {
+            HoverTip::Waiting { started_at } => Some(started_at + delay),
+            HoverTip::Idle | HoverTip::Visible { .. } => None,
+        }
     }
 
     pub(super) fn update_projected_hover(
@@ -113,15 +118,11 @@ impl Pointer {
             self.hover_tip = HoverTip::default();
         }
         let tip_eligible = tip_eligible && self.hovered.is_some();
-        let tip_active = self.hover_tip.visible || self.hover_tip.started_at.is_some();
+        let tip_active = self.hover_tip != HoverTip::Idle;
         let eligibility_changed = tip_active != tip_eligible;
         if eligibility_changed {
             self.hover_tip = if tip_eligible {
-                HoverTip {
-                    started_at: Some(at),
-                    visible: false,
-                    anchor: None,
-                }
+                HoverTip::Waiting { started_at: at }
             } else {
                 HoverTip::default()
             };
@@ -130,10 +131,10 @@ impl Pointer {
     }
 
     pub(super) fn promote_hover_tip(&mut self, now: Instant, delay: std::time::Duration) -> bool {
-        if self.hover_tip.visible || self.hovered.is_none() {
+        if self.hovered.is_none() {
             return false;
         }
-        let Some(started_at) = self.hover_tip.started_at else {
+        let HoverTip::Waiting { started_at } = self.hover_tip else {
             return false;
         };
         if now < started_at + delay {
@@ -142,13 +143,12 @@ impl Pointer {
         let Some(anchor) = self.position else {
             return false;
         };
-        self.hover_tip.visible = true;
-        self.hover_tip.anchor = Some(anchor);
+        self.hover_tip = HoverTip::Visible { anchor };
         true
     }
 
     pub(super) fn dismiss_hover_tip(&mut self) -> bool {
-        let changed = self.hover_tip.visible || self.hover_tip.started_at.is_some();
+        let changed = self.hover_tip != HoverTip::Idle;
         self.hover_tip = HoverTip::default();
         changed
     }
@@ -158,10 +158,10 @@ impl Pointer {
     }
 
     pub(crate) fn hover_tip_anchor(&self) -> Option<Point> {
-        self.hover_tip
-            .visible
-            .then_some(self.hover_tip.anchor)
-            .flatten()
+        match self.hover_tip {
+            HoverTip::Visible { anchor } => Some(anchor),
+            HoverTip::Idle | HoverTip::Waiting { .. } => None,
+        }
     }
 
     pub(crate) fn surface(&self) -> crate::popup::Surface {
@@ -215,7 +215,9 @@ mod tests {
 
         pointer.position = Some(reveal_point);
         assert!(pointer.update_projected_hover(Some(target), true, entered_at));
+        assert_eq!(pointer.hover_tip_deadline(Duration::ZERO), Some(entered_at));
         assert!(pointer.promote_hover_tip(entered_at, std::time::Duration::ZERO));
+        assert_eq!(pointer.hover_tip_deadline(Duration::ZERO), None);
         assert_eq!(pointer.hover_tip_anchor(), Some(reveal_point));
 
         pointer.position = Some(Point::new(80, 60));

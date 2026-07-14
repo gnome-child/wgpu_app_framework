@@ -230,6 +230,27 @@ fn visual_scalar_species_separates_moving_and_resting_state() {
 }
 
 #[test]
+fn hover_tip_lifecycle_is_idle_waiting_or_visible() {
+    let pointer = include_str!("../interaction/pointer.rs");
+    let lifecycle = pointer
+        .split("enum HoverTip")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) struct Capture").next())
+        .expect("hover-tip lifecycle precedes pointer capture");
+
+    assert!(
+        lifecycle.contains("Idle,")
+            && lifecycle.contains("Waiting {")
+            && lifecycle.contains("started_at: Instant,")
+            && lifecycle.contains("Visible {")
+            && lifecycle.contains("anchor: Point,")
+    );
+    assert!(!lifecycle.contains("started_at: Option<Instant>"));
+    assert!(!lifecycle.contains("visible: bool"));
+    assert!(!lifecycle.contains("anchor: Option<Point>"));
+}
+
+#[test]
 fn animation_vocabulary_is_platform_neutral() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let animation = std::fs::read_to_string(root.join("src/animation.rs"))
