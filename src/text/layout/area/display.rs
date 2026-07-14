@@ -5,7 +5,8 @@ use std::rc::Rc;
 use super::super::super::{
     buffer::Buffer,
     document::Style,
-    edit::{Area, AreaWrap, ViewState},
+    surface::{Area, AreaWrap},
+    view::ViewState,
 };
 use super::super::{
     constants::{TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES},

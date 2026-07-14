@@ -1,6 +1,6 @@
-use super::super::super::buffer::{Buffer, normalize_for_buffer};
-use super::super::super::unicode::{display_index, source_grapheme_boundaries};
-use super::super::{State, ViewState};
+use super::super::buffer::{Buffer, normalize_for_buffer};
+use super::super::unicode::{display_index, source_grapheme_boundaries};
+use super::super::{selection::State, view::ViewState};
 use super::mode::FieldMode;
 use super::projection::{composed_presentation_text, obscured_dot_text, preedit_replacement_range};
 

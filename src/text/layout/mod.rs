@@ -3,8 +3,11 @@ use std::time::Instant;
 
 use super::buffer::{Buffer, CursorSelection, Position};
 use super::document::{Document, Style};
-use super::edit;
-use super::edit::{Motion, State, Surface, ViewState};
+use super::{
+    Surface,
+    selection::{self, Motion, State},
+    view::ViewState,
+};
 
 mod area;
 mod caret;
@@ -118,28 +121,6 @@ impl Engine {
         self.cache.insert(document, measure, metrics);
         metrics
     }
-    #[cfg(test)]
-    fn invalidate_text_area_height_indices_for_impacts(
-        &mut self,
-        _buffer: &Buffer,
-        _impacts: &[edit::Impact],
-    ) {
-        // Height indices are keyed by presentation style and reconcile by
-        // per-line identity during sync. Text edits change line revisions and
-        // line counts, so the next sync drops stale measured entries without a
-        // buffer-id scoped invalidation pass.
-    }
-
-    #[cfg(test)]
-    pub(crate) fn invalidate_text_area_for_edit(
-        &mut self,
-        buffer: &Buffer,
-        impacts: &[edit::Impact],
-    ) {
-        self.invalidate_text_area_height_indices_for_impacts(buffer, impacts);
-        self.invalidate_text_area_surfaces_for(buffer);
-    }
-
     #[cfg(test)]
     pub(crate) fn invalidate_text_area_surfaces_for(&mut self, _buffer: &Buffer) {
         // Display cache keys use per-line layout identity. Retaining entries keeps
@@ -260,7 +241,7 @@ impl Engine {
     }
 }
 
-impl edit::CaretMap for Engine {
+impl selection::CaretMap for Engine {
     fn position_for_motion(
         &mut self,
         buffer: &Buffer,

@@ -2,18 +2,18 @@ use std::time::Instant;
 
 use super::super::{
     buffer::{Buffer, Cursor, CursorSelection, Position, Range, normalize_for_buffer},
+    selection::{
+        CaretMap, Motion, State, collapsed_cursor_for_motion, selection_mark_from_state,
+        text_position_for_motion_in_document_for_state,
+    },
     unicode::word_range_at,
 };
 use super::{
     action::{Action, ActionResult},
-    buffer::selection_mark_from_state,
-    caret::CaretMap,
     clipboard::Clipboard,
     diagnostics::Diagnostics,
-    motion::{Motion, collapsed_cursor_for_motion, text_position_for_motion_in_document_for_state},
     operation::{Edit, PointerEditKind},
     outcome::{self, Outcome},
-    state::State,
     transaction::{Impact, Kind, Transaction},
 };
 

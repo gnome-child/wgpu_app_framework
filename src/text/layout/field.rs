@@ -4,9 +4,9 @@ use std::{cell::RefCell, rc::Rc, time::Instant};
 use super::super::{
     buffer::{Buffer, Position},
     document::{Style, TextDirection, Weight},
-    edit::{
-        Field, FieldProjection, PreeditProjection, State, ViewState, projected_state_for_field,
-    },
+    selection::State,
+    surface::{Field, FieldProjection, PreeditProjection, projected_state_for_field},
+    view::ViewState,
 };
 use super::{
     caret::{Caret, CaretLayout, ensure_visible_from_layout},

@@ -417,7 +417,7 @@ fn caret_visible_for(frame: &layout::Frame, now: Instant) -> Option<bool> {
         }
 
         let epoch = text_area.caret_epoch().unwrap_or(now);
-        return Some(text::edit::ViewState::new_at(0.0, epoch).caret_visible(now));
+        return Some(text::view::ViewState::new_at(0.0, epoch).caret_visible(now));
     }
 
     if let Some(text_box) = frame.text_box() {
@@ -430,7 +430,7 @@ fn caret_visible_for(frame: &layout::Frame, now: Instant) -> Option<bool> {
         }
 
         let epoch = text_box.caret_epoch().unwrap_or(now);
-        return Some(text::edit::ViewState::new_at(0.0, epoch).caret_visible(now));
+        return Some(text::view::ViewState::new_at(0.0, epoch).caret_visible(now));
     }
 
     None

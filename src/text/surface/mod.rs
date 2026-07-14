@@ -11,8 +11,8 @@ pub(crate) use projection::{
     FieldProjection, PositionMap, PreeditProjection, projected_state_for_field,
 };
 
-use super::super::buffer::Buffer;
-use super::{State, ViewState};
+use super::buffer::Buffer;
+use super::{selection::State, view::ViewState};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Surface {

@@ -7,7 +7,10 @@ use lru::LruCache;
 
 use super::super::buffer::{Buffer, LineId, LineLayoutIdentity};
 use super::super::document::{Style, TextDirection};
-use super::super::edit::{Area, AreaWrap, ViewState};
+use super::super::{
+    surface::{Area, AreaWrap},
+    view::ViewState,
+};
 use super::constants::{
     TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY,
     TEXT_AREA_RENDER_GUARD_LINES, TEXT_AREA_RENDER_MAX_WINDOW_LINES,

@@ -4,7 +4,7 @@ use super::super::Widget;
 
 pub struct TextArea {
     buffer: text::Buffer,
-    state: text::edit::State,
+    state: text::selection::State,
     wrap: view::Wrap,
     id: Option<interaction::Id>,
     focus: Option<session::Focus>,
@@ -17,7 +17,7 @@ impl TextArea {
         Self::from_buffer(buffer, state)
     }
 
-    pub fn from_buffer(buffer: text::Buffer, state: text::edit::State) -> Self {
+    pub fn from_buffer(buffer: text::Buffer, state: text::selection::State) -> Self {
         Self {
             buffer,
             state,

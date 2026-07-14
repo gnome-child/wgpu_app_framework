@@ -476,42 +476,48 @@ fn windows_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<
         input::Key::Enter if !control => Some(text::edit::Edit::insert_line_break()),
         input::Key::ArrowLeft => Some(motion_edit(
             if control {
-                text::edit::Motion::WordPrevious
+                text::selection::Motion::WordPrevious
             } else {
-                text::edit::Motion::VisualLeft
+                text::selection::Motion::VisualLeft
             },
             extend,
         )),
         input::Key::ArrowRight => Some(motion_edit(
             if control {
-                text::edit::Motion::WordNext
+                text::selection::Motion::WordNext
             } else {
-                text::edit::Motion::VisualRight
+                text::selection::Motion::VisualRight
             },
             extend,
         )),
-        input::Key::ArrowUp if !control => Some(motion_edit(text::edit::Motion::VisualUp, extend)),
+        input::Key::ArrowUp if !control => {
+            Some(motion_edit(text::selection::Motion::VisualUp, extend))
+        }
         input::Key::ArrowDown if !control => {
-            Some(motion_edit(text::edit::Motion::VisualDown, extend))
+            Some(motion_edit(text::selection::Motion::VisualDown, extend))
         }
         input::Key::Home => Some(motion_edit(
             if control {
-                text::edit::Motion::DocumentStart
+                text::selection::Motion::DocumentStart
             } else {
-                text::edit::Motion::LineStart
+                text::selection::Motion::LineStart
             },
             extend,
         )),
         input::Key::End => Some(motion_edit(
             if control {
-                text::edit::Motion::DocumentEnd
+                text::selection::Motion::DocumentEnd
             } else {
-                text::edit::Motion::LineEnd
+                text::selection::Motion::LineEnd
             },
             extend,
         )),
-        input::Key::PageUp if !control => Some(motion_edit(text::edit::Motion::PageUp, extend)),
-        input::Key::PageDown if !control => Some(motion_edit(text::edit::Motion::PageDown, extend)),
+        input::Key::PageUp if !control => {
+            Some(motion_edit(text::selection::Motion::PageUp, extend))
+        }
+        input::Key::PageDown if !control => {
+            Some(motion_edit(text::selection::Motion::PageDown, extend))
+        }
         input::Key::Tab
         | input::Key::Space
         | input::Key::Escape
@@ -547,40 +553,42 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
         input::Key::Enter if !option && !command => Some(text::edit::Edit::insert_line_break()),
         input::Key::ArrowLeft => Some(motion_edit(
             if command {
-                text::edit::Motion::LineStart
+                text::selection::Motion::LineStart
             } else if option {
-                text::edit::Motion::WordPrevious
+                text::selection::Motion::WordPrevious
             } else {
-                text::edit::Motion::VisualLeft
+                text::selection::Motion::VisualLeft
             },
             extend,
         )),
         input::Key::ArrowRight => Some(motion_edit(
             if command {
-                text::edit::Motion::LineEnd
+                text::selection::Motion::LineEnd
             } else if option {
-                text::edit::Motion::WordNext
+                text::selection::Motion::WordNext
             } else {
-                text::edit::Motion::VisualRight
+                text::selection::Motion::VisualRight
             },
             extend,
         )),
         input::Key::ArrowUp if command => {
-            Some(motion_edit(text::edit::Motion::DocumentStart, extend))
+            Some(motion_edit(text::selection::Motion::DocumentStart, extend))
         }
         input::Key::ArrowDown if command => {
-            Some(motion_edit(text::edit::Motion::DocumentEnd, extend))
+            Some(motion_edit(text::selection::Motion::DocumentEnd, extend))
         }
-        input::Key::ArrowUp if !option => Some(motion_edit(text::edit::Motion::VisualUp, extend)),
+        input::Key::ArrowUp if !option => {
+            Some(motion_edit(text::selection::Motion::VisualUp, extend))
+        }
         input::Key::ArrowDown if !option => {
-            Some(motion_edit(text::edit::Motion::VisualDown, extend))
+            Some(motion_edit(text::selection::Motion::VisualDown, extend))
         }
         input::Key::Home | input::Key::End => None,
         input::Key::PageUp if !option && !command => {
-            Some(motion_edit(text::edit::Motion::PageUp, extend))
+            Some(motion_edit(text::selection::Motion::PageUp, extend))
         }
         input::Key::PageDown if !option && !command => {
-            Some(motion_edit(text::edit::Motion::PageDown, extend))
+            Some(motion_edit(text::selection::Motion::PageDown, extend))
         }
         input::Key::Tab
         | input::Key::Space
@@ -599,7 +607,7 @@ fn mac_edit_for_key(key: input::Key, modifiers: input::Modifiers) -> Option<text
     }
 }
 
-fn motion_edit(motion: text::edit::Motion, extend: bool) -> text::edit::Edit {
+fn motion_edit(motion: text::selection::Motion, extend: bool) -> text::edit::Edit {
     if extend {
         text::edit::Edit::extend_position(motion)
     } else {
@@ -753,7 +761,7 @@ mod tests {
                 input::Modifiers::new(false, true, false, false),
             ),
             Some(text::edit::Edit::move_position(
-                text::edit::Motion::WordPrevious
+                text::selection::Motion::WordPrevious
             ))
         );
         assert_eq!(
@@ -762,7 +770,7 @@ mod tests {
                 input::Modifiers::new(false, false, true, false),
             ),
             Some(text::edit::Edit::move_position(
-                text::edit::Motion::WordPrevious
+                text::selection::Motion::WordPrevious
             ))
         );
         assert_eq!(
@@ -771,7 +779,7 @@ mod tests {
                 input::Modifiers::new(false, false, false, true),
             ),
             Some(text::edit::Edit::move_position(
-                text::edit::Motion::LineStart
+                text::selection::Motion::LineStart
             ))
         );
         assert_eq!(

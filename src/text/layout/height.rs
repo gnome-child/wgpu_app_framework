@@ -5,7 +5,7 @@ use lru::LruCache;
 
 use super::super::buffer::{Buffer, LineLayoutIdentity};
 use super::super::document::{Style, TextDirection};
-use super::super::edit::{Area, AreaWrap};
+use super::super::surface::{Area, AreaWrap};
 use super::constants::{TEXT_AREA_HEIGHT_INDEX_BLOCK_LINES, TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY};
 use super::key::{StyleKey, finite_bits};
 

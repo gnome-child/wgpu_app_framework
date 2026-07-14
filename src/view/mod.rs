@@ -359,7 +359,7 @@ impl View {
     pub(crate) fn text_surface_mode(
         &self,
         focus: session::Focus,
-    ) -> Option<crate::text::edit::FieldMode> {
+    ) -> Option<crate::text::surface::FieldMode> {
         self.root.text_surface_mode_for_focus(focus)
     }
 

@@ -39,7 +39,7 @@ pub enum Input {
     ToggleMenu(interaction::Menu),
     TextEdit(text::edit::Edit),
     TextCommit(String),
-    TextPreedit(text::edit::Preedit),
+    TextPreedit(text::view::Preedit),
     TextDrop(TextDrop),
 }
 
@@ -60,7 +60,7 @@ impl Input {
         Self::TextCommit(text.into())
     }
 
-    pub fn text_preedit(preedit: text::edit::Preedit) -> Self {
+    pub fn text_preedit(preedit: text::view::Preedit) -> Self {
         Self::TextPreedit(preedit)
     }
 

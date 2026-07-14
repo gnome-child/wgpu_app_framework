@@ -1,8 +1,7 @@
 use super::super::buffer::{Affinity, Cursor, CursorSelection, Position};
 use super::super::document::Style;
-use super::super::edit::AreaWrap;
-use super::super::edit::Motion;
 use super::super::unicode::floor_grapheme_boundary;
+use super::super::{selection::Motion, surface::AreaWrap};
 
 pub(super) fn text_area_shaping_for_text(_style: Style, _text: &str) -> glyphon::Shaping {
     glyphon::Shaping::Advanced

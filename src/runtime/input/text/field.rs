@@ -42,7 +42,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &self,
         window: window::Id,
         focus: session::Focus,
-    ) -> Option<text::edit::FieldMode> {
+    ) -> Option<text::surface::FieldMode> {
         self.composition
             .get(window)?
             .view()
@@ -73,8 +73,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
         let mode = self
             .text_surface_mode(window, focus)
-            .unwrap_or(text::edit::FieldMode::Editable);
-        if !mode.allows_edit(&edit) {
+            .unwrap_or(text::surface::FieldMode::Editable);
+        if !edit.is_allowed_by(mode) {
             return Ok(None);
         }
         let input = self
@@ -173,7 +173,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let outcome = self.handle_text_box_edit(
             window,
             focus,
-            text::edit::Edit::MovePosition(text::edit::Motion::VisualRight),
+            text::edit::Edit::MovePosition(text::selection::Motion::VisualRight),
         )?;
 
         Ok(Some(outcome))

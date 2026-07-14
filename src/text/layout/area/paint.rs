@@ -4,7 +4,8 @@ use std::time::Instant;
 use super::super::super::{
     buffer::{Cursor, local_cursor_range_for_source_line},
     document::Style,
-    edit::{Area, AreaWrap, PreeditProjection, ViewState},
+    surface::{Area, AreaWrap, PreeditProjection},
+    view::ViewState,
 };
 use super::super::{
     caret::Caret,

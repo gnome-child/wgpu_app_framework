@@ -22,7 +22,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
 
         if self.text_draft_base(window, focus).is_some() {
-            if self.text_surface_mode(window, focus) != Some(text::edit::FieldMode::Editable) {
+            if self.text_surface_mode(window, focus) != Some(text::surface::FieldMode::Editable) {
                 return Ok(input::Outcome::ignored());
             }
             return self.handle_text_box_edit(window, focus, text::edit::Edit::ime_commit(text));

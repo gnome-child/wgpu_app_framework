@@ -6,7 +6,8 @@ use std::time::Instant;
 use super::super::super::{
     buffer::Buffer,
     document::Style,
-    edit::{Area, AreaWrap, ViewState},
+    surface::{Area, AreaWrap},
+    view::ViewState,
 };
 use super::super::{
     constants::TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN,

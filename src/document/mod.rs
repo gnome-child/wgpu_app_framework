@@ -24,7 +24,7 @@ pub use save::{Identity, SaveSnapshot, Version};
 pub struct Document {
     identity: Identity,
     buffer: text::Buffer,
-    text_state: text::edit::State,
+    text_state: text::selection::State,
     path: Option<PathBuf>,
     saved_buffer_revision: u64,
     edit_count: usize,
@@ -112,7 +112,7 @@ impl Document {
         &self.buffer
     }
 
-    pub fn text_state(&self) -> text::edit::State {
+    pub fn text_state(&self) -> text::selection::State {
         self.text_state
     }
 
@@ -192,7 +192,7 @@ impl Document {
     fn apply_edit_with_caret_map(
         &mut self,
         edit: text::edit::Edit,
-        caret_map: &mut dyn text::edit::CaretMap,
+        caret_map: &mut dyn text::selection::CaretMap,
     ) -> Outcome {
         let mut editor = text::edit::Editor::new();
         let result = editor.apply_edit_with_caret_map(

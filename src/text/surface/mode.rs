@@ -14,12 +14,4 @@ impl FieldMode {
     pub(crate) fn is_selectable(self) -> bool {
         self != Self::Disabled
     }
-
-    pub(crate) fn allows_edit(self, edit: &super::super::Edit) -> bool {
-        match self {
-            Self::Editable => true,
-            Self::ReadOnly => !edit.mutates_text(),
-            Self::Disabled => false,
-        }
-    }
 }

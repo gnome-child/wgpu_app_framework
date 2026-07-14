@@ -7074,7 +7074,7 @@ fn pointer_cursor_uses_text_for_read_only_selectable_text_but_not_disabled_text(
                             view::Node::text_area_state(
                                 view::TextArea::new("unavailable")
                                     .with_focus(disabled_focus)
-                                    .with_mode(text::edit::FieldMode::Disabled),
+                                    .with_mode(text::surface::FieldMode::Disabled),
                             )
                             .with_style(view::Style::new().with_height(view::Dimension::fixed(80))),
                         ),

@@ -1349,7 +1349,7 @@ fn focused_text_caret_deadline(frame: &layout::Frame, now: Instant) -> Option<In
         }
 
         let epoch = text_area.caret_epoch().unwrap_or(now);
-        return Some(text::edit::ViewState::new_at(0.0, epoch).next_caret_deadline(now));
+        return Some(text::view::ViewState::new_at(0.0, epoch).next_caret_deadline(now));
     }
 
     if let Some(text_box) = frame.text_box() {
@@ -1358,7 +1358,7 @@ fn focused_text_caret_deadline(frame: &layout::Frame, now: Instant) -> Option<In
         }
 
         let epoch = text_box.caret_epoch().unwrap_or(now);
-        return Some(text::edit::ViewState::new_at(0.0, epoch).next_caret_deadline(now));
+        return Some(text::view::ViewState::new_at(0.0, epoch).next_caret_deadline(now));
     }
 
     None

@@ -46,19 +46,19 @@ impl<'a> FocusedDraft<'a> {
             .unwrap_or_else(text::Input::unrestricted)
     }
 
-    fn mode(&self) -> text::edit::FieldMode {
+    fn mode(&self) -> text::surface::FieldMode {
         self.composition
             .get(self.window)
             .and_then(|composition| composition.view().text_surface_mode(self.focus))
-            .unwrap_or(text::edit::FieldMode::Editable)
+            .unwrap_or(text::surface::FieldMode::Editable)
     }
 
     fn is_editable(&self) -> bool {
-        self.mode() == text::edit::FieldMode::Editable
+        self.mode() == text::surface::FieldMode::Editable
     }
 
     fn is_selectable(&self) -> bool {
-        self.mode() != text::edit::FieldMode::Disabled
+        self.mode() != text::surface::FieldMode::Disabled
     }
 
     fn draft(&self) -> Option<draft::State> {
@@ -88,7 +88,7 @@ impl<'a> FocusedDraft<'a> {
         edit: text::edit::Edit,
         clipboard_changed: bool,
     ) -> Response<document::Outcome> {
-        if !self.mode().allows_edit(&edit) {
+        if !edit.is_allowed_by(self.mode()) {
             return Response::output(document::Outcome::from_text_change(
                 false,
                 false,

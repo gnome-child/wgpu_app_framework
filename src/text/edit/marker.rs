@@ -1,5 +1,5 @@
 use super::super::buffer::{self, Buffer, Mark, Position, Selection};
-use super::State;
+use super::super::selection::{State, document_end_mark};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Marker {
@@ -52,16 +52,4 @@ impl Marker {
         self.selection_positions
             .and_then(|selection| inner.document.mark_range_for_selection(selection))
     }
-}
-
-pub(super) fn document_end_mark(buffer: &Buffer) -> Mark {
-    let inner = &buffer.inner;
-    inner
-        .document
-        .mark_for_cursor(
-            inner
-                .document
-                .cursor_for_text_index(inner.document.text_len()),
-        )
-        .expect("text documents always contain at least one line")
 }

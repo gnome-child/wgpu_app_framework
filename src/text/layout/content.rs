@@ -1,5 +1,5 @@
 use super::super::document::Style;
-use super::super::edit::AreaWrap;
+use super::super::surface::AreaWrap;
 use crate::geometry::area;
 
 pub(in crate::text) fn text_area_estimated_line_height(style: Style) -> f32 {

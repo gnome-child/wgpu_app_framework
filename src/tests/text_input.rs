@@ -432,7 +432,7 @@ fn text_editor_key_down_escape_uses_cancel_flow_for_preedit() {
         .expect("focus input should be handled");
     app.handle_input(
         window,
-        Input::text_preedit(text::edit::Preedit::new("x", Some((0, 1)))),
+        Input::text_preedit(text::view::Preedit::new("x", Some((0, 1)))),
     )
     .expect("preedit input should be handled");
 

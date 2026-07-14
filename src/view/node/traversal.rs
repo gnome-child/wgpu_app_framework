@@ -599,7 +599,7 @@ impl Node {
     pub(in crate::view) fn text_surface_mode_for_focus(
         &self,
         focus: session::Focus,
-    ) -> Option<crate::text::edit::FieldMode> {
+    ) -> Option<crate::text::surface::FieldMode> {
         if let Some(mode) = self.text_box_model().and_then(|text_box| {
             text_box
                 .focus()

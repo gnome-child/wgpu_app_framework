@@ -360,6 +360,66 @@ fn shaped_text_crosses_scene_and_paint_without_renderer_types() {
 }
 
 #[test]
+fn read_only_text_vocabulary_does_not_depend_on_mutation() {
+    let text_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("text");
+    let text_mod =
+        std::fs::read_to_string(text_dir.join("mod.rs")).expect("text module should read");
+    let edit_mod = std::fs::read_to_string(text_dir.join("edit").join("mod.rs"))
+        .expect("text edit module should read");
+
+    for module in ["selection", "surface", "view"] {
+        assert!(
+            text_mod.contains(&format!("pub mod {module};")),
+            "always-present text {module} should be a first-class module"
+        );
+    }
+    for projection in [
+        "pub use edit::Edit;",
+        "pub use surface::Surface;",
+        "pub use view::View;",
+    ] {
+        assert!(
+            text_mod.contains(projection),
+            "same-named central types should be the only parent projections: {projection}"
+        );
+    }
+    for old_file in ["caret.rs", "motion.rs", "state.rs", "surface", "view.rs"] {
+        assert!(
+            !text_dir.join("edit").join(old_file).exists(),
+            "read-only text vocabulary must not remain housed under mutation: {old_file}"
+        );
+    }
+    for retired_projection in [
+        "pub use caret::CaretMap;",
+        "pub use motion::Motion;",
+        "pub use state::State;",
+        "pub use surface::",
+        "pub use view::",
+    ] {
+        assert!(
+            !edit_mod.contains(retired_projection),
+            "mutation must not preserve a compatibility projection for {retired_projection}"
+        );
+    }
+    for lower in ["selection", "surface", "layout"] {
+        assert_source_patterns_absent(
+            &text_dir.join(lower),
+            &["super::edit".to_owned(), "text::edit".to_owned()],
+        );
+    }
+    let view =
+        std::fs::read_to_string(text_dir.join("view.rs")).expect("text view module should read");
+    for forbidden in ["super::edit", "text::edit"] {
+        assert!(
+            !view.contains(forbidden),
+            "always-present text view must not depend on mutation: {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn old_paint_space_root_module_is_extinct() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let lib = std::fs::read_to_string(src_dir.join("lib.rs")).expect("crate root should read");
@@ -615,9 +675,8 @@ fn caret_affinity_has_one_position_to_cursor_owner() {
         .expect("text editor source should read");
     let glyph = std::fs::read_to_string(text.join("layout").join("glyph.rs"))
         .expect("text glyph source should read");
-    let projection =
-        std::fs::read_to_string(text.join("edit").join("surface").join("projection.rs"))
-            .expect("text projection source should read");
+    let projection = std::fs::read_to_string(text.join("surface").join("projection.rs"))
+        .expect("text projection source should read");
     let paint = std::fs::read_to_string(text.join("layout").join("area").join("paint.rs"))
         .expect("text-area paint source should read");
     let reveal = std::fs::read_to_string(text.join("layout").join("area").join("reveal.rs"))
@@ -662,9 +721,8 @@ fn text_direction_and_obscuring_keep_their_domain_owners() {
         .expect("text layout map should read");
     let unicode =
         std::fs::read_to_string(text.join("unicode.rs")).expect("text unicode source should read");
-    let projection =
-        std::fs::read_to_string(text.join("edit").join("surface").join("projection.rs"))
-            .expect("text projection source should read");
+    let projection = std::fs::read_to_string(text.join("surface").join("projection.rs"))
+        .expect("text projection source should read");
     let master = std::fs::read_to_string(root.join("docs").join("master_design.md"))
         .expect("master design should read");
 

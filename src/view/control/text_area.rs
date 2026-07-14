@@ -9,15 +9,15 @@ use crate::{interaction, session};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextArea {
     buffer: text::Buffer,
-    state: text::edit::State,
+    state: text::selection::State,
     wrap: Wrap,
-    mode: text::edit::FieldMode,
+    mode: text::surface::FieldMode,
     focus: Option<session::Focus>,
     focused: bool,
     focus_visible: bool,
     scroll: interaction::ScrollOffset,
     reveal: bool,
-    preedit: Option<text::edit::Preedit>,
+    preedit: Option<text::view::Preedit>,
     caret_epoch: Option<Instant>,
 }
 
@@ -28,12 +28,12 @@ impl TextArea {
         Self::from_buffer(buffer, state)
     }
 
-    pub fn from_buffer(buffer: text::Buffer, state: text::edit::State) -> Self {
+    pub fn from_buffer(buffer: text::Buffer, state: text::selection::State) -> Self {
         Self {
             buffer,
             state,
             wrap: Wrap::Word,
-            mode: text::edit::FieldMode::Editable,
+            mode: text::surface::FieldMode::Editable,
             focus: None,
             focused: false,
             focus_visible: false,
@@ -54,19 +54,19 @@ impl TextArea {
         self
     }
 
-    pub(crate) fn with_mode(mut self, mode: text::edit::FieldMode) -> Self {
+    pub(crate) fn with_mode(mut self, mode: text::surface::FieldMode) -> Self {
         self.mode = mode;
         self
     }
 
     pub(crate) fn read_only(self) -> Self {
-        self.with_mode(text::edit::FieldMode::ReadOnly)
+        self.with_mode(text::surface::FieldMode::ReadOnly)
     }
 
     pub(crate) fn with_resolved_presentation(
         mut self,
         buffer: text::Buffer,
-        state: text::edit::State,
+        state: text::selection::State,
     ) -> Self {
         self.buffer = buffer;
         self.state = state;
@@ -77,7 +77,7 @@ impl TextArea {
         self
     }
 
-    pub(crate) fn mode(&self) -> text::edit::FieldMode {
+    pub(crate) fn mode(&self) -> text::surface::FieldMode {
         self.mode
     }
 
@@ -85,28 +85,30 @@ impl TextArea {
         &self.buffer
     }
 
-    pub fn state(&self) -> text::edit::State {
+    pub fn state(&self) -> text::selection::State {
         self.state
     }
 
-    pub fn area_model(&self) -> text::edit::Area {
+    pub fn area_model(&self) -> text::surface::Area {
         let wrap = match self.wrap {
-            Wrap::None => text::edit::AreaWrap::None,
-            Wrap::Word => text::edit::AreaWrap::WordOrGlyph,
+            Wrap::None => text::surface::AreaWrap::None,
+            Wrap::Word => text::surface::AreaWrap::WordOrGlyph,
         };
-        let area = text::edit::Area::new(self.buffer.clone())
+        let area = text::surface::Area::new(self.buffer.clone())
             .with_state(self.state)
             .with_wrap(wrap);
         match self.mode {
-            text::edit::FieldMode::Editable if self.focused => area,
-            text::edit::FieldMode::Editable | text::edit::FieldMode::ReadOnly => area.read_only(),
-            text::edit::FieldMode::Disabled => area.disabled(),
+            text::surface::FieldMode::Editable if self.focused => area,
+            text::surface::FieldMode::Editable | text::surface::FieldMode::ReadOnly => {
+                area.read_only()
+            }
+            text::surface::FieldMode::Disabled => area.disabled(),
         }
     }
 
-    pub(crate) fn view_state_at(&self, now: Instant) -> text::edit::ViewState {
+    pub(crate) fn view_state_at(&self, now: Instant) -> text::view::ViewState {
         let epoch = self.caret_epoch.unwrap_or(now);
-        let state = text::edit::ViewState::new_at(0.0, epoch)
+        let state = text::view::ViewState::new_at(0.0, epoch)
             .with_scroll(self.scroll.x() as f32, self.scroll.y() as f32)
             .with_preedit(self.preedit.clone());
 
@@ -137,7 +139,7 @@ impl TextArea {
         self.focus_visible
     }
 
-    pub fn preedit(&self) -> Option<&text::edit::Preedit> {
+    pub fn preedit(&self) -> Option<&text::view::Preedit> {
         self.preedit.as_ref()
     }
 
@@ -210,7 +212,7 @@ impl TextArea {
                         .mark_for_position(text::buffer::Position::new(selection.end))?,
                 })
             });
-            self.state = text::edit::State::new(cursor, selection);
+            self.state = text::selection::State::new(cursor, selection);
         } else if target.table_cell().is_some() {
             self.state = self.buffer.initial_state();
         }

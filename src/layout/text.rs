@@ -28,14 +28,14 @@ pub(crate) struct Area {
     interaction_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     render_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     viewport: Viewport,
-    state: text_engine::edit::ViewState,
+    state: text_engine::view::ViewState,
 }
 
 #[derive(Clone)]
 pub(crate) struct Field {
     layout: text_engine::layout::TextFieldLayout,
     render_surface: Option<text_engine::layout::TextAreaSurface>,
-    state: text_engine::edit::ViewState,
+    state: text_engine::view::ViewState,
     style: text_engine::document::Style,
 }
 
@@ -255,7 +255,7 @@ impl Service {
         let style = field_style(theme, theme.text_input().foreground);
         let viewport = text_engine::layout::surface_area(rect.width() as f32, rect.height() as f32);
         let epoch = text_box.caret_epoch().unwrap_or(now);
-        let mut state = text_engine::edit::ViewState::new_at(0.0, epoch)
+        let mut state = text_engine::view::ViewState::new_at(0.0, epoch)
             .with_preedit(text_box.preedit().cloned());
         let mut engine = self.inner.borrow_mut();
 
@@ -324,14 +324,14 @@ impl fmt::Debug for Service {
     }
 }
 
-impl text_engine::edit::CaretMap for Service {
+impl text_engine::selection::CaretMap for Service {
     fn position_for_motion(
         &mut self,
         buffer: &text_engine::Buffer,
-        state: text_engine::edit::State,
-        motion: text_engine::edit::Motion,
+        state: text_engine::selection::State,
+        motion: text_engine::selection::Motion,
     ) -> Option<text_engine::buffer::Position> {
-        <text_engine::layout::Engine as text_engine::edit::CaretMap>::position_for_motion(
+        <text_engine::layout::Engine as text_engine::selection::CaretMap>::position_for_motion(
             &mut *self.inner.borrow_mut(),
             buffer,
             state,
@@ -368,7 +368,7 @@ impl Field {
     }
 }
 
-fn field_model(text_box: &view::TextBox) -> text_engine::edit::Field {
+fn field_model(text_box: &view::TextBox) -> text_engine::surface::Field {
     let buffer = text_engine::Buffer::from_text(text_box.text());
     let cursor = text_box.cursor().unwrap_or_else(|| text_box.text().len());
     let cursor = buffer
@@ -384,8 +384,8 @@ fn field_model(text_box: &view::TextBox) -> text_engine::edit::Field {
             end: buffer.mark_for_position(text_engine::buffer::Position::new(selection.end))?,
         })
     });
-    let state = text_engine::edit::State::new(cursor, selection);
-    text_engine::edit::Field::new(buffer)
+    let state = text_engine::selection::State::new(cursor, selection);
+    text_engine::surface::Field::new(buffer)
         .with_state(state)
         .with_mode(text_box.mode())
 }
@@ -414,7 +414,7 @@ fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
     )
 }
 
-fn scroll_offset_for_text_state(state: &text_engine::edit::ViewState) -> interaction::ScrollOffset {
+fn scroll_offset_for_text_state(state: &text_engine::view::ViewState) -> interaction::ScrollOffset {
     interaction::ScrollOffset::new(
         scroll_component(state.scroll_x()),
         scroll_component(state.scroll_y()),
@@ -424,7 +424,7 @@ fn scroll_offset_for_text_state(state: &text_engine::edit::ViewState) -> interac
 fn viewport_for_text_area(
     rect: Rect,
     layout: &text_engine::layout::TextFieldLayout,
-    state: &text_engine::edit::ViewState,
+    state: &text_engine::view::ViewState,
 ) -> Viewport {
     let content_area = layout.content_area();
     let content = Size::new(
@@ -436,10 +436,10 @@ fn viewport_for_text_area(
 }
 
 fn clamp_text_area_scroll_state(
-    state: &text_engine::edit::ViewState,
+    state: &text_engine::view::ViewState,
     layout: &text_engine::layout::TextFieldLayout,
     viewport: area::Logical,
-) -> text_engine::edit::ViewState {
+) -> text_engine::view::ViewState {
     let content_area = layout.content_area();
     let max_scroll_x = (content_area.width() - viewport.width()).max(0.0);
     let max_scroll_y = (content_area.height() - viewport.height()).max(0.0);

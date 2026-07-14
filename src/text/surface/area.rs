@@ -1,5 +1,5 @@
-use super::super::super::buffer::{Buffer, normalize_for_buffer};
-use super::super::{State, ViewState};
+use super::super::buffer::{Buffer, normalize_for_buffer};
+use super::super::{selection::State, view::ViewState};
 use super::mode::FieldMode;
 use super::projection::{composed_presentation_text, preedit_replacement_range};
 

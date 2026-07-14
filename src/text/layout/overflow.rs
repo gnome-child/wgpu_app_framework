@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{Engine, Measure};
-use crate::text::{self, Overflow, buffer::Position, edit::PositionMap};
+use crate::text::{self, Overflow, buffer::Position, surface::PositionMap};
 
 const ELLIPSIS: &str = "…";
 
@@ -266,8 +266,8 @@ impl OverflowProjection {
     pub(crate) fn project_buffer_state(
         &self,
         source: &text::Buffer,
-        state: text::edit::State,
-    ) -> (text::Buffer, text::edit::State) {
+        state: text::selection::State,
+    ) -> (text::Buffer, text::selection::State) {
         debug_assert_eq!(source.text(), self.source);
         let Some(position_map) = self.position_map.as_ref() else {
             return (source.clone(), state);

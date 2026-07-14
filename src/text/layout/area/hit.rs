@@ -4,7 +4,8 @@ use std::rc::Rc;
 use super::super::super::{
     buffer::Position,
     document::Style,
-    edit::{Area, PreeditProjection, ViewState},
+    surface::{Area, PreeditProjection},
+    view::ViewState,
 };
 use super::super::{
     engine::Engine,

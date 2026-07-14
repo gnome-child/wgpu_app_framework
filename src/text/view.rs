@@ -3,12 +3,12 @@ use std::time::{Duration, Instant};
 
 const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 
-use super::super::{
+use super::surface::Area;
+use super::{
     buffer::{Mark, Position},
     layout::Caret,
     layout::{Engine, TextAreaSurface},
 };
-use super::Area;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {

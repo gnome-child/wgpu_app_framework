@@ -308,7 +308,7 @@ impl Interaction {
     pub(super) fn set_text_preedit(
         &mut self,
         target: Target,
-        preedit: text::edit::Preedit,
+        preedit: text::view::Preedit,
     ) -> bool {
         self.text_input.set_preedit(target, preedit)
     }

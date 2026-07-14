@@ -1943,7 +1943,7 @@ fn text_input_preedit_is_framework_owned_and_projected_into_text_area() {
     let target = text_area
         .pointer_target()
         .expect("text area should have an interaction target");
-    let preedit = text::edit::Preedit::new("世界", Some((0, "世".len())));
+    let preedit = text::view::Preedit::new("世界", Some((0, "世".len())));
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus input should be handled");
@@ -1995,7 +1995,7 @@ fn text_input_commit_routes_to_focused_document_and_clears_preedit() {
         .expect("focus input should be handled");
     app.handle_input(
         window,
-        Input::text_preedit(text::edit::Preedit::new("世", Some((0, "世".len())))),
+        Input::text_preedit(text::view::Preedit::new("世", Some((0, "世".len())))),
     )
     .expect("preedit input should be handled");
 
@@ -2048,7 +2048,7 @@ fn cancel_input_clears_text_preedit_before_clearing_focus() {
         .expect("focus input should be handled");
     app.handle_input(
         window,
-        Input::text_preedit(text::edit::Preedit::new("世", Some((0, "世".len())))),
+        Input::text_preedit(text::view::Preedit::new("世", Some((0, "世".len())))),
     )
     .expect("preedit input should be handled");
 
@@ -2097,7 +2097,7 @@ fn text_input_preedit_is_transient_and_clears_on_restore() {
 
     app.handle_input(
         window,
-        Input::text_preedit(text::edit::Preedit::new("世", Some((0, "世".len())))),
+        Input::text_preedit(text::view::Preedit::new("世", Some((0, "世".len())))),
     )
     .expect("preedit input should be handled");
     assert!(

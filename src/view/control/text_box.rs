@@ -11,7 +11,7 @@ pub struct TextBox {
     text: String,
     placeholder: Option<String>,
     input: text::Input,
-    mode: text::edit::FieldMode,
+    mode: text::surface::FieldMode,
     focus: Option<session::Focus>,
     active: bool,
     inactive_display: bool,
@@ -19,7 +19,7 @@ pub struct TextBox {
     focus_visible: bool,
     cursor: Option<usize>,
     selection: Option<Range<usize>>,
-    preedit: Option<text::edit::Preedit>,
+    preedit: Option<text::view::Preedit>,
     caret_epoch: Option<Instant>,
     indicator_hint: Option<Hint>,
 }
@@ -30,7 +30,7 @@ impl TextBox {
             text: text.into(),
             placeholder: None,
             input: text::Input::unrestricted(),
-            mode: text::edit::FieldMode::Editable,
+            mode: text::surface::FieldMode::Editable,
             focus: None,
             active: false,
             inactive_display: false,
@@ -64,7 +64,7 @@ impl TextBox {
         self
     }
 
-    pub(crate) fn mode(&self) -> text::edit::FieldMode {
+    pub(crate) fn mode(&self) -> text::surface::FieldMode {
         self.mode
     }
 
@@ -116,7 +116,7 @@ impl TextBox {
         self.selection.clone()
     }
 
-    pub fn preedit(&self) -> Option<&text::edit::Preedit> {
+    pub fn preedit(&self) -> Option<&text::view::Preedit> {
         self.preedit.as_ref()
     }
 

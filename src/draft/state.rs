@@ -5,7 +5,7 @@ use crate::text;
 #[derive(Debug, Clone)]
 pub(crate) struct State {
     buffer: text::Buffer,
-    edit_state: text::edit::State,
+    edit_state: text::selection::State,
     history: text::edit::History,
     base_text: String,
     text: String,

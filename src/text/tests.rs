@@ -9,8 +9,7 @@ use super::buffer::{
 };
 use super::document::{Align, Block, ResolvedTextDirection, Run, Style, Weight};
 use super::edit::{
-    Action, ActionResult, Area, Clipboard, ClipboardError, ClipboardResult, Edit, Editor, Field,
-    Motion, PointerEditKind, Preedit, State, ViewState, Viewport, Visibility,
+    Action, ActionResult, Clipboard, ClipboardError, ClipboardResult, Edit, Editor, PointerEditKind,
 };
 use super::layout::{
     Engine, HighlightStats, Measure, TEXT_AREA_FRAME_MAX_LOGICAL_LINES,
@@ -19,6 +18,9 @@ use super::layout::{
     TextAreaSurface, TextLayoutMap, VisualLineGroup, clamp_cursor_in_buffer,
     text_area_estimated_line_height,
 };
+use super::selection::{Motion, State};
+use super::surface::{Area, Field};
+use super::view::{Preedit, ViewState, Viewport, Visibility};
 use super::{Buffer, Color, Document, edit, layout};
 
 thread_local! {
@@ -225,7 +227,7 @@ fn apply_edit_with_caret_map(
     buffer: &mut Buffer,
     state: &mut State,
     edit: Edit,
-    caret_map: &mut dyn edit::CaretMap,
+    caret_map: &mut dyn super::selection::CaretMap,
 ) -> edit::Outcome {
     editor.apply_edit_with_caret_map(buffer, state, edit, caret_map)
 }
@@ -269,11 +271,11 @@ struct StubCaretMap {
     position: Position,
 }
 
-impl super::edit::CaretMap for StubCaretMap {
+impl super::selection::CaretMap for StubCaretMap {
     fn position_for_motion(
         &mut self,
         _buffer: &Buffer,
-        _state: super::edit::State,
+        _state: super::selection::State,
         motion: Motion,
     ) -> Option<Position> {
         self.calls += 1;
@@ -3904,7 +3906,7 @@ fn large_wrapped_text_area_ensure_caret_visible_preserves_scroll_after_selection
     assert!(buffer.has_selection_for_state(edit_state));
     let result = editor.apply_edit(&mut buffer, &mut edit_state, Edit::backspace());
     assert!(result.text_changed);
-    engine.invalidate_text_area_for_edit(&buffer, &result.impacts);
+    engine.invalidate_text_area_surfaces_for(&buffer);
     assert!(!buffer.has_selection_for_state(edit_state));
 
     let area_model = Area::new(buffer).with_state(edit_state);

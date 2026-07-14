@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{
-    Action, ActionResult, Edit, Editor, Marker, Outcome, State,
+    Action, ActionResult, Edit, Editor, Marker, Outcome,
     clipboard::Clipboard,
     transaction::{Change, Transaction},
 };
-use crate::text::Buffer;
+use crate::text::{Buffer, selection::State};
 
 pub const TYPING_UNDO_COALESCE_WINDOW: Duration = Duration::from_millis(1000);
 

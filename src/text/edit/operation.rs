@@ -1,5 +1,6 @@
 use super::super::buffer::{Position, Range};
-use super::Motion;
+use super::super::selection::Motion;
+use super::super::surface::FieldMode;
 
 #[cfg(test)]
 use super::super::buffer::Cursor;
@@ -53,6 +54,14 @@ impl Edit {
                 | Self::DeleteWordBackward
                 | Self::DeleteWordForward
         )
+    }
+
+    pub(crate) fn is_allowed_by(&self, mode: FieldMode) -> bool {
+        if self.mutates_text() {
+            mode.is_editable()
+        } else {
+            mode.is_selectable()
+        }
     }
 
     pub fn insert(text: impl Into<String>) -> Self {

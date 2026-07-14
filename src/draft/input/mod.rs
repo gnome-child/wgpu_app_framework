@@ -15,7 +15,7 @@ pub(crate) use store::DEFAULT_DRAFT_LIMIT;
 pub(crate) struct Input {
     target: Option<Target>,
     drafts: Store,
-    preedit: Option<text::edit::Preedit>,
+    preedit: Option<text::view::Preedit>,
     caret_epochs: HashMap<Target, Instant>,
 }
 
@@ -62,11 +62,11 @@ impl Input {
     }
 
     #[cfg(test)]
-    pub fn preedit(&self) -> Option<&text::edit::Preedit> {
+    pub fn preedit(&self) -> Option<&text::view::Preedit> {
         self.preedit.as_ref()
     }
 
-    pub fn preedit_for(&self, target: &Target) -> Option<&text::edit::Preedit> {
+    pub fn preedit_for(&self, target: &Target) -> Option<&text::view::Preedit> {
         (self.target.as_ref() == Some(target))
             .then_some(self.preedit.as_ref())
             .flatten()
@@ -82,7 +82,7 @@ impl Input {
         changed
     }
 
-    pub(crate) fn set_preedit(&mut self, target: Target, preedit: text::edit::Preedit) -> bool {
+    pub(crate) fn set_preedit(&mut self, target: Target, preedit: text::view::Preedit) -> bool {
         if preedit.text().is_empty() {
             if self.target.as_ref() == Some(&target) && self.drafts.contains(&target) {
                 let changed = self.preedit.is_some();

@@ -1,10 +1,13 @@
-use super::super::super::buffer::{
+use super::super::buffer::{
     Affinity, Buffer, Cursor, CursorSelection, Position, normalize_for_buffer,
 };
-use super::super::super::unicode::{
+use super::super::unicode::{
     display_index, floor_grapheme_boundary, grapheme_range_in_text, source_grapheme_boundaries,
 };
-use super::super::{Preedit, State, ViewState};
+use super::super::{
+    selection::State,
+    view::{Preedit, ViewState},
+};
 use super::{Field, Obscuring};
 
 type CursorRange = Option<(Cursor, Cursor)>;
