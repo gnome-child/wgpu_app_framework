@@ -1073,6 +1073,12 @@ nested beneath that active target, so composition without a target is not
 representable. An active target may have no composition, and retained drafts
 remain independently keyed so they may lawfully outlive activation.
 
+A draft change is either unchanged or changed. The changed species records
+whether text and selection changed; either detail necessarily implies the
+broader change, while cursor, target, preedit, history, or blink work may change
+without either detail. Submit remains an independent outcome because a submit
+request does not itself imply a draft mutation.
+
 A pointer press is one lifecycle. Its target and press intent are total; a
 captured press additionally owns the resolved cursor beside that same target.
 Pointer release, cancellation, and target removal retire the unit atomically;

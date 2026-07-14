@@ -2417,6 +2417,35 @@ fn focus_presentation_species_flow_from_view_to_layout() {
 }
 
 #[test]
+fn draft_change_implications_are_structural() {
+    let draft_mod = include_str!("../draft/mod.rs");
+    let change = include_str!("../draft/change.rs");
+    let input = include_str!("../draft/input/mod.rs");
+
+    assert!(draft_mod.contains("pub(crate) use change::Change;"));
+    assert!(!draft_mod.contains("pub(crate) use change::{"));
+    for required in [
+        "kind: Kind",
+        "enum Kind {",
+        "Unchanged",
+        "Changed {",
+        "text: bool",
+        "selection: bool",
+        "text_changed || selection_changed || other_changed",
+    ] {
+        assert!(
+            change.contains(required),
+            "draft change must retain its structural implication: {required}"
+        );
+    }
+    assert!(!change.contains(
+        "pub(crate) struct Change {\n    text_changed: bool,\n    selection_changed: bool,\n    changed: bool,"
+    ));
+    assert!(!input.contains("|| text_changed\n"));
+    assert!(!input.contains("|| selection_changed\n"));
+}
+
+#[test]
 fn layout_reveal_stays_palette_agnostic() {
     let layout_mod = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")

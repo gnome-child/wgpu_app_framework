@@ -238,9 +238,7 @@ impl Input {
             text_changed,
             selection_changed,
             target_changed
-                || text_changed
                 || cursor_changed
-                || selection_changed
                 || operation_changed
                 || preedit_cleared
                 || blink_changed,
