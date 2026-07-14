@@ -8,13 +8,16 @@
         "geometry",
         "state",
         "subject",
-        "task",
         "window"
       ],
       "may_depend_on": []
     },
     "icons": {
       "modules": ["icon"],
+      "may_depend_on": []
+    },
+    "tasks": {
+      "modules": ["task"],
       "may_depend_on": []
     },
     "text": {
@@ -34,7 +37,7 @@
         "target",
         "timeline"
       ],
-      "may_depend_on": ["foundation", "text"]
+      "may_depend_on": ["foundation", "tasks", "text"]
     },
     "ui": {
       "modules": [
@@ -54,11 +57,11 @@
         "virtual_list",
         "widget"
       ],
-      "may_depend_on": ["foundation", "icons", "text", "command"]
+      "may_depend_on": ["foundation", "icons", "tasks", "text", "command"]
     },
     "renderer": {
       "modules": ["paint", "render"],
-      "may_depend_on": ["foundation", "icons", "text", "ui"]
+      "may_depend_on": ["foundation", "icons", "tasks", "text", "ui"]
     },
     "runtime": {
       "modules": [
@@ -70,13 +73,14 @@
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "icons", "text", "command", "ui"]
+      "may_depend_on": ["foundation", "icons", "tasks", "text", "command", "ui"]
     },
     "platform": {
       "modules": ["platform"],
       "may_depend_on": [
         "foundation",
         "icons",
+        "tasks",
         "text",
         "command",
         "ui",
@@ -89,6 +93,7 @@
       "may_depend_on": [
         "foundation",
         "icons",
+        "tasks",
         "text",
         "command",
         "ui",
@@ -105,7 +110,7 @@
     "glyphon": ["text", "renderer"],
     "iconflow": ["icons"],
     "lru": ["text"],
-    "pollster": ["runtime", "platform"],
+    "pollster": ["tasks", "platform"],
     "rfd": ["platform"],
     "serde": ["ui"],
     "toml": ["ui"],

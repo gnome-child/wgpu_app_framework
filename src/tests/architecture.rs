@@ -3671,6 +3671,8 @@ fn deferred_tasks_have_one_worker_execution_path() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let executor = std::fs::read_to_string(root.join("src/task/executor.rs"))
         .expect("task executor source should read");
+    let task =
+        std::fs::read_to_string(root.join("src/task/mod.rs")).expect("task source should read");
     let native = std::fs::read_to_string(root.join("src/platform/runner/native.rs"))
         .expect("native runner source should read");
     let handler = std::fs::read_to_string(root.join("src/platform/runner/handler.rs"))
@@ -3687,6 +3689,14 @@ fn deferred_tasks_have_one_worker_execution_path() {
             && executor.contains("wgpu_l3-worker-")
             && executor.contains("sender.send(Box::new(job))"),
         "task module must own execution on named worker threads"
+    );
+    assert!(
+        task.contains("pub fn future(")
+            && task.contains("pollster::block_on(future)")
+            && !task.contains("winit")
+            && !task.contains("windows")
+            && !task.contains("wgpu"),
+        "task must own future realization without importing UI, renderer, or platform machinery"
     );
     assert!(
         native.contains("executor.spawn(move ||")
