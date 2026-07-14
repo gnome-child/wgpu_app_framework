@@ -2775,6 +2775,61 @@ Status: **complete; correlated optional state collapsed**. Correction
    through overlay lifecycle shape and the two argument-count allowances; the
    clean import graph and this local correction do not close Rung 5.
 
+### R5-07 — valid resolved overlay lifecycle species
+
+Status: **complete; flattened invalid lifecycle states replaced**. Correction
+`ecacbc98` (`Make overlay layer lifecycle valid`).
+
+1. **Question and complete trace.** The lifecycle sweep traced live overlay
+   entries, in-frame ghosts, retiring native popups, fade sampling and
+   scheduling, scene projection, native presentation, diagnostic logging,
+   afterlife retention, contextual retarget/reopen, and the 10,000-update law.
+   Resolved `Layer` stored species, optional live state, and optional elapsed
+   time independently even though its three producers admitted only three
+   correlated forms.
+2. **Authority and admitted forms.** Live layers alone own `Entering` or `Live`
+   state and may use either backend. Ghosts are always in-frame; retiring popups
+   are always native. All three species own elapsed time. Backend remains a
+   separate realization fact because live layers can legitimately select
+   either realization; lifecycle species owns only lifecycle validity.
+3. **Reduction and displaced path.** Replaced `kind: LayerKind`,
+   `state: Option<State>`, and `elapsed: Option<Duration>` in resolved layers
+   with private `Lifecycle::{Live { state, elapsed }, Ghost { elapsed },
+   RetiringPopup { elapsed }}`. `LayerKind` and optional state remain exact
+   downstream projections, while elapsed is now total. The runtime diagnostic
+   path no longer supplies zero for an impossible absent elapsed value.
+4. **Naming, visibility, and API ruling.** `Lifecycle` is the simple private
+   supporting concept inside overlay; it has no public or parent projection and
+   no compound compatibility alias. Existing `LayerKind`, `State`, and their
+   call-site spellings remain unchanged. No visibility widened and no native
+   platform type crossed into UI.
+5. **Doctrine and ratchet.** Master design now states the three disjoint
+   resolved lifecycle species, total elapsed time, and live-only state. The
+   existing native-fade architecture witness now pins the retiring-native
+   lifecycle case and requires the sum while tombstoning the two former
+   optional fields.
+6. **Behavior and economics.** Opacity, fade curves, schedules, paint order,
+   hit transparency, backend choice, native surface retirement, ghost caps,
+   context identity, reopening, logging values, scene contents, renderer
+   topology, presentation clocks, and allocation paths are unchanged. Species
+   projection adds only exhaustive matches over the same stored discriminant;
+   no per-frame lookup, callback, allocation, layout, or native operation was
+   added.
+7. **Proof and gauge delta from R5-06.** The library discovered 1,091 tests:
+   1,081 passed, 10 standing ignores, and 0 failed. All targets and all five
+   examples compiled without warnings; all nineteen focused overlay witnesses,
+   including the 10,000-update lifecycle law, the strengthened architecture
+   witness, all nine census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed. Every gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, visibility 1,806 in 190 files,
+   cross-slot test edges 90, source-root mentions 118, filesystem reads 360,
+   allowances 8, panics 7, and expects 90.
+8. **Fixed point and next frontier.** Resolved overlay layers have one valid
+   lifecycle representation and no absent-time fallback. Rung 5 continues with
+   the popup-realization and variable-list argument aggregates, followed by a
+   reverse sweep over the full UI owner.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
