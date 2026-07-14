@@ -3073,6 +3073,47 @@ Status: **complete; parallel optional hit claims collapsed**. Correction
    interaction receipts and the remaining UI inventories; this cell does not
    close Rung 5.
 
+### R5-13 — valid interaction-pruning receipt species
+
+Status: **complete; capture implication encoded**. Correction `d5e0be2e`
+(`Make interaction pruning receipt valid`).
+
+1. **Question and complete trace.** The reverse receipt sweep traced composition
+   removal through hover, press, capture, scroll, draft, and contextual-menu
+   pruning; window/session forwarding; prepared-frame interaction refresh;
+   gesture cancellation; focus validation; and the removal/capture witnesses.
+2. **Invalid state.** `interaction::Pruned` carried independent `changed` and
+   `capture_removed` booleans. Its sole producer always included capture removal
+   in `changed`, but the representation admitted `capture_removed = true` with
+   `changed = false`, contradicting the mutation and its consumer protocol.
+3. **Correction.** The receipt now contains one private
+   `PruneOutcome::{Unchanged, Changed, CaptureRemoved}` fact. Existing
+   `changed()` and `capture_removed()` queries preserve the crossing API;
+   capture removal necessarily answers true to both.
+4. **Boundary and naming ruling.** `Pruned` remains the crate-visible receipt;
+   `PruneOutcome` is private to `interaction`, has no re-export or alias, and
+   does not create a parent-module projection. No visibility widened.
+5. **Behavior and economics.** Removal matching and mutation order, pointer
+   clearing, scroll/draft/menu pruning, interaction cloning, gesture
+   cancellation, logging, focus validation, allocation, and presentation work
+   are unchanged. One enum discriminant replaces two booleans without a heap
+   object or additional traversal.
+6. **Doctrine and witnesses.** Master design now names the three receipt species
+   and the capture-implies-change law. The architecture witness pins the closed
+   outcome and tombstones both receipt booleans; functional witnesses continue
+   to prove menu pruning and captured-gesture cancellation.
+7. **Proof and gauge delta from R5-12.** The architecture witness and focused
+   menu/capture removal tests passed; the full library discovered 1,095 tests
+   and passed 1,085 with 10 ignored; all targets compiled without warnings. All
+   nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, panic, and expect gauge remains
+   unchanged.
+8. **Fixed point and next frontier.** Pruning now returns one valid receipt from
+   producer through runtime consumption. The reverse sweep continues across the
+   remaining UI inventories and option/boolean clusters; this cell does not
+   close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
