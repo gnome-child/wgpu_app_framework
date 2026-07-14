@@ -344,7 +344,7 @@ fn focused_text_area_caret_blinks_and_schedules_next_deadline() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("focus should be handled");
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let epoch = app
         .session()
         .interaction(window)

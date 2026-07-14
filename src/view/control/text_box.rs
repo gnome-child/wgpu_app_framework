@@ -144,7 +144,7 @@ impl TextBox {
     }
 
     pub(crate) fn input_target(&self) -> Option<interaction::Target> {
-        Some(interaction::Target::text_area(self.focus?))
+        self.focus?.text_target()
     }
 
     pub(crate) fn is_invalid(&self) -> bool {
@@ -192,7 +192,14 @@ impl TextBox {
             return;
         };
 
-        let target = interaction::Target::text_area(focus);
+        let Some(target) = focus.text_target() else {
+            self.active = false;
+            self.caret = None;
+            self.preedit = None;
+            self.caret_epoch = None;
+            self.indicator_hint = None;
+            return;
+        };
         self.project_input_feedback(interaction);
         let active = interaction.text_input().target() == Some(&target);
         self.active = active;
@@ -216,9 +223,10 @@ impl TextBox {
         interaction: &interaction::Interaction,
     ) {
         self.indicator_hint = self.focus.and_then(|focus| {
+            let target = focus.text_target()?;
             interaction
                 .text_input()
-                .feedback_for(&interaction::Target::text_area(focus))
+                .feedback_for(&target)
                 .map(|(severity, text)| Hint::from_feedback(severity, text.to_owned()))
         });
     }

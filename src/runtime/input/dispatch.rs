@@ -161,7 +161,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 let Some(focus) = self.session.focused(window) else {
                     return Ok(input::Outcome::ignored());
                 };
-                let target = self.text_input_target(window, focus);
+                let Some(target) = self.text_input_target(window, focus) else {
+                    return Ok(input::Outcome::ignored());
+                };
                 let changed = self.session.set_text_preedit_for(window, target, preedit);
                 let effect = if changed {
                     response::Effect::Layout

@@ -3,7 +3,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use super::super::{composition, context::Source, session};
+use super::super::{composition, context::Source};
 use super::{CommandPalette, Id, Menu};
 
 #[derive(Debug, Clone)]
@@ -82,10 +82,6 @@ impl Target {
             source: Some(source),
             captures: false,
         }
-    }
-
-    pub fn text_area(focus: session::Focus) -> Self {
-        focus.into_target()
     }
 
     pub(crate) fn table_cell_editor(cell: crate::table::Cell) -> Self {

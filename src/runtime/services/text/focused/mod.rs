@@ -1,7 +1,7 @@
 use crate::text;
 
 use crate::{
-    clipboard, composition, context as command_context, document, draft, interaction,
+    clipboard, composition, context as command_context, document, draft,
     response::{Effect, Response},
     session, window,
 };
@@ -63,7 +63,7 @@ impl<'a> FocusedDraft<'a> {
 
     fn draft(&self) -> Option<draft::State> {
         let base = self.base_text()?;
-        let target = interaction::Target::text_area(self.focus);
+        let target = self.focus.text_target()?;
 
         Some(
             self.session
@@ -74,7 +74,7 @@ impl<'a> FocusedDraft<'a> {
     }
 
     fn selected_text(&self, base: String) -> Option<String> {
-        let target = interaction::Target::text_area(self.focus);
+        let target = self.focus.text_target()?;
 
         self.session
             .interaction(self.window)

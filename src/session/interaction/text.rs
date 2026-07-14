@@ -23,15 +23,16 @@ impl Session {
         {
             return false;
         }
+        let Some(target) = focus.text_target() else {
+            return false;
+        };
 
-        window
-            .interaction
-            .activate_text_draft(interaction::Target::text_area(focus), base)
+        window.interaction.activate_text_draft(target, base)
     }
 
     pub fn set_text_preedit(&mut self, id: app_window::Id, preedit: text::Preedit) -> Option<bool> {
         let window = self.window_mut(id)?;
-        let target = interaction::Target::text_area(window.focus?);
+        let target = window.focus?.text_target()?;
 
         Some(window.interaction.set_text_preedit(target, preedit))
     }
@@ -78,13 +79,13 @@ impl Session {
         {
             return None;
         }
+        let target = focus.text_target()?;
 
-        Some(window.interaction.edit_text_draft(
-            interaction::Target::text_area(focus),
-            base,
-            edit,
-            input,
-        ))
+        Some(
+            window
+                .interaction
+                .edit_text_draft(target, base, edit, input),
+        )
     }
 
     pub(crate) fn select_text_draft(
@@ -102,12 +103,13 @@ impl Session {
         {
             return None;
         }
+        let target = focus.text_target()?;
 
-        Some(window.interaction.select_text_draft(
-            interaction::Target::text_area(focus),
-            base,
-            operation,
-        ))
+        Some(
+            window
+                .interaction
+                .select_text_draft(target, base, operation),
+        )
     }
 
     pub(crate) fn undo_text_draft(
@@ -123,10 +125,9 @@ impl Session {
         {
             return None;
         }
+        let target = focus.text_target()?;
 
-        window
-            .interaction
-            .undo_text_draft(&interaction::Target::text_area(focus))
+        window.interaction.undo_text_draft(&target)
     }
 
     pub(crate) fn redo_text_draft(
@@ -142,20 +143,20 @@ impl Session {
         {
             return None;
         }
+        let target = focus.text_target()?;
 
-        window
-            .interaction
-            .redo_text_draft(&interaction::Target::text_area(focus))
+        window.interaction.redo_text_draft(&target)
     }
 
     pub fn seal_text_draft(&mut self, id: app_window::Id, focus: Focus) -> bool {
+        let Some(target) = focus.text_target() else {
+            return false;
+        };
         let Some(window) = self.window_mut(id) else {
             return false;
         };
 
-        window
-            .interaction
-            .seal_text_draft(&interaction::Target::text_area(focus))
+        window.interaction.seal_text_draft(&target)
     }
 
     pub fn text_input_feedback(
@@ -163,10 +164,11 @@ impl Session {
         id: app_window::Id,
         focus: Focus,
     ) -> Option<(feedback::Severity, &str)> {
+        let target = focus.text_target()?;
         self.window(id)?
             .interaction
             .text_input()
-            .feedback_for(&interaction::Target::text_area(focus))
+            .feedback_for(&target)
     }
 
     pub(crate) fn reject_text_input(
@@ -175,12 +177,13 @@ impl Session {
         focus: Focus,
         reason: String,
     ) -> bool {
+        let Some(target) = focus.text_target() else {
+            return false;
+        };
         self.window_mut(id).is_some_and(|window| {
-            window.interaction.report_text_feedback(
-                &interaction::Target::text_area(focus),
-                feedback::Severity::Error,
-                reason,
-            )
+            window
+                .interaction
+                .report_text_feedback(&target, feedback::Severity::Error, reason)
         })
     }
 
@@ -193,22 +196,24 @@ impl Session {
     }
 
     pub fn clear_text_draft(&mut self, id: app_window::Id, focus: Focus) -> bool {
+        let Some(target) = focus.text_target() else {
+            return false;
+        };
         let Some(window) = self.window_mut(id) else {
             return false;
         };
 
-        window
-            .interaction
-            .clear_text_draft(&interaction::Target::text_area(focus))
+        window.interaction.clear_text_draft(&target)
     }
 
     pub fn deactivate_text_draft(&mut self, id: app_window::Id, focus: Focus) -> bool {
+        let Some(target) = focus.text_target() else {
+            return false;
+        };
         let Some(window) = self.window_mut(id) else {
             return false;
         };
 
-        window
-            .interaction
-            .deactivate_text_input(&interaction::Target::text_area(focus))
+        window.interaction.deactivate_text_input(&target)
     }
 }

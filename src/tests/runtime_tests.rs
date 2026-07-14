@@ -617,7 +617,7 @@ fn runtime_snapshot_restore_clears_transient_animation_schedule() {
         .expect("text area should declare focus");
     app.handle_input(window, Input::focus(focus))
         .expect("focus should be handled");
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let epoch = app
         .session()
         .interaction(window)

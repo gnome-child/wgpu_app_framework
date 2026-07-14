@@ -250,6 +250,55 @@ fn pointer_focus_is_hidden_and_tab_continues_from_pointer_target() {
 }
 
 #[test]
+fn text_and_preedit_are_ignored_while_a_control_has_focus() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 520);
+    app.show_scene(window, size)
+        .expect("control gallery should render before focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("tab should focus the first control");
+    let focus = app
+        .session()
+        .focused(window)
+        .expect("the first control should be focused");
+    assert_eq!(focus.text_target(), None);
+
+    let outcome = app
+        .handle_input(
+            window,
+            Input::key_down_with_text(
+                input::Key::Character('x'),
+                input::Modifiers::default(),
+                Some("x".to_owned()),
+            ),
+        )
+        .expect("text over control focus should be an ordinary declined input");
+
+    assert!(!outcome.is_handled());
+    assert!(!outcome.changed_state());
+
+    let preedit = app
+        .handle_input(
+            window,
+            Input::text_preedit(text::Preedit::new("界", Some((0, "界".len())))),
+        )
+        .expect("preedit over control focus should be an ordinary declined input");
+    assert!(!preedit.is_handled());
+    assert!(!preedit.changed_state());
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|current| current.same_target(&focus))
+    );
+}
+
+#[test]
 fn pointer_opened_menu_resolves_items_against_preserved_document_focus() {
     let mut app = text_editor::app(text_editor::State::default());
     app.start();

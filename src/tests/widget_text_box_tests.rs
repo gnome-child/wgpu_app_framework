@@ -249,7 +249,7 @@ fn bound_text_box_pointer_target_stays_text_input_target() {
         .target()
         .expect("text box should have an interaction target");
 
-    assert_eq!(target, &interaction::Target::text_area(focus));
+    assert_eq!(target, &text_target(focus));
     assert!(target.captures());
 }
 
@@ -340,7 +340,7 @@ fn unbound_text_box_commit_updates_framework_owned_draft() {
     assert_eq!(app.state().submitted, "");
     assert_eq!(app.revision(), state::Revision::initial());
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -397,7 +397,7 @@ fn character_key_updates_focused_text_box_draft_and_focus_outline() {
     assert!(typed.effect().contains_invalidation());
     assert_eq!(app.revision(), state::Revision::initial());
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -551,8 +551,8 @@ fn text_box_drafts_keep_independent_history_across_focus_changes() {
     app.handle_input(window, Input::text_commit("xy"))
         .expect("second field should accept text");
 
-    let first_target = interaction::Target::text_area(first);
-    let second_target = interaction::Target::text_area(second);
+    let first_target = text_target(first);
+    let second_target = text_target(second);
     let input = app
         .session()
         .interaction(window)
@@ -655,8 +655,8 @@ fn runtime_retention_bounds_inactive_text_box_drafts() {
     app.handle_input(window, Input::text_commit("xy"))
         .expect("second field should accept text");
 
-    let first_target = interaction::Target::text_area(first);
-    let second_target = interaction::Target::text_area(second);
+    let first_target = text_target(first);
+    let second_target = text_target(second);
     let input = app
         .session()
         .interaction(window)
@@ -713,7 +713,7 @@ fn text_box_cursor_moves_before_next_text_commit() {
     app.handle_input(window, Input::text_commit("X"))
         .expect("second text box commit should be handled");
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -776,7 +776,7 @@ fn text_box_ctrl_a_then_cut_updates_bound_text_and_clipboard() {
     assert!(selected.is_handled());
     assert!(!selected.changed_state());
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -943,7 +943,7 @@ fn text_box_paste_replaces_selection_and_truncates_to_first_line() {
     assert_eq!(app.state().submitted, "alpha");
     assert_eq!(app.revision(), state::Revision::initial());
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -1082,7 +1082,7 @@ fn numeric_text_box_never_filters_preedit_and_evaluates_ime_commit_once() {
         Input::text_preedit(text::Preedit::new("composition", None)),
     )
     .expect("preedit should remain uninterrupted by numeric policy");
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     assert_eq!(
         app.session()
             .interaction(window)
@@ -1143,7 +1143,7 @@ fn text_box_undo_redo_uses_focused_draft_history() {
         app.handle_input(window, Input::text_commit(character.to_string()))
             .expect("text commit should edit focused text box");
     }
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     assert_eq!(text_draft(&app, window, focus).text(), "abc");
     assert_eq!(app.state().submitted, "");
 
@@ -1294,7 +1294,7 @@ fn text_box_shift_arrow_selection_is_replaced_by_typing() {
     )
     .expect("shift-left should extend the text box selection");
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -1424,7 +1424,7 @@ fn text_box_caret_blinks_from_interaction_epoch() {
         .expect("initial render should install a composition");
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let epoch = app
         .session()
         .interaction(window)
@@ -1482,7 +1482,7 @@ fn text_box_pointer_click_positions_framework_owned_draft_caret() {
     assert!(clicked.is_handled());
     assert!(!clicked.changed_state());
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -1570,7 +1570,7 @@ fn text_box_pointer_down_to_focus_paints_activation_tint() {
     assert_text_box_focus_outline(&pressed);
     assert_text_box_control_pressed_tint(&pressed);
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -1670,7 +1670,7 @@ fn focused_text_box_pointer_down_positions_caret_without_control_pressed_tint() 
 
     assert_no_text_box_control_pressed_tint(&pressed);
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)
@@ -1724,7 +1724,7 @@ fn text_box_pointer_drag_extends_selection_from_click_anchor() {
 
     pointer_up_then_present(&mut app, window, size, wobbled_right_edge);
 
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     let draft = app
         .session()
         .interaction(window)

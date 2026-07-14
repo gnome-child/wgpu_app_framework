@@ -10,7 +10,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     ) -> std::result::Result<input::Outcome, Error> {
         let before = self.store.prepare_snapshot();
         let focus = self.session.focused(window);
-        let reveal_target = focus.map(|focus| self.text_input_target(window, focus));
+        let reveal_target = focus.and_then(|focus| self.text_input_target(window, focus));
         let (edit, source_cleanup) = text_drop.into_edits();
         let task_sink = self.tasks.sink();
         let mut cx = command_context::Context::with_clipboard_source(
@@ -66,8 +66,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             {
                 effect = effect.then(response::Effect::Layout);
             }
-            if let Some(focus) = focus {
-                let target = self.text_input_target(window, focus);
+            if let Some(target) = focus.and_then(|focus| self.text_input_target(window, focus)) {
                 if self
                     .session
                     .reset_text_caret_blink(window, target, Instant::now())

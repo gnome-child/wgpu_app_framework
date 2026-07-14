@@ -957,6 +957,12 @@ fn text_box_node(node: &view::Node) -> Option<&view::Node> {
     node.children().iter().find_map(text_box_node)
 }
 
+fn text_target(focus: session::Focus) -> interaction::Target {
+    focus
+        .text_target()
+        .expect("test focus should identify a text target")
+}
+
 fn text_draft<M, E, V>(
     app: &Runtime<M, E, V>,
     window: window::Id,
@@ -966,7 +972,7 @@ where
     M: State,
     E: Send + 'static,
 {
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     app.session()
         .interaction(window)
         .expect("window should have interaction state")
@@ -994,7 +1000,10 @@ fn temp_text_path(name: &str) -> PathBuf {
 
 fn encode_focus(focus: Option<session::Focus>) -> &'static str {
     match focus {
-        Some(focus) => focus.target().as_str(),
+        Some(focus) => focus
+            .target_id()
+            .expect("snapshot focus should identify a text element")
+            .as_str(),
         None => "-",
     }
 }

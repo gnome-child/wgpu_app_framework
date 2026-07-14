@@ -91,20 +91,6 @@ impl Focus {
         self.is_visible()
     }
 
-    pub fn target(self) -> interaction::Id {
-        match self.kind {
-            Kind::Text(target) => target,
-            Kind::TableCell(_) | Kind::Control(_) => {
-                panic!("control focus does not have a text target id")
-            }
-        }
-    }
-
-    pub fn into_target(self) -> interaction::Target {
-        self.text_target()
-            .expect("control focus does not have a text target")
-    }
-
     pub fn target_id(&self) -> Option<interaction::Id> {
         match self.kind {
             Kind::Text(target) => Some(target),

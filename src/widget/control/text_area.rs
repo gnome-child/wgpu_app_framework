@@ -49,7 +49,9 @@ impl TextArea {
 
 impl Widget for TextArea {
     fn into_node(self) -> view::Node {
-        let id = self.id.or_else(|| self.focus.map(session::Focus::target));
+        let id = self
+            .id
+            .or_else(|| self.focus.and_then(|focus| focus.target_id()));
         let mut text_area =
             view::TextArea::from_buffer(self.buffer, self.state).with_wrap(self.wrap);
         if let Some(focus) = self.focus {

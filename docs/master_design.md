@@ -1050,6 +1050,13 @@ descendant operated on by navigation while focus remains elsewhere, such as a
 command palette result while the query text box keeps focus. Active items may
 request viewport reveal; they do not become focus.
 
+Focus has text, table-cell, and control species. Only text and table-cell focus
+can project a text interaction target; that projection is explicitly optional,
+and control focus produces ordinary absence. Text input, selection, IME,
+layout, and draft paths consume that absence as an unavailable operation rather
+than assuming every keyboard destination is editable. No total-looking partial
+Focus-to-text-target conversion belongs in either session or interaction.
+
 Each window has at most one active command surface: an open menu or the command
 palette. Opening either replaces the other structurally; menu focus restoration
 and palette captured-focus restoration retain their distinct session-owned

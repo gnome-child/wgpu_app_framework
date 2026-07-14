@@ -142,6 +142,17 @@ fn session_cursor_state_encodes_pending_publication() {
 }
 
 #[test]
+fn focus_text_target_projection_is_explicitly_optional() {
+    let focus = include_str!("../session/focus.rs");
+    let target = include_str!("../interaction/target.rs");
+
+    assert!(focus.contains("pub fn text_target(self) -> Option<interaction::Target>"));
+    assert!(!focus.contains("pub fn target(self) -> interaction::Id"));
+    assert!(!focus.contains("pub fn into_target"));
+    assert!(!target.contains("pub fn text_area(focus: session::Focus)"));
+}
+
+#[test]
 fn realized_material_parts_encode_tint_inside_frost() {
     let region = include_str!("../scene/region.rs");
 

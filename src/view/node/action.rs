@@ -109,12 +109,12 @@ impl Node {
             Role::TextArea => self.id.map(interaction::Target::text_area_id).or_else(|| {
                 self.text_area_model()
                     .and_then(TextArea::focus)
-                    .map(interaction::Target::text_area)
+                    .and_then(|focus| focus.text_target())
             }),
             Role::TextBox => self
                 .text_box_model()
                 .and_then(TextBox::focus)
-                .map(interaction::Target::text_area),
+                .and_then(|focus| focus.text_target()),
             _ => None,
         }
     }

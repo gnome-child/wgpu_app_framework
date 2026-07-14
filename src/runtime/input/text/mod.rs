@@ -47,11 +47,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &self,
         window: window::Id,
         focus: session::Focus,
-    ) -> interaction::Target {
+    ) -> Option<interaction::Target> {
         self.composition
             .get(window)
             .and_then(|composition| composition.view().text_input_target(focus))
-            .unwrap_or_else(|| interaction::Target::text_area(focus))
+            .or_else(|| focus.text_target())
     }
 
     pub(in crate::runtime::input) fn handle_text_edit(
@@ -75,7 +75,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(input::Outcome::ignored());
         }
 
-        let reveal_target = self.text_input_target(window, focus);
+        let Some(reveal_target) = self.text_input_target(window, focus) else {
+            return Ok(input::Outcome::ignored());
+        };
         let cleared_preedit = self.session.clear_text_input(window);
         let response = self.invoke_focused_with_source(
             window,
@@ -139,7 +141,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(input::Outcome::ignored());
         }
 
-        let reveal_target = self.text_input_target(window, focus);
+        let Some(reveal_target) = self.text_input_target(window, focus) else {
+            return Ok(input::Outcome::ignored());
+        };
         let cleared_preedit = self.session.clear_text_input(window);
         let response = self.invoke_focused_with_source(
             window,

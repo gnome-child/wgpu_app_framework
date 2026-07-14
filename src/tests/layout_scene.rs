@@ -3030,8 +3030,8 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         None
     );
     assert_ne!(
-        interaction::Target::text_area(session::Focus::table_cell(count)),
-        interaction::Target::text_area(session::Focus::table_cell(crate::table::Cell::new(
+        text_target(session::Focus::table_cell(count)),
+        text_target(session::Focus::table_cell(crate::table::Cell::new(
             interaction::Id::new("other.table"),
             count.row(),
             count.column(),
@@ -4168,7 +4168,7 @@ fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
         .expect("already-focal second cell should become the active text target");
     app.pointer_up_at(window, size, second_point)
         .expect("active second cell should release");
-    let second_target = interaction::Target::text_area(session::Focus::table_cell(second));
+    let second_target = text_target(session::Focus::table_cell(second));
     assert_eq!(
         app.session()
             .interaction(window)
@@ -4192,9 +4192,9 @@ fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
     assert!(
         app.session()
             .interaction(window)
-            .and_then(|interaction| interaction.text_input().draft_for(
-                &interaction::Target::text_area(session::Focus::table_cell(first))
-            ))
+            .and_then(|interaction| interaction
+                .text_input()
+                .draft_for(&text_target(session::Focus::table_cell(first))))
             .and_then(crate::draft::State::selected_text)
             .is_some(),
         "leaving presentation does not discard the useful source selection"
@@ -4622,7 +4622,7 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
     });
     app.show_scene(window, size)
         .expect("provider deletion should reconcile edited identity");
-    let target = interaction::Target::text_area(focus);
+    let target = text_target(focus);
     assert!(
         app.session()
             .interaction(window)
@@ -4919,8 +4919,8 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
     let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
     let first = session::Focus::text("virtual.text.0");
     let second = session::Focus::text("virtual.text.1");
-    let first_target = interaction::Target::text_area(first);
-    let second_target = interaction::Target::text_area(second);
+    let first_target = text_target(first);
+    let second_target = text_target(second);
 
     app.handle_input(window, Input::focus(first))
         .expect("first virtual text row should focus");

@@ -213,7 +213,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if self.text_draft_base(window, focus).is_none() {
             return Ok(CommitAttempt::NotAttempted);
         }
-        let target = interaction::Target::text_area(focus);
+        let Some(target) = focus.text_target() else {
+            return Ok(CommitAttempt::NotAttempted);
+        };
         let Some(draft) = self
             .session
             .interaction(window)
