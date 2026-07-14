@@ -18,7 +18,7 @@ are both present. Checkpoint 7 is the severable status tail.
 | Rung | State | Independent boundary |
 |---|---|---|
 | 0 — reductions and absence pins | Complete | Named reductions, current source census, baseline ritual, roadmap ignition |
-| 1 — accepted task transitions | Pending | Rejected departure admits no dependent action or click-chain contribution |
+| 1 — accepted task transitions | Complete | Rejected departure admits no dependent action or click-chain contribution |
 | 2 — one TextBox and row participation | Pending | Pre-gesture focal row gates every member; table edit identity is deleted |
 | 3 — one responder path | Pending | Semantic table/row/cell/member layers replace editing-scope suppression |
 | 4 — one current commit recipe | Pending | One current draft produces one trigger or one formatted rejection |
@@ -93,6 +93,32 @@ draft-owned validity, one TextBox surface, and the one panel path.
 - `text_editor`, `control_gallery`, and `glass_tuner --smoke` exited 0.
 - `examples/glass_tuner/app/state.rs` still declares
   `comparison_open: true`.
+
+### Checkpoint 1 — accepted task transitions
+
+- Private `TaskTransition` makes acceptance independent from the ordinary
+  handled/changed/effect outcome. `CommitAttempt` reports accepted versus
+  rejected directly; the transition gate performs no table-feedback lookup.
+- Pointer routing determines the requested text/control task before applying
+  virtual-row selection, classifying a click, dismissing overlays, pressing a
+  control, or invoking a slider action. Rejection cancels the one general
+  click sequence and admits none of those continuations.
+- Table Enter/Tab navigation, ordinary Tab focus, menu/palette activation, and
+  shortcuts consult the same accepted transition. `Action::Sequence` retains
+  its unconditional meaning for independent actions.
+- Table dividers and projected chrome remain manipulation rather than task
+  transfer; the existing active-editor resize witness caught and pinned that
+  non-merge.
+- `rejected_departure_blocks_other_cell_activation_selection_and_click_chain`
+  pins cell activation, row selection, focus/task retention, pointer press,
+  and the fresh post-correction click chain.
+- `rejected_task_transition_blocks_controls_shortcuts_and_tab` pins Tab,
+  click-away, button, checkbox, slider, and shortcut continuations. Existing
+  platform coverage continues to prove `Focused(false)` is not translated
+  into a deliberate framework departure.
+- Formatting, diff hygiene, all-target compilation, 1,045 library tests with
+  10 intentional deep-tier ignores, all 4 doctests, and all three application
+  smokes passed. `comparison_open: true` remains protected.
 
 ## Mission
 

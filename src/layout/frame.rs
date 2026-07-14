@@ -528,6 +528,14 @@ impl Frame {
         self.focused
     }
 
+    pub(crate) fn text_task_focus(&self) -> Option<crate::session::Focus> {
+        match &self.content {
+            FrameContent::Text(TextContent::Area { model, .. }) => model.focus(),
+            FrameContent::Text(TextContent::Field { model, .. }) => model.focus(),
+            _ => None,
+        }
+    }
+
     pub(crate) fn focus_visible(&self) -> bool {
         self.focus_visible
     }

@@ -115,8 +115,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .session
             .command_palette_captured_focus(window)
             .flatten();
-        let closed = self.session.close_command_palette(window);
         let focused_text = self.prepare_focused_text_for_command(window, binding.command_type())?;
+        if !focused_text.is_accepted() {
+            return Ok(focused_text
+                .committed()
+                .map(|outcome| outcome.effect().clone())
+                .unwrap_or(response::Effect::None));
+        }
+        let closed = self.session.close_command_palette(window);
         let effect = self.activate_with_focus(focus, Some(window), binding)?;
         let effect = focused_text
             .committed()
@@ -154,8 +160,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .session
             .command_palette_captured_focus(window)
             .flatten();
-        let closed = self.session.close_command_palette(window);
         let focused_text = self.prepare_focused_text_for_command(window, command_type)?;
+        if !focused_text.is_accepted() {
+            return Ok(focused_text
+                .into_committed()
+                .unwrap_or_else(input::Outcome::ignored));
+        }
+        let closed = self.session.close_command_palette(window);
 
         let Some(transaction) = self.transact_any_command(
             transaction::AnyInvocation {

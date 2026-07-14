@@ -129,6 +129,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let command_name = command.command_name();
         let history_group = command.history_group(&());
         let focused_text = self.prepare_focused_text_for_command(window, command_type)?;
+        if !focused_text.is_accepted() {
+            return Ok(focused_text
+                .into_committed()
+                .unwrap_or_else(input::Outcome::ignored));
+        }
         let keymap = self.keymap;
 
         let source = command_context::Source::Shortcut;

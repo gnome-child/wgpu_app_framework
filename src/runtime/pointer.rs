@@ -1,8 +1,16 @@
 use super::super::{
     error::Error, geometry, input, interaction, layout, pointer, response, session, state, text,
-    view, window,
+    view, virtual_list, window,
 };
 use super::Runtime;
+
+struct VirtualRowGesture {
+    model: virtual_list::Model,
+    key: virtual_list::Key,
+    index: usize,
+    cell: Option<crate::table::Cell>,
+}
+
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     pub fn pointer_move_at(
         &mut self,
@@ -82,18 +90,59 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return self.clear_pointer_focus(window);
         };
         let table_cell = hit.table_cell();
-        let selection_change = self.select_virtual_row_for_hit(window, &hit, point, modifiers);
-        let selection_row = selection_change.is_some();
-        let selection_changed = selection_change.unwrap_or(false);
+        let selection = self.virtual_row_gesture_for_hit(window, &hit, point);
+        let selection_row = selection.is_some();
         self.set_cursor_for_hit(window, Some(&hit));
         let Some(target) = hit.target().cloned() else {
+            let transition = self.attempt_clear_focus_transition(window)?;
+            if !transition.is_accepted() {
+                self.session.cancel_click_sequence(window);
+                return Ok(transition.into_outcome());
+            }
+            let selection_changed = selection
+                .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
+                .unwrap_or(false);
             if selection_changed {
                 self.session
                     .request_invalidation(window, response::Invalidation::Layout);
-                return Ok(input::Outcome::handled(false, response::Effect::Layout));
+                return Ok(
+                    transition.then(input::Outcome::handled(false, response::Effect::Layout))
+                );
             }
-            return self.clear_pointer_focus(window);
+            return Ok(transition.into_outcome());
         };
+
+        let task_focus = if target.kind() == interaction::Kind::TableDivider || hit.is_chrome() {
+            None
+        } else if matches!(
+            hit.frame().role(),
+            view::Role::TextArea | view::Role::TextBox
+        ) {
+            hit.frame().text_task_focus().map(session::Focus::pointer)
+        } else if hit.frame().role() == view::Role::Slider
+            || is_pointer_focusable(hit.frame())
+            || (selection_row && hit.frame().role() == view::Role::VirtualList)
+        {
+            Some(session::Focus::control(&target).pointer())
+        } else {
+            None
+        };
+        let transition = task_focus
+            .map(|focus| self.attempt_focus_transition(window, focus))
+            .transpose()?;
+        if transition
+            .as_ref()
+            .is_some_and(|transition| !transition.is_accepted())
+        {
+            self.session.cancel_click_sequence(window);
+            return Ok(transition
+                .expect("rejected transition is present")
+                .into_outcome());
+        }
+
+        let selection_changed = selection
+            .map(|selection| self.apply_virtual_row_gesture(window, selection, modifiers))
+            .unwrap_or(false);
         let dismissed_overlays = self.dismiss_overlays_for_hit(window, Some(&hit));
 
         let click_count =
@@ -153,6 +202,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
 
         let mut outcome = self.handle_view(window, action)?;
+        if let Some(transition) = transition {
+            outcome = transition.then(outcome);
+        }
         if selection_changed {
             self.session
                 .request_invalidation(window, response::Invalidation::Layout);
@@ -164,13 +216,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Ok(self.with_overlay_dismissal(window, outcome, dismissed_overlays))
     }
 
-    fn select_virtual_row_for_hit(
-        &mut self,
+    fn virtual_row_gesture_for_hit(
+        &self,
         window: window::Id,
         hit: &layout::Hit,
         point: geometry::Point,
-        modifiers: input::Modifiers,
-    ) -> Option<bool> {
+    ) -> Option<VirtualRowGesture> {
         let table_cell = hit.table_cell();
         let composition = self.composition.get(window)?;
         let row = composition.provided_row_for_node(hit.frame().node_id());
@@ -190,15 +241,34 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if !model.is_selectable() {
             return None;
         }
+        Some(VirtualRowGesture {
+            model,
+            key,
+            index,
+            cell: table_cell,
+        })
+    }
+
+    fn apply_virtual_row_gesture(
+        &mut self,
+        window: window::Id,
+        gesture: VirtualRowGesture,
+        modifiers: input::Modifiers,
+    ) -> bool {
         let toggle = modifiers.control() || modifiers.super_key();
-        let selected =
-            self.session
-                .select_virtual_row(window, &model, key, index, modifiers.shift(), toggle);
-        let column_changed = table_cell.is_some_and(|cell| {
+        let selected = self.session.select_virtual_row(
+            window,
+            &gesture.model,
+            gesture.key,
+            gesture.index,
+            modifiers.shift(),
+            toggle,
+        );
+        let column_changed = gesture.cell.is_some_and(|cell| {
             self.session
                 .set_active_table_column(window, cell.table(), cell.column())
         });
-        Some(selected || column_changed)
+        selected || column_changed
     }
 
     fn clear_pointer_focus(

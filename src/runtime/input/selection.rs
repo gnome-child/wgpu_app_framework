@@ -25,12 +25,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return Ok(None);
         }
 
-        let committed = self
-            .commit_and_deactivate_focused_text_box(window)?
-            .unwrap_or_else(input::Outcome::ignored);
-        if self.session.editing_table_cell(window) == Some(cell) {
-            return Ok(Some(committed));
+        let transition = self.commit_and_deactivate_focused_text_box(window)?;
+        if transition
+            .as_ref()
+            .is_some_and(|transition| !transition.is_accepted())
+        {
+            return Ok(transition.map(|transition| transition.into_outcome()));
         }
+        let committed = transition
+            .map(|transition| transition.into_outcome())
+            .unwrap_or_else(input::Outcome::ignored);
 
         let movement = if key == input::Key::Tab {
             CellMove::Linear {

@@ -224,6 +224,38 @@ struct SetRecordCountArgs {
 struct SetRecordName;
 struct SetRecordCount;
 
+#[derive(Debug, Clone)]
+struct TaskGateState {
+    records: Vec<EditableRecord>,
+    invocations: Vec<&'static str>,
+}
+
+impl State for TaskGateState {}
+
+#[derive(Clone)]
+enum TaskGateArgs {
+    Button,
+    Checkbox,
+    Slider(f64),
+}
+
+struct InvokeTaskGate;
+struct InvokeTaskGateShortcut;
+
+impl Command for InvokeTaskGate {
+    type Args = TaskGateArgs;
+    type Output = ();
+
+    const NAME: &'static str = "test.invoke_task_gate";
+}
+
+impl Command for InvokeTaskGateShortcut {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "test.invoke_task_gate_shortcut";
+}
+
 impl Command for SetRecordName {
     type Args = SetRecordNameArgs;
     type Output = ();
@@ -270,6 +302,69 @@ impl Target<SetRecordCount> for EditableTableState {
             return Response::output(());
         };
         record.count = args.value;
+        Response::changed(())
+    }
+}
+
+impl Target<SetRecordName> for TaskGateState {
+    fn state(&self, _: &SetRecordNameArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: SetRecordNameArgs, _: &mut Context) -> Response<()> {
+        if let Some(record) = self
+            .records
+            .iter_mut()
+            .find(|record| record.key == args.cell.row().value())
+        {
+            record.name = args.value;
+        }
+        Response::changed(())
+    }
+}
+
+impl Target<SetRecordCount> for TaskGateState {
+    fn state(&self, _: &SetRecordCountArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: SetRecordCountArgs, _: &mut Context) -> Response<()> {
+        if let Some(record) = self
+            .records
+            .iter_mut()
+            .find(|record| record.key == args.cell.row().value())
+        {
+            record.count = args.value;
+        }
+        Response::changed(())
+    }
+}
+
+impl Target<InvokeTaskGate> for TaskGateState {
+    fn state(&self, _: &TaskGateArgs, _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, args: TaskGateArgs, _: &mut Context) -> Response<()> {
+        self.invocations.push(match args {
+            TaskGateArgs::Button => "button",
+            TaskGateArgs::Checkbox => "checkbox",
+            TaskGateArgs::Slider(value) => {
+                let _ = value;
+                "slider"
+            }
+        });
+        Response::changed(())
+    }
+}
+
+impl Target<InvokeTaskGateShortcut> for TaskGateState {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), _: &mut Context) -> Response<()> {
+        self.invocations.push("shortcut");
         Response::changed(())
     }
 }
@@ -349,6 +444,66 @@ fn editable_table_app(state: EditableTableState) -> Runtime<EditableTableState, 
                 )
                 .height(view::Dimension::fixed(124)),
             )
+        })
+}
+
+fn task_gate_app(state: TaskGateState) -> Runtime<TaskGateState, (), View> {
+    Runtime::new(state)
+        .commands(|commands| {
+            commands
+                .install(document::Editing::standard())
+                .register::<SetRecordName>(command::Spec::new("Set record name"))
+                .register::<SetRecordCount>(command::Spec::new("Set record count"))
+                .register::<InvokeTaskGate>(command::Spec::new("Invoke task gate"))
+                .register::<InvokeTaskGateShortcut>(
+                    command::Spec::new("Invoke task gate shortcut")
+                        .key_chord(command::KeyChord::new("Ctrl+G")),
+                );
+        })
+        .responders(|responders| {
+            responders
+                .app()
+                .target::<SetRecordName>()
+                .target::<SetRecordCount>()
+                .target::<InvokeTaskGate>()
+                .target::<InvokeTaskGateShortcut>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Task gate"));
+        })
+        .view(|state, _| {
+            widget::view(|ui| {
+                ui.add(
+                    crate::Table::new(
+                        "task.gate.table",
+                        24,
+                        [
+                            crate::table::Column::new("name", "Name", view::Dimension::weight(1)),
+                            crate::table::Column::new(
+                                "count",
+                                "Count",
+                                view::Dimension::fixed(100),
+                            ),
+                        ],
+                        EditableTableProvider {
+                            records: state.records.clone(),
+                        },
+                    )
+                    .height(view::Dimension::fixed(100)),
+                );
+                ui.button(
+                    widget::Button::new("Dependent button")
+                        .trigger::<InvokeTaskGate>(TaskGateArgs::Button),
+                );
+                ui.checkbox(
+                    widget::Checkbox::new("Dependent checkbox", false)
+                        .trigger::<InvokeTaskGate>(TaskGateArgs::Checkbox),
+                );
+                ui.slider(
+                    widget::Slider::new("Dependent slider", 0.25, 0.0..=1.0)
+                        .trigger_with::<InvokeTaskGate, _>(TaskGateArgs::Slider),
+                );
+            })
         })
 }
 
@@ -2933,6 +3088,237 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
             .iter()
             .any(|frame| { frame.table_cell() == Some(count) && frame.label_text() == Some("42") })
     );
+}
+
+#[test]
+fn rejected_departure_blocks_other_cell_activation_selection_and_click_chain() {
+    let mut app = editable_table_app(EditableTableState {
+        records: vec![
+            EditableRecord {
+                key: 7,
+                name: "Ada".to_owned(),
+                count: 4,
+            },
+            EditableRecord {
+                key: 8,
+                name: "Grace".to_owned(),
+                count: 8,
+            },
+        ],
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let table = interaction::Id::new("editable.table");
+    let invalid = crate::table::Cell::new(
+        table,
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("count"),
+    );
+    let destination = crate::table::Cell::new(
+        table,
+        crate::virtual_list::Key::new(8),
+        interaction::Id::new("name"),
+    );
+
+    app.show_scene(window, size)
+        .expect("editable rows should materialize");
+    app.handle_input(window, Input::focus(session::Focus::table_cell(invalid)))
+        .expect("source cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("source cell should enter its text task");
+    app.handle_input(window, Input::text_commit("x"))
+        .expect("invalid syntax should remain a lawful draft");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("commit attempt should retain one rejection");
+
+    let rejected = app
+        .show_scene(window, size)
+        .expect("rejected source should remain visible");
+    let destination_point = rejected
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(destination))
+        .map(frame_point)
+        .expect("destination cell should materialize");
+    assert_eq!(
+        app.session()
+            .selection(window, table)
+            .and_then(|selection| selection.active()),
+        Some(invalid.row())
+    );
+
+    app.pointer_down_at(window, size, destination_point)
+        .expect("rejected departure is a handled gesture");
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(invalid)))
+    );
+    assert_eq!(app.session().editing_table_cell(window), Some(invalid));
+    assert_eq!(
+        app.session()
+            .selection(window, table)
+            .and_then(|selection| selection.active()),
+        Some(invalid.row()),
+        "row selection is a continuation of accepted departure"
+    );
+    assert!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().pressed())
+            .is_none(),
+        "the destination member never receives pointer-down"
+    );
+    app.pointer_up_at(window, size, destination_point)
+        .expect("release after a rejected press is inert");
+
+    app.handle_input(window, Input::cancel())
+        .expect("cancel should retire the invalid source task");
+    app.show_scene(window, size)
+        .expect("cancellation should reproject the resting cells");
+    app.pointer_down_at(window, size, destination_point)
+        .expect("the first corrected gesture should be admitted");
+    app.pointer_up_at(window, size, destination_point)
+        .expect("the admitted gesture should release normally");
+    assert_eq!(
+        app.session()
+            .selection(window, table)
+            .and_then(|selection| selection.active()),
+        Some(destination.row())
+    );
+    assert!(
+        text_draft(&app, window, session::Focus::table_cell(destination))
+            .selected_text()
+            .is_none(),
+        "a rejected gesture contributes nothing to the global repeated-click chain"
+    );
+}
+
+#[test]
+fn rejected_task_transition_blocks_controls_shortcuts_and_tab() {
+    let mut app = task_gate_app(TaskGateState {
+        records: vec![EditableRecord {
+            key: 7,
+            name: "Ada".to_owned(),
+            count: 4,
+        }],
+        invocations: Vec::new(),
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(360, 400);
+    let invalid = crate::table::Cell::new(
+        interaction::Id::new("task.gate.table"),
+        crate::virtual_list::Key::new(7),
+        interaction::Id::new("count"),
+    );
+
+    app.show_scene(window, size)
+        .expect("task-gate controls should render");
+    app.handle_input(window, Input::focus(session::Focus::table_cell(invalid)))
+        .expect("source cell should focus");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::F2, input::Modifiers::default()),
+    )
+    .expect("source cell should enter its text task");
+    app.handle_input(window, Input::text_commit("x"))
+        .expect("invalid syntax should remain a draft");
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Enter, input::Modifiers::default()),
+    )
+    .expect("invalid commit should retain the task");
+
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Tab, input::Modifiers::default()),
+    )
+    .expect("Tab rejection is handled locally");
+    app.handle_input(window, Input::shortcut("Ctrl+G"))
+        .expect("shortcut rejection is handled locally");
+    assert!(app.state().invocations.is_empty());
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(invalid)))
+    );
+
+    let rendered = app
+        .show_scene(window, size)
+        .expect("rejected task and controls should remain visible");
+    let button = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::Role::Button && frame.label_text() == Some("Dependent button")
+        })
+        .map(|frame| frame_point_at(frame.active_rect()))
+        .expect("dependent button geometry");
+    let checkbox = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == view::Role::Checkbox && frame.label_text() == Some("Dependent checkbox")
+        })
+        .map(|frame| frame_point_at(frame.active_rect()))
+        .expect("dependent checkbox geometry");
+    let slider = rendered
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::Slider)
+        .map(|frame| {
+            frame_point_at(layout::slider_track_rect(
+                frame.rect(),
+                frame.label_width(),
+                &Theme::default(),
+            ))
+        })
+        .expect("dependent slider geometry");
+    drop(rendered);
+
+    for point in [button, checkbox, slider] {
+        app.pointer_down_at(window, size, point)
+            .expect("dependent control press should be consumed by rejection");
+        app.pointer_up_at(window, size, point)
+            .expect("release after rejection should be inert");
+        assert!(app.state().invocations.is_empty());
+        assert!(
+            app.session()
+                .focused(window)
+                .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(invalid)))
+        );
+        assert!(
+            app.session()
+                .interaction(window)
+                .and_then(|interaction| interaction.pointer().capture())
+                .is_none()
+        );
+    }
+
+    app.pointer_down_at(
+        window,
+        size,
+        geometry::Point::new(size.width() - 1, size.height() - 1),
+    )
+    .expect("click-away rejection should be handled locally");
+    assert!(
+        app.session()
+            .focused(window)
+            .is_some_and(|focus| focus.same_target(&session::Focus::table_cell(invalid)))
+    );
+    assert!(app.state().invocations.is_empty());
 }
 
 #[test]

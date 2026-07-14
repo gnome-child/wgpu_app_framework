@@ -5,6 +5,21 @@ use crate::{
     command, draft, error::Error, input, interaction, keymap, response, session, state, window,
 };
 
+pub(in crate::runtime) enum CommitAttempt {
+    NotAttempted,
+    Accepted(input::Outcome),
+    Rejected(input::Outcome),
+}
+
+impl CommitAttempt {
+    fn into_outcome(self) -> Option<input::Outcome> {
+        match self {
+            Self::NotAttempted => None,
+            Self::Accepted(outcome) | Self::Rejected(outcome) => Some(outcome),
+        }
+    }
+}
+
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime) fn text_draft_base(
         &self,
@@ -115,7 +130,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
 
         if change.submit()
-            && let Some(outcome) = self.commit_text_box_draft(window, focus)?
+            && let Some(outcome) = self.commit_text_box_draft(window, focus)?.into_outcome()
         {
             handled |= outcome.is_handled();
             changed_state |= outcome.changed_state();
@@ -175,9 +190,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         focus: session::Focus,
-    ) -> std::result::Result<Option<input::Outcome>, Error> {
+    ) -> std::result::Result<CommitAttempt, Error> {
         if self.text_draft_base(window, focus).is_none() {
-            return Ok(None);
+            return Ok(CommitAttempt::NotAttempted);
         }
         let target = interaction::Target::text_area(focus);
         let Some(draft) = self
@@ -185,7 +200,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .interaction(window)
             .and_then(|interaction| interaction.text_input().draft_for(&target).cloned())
         else {
-            return Ok(None);
+            return Ok(CommitAttempt::NotAttempted);
         };
         let base = draft.base_text().to_owned();
         let text = draft.text().to_owned();
@@ -196,7 +211,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let action = match table_action {
             Some(Err((cell, reason))) => {
                 self.session.reject_table_edit(window, cell, reason);
-                return Ok(Some(self.window_outcome(
+                return Ok(CommitAttempt::Rejected(self.window_outcome(
                     window,
                     false,
                     response::Effect::Rebuild,
@@ -213,11 +228,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }),
         };
         let Some(action) = action else {
-            return Ok(None);
+            return Ok(CommitAttempt::NotAttempted);
         };
 
         if text == base {
-            return Ok(Some(self.window_outcome(
+            return Ok(CommitAttempt::Accepted(self.window_outcome(
                 window,
                 false,
                 response::Effect::None,
@@ -232,7 +247,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             response::Effect::None
         });
 
-        Ok(Some(input::Outcome::handled(
+        Ok(CommitAttempt::Accepted(input::Outcome::handled(
             outcome.changed_state(),
             effect,
         )))

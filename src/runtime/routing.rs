@@ -39,6 +39,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         } else {
             None
         };
+        if focused_text
+            .as_ref()
+            .is_some_and(|focused_text| !focused_text.is_accepted())
+        {
+            let effect = focused_text
+                .as_ref()
+                .and_then(|focused_text| focused_text.committed())
+                .map(|outcome| outcome.effect().clone())
+                .unwrap_or(response::Effect::None);
+            self.apply_window_update(window, self.revision() != before, &effect);
+            return Ok(effect);
+        }
 
         let result = self.activate_with_focus(focus, Some(window), binding);
         if let Ok(effect) = &result {
