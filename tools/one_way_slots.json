@@ -32,6 +32,10 @@
       "modules": ["state"],
       "may_depend_on": []
     },
+    "diagnostics": {
+      "modules": ["diagnostics"],
+      "may_depend_on": ["foundation", "text", "command", "ui", "renderer"]
+    },
     "text": {
       "modules": ["text"],
       "may_depend_on": ["foundation", "icons"]
@@ -75,7 +79,6 @@
     },
     "runtime": {
       "modules": [
-        "diagnostics",
         "document",
         "host",
         "ime",
@@ -83,7 +86,7 @@
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "icons", "feedback", "clipboard", "state", "tasks", "text", "command", "ui"]
+      "may_depend_on": ["foundation", "icons", "feedback", "clipboard", "state", "tasks", "text", "command", "ui", "diagnostics"]
     },
     "platform": {
       "modules": ["platform"],
@@ -97,6 +100,7 @@
         "command",
         "ui",
         "renderer",
+        "diagnostics",
         "runtime"
       ]
     },
@@ -113,6 +117,7 @@
         "command",
         "ui",
         "renderer",
+        "diagnostics",
         "runtime",
         "platform"
       ]

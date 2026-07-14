@@ -202,17 +202,44 @@ fn frame_preparation_has_one_recipe() {
 }
 
 #[test]
-fn renderer_dependencies_stay_in_native_platform() {
+fn renderer_dependencies_stay_at_rendering_and_observation_boundaries() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let allowed_roots = [
+    let rendering_roots = [
         src_dir.join("platform").join("native"),
         src_dir.join("render"),
         src_dir.join("paint"),
         src_dir.join("text"),
     ];
-    let renderer_modules = ["paint", "render"];
 
-    assert_imports_only_under_any(&src_dir, &allowed_roots, &renderer_modules);
+    assert_imports_only_under_any(&src_dir, &rendering_roots, &["paint"]);
+
+    let mut observation_roots = rendering_roots.to_vec();
+    observation_roots.push(src_dir.join("diagnostics"));
+    assert_imports_only_under_any(&src_dir, &observation_roots, &["render"]);
+}
+
+#[test]
+fn renderer_publishes_render_facts_without_importing_diagnostics() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let render = root.join("render");
+    let report = std::fs::read_to_string(render.join("report.rs"))
+        .expect("renderer report source should read");
+    let diagnostics = std::fs::read_to_string(root.join("diagnostics").join("mod.rs"))
+        .expect("diagnostics module should read");
+    let report_projection = ["pub use crate::", "render::RenderReport;"].concat();
+
+    assert_source_patterns_absent(&render, &["crate::diagnostics".to_owned()]);
+    assert!(
+        report.contains("pub struct RenderReport")
+            && report.contains("pub(crate) struct DrawStats"),
+        "the renderer must own its public receipt and private draw facts"
+    );
+    assert!(
+        diagnostics.contains(&report_projection)
+            && !diagnostics.contains("Report as RenderReport")
+            && !root.join("diagnostics").join("draw.rs").exists(),
+        "diagnostics must observe the exact renderer-owned receipt without an alias or duplicate facts"
+    );
 }
 
 #[test]

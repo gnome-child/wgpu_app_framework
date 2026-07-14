@@ -1,4 +1,3 @@
-mod draw;
 mod frame;
 mod pipeline;
 mod render;
@@ -7,13 +6,13 @@ mod scroll;
 mod store;
 mod text;
 
+pub use crate::render::RenderReport;
 pub use frame::Frame;
 pub use pipeline::Pipeline;
-pub use render::{Render, Report as RenderReport};
+pub use render::Render;
 pub use scroll::Scroll;
 pub use text::Text;
 
-pub(crate) use draw::DrawStats;
 pub(crate) use store::Store;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

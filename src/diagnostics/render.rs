@@ -3,10 +3,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{
-    DrawStats,
-    samples::{SAMPLE_LIMIT, Samples},
-};
+use crate::render::RenderReport;
+
+use super::samples::{SAMPLE_LIMIT, Samples};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Render {
@@ -49,20 +48,6 @@ struct InputSample {
     started_at: Instant,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Report {
-    acquire_wait: Duration,
-    draw: Duration,
-    batch_prepare: Duration,
-    encode_submit_present: Duration,
-    draw_stats: DrawStats,
-    presented: bool,
-    presented_at: Instant,
-    group_composites: usize,
-    filter_layer_pool_entries: usize,
-    filter_scratch_pool_entries: usize,
-}
-
 impl Render {
     pub(crate) fn record_input(
         &mut self,
@@ -79,7 +64,7 @@ impl Render {
     pub(crate) fn record_present(
         &mut self,
         epoch: crate::window::PresentationEpoch,
-        report: Report,
+        report: RenderReport,
     ) {
         self.frames_attempted += 1;
         self.scene_items = report.draw_stats.scene_items;
@@ -207,74 +192,6 @@ impl Default for Render {
     }
 }
 
-impl Report {
-    pub fn new(acquire_wait: Duration, draw: Duration, presented_at: Instant) -> Self {
-        Self {
-            acquire_wait,
-            draw,
-            batch_prepare: Duration::ZERO,
-            encode_submit_present: Duration::ZERO,
-            draw_stats: DrawStats::default(),
-            presented: true,
-            presented_at,
-            group_composites: 0,
-            filter_layer_pool_entries: 0,
-            filter_scratch_pool_entries: 0,
-        }
-    }
-
-    pub fn with_group_composites(mut self, group_composites: usize) -> Self {
-        self.group_composites = group_composites;
-        self
-    }
-
-    pub fn with_filter_pool_entries(
-        mut self,
-        layer_entries: usize,
-        scratch_entries: usize,
-    ) -> Self {
-        self.filter_layer_pool_entries = layer_entries;
-        self.filter_scratch_pool_entries = scratch_entries;
-        self
-    }
-
-    pub(crate) fn with_pipeline_timings(
-        mut self,
-        batch_prepare: Duration,
-        encode_submit_present: Duration,
-    ) -> Self {
-        self.batch_prepare = batch_prepare;
-        self.encode_submit_present = encode_submit_present;
-        self
-    }
-
-    pub(crate) fn with_draw_stats(mut self, stats: DrawStats) -> Self {
-        self.draw_stats = stats;
-        self
-    }
-
-    pub(crate) fn with_presented(mut self, presented: bool) -> Self {
-        self.presented = presented;
-        self
-    }
-
-    pub fn acquire_wait(self) -> Duration {
-        self.acquire_wait
-    }
-
-    pub fn draw(self) -> Duration {
-        self.draw
-    }
-
-    pub fn presented_at(self) -> Instant {
-        self.presented_at
-    }
-
-    pub(crate) fn presented(self) -> bool {
-        self.presented
-    }
-}
-
 fn duration_micros(duration: Duration) -> u128 {
     duration.as_micros()
 }
@@ -283,9 +200,10 @@ fn duration_micros(duration: Duration) -> u128 {
 mod tests {
     use std::time::{Duration, Instant};
 
+    use crate::render::RenderReport;
     use crate::window::PresentationEpoch;
 
-    use super::{Render, Report, SAMPLE_LIMIT, Samples};
+    use super::{Render, SAMPLE_LIMIT, Samples};
 
     #[test]
     fn samples_are_capped_and_report_p95() {
@@ -308,7 +226,7 @@ mod tests {
 
         render.record_present(
             initial,
-            Report::new(
+            RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
                 now + Duration::from_millis(1),
@@ -319,7 +237,7 @@ mod tests {
 
         render.record_present(
             changed,
-            Report::new(
+            RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
                 now + Duration::from_millis(2),
@@ -335,7 +253,7 @@ mod tests {
 
         render.record_present(
             PresentationEpoch::initial(),
-            Report::new(
+            RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
                 Instant::now(),
@@ -358,7 +276,7 @@ mod tests {
 
         render.record_present(
             epoch,
-            Report::new(
+            RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
                 now + Duration::from_millis(1),

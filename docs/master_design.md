@@ -104,10 +104,13 @@ derived structure
   composition, layout frames, scene primitives, snapshots
 
 runtime state
-  session, interaction, diagnostics, clipboard, tasks, timeline
+  session, interaction, clipboard, tasks, timeline
 
 contracts and routing
   command, target, responder, response
+
+observation
+  diagnostics aggregates owner-published facts and samples
 
 orchestration
   runtime, shell, host, platform/native
@@ -1324,6 +1327,12 @@ selected by a frame, not once for every raw pointer message.
 Owns framework-visible counters and sample windows that turn performance and
 interaction reports into numbers. Diagnostics are not behavior inputs; they are
 instrumentation read by tools, tests, and debug panels.
+
+Diagnostics is an observer seam, not the declaration owner for facts produced
+by another subsystem. The renderer owns `RenderReport` and its private draw
+facts; `diagnostics::RenderReport` is an exact public projection of that one
+declaration, and diagnostics consumes it into counters and sample windows.
+Renderer code does not import diagnostic aggregation.
 
 The text editor debug panel is the current full instrument panel. Its one
 instrument map is:

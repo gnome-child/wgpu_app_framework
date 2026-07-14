@@ -1,8 +1,8 @@
-use crate::diagnostics::DrawStats;
 use crate::geometry::{area, point};
 use crate::paint;
 use crate::paint::Rect;
 use crate::render;
+use crate::render::DrawStats;
 use crate::render::batch::{ItemBatch, item_batches};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

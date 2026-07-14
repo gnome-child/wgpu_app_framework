@@ -6,6 +6,8 @@ pub(crate) use context::{Context, Options as ContextOptions};
 pub(crate) use frame::{Frame, Outcome as FrameOutcome};
 pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
+pub(crate) use report::DrawStats;
+pub use report::RenderReport;
 pub(crate) use surface::{
     AcquireOutcome, CompositeAlphaPreference, PresentTiming, Surface, SurfaceReport,
     scene_format_for_surface_format, supports_windows_premultiplied_popup_pack,
@@ -22,6 +24,7 @@ mod popup_pack;
 mod primitive;
 mod quad;
 mod renderer;
+mod report;
 mod silhouette;
 mod surface;
 mod text_renderer;
