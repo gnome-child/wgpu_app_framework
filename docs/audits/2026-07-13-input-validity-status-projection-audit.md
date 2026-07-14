@@ -1,7 +1,8 @@
 # Input validity and status projection audit
 
-Status: campaign in flight (2026-07-13). Checkpoints 0 through 6 are complete;
-the severable status tail remains.
+Status: campaign complete at the green Checkpoint 6 boundary (`d4a81a7c`,
+2026-07-13). The user explicitly trimmed the severable status/closeout tail;
+no partial status implementation was retained.
 `comparison_open: true` remains unchanged.
 
 ## Campaign execution ledger
@@ -9,11 +10,12 @@ the severable status tail remains.
 Ignition is `bc860866` (`pre text edit refactor`). The canonical audit was
 committed at that boundary, the worktree was clean, and the 19-commit local
 pre-campaign stack was pushed to `origin/master` before ignition. No campaign
-commit may be pushed. Roadmap item 32 is the sole in-flight owner.
+commit was pushed mid-campaign. Roadmap item 32 is complete.
 
 Checkpoints 1 through 6 are one interlocked core. The core may not close before
 the inline validity indicator and its inspectable cursor-snapshot explanation
-are both present. Checkpoint 7 is the severable status tail.
+are both present. Checkpoint 7 was the severable status tail and was explicitly
+trimmed after that core closed green.
 
 | Rung | State | Independent boundary |
 |---|---|---|
@@ -24,8 +26,8 @@ are both present. Checkpoint 7 is the severable status tail.
 | 4 — one current commit recipe | Complete | One current draft produces one trigger or one formatted rejection |
 | 5 — draft-owned validity | Complete | Rejection lifetime is structurally bounded by its draft entry |
 | 6 — inline validity and explanation | Complete | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
-| 7 — passive status projection | Pending | General status atom plus thin, virtualized `Column::status` sugar |
-| 8 — doctrine and closeout | Pending | Deletion census, public API review, full/deep ritual, roadmap close |
+| 7 — passive status projection | Trimmed | Explicitly removed from the completed scope; no partial implementation |
+| 8 — doctrine and closeout | Trimmed | Core receipts and roadmap closed at Checkpoint 6; broader tail left unclaimed |
 
 ### Checkpoint 0 named reductions
 
@@ -287,6 +289,16 @@ draft-owned validity, one TextBox surface, and the one panel path.
 - Formatting, diff hygiene, warning-free all-target compilation, 1,052 passing
   library tests with 10 intentional deep-tier ignores, all 4 doctests, and all
   three application smokes passed. `comparison_open: true` remains protected.
+
+### Completion boundary
+
+- The user explicitly declared the goal complete at the independently green
+  Checkpoint 6 boundary and trimmed the optional status/closeout tail.
+- `d4a81a7c` is the last behavioral boundary. The worktree was clean before
+  this receipt, and no `Status` widget, `Column::status`, table status store, or
+  partial status projection was introduced.
+- The status design below remains investigation history and possible future
+  work; it is not a claim about the completed framework surface.
 
 ## Mission
 

@@ -6,16 +6,6 @@ is next.
 
 ## In flight
 
-32. **One Text Task — IN FLIGHT** (ignition boundary `bc860866`, 2026-07-13).
-    Editable table cells are becoming ordinary `TextBox` tasks behind one
-    selection-before-participation gate. Fallible commits will resolve from the
-    current draft exactly once, retain rejection with that draft, and project
-    invalidity inline; the optional status column is a severable second caller
-    of the same passive indicator projection. The campaign deletes the table
-    edit identity, table rejection store/panel route, forced text modes, and
-    editing-scope command suppression. Canonical ledger:
-    `docs/audits/2026-07-13-input-validity-status-projection-audit.md`.
-
 ## Specced and ready
 
 ## Pending manual verification
@@ -139,6 +129,17 @@ is next.
     remeasurement, and rejected edits rebuild their explanatory panel on the
     rejecting input itself. Ledger:
     `docs/audits/2026-07-13-feedback-campaign.md`.
+32. **One Text Task — COMPLETE** (`d4a81a7c`, 2026-07-13; 1,052 library tests +
+    10 intentional deep-tier ignores; per-checkpoint commits). Editable table
+    cells are ordinary `TextBox` tasks behind one
+    selection-before-participation gate. Fallible commits resolve from the
+    current draft exactly once, retain rejection with that draft, and project
+    invalidity inline; rejected departure admits no dependent action. The
+    table edit identity, rejection store/panel route, forced text modes,
+    duplicate parsing, and editing-scope command suppression are deleted. The
+    optional status-projection tail was explicitly trimmed after the green core
+    boundary and has no partial implementation. Ledger:
+    `docs/audits/2026-07-13-input-validity-status-projection-audit.md`.
 
 ## Deferred until a caller or hardware appears
 
