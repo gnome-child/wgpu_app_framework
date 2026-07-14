@@ -724,6 +724,56 @@ Status: **complete; investigation map redrawn**. Correction `d417aab6`
    pollster is honest implementation weight at that owner; no higher framework
    concept enters task. Cell closed.
 
+### R1-06 — state vocabulary versus model storage
+
+Status: **complete; investigation map redrawn**. Correction `2248151a`
+(`Admit model state as an independent seam`).
+
+1. **Question and trace.** `State` constrains the durable application model;
+   `Store` owns its current and saved revisions, dirty truth, bounded change
+   log, retained transaction snapshot, and model value; `Reason` and `Change`
+   describe committed transitions; and `Snapshot` carries restorable model
+   truth. The trace covered initial cleanliness, mutation, ignored and changed
+   responses, save, load, restore, undo/redo, change-log pruning, retained
+   snapshot reuse, and the deliberate independence of model revision from the
+   presentation epoch.
+2. **Current graph.** The provisional foundation slot housed the complete
+   state subsystem. A candidate vocabulary/store split would place `State`,
+   `Revision`, `Reason`, `Change`, and `Snapshot` below the only machinery that
+   mints, retains, prunes, saves, and restores those facts. The public values
+   are receipts of that lifecycle, not a second owner.
+3. **Admission.** The split is rejected. The established `state` owner is
+   admitted as an independent, dependency-free virtual seam: it owns model
+   storage, snapshots, revisions, change reasons, dirty truth, and committed
+   transitions exactly as `master_design.md` already states. Command, UI,
+   runtime, platform, and facade are independent consumers; state imports no
+   higher framework reason for existence and needs no widened API or hidden
+   callback.
+4. **Reduction/rewire.** No production route or type was displaced. The map
+   removes `state` from the provisional foundation bucket and gives the
+   existing module its own slot. Public `Store`, `State`, `Snapshot`,
+   `Revision`, `Reason`, and `Change` remain the crossing vocabulary;
+   `PendingSnapshot`, direct mutation, commit, retention, and pruning remain
+   owner-private machinery for Rung 6 visibility disposition. No established
+   name changed.
+5. **Proof and ratchet.** Seven focused lifecycle witnesses pinned initial
+   state, commit/dirty behavior, save, undo/redo, bounded retention, restore,
+   and revision-versus-presentation clocks; the broader state filter passed 41
+   witnesses. Full library: 1,061 passed, 10 ignored, 0 failed; all examples,
+   formatting, and diff checks passed. The standing doctrine plus the explicit
+   map are the cheapest ratchet; adding another source-root architecture read
+   would only enlarge debt already assigned to Rung 6.
+6. **Gauge delta.** Production/test module edges, internal forbidden edges,
+   external questions, and the existing SCC remain 325/96, 15, 2, and 1.
+   Exposing four real consumer relationships raises cross-slot edges 37 -> 41;
+   state itself remains outside the SCC. Visibility, cross-slot test edges,
+   source-root mentions, filesystem reads, allowances, panics, and expects are
+   unchanged.
+7. **Fixed point.** One dependency-free owner contains both model-state
+   vocabulary and the machinery that makes its receipts truthful. Runtime
+   coordinates state without absorbing it; presentation freshness remains a
+   separate clock. Cell closed.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
