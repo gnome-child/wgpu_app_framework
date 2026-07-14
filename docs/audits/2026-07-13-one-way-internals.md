@@ -3157,6 +3157,52 @@ Status: **complete; tint implication encoded**. Correction `27231efe`
    The reverse sweep continues across composition identity and remaining UI
    state shapes; this cell does not close Rung 5.
 
+### R5-15 — exclusive structural reconciliation-key species
+
+Status: **complete; parallel optional structural keys collapsed**. Correction
+`cd1f3b48` (`Make composition key species exclusive`).
+
+1. **Question and complete trace.** The reverse composition sweep traced
+   ordinary positional siblings, explicit element ids, provided rows, table
+   rows/cells/headers, dematerialization, sibling movement, removal reporting,
+   cell tombstone deduplication, retained/layout identity namespaces, and all
+   reconciliation consumers and witnesses.
+2. **Co-occurrence and invalid state.** A table row legitimately carries both
+   table-row semantics and provided-row identity, so those view facts remain
+   separate. The private reconciliation `Key`, however, carried parallel
+   optional provided-row, table-cell, and table-header-cell keys. Acquisition
+   always prioritized exactly one; overlapping structural keys have no valid
+   producer or matching meaning.
+3. **Correction.** The existing private `Key` itself is now the sum
+   `Ordinary | ProvidedRow | TableCell | TableHeaderCell`; no helper transport
+   type was added. Role and axis remain inside every species and therefore
+   still participate in derived equality/hash. Focused projections replace
+   direct optional-field reads in matching, dematerialization, and removal.
+4. **Boundary and naming ruling.** `Key` remains private to
+   `composition::tree`, so its simple established name needs no parent
+   projection. No compound/simple alias, re-export, or visibility change was
+   introduced.
+5. **Behavior and economics.** Matching priority, explicit-id behavior,
+   positional fallback, provider dematerialization, table identity, removal
+   order/deduplication, cloning, hashing, allocation, and presentation work are
+   unchanged for every admitted node. One enum discriminant replaces three
+   optional key discriminants and adds no heap object or traversal.
+6. **Doctrine and witnesses.** Master design now states the four structural-key
+   species and their exclusivity. The architecture witness pins the existing
+   `Key` as that sum and tombstones all three optional fields; functional
+   reconciliation and platform-composition witnesses remain green.
+7. **Proof and gauge delta from R5-14.** The architecture witness, 17 focused
+   framework composition tests, and nine native composition tests passed; the
+   full library discovered 1,097 tests and passed 1,087 with 10 ignored; all
+   targets compiled without warnings. All nine census parser witnesses, the
+   full census, formatting, diff, and protected-state checks passed. Every
+   graph, visibility, test-edge, source-root, filesystem, allowance, panic, and
+   expect gauge remains unchanged.
+8. **Fixed point and next frontier.** Structural reconciliation identity is now
+   one species while legitimate higher-level row co-occurrence remains intact.
+   The reverse sweep continues across view/widget/layout and remaining state
+   shapes; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
