@@ -4464,6 +4464,68 @@ Correction `a513cb33` (`Make resolved press admission structural`).
    lifecycles, and the complete visibility/failure/intermediate inventories;
    this cell does not close Rung 5.
 
+### R5-39 — valid resolved pointer-release action species
+
+Status: **complete; activation nested beneath its release target**. Correction
+`aaa423e1` (`Make pointer release action structural`).
+
+1. **Question and complete trace.** The reverse pointer-action sweep traced
+   resolved release from parent and native-popup hit testing through frame,
+   scrollbar, divider, indicator, selectable-row, text, slider, menu, command,
+   capture, release-away, pointer-leave, and direct view-action test paths. It
+   followed target admission, optional activation lookup, pressed-target
+   comparison, pointer retirement, gesture completion, command invocation, and
+   every producer and consumer of `view::Action::PointerUp`.
+2. **Invalid state and retained distinctions.** `PointerUp` stored an optional
+   target beside an optional activation action. Layout admits a frame hit only
+   when that frame has a target, and an activation action is obtained only from
+   that same hit, so an action without a target had no producer or valid routing
+   meaning. A targeted release without activation remains valid for text,
+   slider, chrome, selection-only, and disabled/inert action cases; a release
+   outside any target remains a distinct valid species that still retires press
+   and gesture state.
+3. **Correction and displaced protocol.** `PointerUp` now owns a total target
+   and its optional activation action, while `PointerUpOutside` owns neither.
+   Runtime resolves the species before constructing the view action; targeted
+   routing compares the total target with the pressed target, while outside
+   routing releases with ordinary target absence. The parallel optional target,
+   `Some` wrapping at every targeted producer, and target/action invalid state
+   are deleted.
+4. **Boundary and naming ruling.** Both release species remain variants of the
+   private crate-visible `view::Action`; no supporting type, parent projection,
+   public re-export, compound declaration, or alias was introduced. The touched
+   paths therefore preserve the canonical module/type projection law without
+   widening the cell into unrelated naming cleanup.
+5. **Behavior and economics.** Target equality, activation gating, captured and
+   uncaptured release, release-away cancellation, menu opening, typed command
+   invocation, pointer retirement, gesture history, layout, scene order,
+   renderer topology, batching/pass fusion, invalidation, and presentation
+   clocks are unchanged. One invalid option combination is removed; no heap
+   object, callback, lookup, traversal, or frame work is added.
+6. **Doctrine and witness.** Master design now names targeted and outside
+   release species and the action-implies-target law. A focused architecture
+   witness follows both constructors into runtime routing, requires a total
+   target on the action-carrying species, and tombstones the optional target.
+7. **Proof and gauge delta from R5-38.** Forty-nine pointer-focused witnesses
+   passed, including captured release, release-away, menu activation, and typed
+   command activation. The full library discovered 1,122 tests and passed 1,112
+   with 10 ignored; all targets and all five examples compiled without warnings.
+   All nine census parser witnesses, the full census, formatting, diff, and
+   protected-state checks passed. Production/test edges remain 325/111; split
+   responsibilities, slot edges, forbidden/external/SCC counts, cross-slot test
+   edges, source-root mentions, filesystem reads, allowances, panics, and
+   expects remain 3, 54, 0/0/0, 90, 118, 361, 6, 6, and 87. The explicit
+   outside-release constructor raises production `pub(crate)` declarations
+   1,814 -> 1,815 and the cross-slot upper bound 1,767 -> 1,768.
+8. **Fixed point and next frontier.** A resolved activation action can no longer
+   outlive or disagree with its target, while outside release remains explicit
+   and retires the same press lifecycle. `PointerDrag` resists the same shape:
+   its target is already total, and hovered target plus optional drag action are
+   independently meaningful under capture. The reverse sweep continues through
+   contextual departure, session scopes, theme patch semantics, remaining
+   layout lifecycles, and the complete visibility/failure/intermediate
+   inventories; this cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
