@@ -108,16 +108,15 @@ impl Widget for TextBox {
             text_box = text_box.with_inactive_display();
         }
 
-        let mut node = view::Node::text_box_state(text_box);
+        let mut node = match self.commit {
+            Some(commit) => view::Node::text_box_state_with_commit(text_box, commit),
+            None => view::Node::text_box_state(text_box),
+        };
         if let Some((align, wrap, overflow)) = inactive_display {
             node = node
                 .with_world_text_policy(text.clone(), wrap, overflow)
                 .with_world_text_alignment(align);
         }
-        if let Some(commit) = self.commit {
-            node = node.with_text_commit(commit);
-        }
-
         node
     }
 }

@@ -1,6 +1,6 @@
 use super::super::{
     binding::Binding,
-    control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
+    control::{Button, Checkbox, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
 use super::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node, PanelPolicy, Role};
@@ -8,7 +8,7 @@ use crate::{interaction, subject};
 
 impl Node {
     pub(crate) fn role(&self) -> Role {
-        self.role
+        self.content.role()
     }
 
     pub fn axis(&self) -> Option<Axis> {
@@ -20,35 +20,47 @@ impl Node {
     }
 
     pub(crate) fn floating_placement(&self) -> FloatingPlacement {
-        self.floating_placement
+        self.content
+            .panel()
+            .map_or(FloatingPlacement::Default, |panel| panel.placement)
     }
 
     pub(crate) fn panel_attachment(&self) -> Option<super::PanelAttachment> {
-        self.panel_attachment
+        self.content.panel().and_then(|panel| panel.attachment)
     }
 
     pub(crate) fn placement_available(&self) -> Option<crate::geometry::Rect> {
-        self.placement_available
+        self.content.panel().and_then(|panel| panel.available)
     }
 
     pub(crate) fn popup_context(&self) -> Option<crate::popup::ContextFingerprint> {
-        self.popup_context
+        self.content.panel().and_then(|panel| panel.popup_context)
     }
 
     pub(crate) fn panel_policy(&self) -> PanelPolicy {
-        self.panel_policy
+        self.content
+            .panel()
+            .map_or(PanelPolicy::Interactive, |panel| panel.policy)
     }
 
     pub(crate) fn auxiliary_hint(&self) -> Option<&super::super::Hint> {
-        self.auxiliary_hint.as_ref()
+        self.content
+            .panel()
+            .and_then(|panel| panel.auxiliary_hint.as_ref())
     }
 
     pub(crate) fn force_overlay_group(&self) -> bool {
-        self.force_overlay_group
+        self.content
+            .panel()
+            .is_some_and(|panel| panel.force_overlay_group)
     }
 
     pub(crate) fn native_popup_material_preference(&self) -> NativePopupMaterialPreference {
-        self.native_popup_material_preference
+        self.content
+            .panel()
+            .map_or(NativePopupMaterialPreference::System, |panel| {
+                panel.native_material
+            })
     }
 
     pub(crate) fn table_header_presentation(&self) -> Option<crate::table::HeaderPresentation> {
@@ -97,14 +109,7 @@ impl Node {
     }
 
     pub fn text_area_model(&self) -> Option<&TextArea> {
-        match self.control.as_ref()? {
-            Control::TextArea(text_area) => Some(text_area),
-            Control::Button(_)
-            | Control::Checkbox(_)
-            | Control::Radio(_)
-            | Control::Slider(_)
-            | Control::TextBox(_) => None,
-        }
+        self.content.text_area()
     }
 
     pub fn is_focused(&self) -> bool {
@@ -128,11 +133,11 @@ impl Node {
     }
 
     pub(crate) fn scroll_offset(&self) -> interaction::ScrollOffset {
-        self.scroll_offset
+        self.content.scroll_offset()
     }
 
     pub(crate) fn virtual_list_model(&self) -> Option<&crate::virtual_list::Model> {
-        self.virtual_list.as_ref()
+        self.content.virtual_list()
     }
 
     pub(crate) fn provided_row(&self) -> Option<super::ProvidedRow> {
@@ -152,11 +157,11 @@ impl Node {
     }
 
     pub(crate) fn table_model(&self) -> Option<&crate::table::Model> {
-        self.table_model.as_ref()
+        self.content.table_model()
     }
 
     pub(crate) fn text_commit(&self) -> Option<&super::super::TextCommit> {
-        self.text_commit.as_ref()
+        self.content.text_commit()
     }
 
     pub(crate) fn participation(&self) -> Option<super::Participation> {
@@ -164,58 +169,23 @@ impl Node {
     }
 
     pub fn button_model(&self) -> Option<&Button> {
-        match self.control.as_ref()? {
-            Control::Button(button) => Some(button),
-            Control::Checkbox(_)
-            | Control::Radio(_)
-            | Control::Slider(_)
-            | Control::TextArea(_)
-            | Control::TextBox(_) => None,
-        }
+        self.content.button()
     }
 
     pub fn checkbox_model(&self) -> Option<&Checkbox> {
-        match self.control.as_ref()? {
-            Control::Checkbox(checkbox) => Some(checkbox),
-            Control::Button(_)
-            | Control::Radio(_)
-            | Control::Slider(_)
-            | Control::TextArea(_)
-            | Control::TextBox(_) => None,
-        }
+        self.content.checkbox()
     }
 
     pub fn radio_model(&self) -> Option<&Radio> {
-        match self.control.as_ref()? {
-            Control::Radio(radio) => Some(radio),
-            Control::Button(_)
-            | Control::Checkbox(_)
-            | Control::Slider(_)
-            | Control::TextArea(_)
-            | Control::TextBox(_) => None,
-        }
+        self.content.radio()
     }
 
     pub fn slider_model(&self) -> Option<&Slider> {
-        match self.control.as_ref()? {
-            Control::Slider(slider) => Some(slider),
-            Control::Button(_)
-            | Control::Checkbox(_)
-            | Control::Radio(_)
-            | Control::TextArea(_)
-            | Control::TextBox(_) => None,
-        }
+        self.content.slider()
     }
 
     pub fn text_box_model(&self) -> Option<&TextBox> {
-        match self.control.as_ref()? {
-            Control::TextBox(text_box) => Some(text_box),
-            Control::Button(_)
-            | Control::Checkbox(_)
-            | Control::Radio(_)
-            | Control::Slider(_)
-            | Control::TextArea(_) => None,
-        }
+        self.content.text_box()
     }
 
     pub fn id(&self) -> Option<interaction::Id> {
@@ -224,5 +194,31 @@ impl Node {
 
     pub fn children(&self) -> &[Node] {
         &self.children
+    }
+
+    pub(super) fn text_area_model_mut(&mut self) -> Option<&mut TextArea> {
+        self.content.text_area_mut()
+    }
+
+    pub(super) fn text_box_model_mut(&mut self) -> Option<&mut TextBox> {
+        self.content.text_box_mut()
+    }
+
+    pub(super) fn virtual_list_model_mut(&mut self) -> Option<&mut crate::virtual_list::Model> {
+        self.content.virtual_list_mut()
+    }
+
+    pub(super) fn set_scroll_offset(&mut self, offset: interaction::ScrollOffset) {
+        self.content.set_scroll_offset(offset);
+    }
+
+    pub(super) fn standard_menu_extensions(&self) -> Option<&[super::StandardMenuExtension]> {
+        self.content.standard_menu_extensions()
+    }
+
+    pub(super) fn standard_menu_extensions_mut(
+        &mut self,
+    ) -> Option<&mut Vec<super::StandardMenuExtension>> {
+        self.content.standard_menu_extensions_mut()
     }
 }

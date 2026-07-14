@@ -1,6 +1,6 @@
 use super::super::{
     action::Action,
-    control::{Control, TextArea, TextBox},
+    control::{TextArea, TextBox},
 };
 #[cfg(test)]
 use super::super::{
@@ -19,7 +19,7 @@ impl Node {
         &mut self,
         interaction: &interaction::Interaction,
     ) {
-        if let Some(Control::TextBox(text_box)) = &mut self.control {
+        if let Some(text_box) = self.text_box_model_mut() {
             text_box.project_input_feedback(interaction);
         }
         for child in &mut self.children {
@@ -69,16 +69,19 @@ impl Node {
     }
 
     pub(in crate::view) fn has_standard_menu_bar(&self) -> bool {
-        self.standard_menu_bar || self.children.iter().any(Node::has_standard_menu_bar)
+        self.standard_menu_extensions().is_some()
+            || self.children.iter().any(Node::has_standard_menu_bar)
     }
 
     pub(in crate::view) fn project_standard_menu_bar(
         &mut self,
         projection: &command::BarProjection,
     ) {
-        if self.standard_menu_bar {
-            self.children =
-                super::standard_menu::project(projection, &self.standard_menu_extensions);
+        if let Some(children) = self
+            .standard_menu_extensions()
+            .map(|extensions| super::standard_menu::project(projection, extensions))
+        {
+            self.children = children;
             return;
         }
 
@@ -93,8 +96,8 @@ impl Node {
         chain: &mut responder::Chain<'_, impl state::State>,
         cx: &CommandContext,
     ) {
-        if self.standard_menu_bar {
-            for extension in &mut self.standard_menu_extensions {
+        if let Some(extensions) = self.standard_menu_extensions_mut() {
+            for extension in extensions {
                 extension.resolve_commands(registry, chain, cx);
             }
             return;
@@ -204,7 +207,7 @@ impl Node {
             retained.element_id(),
             focus,
             self.context_command_binding().cloned(),
-            self.role == Role::Root,
+            self.role() == Role::Root,
             super::super::Location::None,
             if focus.is_some() {
                 super::super::ContextService::Text
@@ -271,7 +274,7 @@ impl Node {
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
         measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
     ) {
-        if let Some(model) = self.virtual_list.as_mut() {
+        if let Some(model) = self.virtual_list_model_mut() {
             let request = requests
                 .get(&model.id())
                 .cloned()
@@ -634,7 +637,7 @@ impl Node {
 
     #[cfg(test)]
     pub(in crate::view) fn collect_menus<'a>(&'a self, menus: &mut Vec<&'a Node>) {
-        if self.role == Role::Menu {
+        if self.role() == Role::Menu {
             menus.push(self);
         }
 
@@ -656,7 +659,7 @@ impl Node {
 
     #[cfg(test)]
     pub(in crate::view) fn collect_floating_panels<'a>(&'a self, panels: &mut Vec<&'a Node>) {
-        if self.role == Role::FloatingPanel {
+        if self.role() == Role::FloatingPanel {
             panels.push(self);
         }
 
@@ -702,26 +705,26 @@ impl Node {
         retained: &composition::Node,
     ) {
         let pointer_target = self.node_pointer_target(require_retained_id(retained));
-        self.scroll_offset = if matches!(self.role, Role::Scroll | Role::VirtualList) {
-            pointer_target
+        if matches!(self.role(), Role::Scroll | Role::VirtualList) {
+            let offset = pointer_target
                 .as_ref()
                 .map(|target| interaction.scroll().offset(target))
-                .unwrap_or_default()
-        } else {
-            interaction::ScrollOffset::default()
-        };
+                .unwrap_or_default();
+            self.set_scroll_offset(offset);
+        }
 
-        let text_area_target = if self.role == Role::TextArea {
+        let text_area_target = if self.role() == Role::TextArea {
             pointer_target.clone()
         } else {
             None
         };
-        if let Some(Control::TextArea(text_area)) = &mut self.control {
+        if let Some(text_area) = self.text_area_model_mut() {
             text_area.project_layout_interaction(interaction, text_area_target.as_ref());
         }
 
-        if let Some(Control::TextBox(text_box)) = &mut self.control {
-            text_box.project_layout_interaction(interaction, self.text_commit.is_some());
+        let has_text_commit = self.text_commit().is_some();
+        if let Some(text_box) = self.text_box_model_mut() {
+            text_box.project_layout_interaction(interaction, has_text_commit);
         }
 
         for (index, child) in self.children.iter_mut().enumerate() {
@@ -752,11 +755,11 @@ impl Node {
         self.focus_visible =
             self.focused && focus.is_some_and(|focus| focus.shows_focus_indicator());
 
-        if let Some(Control::TextArea(text_area)) = &mut self.control {
+        if let Some(text_area) = self.text_area_model_mut() {
             text_area.project_focus(focus);
         }
 
-        if let Some(Control::TextBox(text_box)) = &mut self.control {
+        if let Some(text_box) = self.text_box_model_mut() {
             text_box.project_focus(focus);
         }
 
@@ -769,7 +772,7 @@ impl Node {
         &self,
         menu: &interaction::Menu,
     ) -> Option<Node> {
-        if self.role == Role::Menu && self.id == Some(menu.id()) {
+        if self.role() == Role::Menu && self.id == Some(menu.id()) {
             let mut panel = Node::floating_panel(menu.id()).with_panel_anchor_element(menu.id());
             panel.children = self.children.clone();
             return Some(panel);
@@ -835,7 +838,7 @@ impl Node {
             push_focus(order, focus.keyboard());
         }
 
-        if self.role == Role::Menu {
+        if self.role() == Role::Menu {
             return;
         }
 
@@ -849,7 +852,7 @@ impl Node {
         retained: &composition::Node,
         order: &mut Vec<session::Focus>,
     ) -> bool {
-        if self.role == Role::FloatingPanel {
+        if self.role() == Role::FloatingPanel {
             if self.panel_policy().accepts_input() {
                 self.collect_focus_order_retained_at(retained, order);
                 return true;
@@ -881,7 +884,7 @@ impl Node {
             return self.keyboard_activation_action();
         }
 
-        if self.role == Role::Menu {
+        if self.role() == Role::Menu {
             return None;
         }
 
@@ -963,7 +966,7 @@ impl Node {
     }
 
     fn is_keyboard_focusable(&self, require_enabled: bool) -> bool {
-        match self.role {
+        match self.role() {
             Role::Menu => true,
             Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => self
                 .binding

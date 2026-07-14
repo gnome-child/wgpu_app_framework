@@ -966,10 +966,8 @@ impl widget::Widget for Table {
             )
             .child(header)
             .child(body);
-        let horizontal_scroll = view::Node::scroll()
+        let horizontal_scroll = view::Node::table_scroll(model)
             .with_subject(subject::Segment::from_label("Table columns"))
-            .with_layout_axis(view::Axis::Horizontal)
-            .with_table_model(model)
             .with_style(
                 view::Style::new()
                     .with_width(view::Dimension::grow())

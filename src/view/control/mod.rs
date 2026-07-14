@@ -13,13 +13,3 @@ pub use slider::Slider;
 pub use text_area::TextArea;
 pub use text_box::TextBox;
 pub use wrap::Wrap;
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum Control {
-    Button(Button),
-    Checkbox(Checkbox),
-    Radio(Radio),
-    Slider(Slider),
-    TextArea(TextArea),
-    TextBox(TextBox),
-}

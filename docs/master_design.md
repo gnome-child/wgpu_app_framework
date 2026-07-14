@@ -272,6 +272,16 @@ and action metadata. View answers "what is being presented?" It should not own
 input dispatch, command execution, mutation history, platform rendering, or
 task execution.
 
+A view `Node` is one common declarative envelope around one private typed
+`Content`. The content discriminant is the node's role truth and owns the
+mutually exclusive control models, ordinary/table scroll state, virtual-list
+model and offset, text-box commit capability, standard menu-bar state, and
+floating-panel state. Role is derived; it is never copied beside those
+payloads. Cross-role annotations such as identity, axis, style, subject,
+visible text, bindings, focus/selection projection, provided/table identity,
+participation, context-menu eligibility, and children remain on the common
+envelope because live nodes combine them independently of role.
+
 A view binding owns one trigger species. Ordinary and resolved actions carry a
 fixed trigger; a slider-change binding carries its current value-derived
 trigger together with the value-trigger factory that can derive its successor.

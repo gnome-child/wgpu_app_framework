@@ -1,43 +1,44 @@
 use super::super::{
     binding::Binding,
-    control::{Button, Checkbox, Control, Radio, Slider, TextArea, TextBox},
+    control::{Button, Checkbox, Radio, Slider, TextArea, TextBox},
     style::Style,
 };
+use super::content::{MenuBar, Panel, Scroll};
 use super::{
-    Axis, FloatingPlacement, NativePopupMaterialPreference, Node, Participation, Role, TablePart,
-    WorldText,
+    Axis, Content, FloatingPlacement, NativePopupMaterialPreference, Node, Participation, Role,
+    TablePart, WorldText,
 };
 use crate::{command, context::Source, interaction, subject};
 
 impl Node {
     pub fn root() -> Self {
-        Self::new(Role::Root)
+        Self::new(Content::Root)
     }
 
     pub fn stack(axis: Axis) -> Self {
-        Self::new(Role::Stack).with_axis(axis)
+        Self::new(Content::Stack).with_axis(axis)
     }
 
     pub fn menu_bar() -> Self {
-        Self::new(Role::MenuBar)
+        Self::new(Content::MenuBar(MenuBar::Ordinary))
     }
 
     pub(crate) fn standard_menu_bar() -> Self {
-        let mut node = Self::menu_bar();
-        node.standard_menu_bar = true;
-        node
+        Self::new(Content::MenuBar(MenuBar::Standard(Vec::new())))
     }
 
     pub(crate) fn push_standard_menu_extension(&mut self, extension: super::StandardMenuExtension) {
         assert!(
-            self.standard_menu_bar,
+            self.standard_menu_extensions().is_some(),
             "standard-menu extensions require a standard menu bar"
         );
-        self.standard_menu_extensions.push(extension);
+        if let Some(extensions) = self.standard_menu_extensions_mut() {
+            extensions.push(extension);
+        }
     }
 
     pub fn menu(id: impl Into<interaction::Id>, label: impl Into<String>) -> Self {
-        Self::new(Role::Menu).with_id(id).with_label(label)
+        Self::new(Content::Menu).with_id(id).with_label(label)
     }
 
     pub fn bound<C>() -> Self
@@ -59,7 +60,7 @@ impl Node {
         C: command::Command,
         C::Args: Clone,
     {
-        Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Button))
+        Self::new(Content::Binding).with_binding(Binding::new::<C>(args, Source::Button))
     }
 
     pub fn menu_bound_with_args<C>(args: C::Args) -> Self
@@ -67,19 +68,19 @@ impl Node {
         C: command::Command,
         C::Args: Clone,
     {
-        Self::new(Role::Binding).with_binding(Binding::new::<C>(args, Source::Menu))
+        Self::new(Content::Binding).with_binding(Binding::new::<C>(args, Source::Menu))
     }
 
     pub(crate) fn resolved_menu_action(action: command::ResolvedAction) -> Self {
-        Self::new(Role::Binding).with_binding(Binding::from_resolved(action, Source::Menu))
+        Self::new(Content::Binding).with_binding(Binding::from_resolved(action, Source::Menu))
     }
 
     pub(crate) fn resolved_bar_action(action: &command::BarAction, show_shortcut: bool) -> Self {
-        Self::new(Role::Binding).with_binding(Binding::from_bar_action(action, show_shortcut))
+        Self::new(Content::Binding).with_binding(Binding::from_bar_action(action, show_shortcut))
     }
 
     pub fn separator() -> Self {
-        Self::new(Role::Separator)
+        Self::new(Content::Separator)
     }
 
     pub fn text_area(text: impl Into<String>) -> Self {
@@ -87,7 +88,7 @@ impl Node {
     }
 
     pub fn text_area_state(text_area: TextArea) -> Self {
-        Self::new(Role::TextArea).with_control(Control::TextArea(text_area))
+        Self::new(Content::TextArea(text_area))
     }
 
     pub fn button(label: impl Into<String>) -> Self {
@@ -96,9 +97,7 @@ impl Node {
 
     pub fn button_state(button: Button) -> Self {
         let label = button.label().to_owned();
-        Self::new(Role::Button)
-            .with_label(label)
-            .with_control(Control::Button(button))
+        Self::new(Content::Button(button)).with_label(label)
     }
 
     pub fn checkbox(label: impl Into<String>, checked: bool) -> Self {
@@ -107,9 +106,7 @@ impl Node {
 
     pub fn checkbox_state(checkbox: Checkbox) -> Self {
         let label = checkbox.label().to_owned();
-        Self::new(Role::Checkbox)
-            .with_label(label)
-            .with_control(Control::Checkbox(checkbox))
+        Self::new(Content::Checkbox(checkbox)).with_label(label)
     }
 
     pub fn radio(label: impl Into<String>, selected: bool) -> Self {
@@ -118,9 +115,7 @@ impl Node {
 
     pub fn radio_state(radio: Radio) -> Self {
         let label = radio.label().to_owned();
-        Self::new(Role::Radio)
-            .with_label(label)
-            .with_control(Control::Radio(radio))
+        Self::new(Content::Radio(radio)).with_label(label)
     }
 
     pub fn slider(label: impl Into<String>, value: f64, start: f64, end: f64) -> Self {
@@ -129,9 +124,7 @@ impl Node {
 
     pub fn slider_state(slider: Slider) -> Self {
         let label = slider.display_label();
-        Self::new(Role::Slider)
-            .with_label(label)
-            .with_control(Control::Slider(slider))
+        Self::new(Content::Slider(slider)).with_label(label)
     }
 
     pub fn text_box(text: impl Into<String>) -> Self {
@@ -139,36 +132,63 @@ impl Node {
     }
 
     pub fn text_box_state(text_box: TextBox) -> Self {
-        Self::new(Role::TextBox).with_control(Control::TextBox(text_box))
+        Self::new(Content::TextBox {
+            model: text_box,
+            commit: None,
+        })
+    }
+
+    pub(crate) fn text_box_state_with_commit(
+        text_box: TextBox,
+        commit: super::super::TextCommit,
+    ) -> Self {
+        Self::new(Content::TextBox {
+            model: text_box,
+            commit: Some(commit),
+        })
     }
 
     pub fn panel() -> Self {
-        Self::new(Role::Panel)
+        Self::new(Content::Panel)
     }
 
     pub fn scroll() -> Self {
-        Self::new(Role::Scroll).with_axis(Axis::Vertical)
+        Self::new(Content::Scroll(Scroll::Ordinary {
+            offset: interaction::ScrollOffset::default(),
+        }))
+        .with_axis(Axis::Vertical)
+    }
+
+    pub(crate) fn table_scroll(model: crate::table::Model) -> Self {
+        Self::new(Content::Scroll(Scroll::Table {
+            model,
+            offset: interaction::ScrollOffset::default(),
+        }))
+        .with_axis(Axis::Horizontal)
     }
 
     pub(crate) fn virtual_list(model: crate::virtual_list::Model) -> Self {
-        Self::new(Role::VirtualList)
-            .with_id(model.id())
-            .with_axis(Axis::Vertical)
-            .with_virtual_list(model)
+        let id = model.id();
+        Self::new(Content::VirtualList {
+            model,
+            offset: interaction::ScrollOffset::default(),
+        })
+        .with_id(id)
+        .with_axis(Axis::Vertical)
     }
 
     pub(crate) fn table(id: interaction::Id) -> Self {
-        Self::new(Role::Table)
+        Self::new(Content::Table)
             .with_axis(Axis::Vertical)
             .with_interaction_id(id)
     }
 
     pub fn floating_panel(id: impl Into<interaction::Id>) -> Self {
-        Self::new(Role::FloatingPanel).with_id(id)
+        Self::new(Content::FloatingPanel(Panel::interactive())).with_id(id)
     }
 
     pub fn label(label: impl Into<String>) -> Self {
-        Self::new(Role::Label).with_label(label)
+        Self::new(Content::Label).with_label(label)
     }
 
     /// Creates text supplied by the world outside the program. Its overflow
@@ -186,7 +206,7 @@ impl Node {
         wrap: super::super::Wrap,
         overflow: crate::text::Overflow,
     ) -> Self {
-        Self::new(Role::Label)
+        Self::new(Content::Label)
             .with_label(label)
             .with_text_kind(super::TextKind::World(WorldText::new(wrap, overflow)))
     }
@@ -210,7 +230,7 @@ impl Node {
     }
 
     pub(crate) fn section_header(label: impl Into<String>) -> Self {
-        Self::new(Role::SectionHeader).with_label(label)
+        Self::new(Content::SectionHeader).with_label(label)
     }
 
     pub fn child(mut self, child: Node) -> Self {
@@ -239,7 +259,7 @@ impl Node {
 
     pub(crate) fn with_table_cell(mut self, cell: crate::table::Cell) -> Self {
         self.table_cell = Some(cell);
-        self.participation = Some(Participation::Table(match self.role {
+        self.participation = Some(Participation::Table(match self.role() {
             Role::Checkbox if self.binding.is_some() => TablePart::Toggle,
             Role::Checkbox => TablePart::PassiveToggle,
             Role::Button => TablePart::Action,
@@ -276,11 +296,6 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_table_model(mut self, model: crate::table::Model) -> Self {
-        self.table_model = Some(model);
-        self
-    }
-
     pub(crate) fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
@@ -292,8 +307,8 @@ impl Node {
     }
 
     pub(crate) fn with_layout_axis(mut self, axis: Axis) -> Self {
-        if self.role != Role::FloatingPanel && self.role != Role::Scroll {
-            self.role = Role::Stack;
+        if self.role() != Role::FloatingPanel && self.role() != Role::Scroll {
+            self.content = Content::Stack;
         }
         self.axis = Some(axis);
         self
@@ -305,7 +320,11 @@ impl Node {
     }
 
     pub(crate) fn with_floating_placement(mut self, placement: FloatingPlacement) -> Self {
-        self.floating_placement = placement;
+        if let Some(panel) = self.content.panel_mut() {
+            panel.placement = placement;
+        } else {
+            debug_assert!(false, "floating placement requires a floating panel");
+        }
         self
     }
 
@@ -314,25 +333,37 @@ impl Node {
         anchor: crate::geometry::PlacementAnchor,
         available: crate::geometry::Rect,
     ) -> Self {
-        self.panel_attachment = Some(super::PanelAttachment::Geometry(anchor));
-        self.placement_available = Some(available);
+        if let Some(panel) = self.content.panel_mut() {
+            panel.attachment = Some(super::PanelAttachment::Geometry(anchor));
+            panel.available = Some(available);
+        } else {
+            debug_assert!(false, "panel placement requires a floating panel");
+        }
         self
     }
 
     pub(crate) fn with_panel_anchor(mut self, anchor: crate::geometry::PlacementAnchor) -> Self {
-        self.panel_attachment = Some(super::PanelAttachment::Geometry(anchor));
+        if let Some(panel) = self.content.panel_mut() {
+            panel.attachment = Some(super::PanelAttachment::Geometry(anchor));
+        } else {
+            debug_assert!(false, "panel anchor requires a floating panel");
+        }
         self
     }
 
     pub(crate) fn with_pointer_panel_anchor(mut self, point: crate::geometry::Point) -> Self {
-        debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.panel_attachment = Some(super::PanelAttachment::Pointer(point));
+        debug_assert_eq!(self.role(), Role::FloatingPanel);
+        if let Some(panel) = self.content.panel_mut() {
+            panel.attachment = Some(super::PanelAttachment::Pointer(point));
+        }
         self
     }
 
     pub(crate) fn with_panel_anchor_element(mut self, id: impl Into<interaction::Id>) -> Self {
-        debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.panel_attachment = Some(super::PanelAttachment::Element(id.into()));
+        debug_assert_eq!(self.role(), Role::FloatingPanel);
+        if let Some(panel) = self.content.panel_mut() {
+            panel.attachment = Some(super::PanelAttachment::Element(id.into()));
+        }
         self
     }
 
@@ -340,24 +371,36 @@ impl Node {
         mut self,
         fingerprint: crate::popup::ContextFingerprint,
     ) -> Self {
-        self.popup_context = Some(fingerprint);
+        if let Some(panel) = self.content.panel_mut() {
+            panel.popup_context = Some(fingerprint);
+        } else {
+            debug_assert!(false, "popup context requires a floating panel");
+        }
         self
     }
 
     pub(crate) fn with_panel_policy(mut self, policy: super::PanelPolicy) -> Self {
-        debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.panel_policy = policy;
+        debug_assert_eq!(self.role(), Role::FloatingPanel);
+        if let Some(panel) = self.content.panel_mut() {
+            panel.policy = policy;
+        }
         self
     }
 
     pub(crate) fn with_auxiliary_hint(mut self, hint: super::super::Hint) -> Self {
-        debug_assert_eq!(self.role, Role::FloatingPanel);
-        self.auxiliary_hint = Some(hint);
+        debug_assert_eq!(self.role(), Role::FloatingPanel);
+        if let Some(panel) = self.content.panel_mut() {
+            panel.auxiliary_hint = Some(hint);
+        }
         self
     }
 
     pub(crate) fn with_force_overlay_group(mut self, force: bool) -> Self {
-        self.force_overlay_group = force;
+        if let Some(panel) = self.content.panel_mut() {
+            panel.force_overlay_group = force;
+        } else {
+            debug_assert!(false, "overlay grouping requires a floating panel");
+        }
         self
     }
 
@@ -365,7 +408,11 @@ impl Node {
         mut self,
         preference: NativePopupMaterialPreference,
     ) -> Self {
-        self.native_popup_material_preference = preference;
+        if let Some(panel) = self.content.panel_mut() {
+            panel.native_material = preference;
+        } else {
+            debug_assert!(false, "native popup material requires a floating panel");
+        }
         self
     }
 
@@ -411,21 +458,6 @@ impl Node {
         self
     }
 
-    pub(crate) fn with_text_commit(mut self, commit: super::super::TextCommit) -> Self {
-        self.text_commit = Some(commit);
-        self
-    }
-
-    fn with_control(mut self, control: Control) -> Self {
-        self.control = Some(control);
-        self
-    }
-
-    fn with_virtual_list(mut self, model: crate::virtual_list::Model) -> Self {
-        self.virtual_list = Some(model);
-        self
-    }
-
     pub fn with_interaction_id(mut self, id: impl Into<interaction::Id>) -> Self {
         self.id = Some(id.into());
         self
@@ -436,43 +468,28 @@ impl Node {
         self
     }
 
-    fn new(role: Role) -> Self {
+    fn new(content: Content) -> Self {
         Self {
-            role,
+            content,
             id: None,
             axis: None,
             style: Style::default(),
-            floating_placement: FloatingPlacement::Default,
-            panel_attachment: None,
-            placement_available: None,
-            popup_context: None,
-            panel_policy: super::PanelPolicy::Interactive,
-            auxiliary_hint: None,
-            force_overlay_group: false,
-            native_popup_material_preference: NativePopupMaterialPreference::System,
             subject: None,
             label: None,
             text_kind: super::TextKind::Author,
             binding: None,
             context_binding: None,
-            control: None,
             focused: false,
             focus_visible: false,
             selected: false,
             active_item: false,
-            scroll_offset: interaction::ScrollOffset::default(),
-            virtual_list: None,
             provided_row: None,
             table_row: None,
             table_cell: None,
             table_header_cell: None,
             table_header_presentation: None,
-            table_model: None,
-            text_commit: None,
             participation: None,
             context_menu: false,
-            standard_menu_bar: false,
-            standard_menu_extensions: Vec::new(),
             children: Vec::new(),
         }
     }

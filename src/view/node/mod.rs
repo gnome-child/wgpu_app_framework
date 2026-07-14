@@ -1,5 +1,5 @@
 use super::super::interaction;
-use super::{binding::Binding, control::Control, style::Style};
+use super::{binding::Binding, style::Style};
 use crate::virtual_list;
 use crate::{subject, text};
 
@@ -7,11 +7,13 @@ mod access;
 mod action;
 mod axis;
 mod builder;
+mod content;
 mod role;
 mod standard_menu;
 mod traversal;
 
 pub use axis::Axis;
+use content::Content;
 pub(crate) use role::Role;
 pub(crate) use standard_menu::Extension as StandardMenuExtension;
 
@@ -98,41 +100,26 @@ pub(crate) enum PanelAttachment {
 
 #[derive(Clone)]
 pub struct Node {
-    role: Role,
+    content: Content,
     id: Option<interaction::Id>,
     axis: Option<Axis>,
     style: Style,
-    floating_placement: FloatingPlacement,
-    panel_attachment: Option<PanelAttachment>,
-    placement_available: Option<crate::geometry::Rect>,
-    popup_context: Option<crate::popup::ContextFingerprint>,
-    panel_policy: PanelPolicy,
-    auxiliary_hint: Option<super::Hint>,
-    force_overlay_group: bool,
-    native_popup_material_preference: NativePopupMaterialPreference,
     subject: Option<subject::Segment>,
     label: Option<String>,
     text_kind: TextKind,
     binding: Option<Binding>,
     context_binding: Option<Binding>,
-    control: Option<Control>,
     focused: bool,
     focus_visible: bool,
     selected: bool,
     active_item: bool,
-    scroll_offset: interaction::ScrollOffset,
-    virtual_list: Option<virtual_list::Model>,
     provided_row: Option<ProvidedRow>,
     table_row: Option<crate::table::Row>,
     table_cell: Option<crate::table::Cell>,
     table_header_cell: Option<crate::table::HeaderCell>,
     table_header_presentation: Option<crate::table::HeaderPresentation>,
-    table_model: Option<crate::table::Model>,
-    text_commit: Option<super::TextCommit>,
     participation: Option<Participation>,
     context_menu: bool,
-    standard_menu_bar: bool,
-    standard_menu_extensions: Vec<StandardMenuExtension>,
     children: Vec<Node>,
 }
 

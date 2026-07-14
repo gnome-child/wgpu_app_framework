@@ -38,14 +38,14 @@ impl Node {
                 |id| binding.element_pointer_target(id),
             );
 
-            return Some(if self.role == Role::Slider {
+            return Some(if self.role() == Role::Slider {
                 target.with_capture()
             } else {
                 target
             });
         }
 
-        if matches!(self.role, Role::Scroll | Role::VirtualList) {
+        if matches!(self.role(), Role::Scroll | Role::VirtualList) {
             let label = self.label.as_deref().unwrap_or("Scroll");
             return Some(self.id.map_or_else(
                 || interaction::Target::scroll_node(node_id, None, label),
@@ -64,14 +64,14 @@ impl Node {
         if let Some(binding) = &self.binding {
             let target = self.id.map(|id| binding.element_pointer_target(id))?;
 
-            return Some(if self.role == Role::Slider {
+            return Some(if self.role() == Role::Slider {
                 target.with_capture()
             } else {
                 target
             });
         }
 
-        match self.role {
+        match self.role() {
             Role::Menu => self
                 .id
                 .zip(self.label.as_ref())
@@ -105,7 +105,7 @@ impl Node {
     }
 
     pub(in crate::view) fn text_control_target(&self) -> Option<interaction::Target> {
-        match self.role {
+        match self.role() {
             Role::TextArea => self.id.map(interaction::Target::text_area_id).or_else(|| {
                 self.text_area_model()
                     .and_then(TextArea::focus)
@@ -147,7 +147,7 @@ impl Node {
         &self,
         position: text::buffer::Position,
     ) -> Option<Action> {
-        if self.role != Role::TextArea {
+        if self.role() != Role::TextArea {
             return None;
         }
 
@@ -169,7 +169,7 @@ impl Node {
         &self,
         position: text::buffer::Position,
     ) -> Option<Action> {
-        if self.role != Role::TextArea {
+        if self.role() != Role::TextArea {
             return None;
         }
 
@@ -186,7 +186,7 @@ impl Node {
     }
 
     pub(crate) fn menu_action(&self) -> Option<Action> {
-        if self.role != Role::Menu {
+        if self.role() != Role::Menu {
             return None;
         }
 
@@ -198,7 +198,7 @@ impl Node {
 
     #[cfg(test)]
     fn pointer_activation_action(&self) -> Option<Action> {
-        match self.role {
+        match self.role() {
             Role::TextArea => return self.text_area_model().and_then(TextArea::focus_action),
             Role::TextBox => return self.text_box_model().and_then(TextBox::focus_action),
             _ => {}
@@ -208,7 +208,7 @@ impl Node {
             return binding.is_enabled().then(|| Action::activate(binding));
         }
 
-        match self.role {
+        match self.role() {
             Role::Menu => self.menu_action(),
             Role::Root
             | Role::Stack
@@ -232,7 +232,7 @@ impl Node {
     }
 
     pub(in crate::view) fn keyboard_activation_action(&self) -> Option<Action> {
-        match self.role {
+        match self.role() {
             Role::Menu => self.menu_action(),
             Role::Binding | Role::Button | Role::Checkbox | Role::Radio | Role::Slider => self
                 .binding

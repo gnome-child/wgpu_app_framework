@@ -1558,9 +1558,84 @@ fn view_control_module_stays_private() {
         "view Control enum is node storage; expose concrete control concepts instead"
     );
     assert!(
-        !control_mod.contains("pub enum Control"),
-        "view Control enum should not be public API"
+        !control_mod.contains("enum Control"),
+        "view controls should not regain a parallel node-storage enum"
     );
+}
+
+#[test]
+fn view_node_content_is_the_single_role_payload_representation() {
+    let node = include_str!("../view/node/mod.rs");
+    let content = include_str!("../view/node/content.rs");
+    let builder = include_str!("../view/node/builder.rs");
+    let control = include_str!("../view/control/mod.rs");
+    let fields = node
+        .split("pub struct Node {")
+        .nth(1)
+        .expect("Node declaration should exist")
+        .split("\n}")
+        .next()
+        .expect("Node fields should end");
+
+    assert!(
+        node.contains("mod content;")
+            && node.contains("use content::Content;")
+            && fields.contains("content: Content"),
+        "Node must carry one private typed role payload"
+    );
+    for displaced in [
+        "role: Role",
+        "control: Option",
+        "scroll_offset:",
+        "virtual_list: Option",
+        "table_model: Option",
+        "text_commit: Option",
+        "standard_menu_bar: bool",
+        "standard_menu_extensions: Vec",
+        "floating_placement:",
+        "panel_attachment:",
+        "placement_available:",
+        "popup_context:",
+        "panel_policy:",
+        "auxiliary_hint:",
+        "force_overlay_group:",
+        "native_popup_material_preference:",
+    ] {
+        assert!(
+            !fields.contains(displaced),
+            "legacy Node role payload must stay absent: {displaced}"
+        );
+    }
+
+    for required in [
+        "pub(super) enum Content {",
+        "MenuBar(MenuBar)",
+        "TextArea(TextArea)",
+        "Button(Button)",
+        "Checkbox(Checkbox)",
+        "Radio(Radio)",
+        "Slider(Slider)",
+        "TextBox {",
+        "Scroll(Scroll)",
+        "VirtualList {",
+        "FloatingPanel(Panel)",
+        "pub(super) fn role(&self) -> Role",
+        "pub(super) enum MenuBar {",
+        "Standard(Vec<StandardMenuExtension>)",
+        "pub(super) enum Scroll {",
+        "Table {",
+    ] {
+        assert!(
+            content.contains(required),
+            "typed view content must retain structural species: {required}"
+        );
+    }
+
+    assert!(!control.contains("enum Control"));
+    assert!(builder.contains("fn table_scroll(model: crate::table::Model)"));
+    assert!(builder.contains("fn text_box_state_with_commit("));
+    assert!(!builder.contains("fn with_table_model("));
+    assert!(!builder.contains("fn with_text_commit("));
 }
 
 #[test]
