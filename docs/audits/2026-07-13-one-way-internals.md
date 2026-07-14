@@ -100,17 +100,20 @@ Reject or redraw the seam instead.
 ### Naming follows the established house law
 
 - Names describe the domain concept, not its implementation trick.
-- When a public module and its central type share a name, the parent publicly
-  re-exports only that namesake type. Call sites import both as
-  `use parent::{module, Module};`. Supporting types keep simple names inside
-  the module, are not projected beside the namesake type, and are referenced
-  at call sites as `module::Type`.
-- A declaration's canonical name is the simple name under which the public API
-  exposes it. If `CompoundName` is re-exported as `Name`, rename the declaration
-  to `Name`; do not preserve `CompoundName` behind `as Name`. Apply this at
-  every projection layer, including parent-module re-exports: parents re-export
-  `module::Name`, never `module::CompoundName as Name`. Call sites resolve name
-  collisions with module qualification rather than compound declaration names.
+- A declaration takes the canonical name exposed by the public API. If a type
+  declared as `CompoundName` would be re-exported as `Name`, rename the
+  declaration itself to `Name`; an `as Name` re-export may not preserve the
+  compound declaration. This law applies at every projection layer, including
+  parent modules: re-export `module::Name`, never
+  `module::CompoundName as Name`.
+- When a public module and its central public type have the same name, the
+  parent publicly re-exports only that namesake type. Supporting types keep
+  simple declarations inside the module and are not flattened into the parent
+  namespace.
+- Call sites import the module and its namesake type together with
+  `use parent::{module, Module};`, then refer to supporting types as
+  `module::Type`. Call-site collisions are resolved by module qualification,
+  not by compound declarations or aliased parent projections.
 - No new `core`, `common`, `types`, `util`, `helper`, or `manager` bucket.
 - Moving or re-housing a concept does not authorize renaming it.
 - Existing overloaded-name cleanup remains under its established census and
