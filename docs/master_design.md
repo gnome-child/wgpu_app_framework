@@ -245,6 +245,17 @@ disk but leaves newer edits dirty. `SaveSnapshot` writes through a sibling
 temporary file and atomic replacement, so memory never calls a partial write a
 saved document.
 
+`document`
+
+Owns the file-backed editable-document workflow: document identity, buffer and
+selection state, path and saved revision, save snapshots, atomic replacement,
+standard editing/file commands, their outcomes, and document-shaped dialog
+facts. It consumes text, command, and clipboard contracts but no runtime, UI,
+platform, or application state. Runtime coordinates its commands; widgets may
+project its buffer and selection by value; neither makes document part of
+runtime or UI. The target-specific atomic replacement primitive remains a
+private part of the save transaction and is document-owned dependency weight.
+
 `widget`
 
 Owns ergonomic builders for view data. Widgets produce nodes. Widgets do not

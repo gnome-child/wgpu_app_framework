@@ -53,6 +53,10 @@
       ],
       "may_depend_on": ["foundation", "clipboard", "state", "tasks", "text"]
     },
+    "document": {
+      "modules": ["document"],
+      "may_depend_on": ["clipboard", "text", "command"]
+    },
     "ui": {
       "modules": [
         "composition",
@@ -71,7 +75,7 @@
         "virtual_list",
         "widget"
       ],
-      "may_depend_on": ["foundation", "icons", "feedback", "state", "tasks", "text", "command"]
+      "may_depend_on": ["foundation", "icons", "feedback", "state", "tasks", "text", "command", "document"]
     },
     "renderer": {
       "modules": ["paint", "render"],
@@ -79,14 +83,13 @@
     },
     "runtime": {
       "modules": [
-        "document",
         "host",
         "ime",
         "input",
         "runtime",
         "shell"
       ],
-      "may_depend_on": ["foundation", "icons", "feedback", "clipboard", "state", "tasks", "text", "command", "ui", "diagnostics"]
+      "may_depend_on": ["foundation", "icons", "feedback", "clipboard", "state", "tasks", "text", "command", "document", "ui", "diagnostics"]
     },
     "platform": {
       "modules": ["platform"],
@@ -115,6 +118,7 @@
         "tasks",
         "text",
         "command",
+        "document",
         "ui",
         "renderer",
         "diagnostics",
@@ -136,16 +140,14 @@
     "toml": ["ui"],
     "unicode_bidi": ["text"],
     "unicode_linebreak": ["text"],
-    "unicode_segmentation": ["text", "runtime"],
+    "unicode_segmentation": ["text", "document"],
     "wgpu": ["renderer"],
     "wgpu_hal": ["renderer"],
     "windows": ["platform"],
     "windows_future": ["platform"],
     "windows_numerics": ["platform"],
-    "windows_sys": ["platform"],
+    "windows_sys": ["document", "platform"],
     "winit": ["platform"]
   },
-  "external_module_exceptions": {
-    "windows_sys": ["document"]
-  }
+  "external_module_exceptions": {}
 }

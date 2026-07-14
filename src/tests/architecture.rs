@@ -861,17 +861,38 @@ fn text_edit_implementation_modules_stay_private() {
 }
 
 #[test]
-fn document_to_text_area_projection_keeps_one_way_ownership() {
-    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+fn document_workflow_is_an_independent_lower_owner() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
     let document = src.join("document");
     let text_area = std::fs::read_to_string(src.join("widget/control/text_area.rs"))
         .expect("text area widget source should read");
+    let slots = std::fs::read_to_string(root.join("tools").join("one_way_slots.json"))
+        .expect("one-way slot map should read");
 
     assert!(
-        text_area.contains("pub fn from_document(document: &document::Document)"),
-        "the document projection should be a named text-area constructor"
+        text_area.contains("pub fn from_document(document: &document::Document)")
+            && text_area.contains("document.buffer().clone(), document.text_state()"),
+        "the document projection should remain one named value-semantics constructor"
     );
-    assert_source_patterns_absent(&document, &["crate::widget".to_owned()]);
+    assert_source_patterns_absent(
+        &document,
+        &[
+            "crate::runtime".to_owned(),
+            "crate::session".to_owned(),
+            "crate::view".to_owned(),
+            "crate::widget".to_owned(),
+            "crate::layout".to_owned(),
+            "crate::platform".to_owned(),
+        ],
+    );
+    assert!(
+        slots.contains("\"document\": {")
+            && slots.contains("\"modules\": [\"document\"]")
+            && slots.contains("\"windows_sys\": [\"document\", \"platform\"]")
+            && slots.contains("\"external_module_exceptions\": {}"),
+        "document must be a named owner of its contracts and atomic replacement dependency"
+    );
 }
 
 #[test]
