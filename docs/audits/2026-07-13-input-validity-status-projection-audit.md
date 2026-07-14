@@ -1,7 +1,98 @@
 # Input validity and status projection audit
 
-Status: investigation complete (2026-07-13). Production code untouched.
+Status: campaign in flight (2026-07-13). Checkpoint 0 changes no production
+behavior.
 `comparison_open: true` remains unchanged.
+
+## Campaign execution ledger
+
+Ignition is `bc860866` (`pre text edit refactor`). The canonical audit was
+committed at that boundary, the worktree was clean, and the 19-commit local
+pre-campaign stack was pushed to `origin/master` before ignition. No campaign
+commit may be pushed. Roadmap item 32 is the sole in-flight owner.
+
+Checkpoints 1 through 6 are one interlocked core. The core may not close before
+the inline validity indicator and its inspectable cursor-snapshot explanation
+are both present. Checkpoint 7 is the severable status tail.
+
+| Rung | State | Independent boundary |
+|---|---|---|
+| 0 — reductions and absence pins | Complete | Named reductions, current source census, baseline ritual, roadmap ignition |
+| 1 — accepted task transitions | Pending | Rejected departure admits no dependent action or click-chain contribution |
+| 2 — one TextBox and row participation | Pending | Pre-gesture focal row gates every member; table edit identity is deleted |
+| 3 — one responder path | Pending | Semantic table/row/cell/member layers replace editing-scope suppression |
+| 4 — one current commit recipe | Pending | One current draft produces one trigger or one formatted rejection |
+| 5 — draft-owned validity | Pending | Rejection lifetime is structurally bounded by its draft entry |
+| 6 — inline validity and explanation | Pending | One indicator geometry owns reservation, paint, hit, hover, and accessibility |
+| 7 — passive status projection | Pending | General status atom plus thin, virtualized `Column::status` sugar |
+| 8 — doctrine and closeout | Pending | Deletion census, public API review, full/deep ritual, roadmap close |
+
+### Checkpoint 0 named reductions
+
+These names are the acceptance-test contracts. A checkpoint may refine the
+fixture, but it may not weaken the stated postcondition or repair the failure
+with a table-local exception.
+
+| ID | Named witness | Current reduction receipt | Required postcondition |
+|---|---|---|---|
+| OTT-R01 | `text_commit_state_uses_current_draft_arguments` | `Binding::with_text_value` substitutes draft arguments while cloning state resolved for the base text. | `valid` enables and invokes from an invalid base; the inverse retains one issue and invokes zero times. |
+| OTT-R02 | `typed_table_commit_parses_and_validates_once` | Typed columns validate before building an action and repeat parse/validation inside the mapper, with panic as agreement. | Parse and domain validation each execute exactly once per attempt. |
+| OTT-R03 | `rejected_departure_blocks_other_cell_activation` | `Action::Sequence` continues after rejected focus transfer into text pointer edit and `BeginTableEdit`. | Old draft/task remain; the other cell receives no activation. |
+| OTT-R04 | `rejected_departure_blocks_row_selection` | Pointer selection mutates before the focus transition is attempted. | A rejected departure leaves membership, focal row, and active column unchanged. |
+| OTT-R05 | `rejected_departure_blocks_member_controls` | Checkbox/button press and slider manipulation are sequenced independently of accepted departure. | No member press, toggle, command, or manipulation occurs. |
+| OTT-R06 | `rejected_gesture_does_not_advance_click_chain` | Click classification runs before the rejecting focus action. | The first corrected click starts a fresh global chain. |
+| OTT-R07 | `selection_click_does_not_enter_text_click_chain` | A non-focal row selection click is currently classified and routed into its text surface. | Rapid select -> activate -> repeat yields row focalization, caret, then word/chunk; never select-all. |
+| OTT-R08 | `resting_inspection_and_active_task_order_are_path_derived` | `editing_table_scope` suppresses table targets to manufacture active-editor precedence. | Rest uses `Inspection`; active input uses `Task`; first claim alone consumes conflicts. |
+| OTT-R09 | `rejection_cannot_outlive_its_draft` | Table feedback and draft state are separate stores with a clearing checklist. | Cancel, success, eviction, removal, pruning, and destruction retire issue no later than draft. |
+| OTT-R10 | `rejection_projects_inline_without_opening_a_panel` | Validation paints a cell outline and immediately builds an anchored floating panel. | Failed commit paints the input-owned glyph and opens zero panels. |
+| OTT-R11 | `indicator_and_overflow_hover_are_exact_independent_targets` | A subtree-wide feedback block suppresses ordinary hint/overflow resolution. | Indicator hover explains rejection; remaining text hover explains confirmed overflow. |
+| OTT-R12 | `status_projection_is_bounded_under_virtualization` | No status species exists; the typed-column erasure seam and virtualized cell boundary are available. | `Some(Status)` projects passively; `None` is blank; work remains bounded to materialized rows. |
+
+### Checkpoint 0 structural-absence contract
+
+The opening Rust-source census is the deletion baseline:
+
+| Retired shape | Opening footprint |
+|---|---:|
+| `BeginTableEdit` | 3 lines / 2 files |
+| `begin_table_edit` | 7 lines / 7 files |
+| `editing_table_cell` | 19 lines / 9 files |
+| `project_table_edit` | 2 lines / 2 files |
+| `editing_table_scope` | 8 lines / 1 file |
+| `table_edit_error` | 28 lines / 12 files |
+| `table_edit_feedback` | 1 line / 1 file |
+| `reject_table_edit` | 2 lines / 2 files |
+| `clear_table_edit_error` | 4 lines / 3 files |
+| `first_table_rejection` | 3 lines / 2 files |
+| `blocked_by_feedback` | 5 lines / 1 file |
+| `PanelPolicy::AnchoredFeedback` | 2 lines / 2 files |
+| public `table::TextEditor` | 5 direct references / 2 Rust files |
+| public `table::NumberEditor` | 5 direct references / 2 Rust files |
+| stale `with_text_value` substitution | 2 lines / 1 file |
+
+Checkpoint 8 activates one architecture witness over Rust production sources
+that fails if any retired edit-mode, forced-mode, table-validity,
+table-feedback-panel, context-suppression, duplicate-parse, or stale-state
+substitution shape returns. Broad domain names such as `TableCell` are not
+forbidden; the witness names the retired owner or projection exactly. It also
+requires doctrine for current-argument commit, selection-before-participation,
+draft-owned validity, one TextBox surface, and the one panel path.
+
+### Checkpoint 0 receipts
+
+- Pre-campaign `master` was fetched and verified 19 commits ahead / 0 behind;
+  `bc860866` was pushed before ignition. No campaign commit is pushed.
+- The worktree was clean and the canonical audit was already tracked at the
+  ignition boundary. Roadmap item 31 remains the completed Feedback campaign;
+  this campaign occupies new item 32.
+- `git diff --check` and `cargo fmt --all -- --check` passed.
+- `cargo check --all-targets` passed without warnings.
+- `cargo test --lib` passed: 1,043 passed, 10 intentional deep-tier ignores,
+  0 failed.
+- `cargo test --doc` passed: 1 ordinary and 3 compile-fail doctests.
+- `text_editor`, `control_gallery`, and `glass_tuner --smoke` exited 0.
+- `examples/glass_tuner/app/state.rs` still declares
+  `comparison_open: true`.
 
 ## Mission
 

@@ -6,6 +6,16 @@ is next.
 
 ## In flight
 
+32. **One Text Task — IN FLIGHT** (ignition boundary `bc860866`, 2026-07-13).
+    Editable table cells are becoming ordinary `TextBox` tasks behind one
+    selection-before-participation gate. Fallible commits will resolve from the
+    current draft exactly once, retain rejection with that draft, and project
+    invalidity inline; the optional status column is a severable second caller
+    of the same passive indicator projection. The campaign deletes the table
+    edit identity, table rejection store/panel route, forced text modes, and
+    editing-scope command suppression. Canonical ledger:
+    `docs/audits/2026-07-13-input-validity-status-projection-audit.md`.
+
 ## Specced and ready
 
 ## Pending manual verification
