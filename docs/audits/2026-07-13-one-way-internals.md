@@ -5504,6 +5504,71 @@ cardinality total`).
    the remaining layout/session visibility, failure, intermediate, housing,
    and naming inventories. This cell does not close Rung 5.
 
+### R5-56 — structural erased-command invocation cardinality
+
+Status: **complete; required and optional invocation results separated over one
+prepared transaction**. Correction `964ef2ee` (`Make erased command
+cardinality structural`).
+
+1. **Question and complete trace.** The erased-command transaction sweep
+   traced resolved view bindings, menu and slider activation, palette selection,
+   keyboard shortcuts, registry absence, disabled shortcuts, missing targets,
+   pre-dispatch failure, command and observer mutation, history preparation and
+   completion, timeline restore, text-input cleanup, and every transaction
+   effect consumer. All three erased invocation entrances and every early or
+   normal completion path were included.
+2. **Distinct cardinalities and false absence.** Palette and shortcut lookup
+   legitimately produce no response when no registered or enabled command is
+   available. A resolved `view::Binding`, however, invokes one typed erased
+   trigger and always returns `AnyResponse`; unknown command, target, or output
+   failures are values inside that response rather than absence. The shared
+   optional transaction return weakened binding activation and forced an
+   assertion to recover the total result.
+3. **Correction and displaced paths.** Runtime now exposes private required
+   and optional erased-command transaction entrances. Required invocation
+   accepts and returns total response/outcome values; optional invocation alone
+   accepts and returns `Option`. The old ambiguous entrance, binding's
+   `Ok(Some(...))` promotion, and its post-transaction assertion are deleted.
+   Palette and shortcut callsites name their optionality explicitly.
+4. **Prepared-token admission and centralization.** One private
+   `Prepared<M>` token owns the `AnyInvocation`, structural history plan, and
+   pre-dispatch revision from context construction until exactly one finish.
+   It earns its existence by making one-shot transaction completion structural
+   across pre-dispatch error, optional absence, observer failure, and normal
+   response. Both cardinality entrances share one context/responder invocation
+   setup and one response/observer/effect completion; repeated finish argument
+   lists and history-group clones are deleted rather than moved into wrappers.
+5. **Boundary and naming ruling.** Runtime remains the transaction owner;
+   command registry and responders own invocation, state/timeline own history,
+   and response owns the erased result. `Prepared` is private support in the
+   existing transaction command housing and receives no projection, alias, or
+   visibility widening. No compound declaration is re-exported under a simple
+   name and no namesake parent surface is touched.
+6. **Behavior and economics.** Palette and shortcut absence, binding failures,
+   target routing, command source, context-menu scope, observer ordering,
+   changed-state calculation, history coalescing/restoration, timeline text
+   cleanup, effects, allocation, layout, scene order, renderer topology,
+   invalidation, and presentation clocks are unchanged. Required activation
+   removes one impossible option construction and branch; transaction facts
+   are moved once instead of cloning the history group for failure paths.
+7. **Doctrine and proof.** Master design now states the two erased invocation
+   cardinalities and one prepared completion lifecycle. The architecture
+   witness pins both named entrances, their required/optional callsites, the
+   prepared token, shared completion, and extinction of the ambiguous method
+   and assertion. Command, palette, pointer-binding, interaction, and slider
+   slices passed. The full library discovered 1,132 tests and passed 1,122 with
+   ten standing ignores. All targets and all five examples compiled without
+   warnings; all ten census parser witnesses, the full census, formatting,
+   diff, and protected-state checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, visibility,
+   cross-slot test edges, source-root mentions, filesystem reads, allowances,
+   and panics remain 325/109, 3, 54, 0/0/0, 1,824 in 192 files, 90, 118, 363,
+   6, and 6. Production expects fall 52 -> 51. Erased-command cardinality is at
+   fixed point; the reverse sweep continues through the remaining layout/
+   session failure, visibility, intermediate, housing, and naming inventories.
+   This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
