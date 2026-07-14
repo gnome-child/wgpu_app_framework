@@ -935,10 +935,14 @@ fn preedit_projection_is_explicit_and_draft_input_owns_its_lifecycle() {
         );
     }
     assert!(
-        draft_input.contains("preedit: Option<text::Preedit>")
+        draft_input.contains("active: Option<Active>")
+            && draft_input.contains("struct Active {")
+            && draft_input.contains("target: Target")
+            && draft_input.contains("preedit: Option<text::Preedit>")
+            && !draft_input.contains("target: Option<Target>")
             && draft_input.contains("fn set_preedit(")
             && draft_input.contains("fn clear_preedit("),
-        "draft input should own preedit identity and lifecycle"
+        "draft input should nest preedit identity and lifecycle beneath its active target"
     );
     assert!(
         layout_text.contains("text_area.preedit()")

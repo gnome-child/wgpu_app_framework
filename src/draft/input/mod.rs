@@ -13,15 +13,20 @@ pub(crate) use store::DEFAULT_DRAFT_LIMIT;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Input {
-    target: Option<Target>,
+    active: Option<Active>,
     drafts: Store,
-    preedit: Option<text::Preedit>,
     caret_epochs: HashMap<Target, Instant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Active {
+    target: Target,
+    preedit: Option<text::Preedit>,
 }
 
 impl Input {
     pub fn target(&self) -> Option<&Target> {
-        self.target.as_ref()
+        self.active.as_ref().map(|active| &active.target)
     }
 
     pub fn draft_for(&self, target: &Target) -> Option<&State> {
@@ -45,9 +50,8 @@ impl Input {
 
     pub(crate) fn activate(&mut self, target: Target, base: impl Into<String>) -> bool {
         let base = base.into();
-        let target_changed = self.target.as_ref() != Some(&target);
-        self.target = Some(target.clone());
-        self.drafts.touch(&target, self.target.as_ref());
+        let (target_changed, preedit_changed) = self.set_active_target(target.clone());
+        self.drafts.touch(&target, Some(&target));
 
         let draft_changed = if !self.drafts.contains(&target) {
             self.drafts.insert(target.clone(), State::new(base));
@@ -55,7 +59,6 @@ impl Input {
         } else {
             false
         };
-        let preedit_changed = self.preedit.take().is_some();
         let blink_changed = self.reset_caret_blink(target, Instant::now());
 
         target_changed || draft_changed || preedit_changed || blink_changed
@@ -63,13 +66,16 @@ impl Input {
 
     #[cfg(test)]
     pub fn preedit(&self) -> Option<&text::Preedit> {
-        self.preedit.as_ref()
+        self.active
+            .as_ref()
+            .and_then(|active| active.preedit.as_ref())
     }
 
     pub fn preedit_for(&self, target: &Target) -> Option<&text::Preedit> {
-        (self.target.as_ref() == Some(target))
-            .then_some(self.preedit.as_ref())
-            .flatten()
+        self.active
+            .as_ref()
+            .filter(|active| &active.target == target)
+            .and_then(|active| active.preedit.as_ref())
     }
 
     pub fn caret_epoch_for(&self, target: &Target) -> Option<Instant> {
@@ -84,28 +90,31 @@ impl Input {
 
     pub(crate) fn set_preedit(&mut self, target: Target, preedit: text::Preedit) -> bool {
         if preedit.text().is_empty() {
-            if self.target.as_ref() == Some(&target) && self.drafts.contains(&target) {
-                let changed = self.preedit.is_some();
-                self.preedit = None;
+            if self.target() == Some(&target) && self.drafts.contains(&target) {
+                let changed = self
+                    .active
+                    .as_mut()
+                    .and_then(|active| active.preedit.take())
+                    .is_some();
                 let blink_changed = self.reset_caret_blink(target, Instant::now());
                 return changed || blink_changed;
             }
 
-            if self.target.as_ref() == Some(&target) {
-                let changed = self.preedit.is_some() || self.target.is_some();
-                self.preedit = None;
-                self.target = None;
-                let blink_changed = self.reset_caret_blink(target, Instant::now());
-                return changed || blink_changed;
+            if self.target() == Some(&target) {
+                self.active = None;
+                self.reset_caret_blink(target, Instant::now());
+                return true;
             }
 
             return false;
         }
 
-        let target_changed = self.target.as_ref() != Some(&target);
-        let changed = target_changed || self.preedit.as_ref() != Some(&preedit);
-        self.target = Some(target.clone());
-        self.preedit = Some(preedit);
+        let target_changed = self.target() != Some(&target);
+        let changed = target_changed || self.preedit_for(&target) != Some(&preedit);
+        self.active = Some(Active {
+            target: target.clone(),
+            preedit: Some(preedit),
+        });
         let blink_changed = self.reset_caret_blink(target, Instant::now());
         changed || blink_changed
     }
@@ -117,8 +126,16 @@ impl Input {
         edit: text::Edit,
         input: text::Input,
     ) -> Change {
-        let (target_changed, text_changed, cursor_changed, selection_changed, submit) = {
-            let (target_changed, entry) = self.prepare_draft(target.clone(), base.into());
+        let (
+            target_changed,
+            preedit_cleared,
+            text_changed,
+            cursor_changed,
+            selection_changed,
+            submit,
+        ) = {
+            let (target_changed, preedit_cleared, entry) =
+                self.prepare_draft(target.clone(), base.into());
             let draft = entry.draft_mut();
             let before_text = draft.text().to_owned();
             let before_cursor = draft.cursor();
@@ -134,6 +151,7 @@ impl Input {
 
             (
                 target_changed,
+                preedit_cleared,
                 text_changed,
                 cursor_changed,
                 selection_changed,
@@ -144,6 +162,7 @@ impl Input {
         self.finish_change(
             target,
             target_changed,
+            preedit_cleared,
             text_changed,
             cursor_changed,
             selection_changed,
@@ -158,14 +177,16 @@ impl Input {
         base: impl Into<String>,
         operation: text::selection::Operation,
     ) -> Change {
-        let (target_changed, cursor_changed, selection_changed) = {
-            let (target_changed, entry) = self.prepare_draft(target.clone(), base.into());
+        let (target_changed, preedit_cleared, cursor_changed, selection_changed) = {
+            let (target_changed, preedit_cleared, entry) =
+                self.prepare_draft(target.clone(), base.into());
             let draft = entry.draft_mut();
             let before_cursor = draft.cursor();
             let before_selection = draft.selection();
             draft.select(operation);
             (
                 target_changed,
+                preedit_cleared,
                 before_cursor != draft.cursor(),
                 before_selection != draft.selection(),
             )
@@ -174,6 +195,7 @@ impl Input {
         self.finish_change(
             target,
             target_changed,
+            preedit_cleared,
             false,
             cursor_changed,
             selection_changed,
@@ -182,10 +204,9 @@ impl Input {
         )
     }
 
-    fn prepare_draft(&mut self, target: Target, base: String) -> (bool, &mut store::Entry) {
-        let target_changed = self.target.as_ref() != Some(&target);
-        self.target = Some(target.clone());
-        self.drafts.touch(&target, self.target.as_ref());
+    fn prepare_draft(&mut self, target: Target, base: String) -> (bool, bool, &mut store::Entry) {
+        let (target_changed, preedit_cleared) = self.set_active_target(target.clone());
+        self.drafts.touch(&target, Some(&target));
 
         if target_changed
             && self
@@ -197,20 +218,20 @@ impl Input {
         }
 
         let entry = self.drafts.get_or_insert_with(target, || State::new(base));
-        (target_changed, entry)
+        (target_changed, preedit_cleared, entry)
     }
 
     fn finish_change(
         &mut self,
         target: Target,
         target_changed: bool,
+        preedit_cleared: bool,
         text_changed: bool,
         cursor_changed: bool,
         selection_changed: bool,
         operation_changed: bool,
         submit: bool,
     ) -> Change {
-        let preedit_cleared = self.preedit.take().is_some();
         let blink_changed = self.reset_caret_blink(target, Instant::now());
 
         Change::new(
@@ -254,9 +275,8 @@ impl Input {
             return None;
         }
 
-        let target_changed = self.target.as_ref() != Some(target);
-        self.target = Some(target.clone());
-        self.drafts.touch(target, self.target.as_ref());
+        let (target_changed, preedit_cleared) = self.set_active_target(target.clone());
+        self.drafts.touch(target, Some(target));
 
         let (text_changed, cursor_changed, selection_changed, changed_by_operation) = {
             let entry = self.drafts.get_mut(target)?;
@@ -284,6 +304,7 @@ impl Input {
         Some(self.finish_change(
             target.clone(),
             target_changed,
+            preedit_cleared,
             text_changed,
             cursor_changed,
             selection_changed,
@@ -293,10 +314,9 @@ impl Input {
     }
 
     pub(crate) fn clear(&mut self) -> bool {
-        let changed = self.target.is_some() || !self.drafts.is_empty() || self.preedit.is_some();
-        self.target = None;
+        let changed = self.active.is_some() || !self.drafts.is_empty();
+        self.active = None;
         self.drafts.clear();
-        self.preedit = None;
         if changed {
             self.caret_epochs.clear();
         }
@@ -304,14 +324,16 @@ impl Input {
     }
 
     pub(crate) fn clear_preedit(&mut self) -> bool {
-        let changed = self.preedit.is_some();
-        self.preedit = None;
+        let changed = self
+            .active
+            .as_mut()
+            .and_then(|active| active.preedit.take())
+            .is_some();
         if self
-            .target
-            .as_ref()
+            .target()
             .is_none_or(|target| !self.drafts.contains(target))
         {
-            self.target = None;
+            self.active = None;
         }
 
         changed
@@ -320,9 +342,8 @@ impl Input {
     pub(crate) fn clear_draft(&mut self, target: &Target) -> bool {
         let store_changed = self.drafts.remove(target);
         let caret_changed = self.caret_epochs.remove(target).is_some();
-        let target_changed = if self.target.as_ref() == Some(target) {
-            self.target = None;
-            self.preedit = None;
+        let target_changed = if self.target() == Some(target) {
+            self.active = None;
             true
         } else {
             false
@@ -332,31 +353,26 @@ impl Input {
     }
 
     pub(crate) fn deactivate(&mut self, target: &Target) -> bool {
-        if self.target.as_ref() != Some(target) {
+        if self.target() != Some(target) {
             return false;
         }
 
-        self.preedit = None;
-        self.target = None;
+        self.active = None;
         self.caret_epochs.remove(target);
         true
     }
 
     pub(crate) fn deactivate_unless(&mut self, target: &Target) -> bool {
-        if self.target.as_ref() == Some(target) {
+        if self.target() == Some(target) {
             return false;
         }
 
-        let preedit_changed = self.preedit.take().is_some();
-        if self.target.take().is_some() {
-            return true;
-        }
-
-        preedit_changed
+        self.active.take().is_some()
     }
 
     pub(crate) fn set_draft_limit(&mut self, limit: usize) {
-        self.drafts.set_limit(limit, self.target.as_ref());
+        let active = self.target().cloned();
+        self.drafts.set_limit(limit, active.as_ref());
     }
 
     pub(crate) fn prune_removed(
@@ -372,15 +388,27 @@ impl Input {
         self.caret_epochs.retain(|target, _| {
             !target.matches_removed_identity(removed_nodes, removed_elements, removed_table_cells)
         });
-        let active_removed = self.target.as_ref().is_some_and(|target| {
+        let active_removed = self.target().is_some_and(|target| {
             target.matches_removed_identity(removed_nodes, removed_elements, removed_table_cells)
         });
         if active_removed {
-            self.target = None;
-            self.preedit = None;
+            self.active = None;
         }
 
         store_changed || before_epochs != self.caret_epochs.len() || active_removed
+    }
+
+    fn set_active_target(&mut self, target: Target) -> (bool, bool) {
+        let target_changed = self.target() != Some(&target);
+        let preedit_cleared = self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.preedit.is_some());
+        self.active = Some(Active {
+            target,
+            preedit: None,
+        });
+        (target_changed, preedit_cleared)
     }
 }
 
@@ -410,6 +438,33 @@ mod tests {
         assert_eq!(draft.text(), "alpha");
         assert_eq!(draft.selection(), Some(0..5));
         assert!(!draft.can_undo(), "selection is not mutation history");
+    }
+
+    #[test]
+    fn preedit_lifetime_is_nested_under_the_active_target() {
+        let target = Target::text_area_id("preedit-target");
+        let mut input = Input::default();
+
+        input.set_preedit(target.clone(), text::Preedit::new("compose", Some((0, 7))));
+        assert_eq!(input.target(), Some(&target));
+        assert!(input.preedit_for(&target).is_some());
+
+        assert!(input.clear_preedit());
+        assert_eq!(
+            input.target(),
+            None,
+            "preedit-only activation retires as one unit"
+        );
+
+        input.activate(target.clone(), "base");
+        input.set_preedit(target.clone(), text::Preedit::new("compose", Some((0, 7))));
+        assert!(input.clear_preedit());
+        assert_eq!(
+            input.target(),
+            Some(&target),
+            "the retained draft keeps its target active"
+        );
+        assert_eq!(input.preedit_for(&target), None);
     }
 
     #[test]
