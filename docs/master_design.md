@@ -827,7 +827,9 @@ routing. Native popup entries do not allocate parent ghosts; their retiring
 native layer fades on the same popup surface. Focus restoration and key routing
 update when the live entry is dismissed, not when either kind of afterlife
 expires. Ghost and retiring-popup fade frames are presentation work and must
-not imply model revision changes. If an in-frame ghost contains a
+not imply model revision changes. A resolved overlay layer carries one of the
+three disjoint lifecycle species; every species owns elapsed time, while only a
+live layer can carry entering/live state. If an in-frame ghost contains a
 material pane, the pane is downgraded to paint-only material layers; ghosts
 keep body, tint, and grain, but they do not backdrop-sample the world.
 

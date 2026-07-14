@@ -124,7 +124,7 @@ pub(crate) struct Layer {
     scene: scene::Scene,
     opacity: f32,
     fade: PopupFade,
-    kind: LayerKind,
+    lifecycle: Lifecycle,
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
@@ -132,12 +132,17 @@ pub(crate) struct Layer {
     placement: Option<geometry::PlacementRequest>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
-    state: Option<State>,
-    elapsed: Option<Duration>,
     force_group_at_full_opacity: bool,
     demotion_marker: bool,
     frame_number: u64,
     lifecycle_epoch: Instant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lifecycle {
+    Live { state: State, elapsed: Duration },
+    Ghost { elapsed: Duration },
+    RetiringPopup { elapsed: Duration },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -318,7 +323,10 @@ impl Entry {
             scene: self.scene.clone(),
             opacity: self.opacity,
             fade: self.fade,
-            kind: LayerKind::Live,
+            lifecycle: Lifecycle::Live {
+                state: self.state,
+                elapsed: self.elapsed,
+            },
             backend: self.backend,
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
@@ -326,8 +334,6 @@ impl Entry {
             placement: self.placement,
             context_fingerprint: self.context_fingerprint,
             accepts_input: self.accepts_input,
-            state: Some(self.state),
-            elapsed: Some(self.elapsed),
             force_group_at_full_opacity: self.force_group_at_full_opacity,
             demotion_marker: self.demotion_marker,
             frame_number: self.frame_number,
@@ -362,7 +368,9 @@ impl Ghost {
                 started_at: self.started_at,
                 from_opacity: self.from_opacity,
             },
-            kind: LayerKind::Ghost,
+            lifecycle: Lifecycle::Ghost {
+                elapsed: now.saturating_duration_since(self.started_at),
+            },
             backend: Backend::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
@@ -370,8 +378,6 @@ impl Ghost {
             placement: None,
             context_fingerprint: None,
             accepts_input: false,
-            state: None,
-            elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
             demotion_marker: false,
             frame_number,
@@ -410,7 +416,9 @@ impl RetiringPopup {
                 started_at: self.started_at,
                 from_opacity: self.from_opacity,
             },
-            kind: LayerKind::RetiringPopup,
+            lifecycle: Lifecycle::RetiringPopup {
+                elapsed: now.saturating_duration_since(self.started_at),
+            },
             backend: Backend::NativePopup,
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
@@ -418,8 +426,6 @@ impl RetiringPopup {
             placement: self.placement,
             context_fingerprint: self.context_fingerprint,
             accepts_input: false,
-            state: None,
-            elapsed: Some(now.saturating_duration_since(self.started_at)),
             force_group_at_full_opacity: false,
             demotion_marker: false,
             frame_number,
@@ -458,7 +464,11 @@ impl Layer {
     }
 
     pub(crate) fn kind(&self) -> LayerKind {
-        self.kind
+        match self.lifecycle {
+            Lifecycle::Live { .. } => LayerKind::Live,
+            Lifecycle::Ghost { .. } => LayerKind::Ghost,
+            Lifecycle::RetiringPopup { .. } => LayerKind::RetiringPopup,
+        }
     }
 
     pub(crate) fn backend(&self) -> Backend {
@@ -490,11 +500,18 @@ impl Layer {
     }
 
     pub(crate) fn state(&self) -> Option<State> {
-        self.state
+        match self.lifecycle {
+            Lifecycle::Live { state, .. } => Some(state),
+            Lifecycle::Ghost { .. } | Lifecycle::RetiringPopup { .. } => None,
+        }
     }
 
-    pub(crate) fn elapsed(&self) -> Option<Duration> {
-        self.elapsed
+    pub(crate) fn elapsed(&self) -> Duration {
+        match self.lifecycle {
+            Lifecycle::Live { elapsed, .. }
+            | Lifecycle::Ghost { elapsed }
+            | Lifecycle::RetiringPopup { elapsed } => elapsed,
+        }
     }
 
     pub(crate) fn force_group_at_full_opacity(&self) -> bool {
@@ -1131,7 +1148,7 @@ mod tests {
         );
         assert_eq!(first.layers.len(), 1);
         assert_eq!(first.layers[0].id(), interaction::Id::new("menu"));
-        assert_eq!(first.layers[0].kind, LayerKind::Live);
+        assert_eq!(first.layers[0].kind(), LayerKind::Live);
         assert_eq!(first.layers[0].opacity, 0.0);
         assert_eq!(first.schedule, animation::Schedule::NextFrame);
 
@@ -1164,7 +1181,7 @@ mod tests {
         assert_eq!(first.layers.len(), 1);
         assert_eq!(first.layers[0].backend(), Backend::NativePopup);
         assert_eq!(first.layers[0].opacity, 0.0);
-        assert_eq!(first.layers[0].state, Some(State::Entering));
+        assert_eq!(first.layers[0].state(), Some(State::Entering));
         assert_eq!(
             first.layers[0].fade(),
             PopupFade::Entering {
@@ -1194,7 +1211,7 @@ mod tests {
             now + Duration::from_millis(100),
         );
         assert_eq!(settled.layers[0].opacity, 1.0);
-        assert_eq!(settled.layers[0].state, Some(State::Live));
+        assert_eq!(settled.layers[0].state(), Some(State::Live));
         assert_eq!(settled.schedule, animation::Schedule::Idle);
     }
 
@@ -1259,13 +1276,13 @@ mod tests {
             late.layers[0].opacity,
             animation::Easing::EaseOutCubic.sample(0.8),
         );
-        assert_eq!(late.layers[0].state, Some(State::Entering));
+        assert_eq!(late.layers[0].state(), Some(State::Entering));
         assert_eq!(late.schedule, animation::Schedule::NextFrame);
         assert!(tail.layers[0].opacity < 1.0);
-        assert_eq!(tail.layers[0].state, Some(State::Entering));
+        assert_eq!(tail.layers[0].state(), Some(State::Entering));
         assert_eq!(tail.schedule, animation::Schedule::NextFrame);
         assert_eq!(settled.layers[0].opacity, 1.0);
-        assert_eq!(settled.layers[0].state, Some(State::Live));
+        assert_eq!(settled.layers[0].state(), Some(State::Live));
         assert_eq!(settled.schedule, animation::Schedule::Idle);
         assert!(settled.layers[0].demotion_marker);
 
@@ -1295,7 +1312,7 @@ mod tests {
 
         assert_eq!(update.layers.len(), 1);
         assert_eq!(update.layers[0].opacity, 1.0);
-        assert_eq!(update.layers[0].kind, LayerKind::Live);
+        assert_eq!(update.layers[0].kind(), LayerKind::Live);
         assert!(update.layers[0].force_group_at_full_opacity);
     }
 
@@ -1323,7 +1340,7 @@ mod tests {
         assert_eq!(store.ghost_count(window), 1);
         assert_eq!(fading.layers.len(), 1);
         assert_eq!(fading.layers[0].id(), interaction::Id::new("palette"));
-        assert_eq!(fading.layers[0].kind, LayerKind::Ghost);
+        assert_eq!(fading.layers[0].kind(), LayerKind::Ghost);
         assert_eq!(fading.layers[0].opacity, 1.0);
         assert_eq!(fading.schedule, animation::Schedule::NextFrame);
 
@@ -1551,8 +1568,8 @@ mod tests {
         assert_eq!(reopened.layers.len(), 2);
         assert_eq!(reopened.layers[0].id(), interaction::Id::new("menu"));
         assert_eq!(reopened.layers[1].id(), interaction::Id::new("menu"));
-        assert_eq!(reopened.layers[0].kind, LayerKind::Ghost);
-        assert_eq!(reopened.layers[1].kind, LayerKind::Live);
+        assert_eq!(reopened.layers[0].kind(), LayerKind::Ghost);
+        assert_eq!(reopened.layers[1].kind(), LayerKind::Live);
         assert!(reopened.layers[0].order < reopened.layers[1].order);
     }
 

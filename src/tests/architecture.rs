@@ -3782,9 +3782,19 @@ fn native_popup_fade_uses_common_composition_owner_when_earned() {
     );
     assert!(
         overlay.contains("struct RetiringPopup")
-            && overlay.contains("kind: LayerKind::RetiringPopup")
+            && overlay.contains("lifecycle: Lifecycle::RetiringPopup")
             && overlay.contains("backend: Backend::NativePopup"),
         "native exit fade must retain the native surface rather than allocate a parent ghost"
+    );
+    assert!(
+        overlay.contains("enum Lifecycle {")
+            && overlay.contains("Live { state: State, elapsed: Duration }")
+            && overlay.contains("Ghost { elapsed: Duration }")
+            && overlay.contains("RetiringPopup { elapsed: Duration }")
+            && overlay.contains("lifecycle: Lifecycle,")
+            && !overlay.contains("state: Option<State>")
+            && !overlay.contains("elapsed: Option<Duration>"),
+        "resolved overlay species must make lifecycle state and elapsed time structurally valid"
     );
     assert!(
         popup.contains("composition.apply_fade(presentation.fade(), Instant::now())")

@@ -1306,10 +1306,7 @@ fn log_overlay_layer_application(layer: &crate::overlay::Layer, schedule: animat
     let Some(state) = layer.state() else {
         return;
     };
-    let elapsed_ms = layer
-        .elapsed()
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or(0);
+    let elapsed_ms = layer.elapsed().as_millis();
     log::debug!(
         target: "wgpu_l3::overlay::fade",
         "overlay fade frame={} elapsed_ms={} sampled_alpha={:.6} applied_alpha={:.6} state={:?} schedule={:?} force_group={} demotion={}",
