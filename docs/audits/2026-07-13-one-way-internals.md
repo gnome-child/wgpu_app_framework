@@ -4907,6 +4907,61 @@ Correction `676ee193` (`Make sorted header geometry total`).
    intermediate, housing, and naming inventories. This cell does not close
    Rung 5.
 
+### R5-46 — invariant-preserving ghost group projection
+
+Status: **complete; asserted reconstruction replaced by structural
+projection**. Correction `b51f4472` (`Preserve ghost group invariants
+directly`).
+
+1. **Question and complete trace.** The remaining scene-group assertion was
+   traced from in-frame overlay retirement through scene cloning, recursive
+   primitive projection, nested groups, pane material downgrade, material-
+   region retirement, outer ghost opacity, semantic scene order, renderer
+   lowering, and the existing ghost-overlay witnesses.
+2. **Invariant and false fallibility.** An admitted `Group` is nonempty and
+   owns a clamped positive opacity. Ghost projection maps every primitive
+   one-for-one and preserves that opacity, so an existing group cannot become
+   empty or invalid. Re-entering `Group::new` made the preserved invariant look
+   fallible and required `expect("existing group is visible")` to recover it.
+3. **Correction and displaced path.** Recursive backdrop-sampling removal now
+   belongs to `Primitive` and `Group`. A group maps its children one-for-one
+   and constructs the same private fields directly; scene invokes that owner
+   projection, clears material regions, and applies the established outer
+   opacity. The free recursive helper, fallible reconstruction, and assertion
+   are deleted. Material-resolution filtering still uses `Group::new` because
+   its `filter_map` can legitimately remove every child.
+4. **Boundary and naming ruling.** Primitive shape and group validity remain
+   owned by scene primitive housing; scene orchestration retains ghost-region
+   and overlay-opacity policy. The new operation is visible only within
+   `crate::scene`. No declaration is re-exported, no supporting type is
+   flattened, and no compound name or alias is introduced; the canonical
+   parent-projection and call-site qualification law remains untouched.
+5. **Behavior and economics.** Pane body, tint, grain, geometry, nested group
+   membership, child order, admitted opacity, outer ghost opacity, material-
+   region absence, hit transparency, scene order, renderer topology,
+   batching/pass fusion, invalidation, and presentation clocks are unchanged.
+   Projection still performs one clone-or-transform per primitive and now
+   avoids validation and optional recovery for already-valid groups.
+6. **Doctrine and witnesses.** Master design now states that the one-for-one
+   projection preserves group validity directly. The architecture witness
+   failed against the asserted reconstruction, then pinned primitive-owned
+   projection and tombstoned the assertion. A new nested-group witness proves
+   inner membership and opacity, outer ghost opacity, retained pane content,
+   and absent material regions.
+7. **Proof.** Both ghost-overlay tests and the focused architecture witness
+   passed directly. The full library discovered 1,128 tests and passed 1,118
+   with 10 ignored; all five examples, all ten census parser witnesses, the
+   full census, formatting, diff, and protected-state checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, visibility,
+   cross-slot test edges, source-root mentions, filesystem reads, allowances,
+   and panics remain 325/109, 3, 54, 0/0/0, 1,819 in 191 files, 90, 118, 362,
+   6, and 6. Production expects fall 77 -> 76. Ghost group projection is at
+   fixed point; the reverse sweep continues through retained-tree admission,
+   frame construction, remaining layout lifecycles, and the complete
+   visibility, failure, intermediate, housing, and naming inventories. This
+   cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
