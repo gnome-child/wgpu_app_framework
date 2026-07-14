@@ -5320,6 +5320,68 @@ Status: **complete; two false post-push absences removed**. Correction
    visibility, failure, intermediate, housing, and naming inventories. This
    cell does not close Rung 5.
 
+### R5-53 — single-pass standard-menu topology and namespaced extension support
+
+Status: **complete; duplicate anchor recovery, parallel section state, and two
+parent aliases removed**. Correction `e8deaee8` (`Make standard menu topology
+single pass`).
+
+1. **Question and complete trace.** The standard-menu sweep traced every
+   platform slot and virtual marker through command registration, category
+   catalogs, blueprint grouping, live action resolution, standard-bar view
+   projection, all seven authored extension species, hidden commands,
+   replacement/ordering, final menu nodes, and public mixed-bar builders. It
+   distinguished framework topology agreement from invalid author requests.
+2. **Duplicate agreement and asserted recovery.** Command templates stored the
+   current section beside a vector of sections, pushed a group on transition,
+   then asserted that group existed. View extension projection first located a
+   section containing an anchor, then rescanned that section and asserted the
+   same anchor existed to recover its entry index. Both assertions represented
+   agreement already established by the immediately preceding operation.
+3. **Correction and displaced paths.** Command templates now group
+   `(Section, Vec<Standard>)` in one pass and discard the grouping key only
+   after construction. View projection resolves each anchor once to one private
+   `Location { category, section, entry }` and consumes those aligned indices
+   for item or section mutation. The parallel current-section option, post-push
+   recovery, second entry scan, helper chain, and both assertions are deleted.
+4. **Failure resistance.** `CommandPalette` remains an unplaceable standard and
+   an unregistered custom category remains absent from the registry-derived
+   catalog. Those are public author-contract violations detected at their
+   existing construction/projection boundaries; silently omitting them or
+   manufacturing a category would change behavior and hide configuration
+   errors. The two explicit panics therefore remain.
+5. **Canonical naming correction.** The touched support seam no longer aliases
+   `standard_menu::Extension` as `StandardMenuExtension` at `node` and then
+   again at `view`. `view::Node` remains the central parent projection;
+   `view::node::standard_menu` is the crate-visible support module; and widget,
+   content, builder, and accessor callsites name
+   `node::standard_menu::Extension`. No flattened supporting re-export or
+   compound alias survives at either parent.
+6. **Behavior and economics.** Platform category/section/item order, virtual
+   markers, missing live actions, authored before/after ordering, section and
+   category replacement, hidden commands, shortcuts, menu focus/activation,
+   allocation, layout, scene order, renderer topology, invalidation, and
+   presentation clocks are unchanged. Anchored item extensions now scan the
+   projected topology once rather than twice.
+7. **Doctrine and proof.** Master design now requires one template grouping,
+   one extension-anchor location, explicit author failures, and namespaced
+   support vocabulary. The architecture witness failed before correction, then
+   pinned the aligned location, extinct assertions/helpers, and absent parent
+   aliases. Forty-three command-focused witnesses passed. The full library
+   passed 1,118 tests with ten standing ignores; all targets and all five
+   examples compiled without warnings. Census, formatting, diff, and protected
+   state checks passed.
+8. **Gauge delta and next frontier.** Production/test edges, split
+   responsibilities, slot edges, forbidden/external/SCC counts, cross-slot
+   test edges, source-root mentions, filesystem reads, allowances, and panics
+   remain 325/109, 3, 54, 0/0/0, 90, 118, 363, 6, and 6. Removing the flattened
+   parent support projection lowers production `pub(crate)` 1,825 -> 1,824 and
+   the cross-slot upper bound 1,778 -> 1,777. Removing the two false recoveries
+   lowers production expects 57 -> 55. Standard-menu topology is at fixed
+   point; the reverse sweep continues through remaining layout/session failure,
+   visibility, intermediate, housing, and naming inventories. This cell does
+   not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
