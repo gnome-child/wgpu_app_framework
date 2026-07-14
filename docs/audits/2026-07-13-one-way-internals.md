@@ -5382,6 +5382,64 @@ single pass`).
    visibility, intermediate, housing, and naming inventories. This cell does
    not close Rung 5.
 
+### R5-54 — structural transaction-history preparation plan
+
+Status: **complete; parallel history policy and optional snapshot collapsed**.
+Correction `23395a65` (`Make transaction history planning structural`).
+
+1. **Question and complete trace.** The transaction-history sweep traced typed
+   and erased command dispatch, missing targets, dispatch failures, observer
+   failures, changed and unchanged responses, automatic gestures, history-group
+   coalescing, framework-service commits, ignored commands, notifications,
+   revision repair, retained snapshots, timeline recording, undo/redo, and
+   departure delivery. Every preparation and completion callsite was included.
+2. **Invalid state and duplicate agreement.** Runtime passed
+   `command::History` beside `Option<PendingSnapshot>` even though Automatic
+   always prepared one and Committed/Ignored never did. The representation
+   admitted all mismatches, made unchanged completion rediscover snapshot
+   presence, and made changed Automatic completion assert it. Public policy and
+   its runtime preparation result were parallel truths.
+3. **Correction and displaced paths.** Private
+   `history::Plan::{Automatic(PendingSnapshot), Unrecorded}` now owns the
+   completion species. Preparation converts public policy once; every typed,
+   erased, early-return, observer-error, and notification path carries that one
+   value; completion consumes it exhaustively. The independent history/snapshot
+   parameters, optional recovery, and assertion are deleted.
+4. **Semantic resistance.** Public `command::History::{Committed, Ignored}`
+   remain distinct author policy: one says handling commits through framework
+   services and the other says the command is nonundoable. Runtime completion
+   legitimately treats both as no-runtime-snapshot work, so they share only the
+   internal `Unrecorded` species rather than being merged publicly.
+5. **Boundary and naming ruling.** Runtime remains the owner of transaction
+   preparation/completion while state owns prepared snapshots and timeline owns
+   undo history. `Plan` is supporting vocabulary inside the existing `history`
+   module and receives no parent projection, alias, or flattened export. No
+   compound declaration is re-exported under a simpler spelling and no public
+   command name changes.
+6. **Behavior and economics.** Automatic unchanged work restores the retained
+   snapshot; changed work records, coalesces, or commits exactly as before;
+   committed/ignored work clears grouping and repairs revision exactly as
+   before. Snapshot clone elision, model revisions, notifications, departure
+   ordering, allocation, layout, scene order, renderer topology, invalidation,
+   and presentation clocks are unchanged.
+7. **Doctrine and proof.** Master design now requires one prepared history plan
+   whose Automatic species owns its snapshot. The architecture witness failed
+   against the parallel state, then pinned both species and the removed
+   assertion. Nineteen history-focused and thirty-seven runtime-focused tests
+   passed. The full library discovered 1,129 tests: 1,119 passed with ten
+   standing ignores. All targets/examples, census, formatting, diff, and
+   protected-state checks passed.
+8. **Gauge delta and next frontier.** Every graph, visibility, test-edge,
+   source-root, filesystem, allowance, and panic gauge remains unchanged:
+   production/test edges 325/109, split responsibilities 3, slot edges 54,
+   forbidden/external/SCC counts 0/0/0, production `pub(crate)` 1,824 in 192
+   files, cross-slot upper bound 1,777, cross-slot test edges 90, source-root
+   mentions 118, filesystem reads 363, allowances 6, and panics 6. Production
+   expects fall 55 -> 54. Transaction-history preparation is at fixed point;
+   the reverse sweep continues through command/response collection cardinality
+   and the remaining layout/session visibility, failure, intermediate, housing,
+   and naming inventories. This cell does not close Rung 5.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
