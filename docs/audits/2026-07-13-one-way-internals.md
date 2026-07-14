@@ -2185,6 +2185,49 @@ Status: **complete; redundant cache protocol removed**. Correction `ec1ac0f8`
    native backend attempt shape, native-popup lifecycle expects, allowances,
    public/private backend crossings, and presentation-clock closure.
 
+### R4-07 — native backend attempt order versus optional error state
+
+Status: **complete; nonempty fallback policy made structural**. Correction
+`d50a0d71` (`Make native backend attempts nonempty`).
+
+1. **Question and trace.** Native context creation represented explicit,
+   DX12-first, and ordinary backend attempts as a vector, accumulated an
+   optional last error, then expected the vector to have been nonempty. The
+   trace covered authoritative `WGPU_BACKEND`, Windows tenancy preference,
+   non-Windows defaults, first-attempt success/failure, fallback
+   success/failure, selected context installation, error logging, material
+   fallback logging, and the render error returned when all attempts fail.
+2. **Challenge and type admission.** The policy has one mandatory first attempt
+   and at most one fallback; an empty sequence and more than one fallback are
+   invalid states. Private `surface::Attempts { first, fallback }` preserves
+   that distinction directly. It earns its existence by removing the invalid
+   empty state and the `Option<Error>` protocol rather than transporting an
+   unchanged collection.
+3. **Reduction and rewire.** Explicit selection creates one first attempt and
+   no fallback. Windows implicit selection creates DX12 first and the ordinary
+   backend set as fallback; other targets create the ordinary set first with
+   no fallback. `Attempts::initialize` performs the first operation, performs
+   the fallback only after failure, returns the first error when no fallback
+   exists and the second error when both fail, and records the same diagnostics.
+   The vector, loop-index policy, optional last error, and nonempty expect are
+   deleted.
+4. **Behavior and economics.** Backend sets, environment authority, attempt
+   count/order, context options, DX12 tenancy, legacy material fallback,
+   adapter/device creation, failure reporting, and successful context cache
+   installation are unchanged. No GPU resource, surface, scene, pass/batch,
+   acquisition, submission, presentation clock, or frame path changed.
+5. **Proof and gauge.** The explicit-choice owner test and both Windows policy
+   architecture witnesses passed; the target-gated DX12-first owner test
+   remains compiled on Windows. Full library: 1,078 passed, 10 ignored, 0
+   failed; all targets and all five examples compiled without warnings;
+   parser, census, format, diff, and protected-state checks passed. Production
+   expects fall 96 -> 95; every other corrected gauge count is unchanged.
+6. **Fixed point and next frontier.** Native backend policy has one platform
+   owner and cannot represent an empty attempt ladder. Rung 4 continues through
+   native-popup cache/lifecycle invariants, the stale popup allowance, the six
+   public/private backend allowances assigned to Rung 6, and the full clock and
+   retirement sweep.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
