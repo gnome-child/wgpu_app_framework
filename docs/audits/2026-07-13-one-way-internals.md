@@ -1805,6 +1805,80 @@ traces the remaining `render -> diagnostics` observation back-edge and
 surface lifecycles, presentation clocks, and backend consumption before
 admitting either inversion.
 
+## Rung 4 cell records
+
+### R4-01 — renderer facts versus diagnostic aggregation
+
+Status: **complete; diagnostics observer seam admitted**. Correction
+`eb5d6143` (`Invert render diagnostics ownership`).
+
+1. **Question and paired trace.** The remaining renderer-diagnostics edge was
+   traced together with the public Backend receipt, native parent presentation,
+   popup presentation, surface acquisition, draw preparation, GPU submission,
+   successful and skipped presents, runtime acknowledgement, presented
+   geometry, key-to-present sampling, and the direct/headless backend tests.
+   The paired `platform -> wgpu` question was also enumerated across backend
+   selection, surface formats, alpha capability, safe window targets, and the
+   Windows composition-visual target, but was not collapsed into this smaller
+   ownership correction.
+2. **Current and proposed graph.** Renderer preparation produced
+   `DrawStats`, yet that value and the complete render-attempt receipt were
+   declared inside diagnostics, forcing render to import its observer. The
+   admitted graph makes renderer own its output facts and makes diagnostics an
+   explicit observer seam above renderer, text, UI, and command facts. Runtime
+   and platform may consume that observer without making diagnostics a
+   behavior input.
+3. **Naming and API ruling.** The public established path remains
+   `diagnostics::RenderReport`, but the declaration is now canonically named
+   `RenderReport` at its renderer owner and is re-exported exactly. The former
+   `Report as RenderReport` parent alias is deleted in accordance with the
+   house naming law. Public constructors and accessors retain their signatures;
+   no compatibility declaration or second report type survives.
+4. **Reduction and rewire.** Moved the private draw facts and the exact report
+   declaration into `render::report`, deleted `diagnostics/draw.rs`, and made
+   diagnostics aggregation consume the renderer-owned receipt. Renderer no
+   longer imports diagnostics. The native adapter still composes the same
+   acquire, batch, draw, encode/submit/present, pool, and presented facts at the
+   same boundary, and the public Backend trait still returns the established
+   diagnostics projection.
+5. **Observer-seam ruling.** A callback or diagnostics-owned trait was rejected:
+   either would leave the producer depending on the observer or conceal the
+   same fact crossing. Diagnostics is admitted as its own provisional virtual
+   owner because it owns counters and sample windows while consuming facts
+   declared by their producers. Existing layout/view diagnostic back-edges
+   remain visible Rung 5 questions rather than being legalized by the new slot.
+6. **Behavior, clocks, and economics.** Successful presents acknowledge the
+   same epoch and promote the same candidate layout; skipped, occluded,
+   outdated, timeout, validation, and lost attempts retain visible geometry and
+   retry behavior. Every duration and renderer count reaches the same sample
+   window. Scene order, batch/pass fusion, geometry uploads, filter pools,
+   shaping, surface acquisition, submission, and popup presentation paths are
+   unchanged; the correction only relocates the unchanged Copy receipt.
+7. **Proof and ratchet.** A structural witness recursively forbids diagnostics
+   imports under render, requires renderer ownership of `RenderReport` and
+   `DrawStats`, requires the exact public diagnostics projection, and
+   tombstones the old draw file and alias. The older renderer-boundary witness
+   was narrowed by vocabulary: private paint remains confined to rendering
+   paths, while diagnostics alone may observe the render module.
+8. **Full verification.** The library discovered 1,085 tests: 1,075 passed, 10
+   standing ignores, and 0 failed. All targets and all five examples compiled
+   without warnings; all census parser witnesses, formatting, diff checks, and
+   protected `comparison_open: true` state passed.
+9. **Gauge delta from Rung 3.** Production edges remain 325. The architecture
+   witness raises test-only edges 100 -> 101. Giving diagnostics its truthful
+   observer slot raises slot edges 43 -> 51 and cross-slot test edges 80 -> 82,
+   while the admitted inversion lowers forbidden edges 5 -> 4. External
+   questions and SCCs remain 1/1. The ten explicit renderer-to-observer fields
+   raise production `pub(crate)` declarations 1,764 -> 1,774; source-root
+   mentions rise 111 -> 112 and filesystem reads 334 -> 336. Allowances,
+   panics, and expects remain 10, 9, and 102.
+10. **Fixed point and next frontier.** Renderer output facts have one owner and
+    diagnostics is consumption only; neither a duplicate report nor an
+    observer import remains in render. Rung 4 continues with the large semantic
+    scene-to-paint projection currently housed under the native OS adapter,
+    while retaining the separately traced wgpu surface bridge for its own
+    bounded cell.
+
 ## Initial hypotheses and queue
 
 The investigation suggests foundation, text, command, UI, renderer, runtime,
