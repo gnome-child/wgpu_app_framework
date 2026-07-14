@@ -427,7 +427,10 @@ fn layout_virtual_list(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "keeps recursive traversal facts and already-resolved variable-list facts explicit without a transport-only argument bag"
+)]
 fn layout_variable_virtual_list(
     node: &view::Node,
     retained: &composition::Node,
