@@ -74,4 +74,11 @@ impl Presentation {
     pub(crate) fn overlays(&self) -> &scene::Scene {
         &self.overlays
     }
+
+    pub(crate) fn with_active_properties(&self, properties: scene::Properties) -> Self {
+        let mut presentation = self.clone();
+        presentation.properties = properties;
+        presentation.property_only = true;
+        presentation
+    }
 }

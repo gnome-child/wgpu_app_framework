@@ -1,5 +1,6 @@
 use crate::geometry::area;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::{ime as app_ime, interaction, overlay, pointer, render, scene};
@@ -28,6 +29,8 @@ use settle::{ApplyDue, SysApplicator};
 pub struct Native {
     context: Option<render::Context>,
     renderers: HashMap<render::surface::Format, render::Renderer>,
+    active_presentations: HashMap<app_window::Id, crate::shell::Presentation>,
+    pending_presentations: HashMap<app_window::Id, PendingPresentation>,
     windows: HashMap<app_window::Id, window::Window>,
     popups: HashMap<PopupKey, PopupWindow>,
     popup_pool: HashMap<app_window::Id, Vec<PopupHost>>,
@@ -43,6 +46,59 @@ pub struct Native {
     poll_requested: bool,
     #[cfg(target_os = "windows")]
     composition: Option<composition::Runtime>,
+}
+
+struct PendingPresentation<T = crate::shell::Presentation> {
+    preparing: T,
+    latest: Option<T>,
+}
+
+enum PendingCompletion<T> {
+    Activate(T),
+    ActivateAndContinue { prepared: T, latest: T },
+}
+
+impl<T> PendingPresentation<T> {
+    fn new(preparing: T) -> Self {
+        Self {
+            preparing,
+            latest: None,
+        }
+    }
+
+    fn enqueue_by(&mut self, presentation: T, same: impl Fn(&T, &T) -> bool) {
+        if same(&self.preparing, &presentation) {
+            self.preparing = presentation;
+        } else {
+            self.latest = Some(presentation);
+        }
+    }
+
+    fn newest(&self) -> &T {
+        self.latest.as_ref().unwrap_or(&self.preparing)
+    }
+
+    fn into_newest(self) -> T {
+        self.latest.unwrap_or(self.preparing)
+    }
+
+    fn complete(self) -> PendingCompletion<T> {
+        match self.latest {
+            Some(latest) => PendingCompletion::ActivateAndContinue {
+                prepared: self.preparing,
+                latest,
+            },
+            None => PendingCompletion::Activate(self.preparing),
+        }
+    }
+}
+
+impl PendingPresentation<crate::shell::Presentation> {
+    fn enqueue(&mut self, presentation: crate::shell::Presentation) {
+        self.enqueue_by(presentation, |left, right| {
+            Arc::ptr_eq(left.commit(), right.commit())
+        });
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -488,6 +544,8 @@ impl Native {
         Self {
             context: None,
             renderers: HashMap::new(),
+            active_presentations: HashMap::new(),
+            pending_presentations: HashMap::new(),
             windows: HashMap::new(),
             popups: HashMap::new(),
             popup_pool: HashMap::new(),
@@ -524,16 +582,47 @@ impl Default for Native {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplyDue, CursorHost, Native, POPUP_SYS_SETTLE_DELAY, PopupAccentState, PopupBorderState,
-        PopupGeometry, PopupGeometryState, PopupKey, PopupMaterialReadiness,
-        PopupMaterialRealization, PopupPresentationMode, popup_accent_due, popup_border_due,
-        popup_geometry_due, readiness_for_reused_session,
+        ApplyDue, CursorHost, Native, POPUP_SYS_SETTLE_DELAY, PendingCompletion,
+        PendingPresentation, PopupAccentState, PopupBorderState, PopupGeometry, PopupGeometryState,
+        PopupKey, PopupMaterialReadiness, PopupMaterialRealization, PopupPresentationMode,
+        popup_accent_due, popup_border_due, popup_geometry_due, readiness_for_reused_session,
     };
     use crate::geometry::area;
     use crate::overlay::PopupMaterialPreference;
     use crate::platform::native::sys::PopupAccentMaterial;
     use crate::scene;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn pending_presentations_keep_one_preparing_and_only_the_latest_successor() {
+        let mut pending = PendingPresentation::new((1_u32, "preparing"));
+
+        pending.enqueue_by((2, "first latest"), |left, right| left.0 == right.0);
+        pending.enqueue_by((3, "newest latest"), |left, right| left.0 == right.0);
+
+        assert_eq!(pending.preparing, (1, "preparing"));
+        assert_eq!(pending.latest, Some((3, "newest latest")));
+        assert_eq!(pending.newest(), &(3, "newest latest"));
+
+        pending.enqueue_by((1, "updated preparing"), |left, right| left.0 == right.0);
+        pending.enqueue_by((3, "updated latest"), |left, right| left.0 == right.0);
+
+        assert_eq!(pending.preparing, (1, "updated preparing"));
+        assert_eq!(pending.latest, Some((3, "updated latest")));
+
+        assert!(matches!(
+            pending.complete(),
+            PendingCompletion::ActivateAndContinue {
+                prepared: (1, "updated preparing"),
+                latest: (3, "updated latest"),
+            }
+        ));
+
+        assert!(matches!(
+            PendingPresentation::new((4, "ready")).complete(),
+            PendingCompletion::Activate((4, "ready"))
+        ));
+    }
 
     fn geometry(x: i32, y: i32, scale: f64) -> PopupGeometry {
         PopupGeometry {

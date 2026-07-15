@@ -65,6 +65,17 @@ impl Chrome {
         self.scrollbar.viewport.resolved_scroll()
     }
 
+    pub(crate) fn axis(&self) -> Axis {
+        self.scrollbar.axis
+    }
+
+    pub(crate) fn maximum_offset(&self) -> i32 {
+        match self.scrollbar.axis {
+            Axis::Vertical => self.scrollbar.viewport.max_scroll().y(),
+            Axis::Horizontal => self.scrollbar.viewport.max_scroll().x(),
+        }
+    }
+
     pub(crate) fn track_with_thickness(&self, thickness: i32) -> Rect {
         self.scrollbar.track_with_thickness(thickness)
     }

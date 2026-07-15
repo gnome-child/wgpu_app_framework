@@ -6720,6 +6720,7 @@ fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
         let viewport = projection.viewport();
         let visible = viewport.visible_content();
         let bounds = projection.layer_bounds();
+        let resident = projection.resident_bounds();
         let max = viewport.max_scroll();
         let width_limit = if max.x() > 0 {
             visible.width().saturating_mul(2)
@@ -6738,6 +6739,14 @@ fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
         assert!(bounds.bottom() >= visible.bottom());
         assert!(bounds.width() <= width_limit);
         assert!(bounds.height() <= height_limit);
+        assert!(resident.x() >= bounds.x());
+        assert!(resident.y() >= bounds.y());
+        assert!(resident.right() <= bounds.right());
+        assert!(resident.bottom() <= bounds.bottom());
+        assert!(resident.x() <= visible.x());
+        assert!(resident.y() <= visible.y());
+        assert!(resident.right() >= visible.right());
+        assert!(resident.bottom() >= visible.bottom());
     }
 }
 

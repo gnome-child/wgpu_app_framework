@@ -241,11 +241,99 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
-    fn control_gallery_property_tick_is_blend_equivalent_offscreen() {
-        pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_property_tick(
+    fn pending_semantic_realization_yields_to_exact_active_output() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let receipt = harness
+            .pending_active_receipt()
+            .expect("bounded pending preparation should preserve the active output");
+
+        assert!(receipt.preparation_slices() > 1);
+        assert!(receipt.active_draws() > 0);
+        assert_eq!(receipt.peak_pending_states(), 1);
+        assert!(receipt.peak_resources() > 0);
+        assert!(receipt.peak_bytes() > 0);
+        assert_eq!(
+            receipt.activated().commit_preparation_slices(),
+            receipt.preparation_slices()
+        );
+        assert!(receipt.activated().commit_preparation_max_nanos() > 0);
+        assert_eq!(receipt.activated().commit_preparation_deadline_misses(), 0);
+        assert_eq!(receipt.activated().render_plan_rebuilds(), 1);
+        assert!(receipt.activated().scroll_layer_cache_hits() > 0);
+        assert_eq!(receipt.activated().scroll_layer_cache_misses(), 0);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn pending_resize_replaces_stale_viewport_state_without_residue() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        harness
+            .pending_resize_receipt()
+            .expect("resize must replace pending and ready viewport state exactly");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_incremental_activation_matches_synchronous_pixels() {
+        pollster::block_on(
+            wgpu_l3::diagnostics::compare_control_gallery_incremental_activation(1.0),
+        )
+        .expect("incremental preparation must preserve the production gallery scene");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_pending_transition_preserves_exact_active_output() {
+        pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_pending_transition(1.0))
+            .expect("pending production resources must not change the active gallery output");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_pending_property_refresh_advances_active_output() {
+        pollster::block_on(
+            wgpu_l3::diagnostics::compare_control_gallery_pending_property_refresh(1.0),
+        )
+        .expect("pending semantic preparation must not stall compatible active properties");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_caret_blink_preserves_complete_output() {
+        pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_caret_blink(
             1.0,
         ))
-        .expect("the production gallery property tick must match its compatibility oracle");
+        .expect("caret blink commits must preserve complete active and candidate output");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_pending_scroll_keeps_visible_active_output() {
+        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+            pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_pending_scroll(
+                scale_factor,
+            ))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "pending gallery scroll must keep a visible complete active scene at {scale_factor}x: {error}"
+                )
+            });
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_property_tick_is_blend_equivalent_offscreen() {
+        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+            pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_property_tick(
+                scale_factor,
+            ))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "the production gallery property tick must match its compatibility oracle at {scale_factor}x: {error}"
+                )
+            });
+        }
     }
 
     #[test]

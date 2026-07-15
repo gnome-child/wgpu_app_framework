@@ -29,10 +29,12 @@ impl Store {
         &mut self,
         window: window::Id,
         layout: &layout::Layout,
+        visuals: &Visuals,
         interaction: Option<&interaction::Interaction>,
     ) -> Option<(Arc<Commit>, Properties, Vec<overlay::Draft>, PaintStats)> {
         let retained = self.windows.get_mut(&window)?;
-        let (commit, properties, overlays) = retained.tick_properties(layout, interaction)?;
+        let (commit, properties, overlays) =
+            retained.tick_properties(layout, visuals, interaction)?;
         Some((commit, properties, overlays, PaintStats::default()))
     }
 

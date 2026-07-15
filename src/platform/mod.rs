@@ -7,7 +7,7 @@ mod event;
 mod native;
 mod runner;
 
-pub use backend::{Backend, Window};
+pub use backend::{Backend, PresentResult, Presented, Window};
 pub use error::{Error, RunError};
 pub use event::{
     Events, key, key_text, modifiers, point_from_physical, scroll_delta, size_from_physical,
@@ -37,6 +37,7 @@ pub struct Platform<M: State, E: Send + 'static = (), B = ()> {
     active_requests: Vec<session::Request>,
     active_cursors: Vec<pointer::Update>,
     poll_scheduled: bool,
+    presentation_continuation_scheduled: bool,
     animation_schedule: animation::Schedule,
 }
 
@@ -52,6 +53,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             active_requests: Vec::new(),
             active_cursors: Vec::new(),
             poll_scheduled: false,
+            presentation_continuation_scheduled: false,
             animation_schedule: animation::Schedule::Idle,
         }
     }
@@ -78,6 +80,14 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
     pub(crate) fn animation_schedule(&self) -> animation::Schedule {
         self.animation_schedule
+    }
+
+    pub(crate) fn runtime_poll_scheduled(&self) -> bool {
+        self.poll_scheduled
+    }
+
+    pub(crate) fn presentation_continuation_scheduled(&self) -> bool {
+        self.presentation_continuation_scheduled
     }
 
     pub fn start(&mut self) -> Result<(), Error<B::Error>>
@@ -118,6 +128,60 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
     pub fn poll_with(&mut self, context: &mut B::Context<'_>) -> Result<(), Error<B::Error>> {
         self.handle_event_with(context, host::Event::Poll)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn continue_presentations(&mut self) -> Result<(), Error<B::Error>>
+    where
+        for<'a> B::Context<'a>: Default,
+    {
+        let mut context: B::Context<'_> = Default::default();
+        self.continue_presentations_with(&mut context)
+    }
+
+    pub(crate) fn continue_presentations_with(
+        &mut self,
+        context: &mut B::Context<'_>,
+    ) -> Result<(), Error<B::Error>> {
+        self.presentation_continuation_scheduled = false;
+        let results = self
+            .backend
+            .resume_presentations(context)
+            .map_err(Error::Backend)?;
+        for result in results {
+            match result {
+                PresentResult::Presented(presented) => {
+                    let window = presented.window();
+                    if self.finish_presented(presented, false) {
+                        self.backend
+                            .request_redraw(context, window)
+                            .map_err(Error::Backend)?;
+                    }
+                }
+                PresentResult::PresentedAndDeferred(presented) => {
+                    let window = presented.window();
+                    if self.finish_presented(presented, false) {
+                        self.backend
+                            .request_redraw(context, window)
+                            .map_err(Error::Backend)?;
+                    }
+                    self.schedule_presentation_continuation(context)
+                        .map_err(Error::Backend)?;
+                }
+                PresentResult::ActiveRefreshedAndDeferred(presented) => {
+                    self.finish_presented(presented, true);
+                    self.schedule_presentation_continuation(context)
+                        .map_err(Error::Backend)?;
+                }
+                PresentResult::Deferred(_) => self
+                    .schedule_presentation_continuation(context)
+                    .map_err(Error::Backend)?,
+            }
+        }
+        let cursor_updates = self.host.shell_mut().runtime_mut().take_cursor_updates();
+        self.sync_cursors(context, &cursor_updates)
+            .map_err(Error::Backend)?;
+        Ok(())
     }
 
     pub fn drain_with(&mut self, context: &mut B::Context<'_>) -> Result<(), Error<B::Error>> {
@@ -172,7 +236,6 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             .iter()
             .map(shell::Presentation::window)
             .collect::<Vec<_>>();
-        let mut cursor_updates = work.cursor_updates().to_vec();
         if let Some(popup_presentations) = work.popup_presentations() {
             self.backend.present_overlay_popups(
                 context,
@@ -180,27 +243,36 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 popup_presentations,
             )?;
         }
-        for presentation in work.presentations() {
-            let report = self.backend.present(context, presentation)?;
-            let retry = self.host.shell_mut().runtime_mut().finish_render_report(
-                presentation.window(),
-                presentation.epoch(),
-                presentation.invalidation(),
-                presentation.layout(),
-                presentation.properties(),
-                presentation.property_only(),
-                report,
-            );
-            if retry {
-                self.backend
-                    .request_redraw(context, presentation.window())?;
-            }
-        }
-        cursor_updates.extend(self.host.shell_mut().runtime_mut().take_cursor_updates());
-
         for update in work.ime_updates() {
             self.backend.set_ime(context, *update)?;
         }
+
+        let mut cursor_updates = work.cursor_updates().to_vec();
+        for presentation in work.presentations() {
+            match self.backend.present(context, presentation)? {
+                PresentResult::Presented(presented) => {
+                    let window = presented.window();
+                    if self.finish_presented(presented, false) {
+                        self.backend.request_redraw(context, window)?;
+                    }
+                }
+                PresentResult::PresentedAndDeferred(presented) => {
+                    let window = presented.window();
+                    if self.finish_presented(presented, false) {
+                        self.backend.request_redraw(context, window)?;
+                    }
+                    self.schedule_presentation_continuation(context)?;
+                }
+                PresentResult::ActiveRefreshedAndDeferred(presented) => {
+                    self.finish_presented(presented, true);
+                    self.schedule_presentation_continuation(context)?;
+                }
+                PresentResult::Deferred(_) => {
+                    self.schedule_presentation_continuation(context)?;
+                }
+            }
+        }
+        cursor_updates.extend(self.host.shell_mut().runtime_mut().take_cursor_updates());
 
         self.sync_cursors(context, &cursor_updates)?;
         self.sync_requests(context, work.requests())?;
@@ -208,6 +280,43 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         self.animation_schedule = work.animation_schedule();
         self.backend.maintain(context)?;
 
+        Ok(())
+    }
+
+    fn finish_presented(&mut self, presented: Presented, refreshes_active: bool) -> bool {
+        let (presented, report) = presented.into_parts();
+        if refreshes_active {
+            self.host.shell_mut().runtime_mut().finish_active_refresh(
+                presented.window(),
+                presented.epoch(),
+                presented.invalidation(),
+                presented.layout(),
+                presented.properties(),
+                report,
+            )
+        } else {
+            self.host.shell_mut().runtime_mut().finish_render_report(
+                presented.window(),
+                presented.epoch(),
+                presented.invalidation(),
+                presented.layout(),
+                presented.properties(),
+                presented.property_only(),
+                report,
+            )
+        }
+    }
+
+    fn schedule_presentation_continuation(
+        &mut self,
+        context: &mut B::Context<'_>,
+    ) -> Result<(), B::Error> {
+        if self.presentation_continuation_scheduled {
+            return Ok(());
+        }
+
+        self.backend.schedule_poll(context)?;
+        self.presentation_continuation_scheduled = true;
         Ok(())
     }
 

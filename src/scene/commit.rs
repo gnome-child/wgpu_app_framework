@@ -94,6 +94,7 @@ pub(crate) enum Draw {
     Content {
         node: composition::tree::NodeId,
         index: usize,
+        projection: ContentProjection,
     },
     PushClip {
         node: Option<composition::tree::NodeId>,
@@ -143,6 +144,28 @@ pub(crate) enum Content {
     Outline(Outline),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ContentProjection {
+    Normal,
+    ScrollbarTrack {
+        axis: interaction::ScrollbarAxis,
+        edge: i32,
+        base_thickness: i32,
+        maximum_thickness: i32,
+    },
+    ScrollbarThumb {
+        axis: interaction::ScrollbarAxis,
+        edge: i32,
+        base_thickness: i32,
+        maximum_thickness: i32,
+        baseline_start: i32,
+        baseline_extent: i32,
+        baseline_position: i32,
+        travel: i32,
+        maximum_offset: i32,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum PropertyKind {
     Transform,
@@ -150,6 +173,7 @@ pub(crate) enum PropertyKind {
     Opacity,
     Clip,
     Blur,
+    Scrollbar,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -193,6 +217,11 @@ pub(crate) enum PropertyValue {
         node: composition::tree::NodeId,
         sigma: f32,
     },
+    Scrollbar {
+        node: composition::tree::NodeId,
+        opacity: f32,
+        thickness: f32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,6 +257,7 @@ pub(crate) struct EffectEnvelope {
 pub(crate) struct ScrollDeclaration {
     viewport: geometry::Rect,
     layer_bounds: geometry::Rect,
+    resident_bounds: geometry::Rect,
     baseline: interaction::ScrollOffset,
 }
 
@@ -420,7 +450,11 @@ impl Commit {
         while let Some(draw) = order.get(*index) {
             *index = index.saturating_add(1);
             match draw {
-                Draw::Content { node, index } => {
+                Draw::Content {
+                    node,
+                    index,
+                    projection,
+                } => {
                     let Some(content) = self
                         .nodes
                         .iter()
@@ -429,7 +463,11 @@ impl Commit {
                     else {
                         continue;
                     };
-                    target.push(content.as_primitive(None));
+                    target.push(projection.project_primitive(
+                        content.as_primitive(None),
+                        *node,
+                        properties,
+                    ));
                 }
                 Draw::PushClip { clip, .. } => target.push(Primitive::Clip(*clip)),
                 Draw::PopClip => target.push(Primitive::PopClip),
@@ -584,6 +622,109 @@ impl Content {
     }
 }
 
+impl ContentProjection {
+    fn maximum_thickness(self) -> Option<i32> {
+        match self {
+            Self::Normal => None,
+            Self::ScrollbarTrack {
+                maximum_thickness, ..
+            }
+            | Self::ScrollbarThumb {
+                maximum_thickness, ..
+            } => Some(maximum_thickness),
+        }
+    }
+
+    fn project_primitive(
+        self,
+        primitive: Primitive,
+        node: composition::tree::NodeId,
+        properties: &Properties,
+    ) -> Primitive {
+        let (axis, edge, base_thickness, maximum_thickness) = match self {
+            Self::Normal => return primitive,
+            Self::ScrollbarTrack {
+                axis,
+                edge,
+                base_thickness,
+                maximum_thickness,
+            }
+            | Self::ScrollbarThumb {
+                axis,
+                edge,
+                base_thickness,
+                maximum_thickness,
+                ..
+            } => (axis, edge, base_thickness, maximum_thickness),
+        };
+        let Some(PropertyValue::Scrollbar {
+            opacity, thickness, ..
+        }) = properties.value(PropertyRef::new(node, PropertyKind::Scrollbar))
+        else {
+            return primitive;
+        };
+        let Primitive::Quad(quad) = primitive else {
+            return primitive;
+        };
+        let thickness = (thickness.round() as i32).clamp(
+            base_thickness.max(1),
+            maximum_thickness.max(base_thickness).max(1),
+        );
+        let mut rect = quad.rect();
+        rect = match axis {
+            interaction::ScrollbarAxis::Vertical => geometry::Rect::new(
+                edge.saturating_sub(thickness),
+                rect.y(),
+                thickness,
+                rect.height(),
+            ),
+            interaction::ScrollbarAxis::Horizontal => geometry::Rect::new(
+                rect.x(),
+                edge.saturating_sub(thickness),
+                rect.width(),
+                thickness,
+            ),
+        };
+        if let Self::ScrollbarThumb {
+            baseline_position,
+            travel,
+            maximum_offset,
+            ..
+        } = self
+        {
+            let offset = properties.scroll_offset(node).unwrap_or_default();
+            let offset = match axis {
+                interaction::ScrollbarAxis::Vertical => offset.y(),
+                interaction::ScrollbarAxis::Horizontal => offset.x(),
+            };
+            let position = if maximum_offset <= 0 {
+                0
+            } else {
+                (travel as f32 * offset.clamp(0, maximum_offset) as f32 / maximum_offset as f32)
+                    .round() as i32
+            };
+            let delta = position.saturating_sub(baseline_position);
+            rect = geometry::Rect::new(
+                rect.x()
+                    .saturating_add(if axis == interaction::ScrollbarAxis::Horizontal {
+                        delta
+                    } else {
+                        0
+                    }),
+                rect.y()
+                    .saturating_add(if axis == interaction::ScrollbarAxis::Vertical {
+                        delta
+                    } else {
+                        0
+                    }),
+                rect.width(),
+                rect.height(),
+            );
+        }
+        Primitive::Quad(quad.with_rect(rect).with_opacity(opacity))
+    }
+}
+
 impl Builder {
     pub(crate) fn new(size: geometry::Size, clear: Color) -> Self {
         Self {
@@ -693,12 +834,34 @@ impl Builder {
     }
 
     fn push_content(&mut self, owner: composition::tree::NodeId, content: Content) {
+        self.push_projected_content(owner, content, ContentProjection::Normal);
+    }
+
+    pub(crate) fn push_projected_content(
+        &mut self,
+        owner: composition::tree::NodeId,
+        content: Content,
+        projection: ContentProjection,
+    ) {
         let Some(node_index) = self.node_indices.get(&owner).copied() else {
             return;
         };
+        if projection != ContentProjection::Normal
+            && !self.nodes[node_index]
+                .properties
+                .contains(&PropertyKind::Scrollbar)
+        {
+            self.nodes[node_index]
+                .properties
+                .push(PropertyKind::Scrollbar);
+        }
         let index = self.nodes[node_index].content.len();
         self.nodes[node_index].content.push(content);
-        self.order.push(Draw::Content { node: owner, index });
+        self.order.push(Draw::Content {
+            node: owner,
+            index,
+            projection,
+        });
     }
 
     pub(crate) fn finish(
@@ -756,6 +919,13 @@ impl Node {
     }
 
     fn retained(previous: Option<&Arc<Self>>, draft: NodeDraft) -> Arc<Self> {
+        let content_revision = previous.map_or(draft.content_revision, |previous| {
+            if previous.content == draft.content {
+                previous.content_revision
+            } else {
+                previous.content_revision.next()
+            }
+        });
         let geometry_revision = previous.map_or(GeometryRevision::INITIAL, |previous| {
             if previous.local_bounds == draft.bounds {
                 previous.geometry_revision
@@ -776,7 +946,7 @@ impl Node {
         let candidate = Self {
             id: draft.id,
             parent: draft.parent,
-            content_revision: draft.content_revision,
+            content_revision,
             geometry_revision,
             topology_revision,
             local_bounds: draft.bounds,
@@ -817,7 +987,7 @@ impl Node {
         self
     }
 
-    #[cfg(feature = "renderer-debug")]
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn with_scroll(mut self, scroll: ScrollDeclaration) -> Self {
         self.scroll = Some(scroll);
         self
@@ -883,6 +1053,16 @@ impl Node {
 impl PropertyRef {
     pub(crate) const fn new(node: composition::tree::NodeId, kind: PropertyKind) -> Self {
         Self { node, kind }
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(crate) const fn kind(self) -> PropertyKind {
+        self.kind
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(crate) const fn node(self) -> composition::tree::NodeId {
+        self.node
     }
 }
 
@@ -963,6 +1143,34 @@ impl Properties {
         Self::new(commit, serial, values, changed).map(|snapshot| (snapshot, true))
     }
 
+    pub(crate) fn project_onto(
+        &self,
+        commit: &Commit,
+        current: &Self,
+    ) -> Result<(Self, bool), ContractError> {
+        current.require_compatible(commit)?;
+        let values = commit
+            .property_topology
+            .iter()
+            .filter_map(|property| {
+                self.value(*property)
+                    .filter(|value| value.is_valid(commit) && value.is_projectable_onto(commit))
+                    .or_else(|| current.value(*property))
+            })
+            .collect::<Vec<_>>();
+        let changed = values
+            .iter()
+            .filter_map(|value| {
+                let property = value.property_ref();
+                (current.value(property) != Some(*value)).then_some(property)
+            })
+            .collect::<Vec<_>>();
+        if changed.is_empty() {
+            return Ok((current.clone(), false));
+        }
+        Self::new(commit, self.serial, values, changed).map(|properties| (properties, true))
+    }
+
     pub(crate) fn require_compatible(&self, commit: &Commit) -> Result<(), ContractError> {
         if self.commit == commit.revision {
             Ok(())
@@ -994,6 +1202,15 @@ impl Properties {
         }
     }
 
+    pub(crate) fn scrollbar(&self, node: composition::tree::NodeId) -> Option<(f32, f32)> {
+        match self.value(PropertyRef::new(node, PropertyKind::Scrollbar)) {
+            Some(PropertyValue::Scrollbar {
+                opacity, thickness, ..
+            }) => Some((opacity, thickness)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn serial(&self) -> PropertySerial {
         self.serial
     }
@@ -1011,6 +1228,7 @@ impl PropertyValue {
             Self::Opacity { node, .. } => PropertyRef::new(node, PropertyKind::Opacity),
             Self::Clip { node, .. } => PropertyRef::new(node, PropertyKind::Clip),
             Self::Blur { node, .. } => PropertyRef::new(node, PropertyKind::Blur),
+            Self::Scrollbar { node, .. } => PropertyRef::new(node, PropertyKind::Scrollbar),
         }
     }
 
@@ -1031,7 +1249,16 @@ impl PropertyValue {
                     && value.scale_x().is_finite()
                     && value.scale_y().is_finite()
             }
-            Self::ScrollOffset { x, y, .. } => x.is_finite() && y.is_finite(),
+            Self::ScrollOffset { x, y, .. } => {
+                x.is_finite()
+                    && y.is_finite()
+                    && node.scroll.is_none_or(|scroll| {
+                        scroll.accepts(interaction::ScrollOffset::new(
+                            x.round() as i32,
+                            y.round() as i32,
+                        ))
+                    })
+            }
             Self::Opacity { value, .. } => value.is_finite() && (0.0..=1.0).contains(&value),
             Self::Clip { rect, .. } => rect_is_within(rect, node.local_bounds),
             Self::Blur { sigma, .. } => match node.effect {
@@ -1040,7 +1267,44 @@ impl PropertyValue {
                 }
                 _ => false,
             },
+            Self::Scrollbar {
+                opacity, thickness, ..
+            } => {
+                opacity.is_finite()
+                    && (0.0..=1.0).contains(&opacity)
+                    && thickness.is_finite()
+                    && thickness >= 1.0
+                    && commit.order.as_deref().is_some_and(|order| {
+                        order.iter().any(|draw| match draw {
+                            Draw::Content {
+                                node: owner,
+                                projection,
+                                ..
+                            } if *owner == node.id => projection
+                                .maximum_thickness()
+                                .is_some_and(|maximum| thickness <= maximum as f32),
+                            _ => false,
+                        })
+                    })
+            }
         }
+    }
+
+    fn is_projectable_onto(self, commit: &Commit) -> bool {
+        let Self::ScrollOffset { node, x, y } = self else {
+            return true;
+        };
+        commit
+            .nodes
+            .iter()
+            .find(|candidate| candidate.id == node)
+            .and_then(|node| node.scroll)
+            .is_some_and(|scroll| {
+                scroll.accepts(interaction::ScrollOffset::new(
+                    x.round() as i32,
+                    y.round() as i32,
+                ))
+            })
     }
 }
 
@@ -1073,17 +1337,22 @@ impl ScrollDeclaration {
     pub(crate) fn new(
         viewport: geometry::Rect,
         layer_bounds: geometry::Rect,
+        resident_bounds: geometry::Rect,
         baseline: interaction::ScrollOffset,
     ) -> Option<Self> {
         (viewport.width() > 0
             && viewport.height() > 0
             && layer_bounds.width() > 0
-            && layer_bounds.height() > 0)
+            && layer_bounds.height() > 0
+            && resident_bounds.width() > 0
+            && resident_bounds.height() > 0)
             .then_some(Self {
                 viewport,
                 layer_bounds,
+                resident_bounds,
                 baseline,
             })
+            .filter(|declaration| declaration.accepts(baseline))
     }
 
     pub(crate) fn viewport(self) -> geometry::Rect {
@@ -1096,6 +1365,19 @@ impl ScrollDeclaration {
 
     pub(crate) fn baseline(self) -> interaction::ScrollOffset {
         self.baseline
+    }
+
+    fn accepts(self, offset: interaction::ScrollOffset) -> bool {
+        let dx = self.baseline.x().saturating_sub(offset.x());
+        let dy = self.baseline.y().saturating_sub(offset.y());
+        let resident_x = self.resident_bounds.x().saturating_add(dx);
+        let resident_y = self.resident_bounds.y().saturating_add(dy);
+        resident_x <= self.viewport.x()
+            && resident_y <= self.viewport.y()
+            && resident_x.saturating_add(self.resident_bounds.width())
+                >= self.viewport.x().saturating_add(self.viewport.width())
+            && resident_y.saturating_add(self.resident_bounds.height())
+                >= self.viewport.y().saturating_add(self.viewport.height())
     }
 }
 
@@ -1404,11 +1686,16 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
     let viewport = geometry::Rect::new(8, 10, 48, 40);
     let outer_bounds = geometry::Rect::new(8, 10, 80, 40);
     let inner_bounds = geometry::Rect::new(8, 10, 48, 80);
-    let outer_declaration =
-        ScrollDeclaration::new(viewport, outer_bounds, interaction::ScrollOffset::new(4, 0))
-            .expect("renderer outer-scroll fixture has a nonempty envelope");
+    let outer_declaration = ScrollDeclaration::new(
+        viewport,
+        outer_bounds,
+        outer_bounds,
+        interaction::ScrollOffset::new(4, 0),
+    )
+    .expect("renderer outer-scroll fixture has a nonempty envelope");
     let inner_declaration = ScrollDeclaration::new(
         viewport,
+        inner_bounds,
         inner_bounds,
         interaction::ScrollOffset::new(0, 12),
     )
@@ -1484,6 +1771,7 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
             Draw::Content {
                 node: before,
                 index: 0,
+                projection: ContentProjection::Normal,
             },
             Draw::PushGroup {
                 node: outer,
@@ -1494,11 +1782,13 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
             Draw::Content {
                 node: outer,
                 index: 0,
+                projection: ContentProjection::Normal,
             },
             Draw::PushScroll { node: inner },
             Draw::Content {
                 node: inner,
                 index: 0,
+                projection: ContentProjection::Normal,
             },
             Draw::PopScroll,
             Draw::PopScroll,
@@ -1506,11 +1796,13 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
             Draw::Content {
                 node: outer,
                 index: 1,
+                projection: ContentProjection::Normal,
             },
             Draw::PushScroll { node: inner },
             Draw::Content {
                 node: inner,
                 index: 1,
+                projection: ContentProjection::Normal,
             },
             Draw::PopScroll,
             Draw::PopScroll,
@@ -1518,6 +1810,7 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
             Draw::Content {
                 node: after,
                 index: 0,
+                projection: ContentProjection::Normal,
             },
             Draw::PopClip,
         ]),
@@ -1563,6 +1856,24 @@ pub(crate) fn renderer_scroll_semantic_pair()
     let (initial, initial_properties) = renderer_scroll_fixture()?;
     let mut changed_nodes = initial.nodes.clone();
     changed_nodes[0] = Arc::new(changed_nodes[0].as_ref().clone().with_content_revision(2));
+    let changed = Commit::from_parts(
+        Revision::renderer_fixture(2),
+        initial.size,
+        initial.clear,
+        changed_nodes,
+        initial.order.clone(),
+        initial.material_regions.clone(),
+    )?;
+    let changed_properties = renderer_scroll_properties(&changed, 12, 2)?;
+    Ok(((initial, initial_properties), (changed, changed_properties)))
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_scroll_layer_semantic_pair()
+-> Result<((Commit, Properties), (Commit, Properties)), ContractError> {
+    let (initial, initial_properties) = renderer_scroll_fixture()?;
+    let mut changed_nodes = initial.nodes.clone();
+    changed_nodes[2] = Arc::new(changed_nodes[2].as_ref().clone().with_content_revision(2));
     let changed = Commit::from_parts(
         Revision::renderer_fixture(2),
         initial.size,
@@ -1756,6 +2067,161 @@ mod tests {
             ),
             Err(ContractError::UndeclaredValue(_))
         ));
+    }
+
+    #[test]
+    fn candidate_property_values_project_onto_the_active_commit_clock() {
+        let node = empty_node(1, None).with_properties([PropertyKind::Opacity]);
+        let node_id = node.id();
+        let active = Commit::new(
+            Revision::INITIAL,
+            geometry::Size::new(20, 10),
+            Color::rgba(0, 0, 0, 0),
+            vec![node.clone()],
+        )
+        .expect("active commit should be valid");
+        let candidate = Commit::new(
+            Revision::INITIAL.next(),
+            geometry::Size::new(20, 10),
+            Color::rgba(0, 0, 0, 0),
+            vec![node],
+        )
+        .expect("candidate commit should be valid");
+        let current = Properties::new(
+            &active,
+            PropertySerial::INITIAL,
+            vec![PropertyValue::Opacity {
+                node: node_id,
+                value: 0.5,
+            }],
+            Vec::new(),
+        )
+        .expect("active properties should be complete");
+        let candidate_properties = Properties::new(
+            &candidate,
+            PropertySerial::INITIAL.next(),
+            vec![PropertyValue::Opacity {
+                node: node_id,
+                value: 0.75,
+            }],
+            vec![PropertyRef::new(node_id, PropertyKind::Opacity)],
+        )
+        .expect("candidate properties should be complete");
+
+        let (projected, changed) = candidate_properties
+            .project_onto(&active, &current)
+            .expect("shared property values should project onto the active topology");
+
+        assert!(changed);
+        assert!(projected.require_compatible(&active).is_ok());
+        assert_eq!(projected.serial(), candidate_properties.serial());
+        assert_eq!(projected.changed().len(), 1);
+        assert_eq!(
+            projected.value(PropertyRef::new(node_id, PropertyKind::Opacity)),
+            Some(PropertyValue::Opacity {
+                node: node_id,
+                value: 0.75,
+            })
+        );
+    }
+
+    #[test]
+    fn candidate_scroll_projects_only_while_the_active_layer_covers_its_viewport() {
+        let viewport = geometry::Rect::new(0, 0, 100, 100);
+        let declaration = ScrollDeclaration::new(
+            viewport,
+            geometry::Rect::new(0, 0, 100, 200),
+            geometry::Rect::new(0, 0, 100, 150),
+            interaction::ScrollOffset::new(0, 0),
+        )
+        .expect("scroll declaration should be valid");
+        let node = empty_node(1, None)
+            .with_properties([PropertyKind::ScrollOffset])
+            .with_scroll(declaration);
+        let node_id = node.id();
+        let active = Commit::new(
+            Revision::INITIAL,
+            geometry::Size::new(100, 100),
+            Color::rgba(0, 0, 0, 0),
+            vec![node.clone()],
+        )
+        .expect("active scroll commit should be valid");
+        let candidate_declaration = ScrollDeclaration::new(
+            viewport,
+            geometry::Rect::new(0, -40, 100, 200),
+            geometry::Rect::new(0, -40, 100, 200),
+            interaction::ScrollOffset::new(0, 60),
+        )
+        .expect("candidate scroll declaration should cover its rebased viewport");
+        let candidate_node = node.clone().with_scroll(candidate_declaration);
+        let candidate = Commit::new(
+            Revision::INITIAL.next(),
+            geometry::Size::new(100, 100),
+            Color::rgba(0, 0, 0, 0),
+            vec![candidate_node],
+        )
+        .expect("candidate scroll commit should be valid");
+        let current = Properties::new(
+            &active,
+            PropertySerial::INITIAL,
+            vec![PropertyValue::ScrollOffset {
+                node: node_id,
+                x: 0.0,
+                y: 0.0,
+            }],
+            Vec::new(),
+        )
+        .expect("active scroll properties should be complete");
+        let in_window = Properties::new(
+            &candidate,
+            PropertySerial::INITIAL.next(),
+            vec![PropertyValue::ScrollOffset {
+                node: node_id,
+                x: 0.0,
+                y: 24.0,
+            }],
+            vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
+        )
+        .expect("in-window candidate scroll should be valid");
+        let (projected, changed) = in_window
+            .project_onto(&active, &current)
+            .expect("in-window scroll should project onto active structure");
+        assert!(changed);
+        assert_eq!(
+            projected.scroll_offset(node_id),
+            Some(interaction::ScrollOffset::new(0, 24))
+        );
+
+        let beyond_guard = Properties::new(
+            &candidate,
+            PropertySerial::INITIAL.next(),
+            vec![PropertyValue::ScrollOffset {
+                node: node_id,
+                x: 0.0,
+                y: 60.0,
+            }],
+            vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
+        )
+        .expect("candidate scroll must remain inside its own rebased guard");
+        let (projected, changed) = beyond_guard
+            .project_onto(&active, &current)
+            .expect("out-of-window candidate should preserve complete active properties");
+        assert!(!changed);
+        assert_eq!(projected, current);
+        assert!(
+            Properties::new(
+                &active,
+                PropertySerial::INITIAL.next(),
+                vec![PropertyValue::ScrollOffset {
+                    node: node_id,
+                    x: 0.0,
+                    y: 60.0,
+                }],
+                vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
+            )
+            .is_err(),
+            "an active commit must reject pixels outside its retained scroll envelope"
+        );
     }
 
     fn ordered_builder(

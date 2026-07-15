@@ -178,7 +178,11 @@ impl Animations {
             };
             seen_scrolls.insert(scroll_key.clone());
 
-            let offset = chrome.resolved_scroll();
+            let offset = pass
+                .interaction
+                .map(interaction::Interaction::scroll)
+                .map(|scroll| scroll.offset(&scroll_target))
+                .unwrap_or_else(|| chrome.resolved_scroll());
             let offset_changed = self
                 .scrollbar_offsets
                 .insert(scroll_key.clone(), offset)

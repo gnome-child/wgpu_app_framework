@@ -991,15 +991,34 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let interaction = self.interaction_projected_for_layout(window, &layout);
         let canvas_color = self.canvas_color(window);
         let (commit, properties, entries, scene_stats, visual_schedule) = if property_only {
-            let (commit, properties, entries, scene_stats) =
-                self.scene
-                    .tick_properties(window, &layout, interaction.as_ref())?;
+            let visual_update = self.visual_animations.update_window(
+                window,
+                &layout,
+                interaction.as_ref(),
+                theme,
+                now,
+            );
+            let Some((commit, properties, entries, scene_stats)) = self.scene.tick_properties(
+                window,
+                &layout,
+                visual_update.visuals(),
+                interaction.as_ref(),
+            ) else {
+                return self.prepare_frame(
+                    window,
+                    size,
+                    FrameNeed::Invalidated(response::effect::Invalidation::Layout),
+                    theme,
+                    now,
+                    capabilities,
+                );
+            };
             (
                 commit,
                 properties,
                 entries,
                 scene_stats,
-                animation::Schedule::Idle,
+                visual_update.schedule(),
             )
         } else {
             let visual_update = self.visual_animations.update_window(

@@ -200,6 +200,9 @@ pub struct Work {
     gpu_resource_creations: usize,
     gpu_resource_replacements: usize,
     gpu_resource_removals: usize,
+    commit_preparation_slices: usize,
+    commit_preparation_max_nanos: u64,
+    commit_preparation_deadline_misses: usize,
     render_plan_rebuilds: usize,
     render_plan_reuses: usize,
     direct_surface_plans: usize,
@@ -264,6 +267,18 @@ impl Work {
 
     pub fn gpu_resource_removals(self) -> usize {
         self.gpu_resource_removals
+    }
+
+    pub fn commit_preparation_slices(self) -> usize {
+        self.commit_preparation_slices
+    }
+
+    pub fn commit_preparation_max_nanos(self) -> u64 {
+        self.commit_preparation_max_nanos
+    }
+
+    pub fn commit_preparation_deadline_misses(self) -> usize {
+        self.commit_preparation_deadline_misses
     }
 
     pub fn render_plan_rebuilds(self) -> usize {
@@ -357,6 +372,9 @@ impl From<render::DrawStats> for Work {
             gpu_resource_creations: stats.retained_gpu_resource_creations,
             gpu_resource_replacements: stats.retained_gpu_resource_replacements,
             gpu_resource_removals: stats.retained_gpu_resource_removals,
+            commit_preparation_slices: stats.commit_preparation_slices,
+            commit_preparation_max_nanos: stats.commit_preparation_max_nanos,
+            commit_preparation_deadline_misses: stats.commit_preparation_deadline_misses,
             render_plan_rebuilds: stats.render_plan_rebuilds,
             render_plan_reuses: stats.render_plan_reuses,
             direct_surface_plans: stats.direct_surface_plans,
@@ -408,6 +426,16 @@ pub struct UnrelatedSemanticReceipt {
     initial: Work,
     changed: Work,
     unchanged: Work,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingActiveReceipt {
+    preparation_slices: usize,
+    active_draws: usize,
+    peak_pending_states: usize,
+    peak_resources: usize,
+    peak_bytes: usize,
+    activated: Work,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -491,6 +519,32 @@ impl UnrelatedSemanticReceipt {
 
     pub fn unchanged(self) -> Work {
         self.unchanged
+    }
+}
+
+impl PendingActiveReceipt {
+    pub fn preparation_slices(self) -> usize {
+        self.preparation_slices
+    }
+
+    pub fn active_draws(self) -> usize {
+        self.active_draws
+    }
+
+    pub fn peak_pending_states(self) -> usize {
+        self.peak_pending_states
+    }
+
+    pub fn peak_resources(self) -> usize {
+        self.peak_resources
+    }
+
+    pub fn peak_bytes(self) -> usize {
+        self.peak_bytes
+    }
+
+    pub fn activated(self) -> Work {
+        self.activated
     }
 }
 
@@ -893,6 +947,7 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
+        drop(initial);
         let (unchanged_pixels, unchanged_stats) = self.candidate.draw_commit_offscreen_debug(
             &self.context,
             &changed,
@@ -911,6 +966,574 @@ impl Harness {
             changed: changed_stats.into(),
             unchanged: unchanged_stats.into(),
         })
+    }
+
+    pub fn pending_active_receipt(&mut self) -> Result<PendingActiveReceipt, String> {
+        let ((initial, initial_properties), (changed, changed_properties)) =
+            scene::renderer_scroll_layer_semantic_pair().map_err(|error| error.to_string())?;
+        let initial = std::sync::Arc::new(initial);
+        let changed = std::sync::Arc::new(changed);
+        let (width, height) = self.physical_extent(initial.size());
+        let (active_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &initial,
+            &initial_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+
+        let first = self.candidate.synchronize_commit_offscreen_debug(
+            &self.context,
+            &changed,
+            &changed_properties,
+            width,
+            height,
+            self.scale_factor,
+            Duration::ZERO,
+        )?;
+        if first != render::CommitReadiness::Pending {
+            return Err("a zero-budget semantic synchronization completed atomically".to_owned());
+        }
+        if self.candidate.retained_state_counts_debug() != (1, 1) {
+            return Err(
+                "initial pending work did not retain exactly active plus pending state".to_owned(),
+            );
+        }
+        self.candidate.cancel_commit_synchronization_debug(&changed);
+        if self.candidate.retained_state_counts_debug() != (1, 0) {
+            return Err("cancelled stale pending work remained eligible for activation".to_owned());
+        }
+
+        let mut preparation_slices = 0;
+        let mut active_draws = 0;
+        let mut peak_pending_states = 0;
+        let mut peak_resources = 0;
+        let mut peak_bytes = 0;
+        loop {
+            let readiness = self.candidate.synchronize_commit_offscreen_debug(
+                &self.context,
+                &changed,
+                &changed_properties,
+                width,
+                height,
+                self.scale_factor,
+                Duration::ZERO,
+            )?;
+            let (ready_plans, pending_states) = self.candidate.retained_state_counts_debug();
+            if ready_plans > 2 || pending_states > 1 {
+                return Err(format!(
+                    "active/pending preparation exceeded its state bound: ready={ready_plans}, pending={pending_states}"
+                ));
+            }
+            peak_pending_states = peak_pending_states.max(pending_states);
+            let (resources, bytes) = self.candidate.retained_resource_state_debug();
+            peak_resources = peak_resources.max(resources);
+            peak_bytes = peak_bytes.max(bytes);
+            if readiness == render::CommitReadiness::Ready {
+                break;
+            }
+            preparation_slices += 1;
+            let (visible, _) = self.candidate.draw_commit_offscreen_debug(
+                &self.context,
+                &initial,
+                &initial_properties,
+                width,
+                height,
+                self.scale_factor,
+                false,
+            )?;
+            if visible != active_pixels {
+                return Err(
+                    "pending resources leaked into active output before activation".to_owned(),
+                );
+            }
+            active_draws += 1;
+            if preparation_slices > 512 {
+                return Err("bounded semantic preparation did not converge".to_owned());
+            }
+        }
+
+        let (activated_pixels, activated) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &changed,
+            &changed_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if activated_pixels != active_pixels {
+            return Err("atomic activation changed an equivalent semantic fixture".to_owned());
+        }
+        if active_draws == 0 {
+            return Err("pending preparation never yielded to the active state".to_owned());
+        }
+        if activated.scroll_layer_cache_hits == 0 || activated.scroll_layer_cache_misses != 0 {
+            return Err(
+                "atomic activation did not consume only prepared retained scroll layers".to_owned(),
+            );
+        }
+        if peak_pending_states != 1 {
+            return Err("pending preparation never occupied exactly one candidate slot".to_owned());
+        }
+        if peak_resources > activated.retained_gpu_resource_count
+            || peak_bytes > activated.retained_gpu_resource_bytes
+        {
+            return Err(format!(
+                "pending preparation exceeded the activated active-plus-pending resource bound: peak={peak_resources}/{peak_bytes}, activated={}/{}",
+                activated.retained_gpu_resource_count, activated.retained_gpu_resource_bytes,
+            ));
+        }
+
+        let activated = Work::from(activated);
+        Ok(PendingActiveReceipt {
+            preparation_slices: activated.commit_preparation_slices,
+            active_draws,
+            peak_pending_states,
+            peak_resources,
+            peak_bytes,
+            activated,
+        })
+    }
+
+    pub fn pending_resize_receipt(&mut self) -> Result<(), String> {
+        let ((commit, properties), _) =
+            scene::renderer_scroll_semantic_pair().map_err(|error| error.to_string())?;
+        let commit = std::sync::Arc::new(commit);
+        let (width, height) = self.physical_extent(commit.size());
+        let resized_width = width.saturating_add(64);
+        let resized_height = height.saturating_add(48);
+
+        let first = self.candidate.synchronize_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            width,
+            height,
+            self.scale_factor,
+            Duration::ZERO,
+        )?;
+        if first != render::CommitReadiness::Pending
+            || self.candidate.retained_state_counts_debug() != (0, 1)
+        {
+            return Err("initial pending resize fixture was not singular and bounded".to_owned());
+        }
+
+        let resized_first = self.candidate.synchronize_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            resized_width,
+            resized_height,
+            self.scale_factor,
+            Duration::ZERO,
+        )?;
+        if resized_first != render::CommitReadiness::Pending
+            || self.candidate.retained_state_counts_debug() != (0, 1)
+        {
+            return Err(
+                "resize did not replace the stale pending viewport exactly once".to_owned(),
+            );
+        }
+
+        for slice in 0..16_384 {
+            let readiness = self.candidate.synchronize_commit_offscreen_debug(
+                &self.context,
+                &commit,
+                &properties,
+                resized_width,
+                resized_height,
+                self.scale_factor,
+                Duration::ZERO,
+            )?;
+            if readiness == render::CommitReadiness::Ready {
+                break;
+            }
+            if slice == 16_383 {
+                return Err("resized pending realization did not converge".to_owned());
+            }
+        }
+        if self.candidate.retained_state_counts_debug() != (1, 0) {
+            return Err("ready resized realization did not retire pending state".to_owned());
+        }
+
+        let (expected, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            resized_width,
+            resized_height,
+            self.scale_factor,
+            false,
+        )?;
+        let (actual, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            resized_width,
+            resized_height,
+            self.scale_factor,
+            false,
+        )?;
+        if actual != expected {
+            return Err("resized pending realization changed final pixels".to_owned());
+        }
+
+        let old_viewport_again = self.candidate.synchronize_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            width,
+            height,
+            self.scale_factor,
+            Duration::ZERO,
+        )?;
+        if old_viewport_again != render::CommitReadiness::Pending
+            || self.candidate.retained_state_counts_debug() != (0, 1)
+        {
+            return Err("viewport replacement retained an obsolete ready plan".to_owned());
+        }
+        self.candidate.cancel_commit_synchronization_debug(&commit);
+        if self.candidate.retained_state_counts_debug() != (0, 0) {
+            return Err("cancelled resize realization left pending or ready residue".to_owned());
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn compare_incremental_activation(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> Result<(), String> {
+        let (width, height) = self.physical_extent(commit.size());
+        let (expected, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+
+        let mut slices = 0_usize;
+        loop {
+            slices = slices.saturating_add(1);
+            let readiness = self.candidate.synchronize_commit_offscreen_debug(
+                &self.context,
+                commit,
+                properties,
+                width,
+                height,
+                self.scale_factor,
+                Duration::ZERO,
+            )?;
+            if readiness == render::CommitReadiness::Ready {
+                break;
+            }
+            if slices > 16_384 {
+                return Err("incremental semantic preparation did not converge".to_owned());
+            }
+        }
+        if slices <= 1 {
+            return Err("production scene did not exercise incremental preparation".to_owned());
+        }
+
+        let (actual, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if actual != expected {
+            let changed = actual
+                .iter()
+                .zip(&expected)
+                .filter(|(actual, expected)| actual != expected)
+                .count();
+            let visible_actual = actual
+                .iter()
+                .filter(|pixel| pixel[0] > 0.01 || pixel[1] > 0.01 || pixel[2] > 0.01)
+                .count();
+            let visible_expected = expected
+                .iter()
+                .filter(|pixel| pixel[0] > 0.01 || pixel[1] > 0.01 || pixel[2] > 0.01)
+                .count();
+            return Err(format!(
+                "incremental activation changed {changed} pixels (visible incremental={visible_actual}, synchronous={visible_expected}, slices={slices})"
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn compare_pending_transition_preserves_active(
+        &mut self,
+        active_commit: &std::sync::Arc<scene::Commit>,
+        active_properties: &scene::Properties,
+        candidate_commit: &std::sync::Arc<scene::Commit>,
+        candidate_properties: &scene::Properties,
+    ) -> Result<(), String> {
+        let (width, height) = self.physical_extent(active_commit.size());
+        let (active_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            active_commit,
+            active_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected_candidate, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            candidate_commit,
+            candidate_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+
+        let mut slices = 0_usize;
+        let mut active_draws = 0_usize;
+        loop {
+            slices = slices.saturating_add(1);
+            let readiness = self.candidate.synchronize_commit_offscreen_debug(
+                &self.context,
+                candidate_commit,
+                candidate_properties,
+                width,
+                height,
+                self.scale_factor,
+                Duration::ZERO,
+            )?;
+            if readiness == render::CommitReadiness::Ready {
+                break;
+            }
+            let (visible, _) = self.candidate.draw_commit_offscreen_debug(
+                &self.context,
+                active_commit,
+                active_properties,
+                width,
+                height,
+                self.scale_factor,
+                false,
+            )?;
+            if visible != active_pixels {
+                let changed = visible
+                    .iter()
+                    .zip(&active_pixels)
+                    .filter(|(visible, expected)| visible != expected)
+                    .count();
+                return Err(format!(
+                    "pending production resources changed {changed} active pixels after slice {slices}"
+                ));
+            }
+            active_draws = active_draws.saturating_add(1);
+            if slices > 16_384 {
+                return Err("pending production transition did not converge".to_owned());
+            }
+        }
+        if active_draws == 0 {
+            return Err("production transition did not yield to an active draw".to_owned());
+        }
+
+        let (activated, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            candidate_commit,
+            candidate_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if activated != expected_candidate {
+            let changed = activated
+                .iter()
+                .zip(&expected_candidate)
+                .filter(|(actual, expected)| actual != expected)
+                .count();
+            return Err(format!(
+                "atomic production activation changed {changed} candidate pixels after {slices} slices"
+            ));
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn compare_scroll_candidate_preserves_stable_prefix(
+        &mut self,
+        active_commit: &std::sync::Arc<scene::Commit>,
+        active_properties: &scene::Properties,
+        candidate_commit: &std::sync::Arc<scene::Commit>,
+        candidate_properties: &scene::Properties,
+    ) -> Result<(), String> {
+        let cutoff = active_commit
+            .nodes()
+            .iter()
+            .filter_map(|node| {
+                let declaration = node.scroll()?;
+                (active_properties.scroll_offset(node.id())
+                    != candidate_properties.scroll_offset(node.id()))
+                .then_some(declaration.viewport().y())
+            })
+            .min()
+            .ok_or_else(|| {
+                "semantic scroll candidate changed no declared scroll value".to_owned()
+            })?;
+        let (width, height) = self.physical_extent(active_commit.size());
+        let (active, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            active_commit,
+            active_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (candidate, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            candidate_commit,
+            candidate_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let stable_rows = ((cutoff.max(0) as f32) * self.scale_factor)
+            .ceil()
+            .min(height as f32) as usize;
+        let stable_pixels = stable_rows.saturating_mul(width as usize);
+        let changed = active[..stable_pixels]
+            .iter()
+            .zip(&candidate[..stable_pixels])
+            .filter(|(active, candidate)| active != candidate)
+            .count();
+        if changed > 0 {
+            return Err(format!(
+                "semantic scroll candidate changed {changed} stable prefix pixels above y={cutoff}"
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn compare_pending_property_projection(
+        &mut self,
+        active_commit: &std::sync::Arc<scene::Commit>,
+        active_properties: &scene::Properties,
+        candidate_commit: &std::sync::Arc<scene::Commit>,
+        candidate_properties: &scene::Properties,
+    ) -> Result<(), String> {
+        let (width, height) = self.physical_extent(active_commit.size());
+        let (active_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            active_commit,
+            active_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let first = self.candidate.synchronize_commit_offscreen_debug(
+            &self.context,
+            candidate_commit,
+            candidate_properties,
+            width,
+            height,
+            self.scale_factor,
+            Duration::ZERO,
+        )?;
+        if first != render::CommitReadiness::Pending {
+            return Err("property projection fixture did not leave a pending candidate".to_owned());
+        }
+        let (projected, changed) = candidate_properties
+            .project_onto(active_commit, active_properties)
+            .map_err(|error| error.to_string())?;
+        if !changed {
+            return Err(
+                "pending candidate carried no property change shared with active".to_owned(),
+            );
+        }
+        let (expected, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            active_commit,
+            &projected,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (actual, stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            active_commit,
+            &projected,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        self.candidate
+            .cancel_commit_synchronization_debug(candidate_commit);
+        if actual != expected {
+            return Err("pending property projection changed active output pixels".to_owned());
+        }
+        if actual == active_pixels {
+            return Err(
+                "pending property projection did not advance visible active state".to_owned(),
+            );
+        }
+        if stats.render_plan_reuses == 0
+            || stats.content_upload_bytes > 0
+            || stats.quad_prepare_calls > 0
+            || stats.text_prepare_calls > 0
+        {
+            return Err("pending active property refresh rebuilt semantic content".to_owned());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn require_visible_commit(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+        context: &str,
+    ) -> Result<(), String> {
+        let (width, height) = self.physical_extent(commit.size());
+        let (pixels, _) = self.legacy.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let clear = render::surface_color(commit.clear());
+        let clear = [
+            clear.r as f32,
+            clear.g as f32,
+            clear.b as f32,
+            clear.a as f32,
+        ];
+        let visible = pixels
+            .iter()
+            .filter(|pixel| {
+                pixel
+                    .iter()
+                    .zip(clear)
+                    .any(|(channel, clear)| (channel - clear).abs() > (1.0 / 255.0))
+            })
+            .count();
+        if visible == 0 {
+            return Err(format!("{context} rendered only the clear color"));
+        }
+        Ok(())
     }
 
     pub(crate) fn compare_retained_scroll_transition(
@@ -979,6 +1602,7 @@ impl Harness {
             let mut over_four_bytes = 0_usize;
             let mut first = None;
             let mut last = None;
+            let mut maximum_sample = None;
             for (index, (candidate, expected)) in
                 candidate.iter().zip(expected.pixels()).enumerate()
             {
@@ -997,7 +1621,10 @@ impl Harness {
                     .zip(expected)
                     .map(|(candidate, expected)| (candidate - expected).abs())
                     .fold(0.0_f32, f32::max);
-                maximum_channel_delta = maximum_channel_delta.max(delta);
+                if delta > maximum_channel_delta {
+                    maximum_channel_delta = delta;
+                    maximum_sample = Some((x, y, *candidate, *expected));
+                }
                 over_four_bytes += usize::from(delta > 4.0 / 255.0);
                 let sample = (x, y, *candidate, *expected);
                 first.get_or_insert(sample);
@@ -1014,6 +1641,39 @@ impl Harness {
                 .flat_map(|(candidate, expected)| candidate.iter().zip(expected))
                 .map(|(candidate, expected)| (candidate - expected).abs())
                 .fold(0.0_f32, f32::max);
+            let maximum_context = maximum_sample.map(|(x, y, _, _)| {
+                let sample = |pixels: &[[f32; 4]], sample_y: u32| {
+                    pixels[(sample_y.min(height.saturating_sub(1)) * width + x) as usize]
+                };
+                (
+                    sample(&initial_candidate, y),
+                    sample(initial_expected.pixels(), y),
+                    sample(&candidate, y.saturating_sub(10)),
+                    sample(expected.pixels(), y.saturating_sub(10)),
+                    sample(&candidate, y.saturating_add(10)),
+                    sample(expected.pixels(), y.saturating_add(10)),
+                )
+            });
+            let maximum_nearest = maximum_sample.map(|(x, y, candidate_pixel, _)| {
+                let mut nearest = (0_i32, 0_i32, f32::MAX, [0.0_f32; 4]);
+                for dy in -4_i32..=4 {
+                    for dx in -4_i32..=4 {
+                        let sample_x = (x as i32 + dx).clamp(0, width as i32 - 1) as u32;
+                        let sample_y = (y as i32 + dy).clamp(0, height as i32 - 1) as u32;
+                        let expected_pixel =
+                            expected.pixels()[(sample_y * width + sample_x) as usize];
+                        let delta = candidate_pixel
+                            .iter()
+                            .zip(expected_pixel)
+                            .map(|(candidate, expected)| (candidate - expected).abs())
+                            .fold(0.0_f32, f32::max);
+                        if delta < nearest.2 {
+                            nearest = (dx, dy, delta, expected_pixel);
+                        }
+                    }
+                }
+                nearest
+            });
             const FLOATING_BLEND_TOLERANCE: f32 = 4.0 / 255.0;
             if maximum_channel_delta <= FLOATING_BLEND_TOLERANCE
                 && initial_maximum_channel_delta <= FLOATING_BLEND_TOLERANCE
@@ -1021,7 +1681,7 @@ impl Harness {
                 Ok(())
             } else {
                 Err(format!(
-                    "runtime retained scroll transition exceeds the floating-blend oracle tolerance: tolerance={FLOATING_BLEND_TOLERANCE} tick_pixels={differing} tick_max_delta={maximum_channel_delta} tick_over_tolerance={over_four_bytes} initial_pixels={initial_differing} initial_max_delta={initial_maximum_channel_delta} bounds=({min_x},{min_y})-({max_x},{max_y}) first={first:?} last={last:?}"
+                    "runtime retained scroll transition exceeds the floating-blend oracle tolerance: tolerance={FLOATING_BLEND_TOLERANCE} tick_pixels={differing} tick_max_delta={maximum_channel_delta} tick_over_tolerance={over_four_bytes} initial_pixels={initial_differing} initial_max_delta={initial_maximum_channel_delta} bounds=({min_x},{min_y})-({max_x},{max_y}) maximum={maximum_sample:?} maximum_nearest_expected=(dx,dy,delta,pixel)={maximum_nearest:?} maximum_context=(initial_candidate, initial_expected, candidate_y_minus_10, expected_y_minus_10, candidate_y_plus_10, expected_y_plus_10)={maximum_context:?} first={first:?} last={last:?}"
                 ))
             }
         }

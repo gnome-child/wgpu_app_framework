@@ -129,6 +129,12 @@ impl Layer {
         &self.texture.view
     }
 
+    pub(in crate::render) fn resource_bytes(&self) -> usize {
+        (self.area.width() as usize)
+            .saturating_mul(self.area.height() as usize)
+            .saturating_mul(4)
+    }
+
     pub(super) fn source(&self, sampling: paint::LayerSampling) -> TextureSource<'_> {
         debug_assert_eq!(self.texture.area, self.area);
         TextureSource {

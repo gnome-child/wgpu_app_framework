@@ -114,7 +114,15 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
         let poll_requested = self.platform.backend_mut().take_poll_requested();
         let animation_due = self.platform.animation_schedule().is_due(Instant::now());
 
-        if poll_requested || animation_due {
+        if poll_requested && self.platform.presentation_continuation_scheduled() {
+            let mut context = NativeContext::new(event_loop);
+            if let Err(error) = self.platform.continue_presentations_with(&mut context) {
+                self.fail(event_loop, error);
+                return;
+            }
+        }
+
+        if (poll_requested && self.platform.runtime_poll_scheduled()) || animation_due {
             let mut context = NativeContext::new(event_loop);
             if let Err(error) = self.platform.poll_with(&mut context) {
                 self.fail(event_loop, error);

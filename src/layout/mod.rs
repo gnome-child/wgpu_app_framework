@@ -62,6 +62,7 @@ pub(crate) struct ScrollProjection {
     target: interaction::Target,
     viewport: Viewport,
     layer_bounds: Rect,
+    resident_bounds: Rect,
 }
 
 impl ScrollProjection {
@@ -79,6 +80,10 @@ impl ScrollProjection {
 
     pub(crate) fn layer_bounds(&self) -> Rect {
         self.layer_bounds
+    }
+
+    pub(crate) fn resident_bounds(&self) -> Rect {
+        self.resident_bounds
     }
 }
 
@@ -680,29 +685,26 @@ fn project_scroll_projections(
             let viewport = frame.property_scroll_viewport()?;
             let target = frame.target()?.clone();
             let node = frame.node_id();
+            let (layer_bounds, resident_bounds) =
+                scroll_layer_geometry(frames, table_tracks, scroll_ancestries, node, viewport);
             Some(ScrollProjection {
                 node,
                 target,
                 viewport,
-                layer_bounds: scroll_layer_bounds(
-                    frames,
-                    table_tracks,
-                    scroll_ancestries,
-                    node,
-                    viewport,
-                ),
+                layer_bounds,
+                resident_bounds,
             })
         })
         .collect()
 }
 
-fn scroll_layer_bounds(
+fn scroll_layer_geometry(
     frames: &[Frame],
     table_tracks: &[table::Track],
     scroll_ancestries: &HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
     owner: composition::tree::NodeId,
     viewport: Viewport,
-) -> Rect {
+) -> (Rect, Rect) {
     let nearest_scroll = |node| {
         scroll_ancestries
             .get(&node)
@@ -744,8 +746,25 @@ fn scroll_layer_bounds(
         visible.height().saturating_add(guard_y.saturating_mul(2)),
     );
     let realized = bounds.map_or(visible, |bounds| union_rect(bounds, visible));
+    let layer_bounds = intersect_rect(realized, guard).unwrap_or(visible);
+    let virtual_request = frames
+        .iter()
+        .find(|frame| frame.node_id() == owner)
+        .and_then(Frame::virtual_list_request);
+    let resident_bounds = match virtual_request {
+        Some(request) if !request.range().is_empty() => frames
+            .iter()
+            .filter(|frame| {
+                frame.provided_row().is_some() && nearest_scroll(frame.node_id()) == Some(owner)
+            })
+            .map(Frame::rect)
+            .reduce(union_rect)
+            .and_then(|resident| intersect_rect(resident, layer_bounds))
+            .unwrap_or_else(|| Rect::new(visible.x(), visible.y(), 0, 0)),
+        _ => layer_bounds,
+    };
 
-    intersect_rect(realized, guard).unwrap_or(visible)
+    (layer_bounds, resident_bounds)
 }
 
 fn root_floating_panels(frames: &[Frame]) -> impl Iterator<Item = &Frame> {

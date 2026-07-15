@@ -26,6 +26,12 @@ enum Layer {
     Floating,
 }
 
+#[derive(Clone, Copy)]
+enum PropertySample {
+    CommitBaseline,
+    Current,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct RetainedStats {
     pub(super) commits_created: usize,
@@ -145,7 +151,7 @@ impl Retained {
         let mut builder = commit_builder(layout, clear, None);
         for layer in [Layer::Base, Layer::Chrome] {
             let fragments = self.layer_fragments(layout, layer, None, theme, visuals, &mut work);
-            append_layer_fragments(&mut builder, layout.size(), fragments);
+            append_layer_fragments(&mut builder, fragments);
         }
         let base_key = CommitKey::Base;
         let previous_base = self.commits.get(&base_key).cloned();
@@ -158,7 +164,16 @@ impl Retained {
                 .is_none_or(|previous| !Arc::ptr_eq(previous, &commit)),
         );
         self.commits.insert(base_key, Arc::clone(&commit));
-        let properties = self.property_snapshot(base_key, &commit, layout, interaction);
+        let properties = self
+            .property_snapshot(
+                base_key,
+                &commit,
+                layout,
+                visuals,
+                interaction,
+                PropertySample::CommitBaseline,
+            )
+            .expect("freshly painted base properties must satisfy their resident topology");
 
         let mut entries = Vec::new();
         let mut seen_commits = HashSet::from([base_key]);
@@ -176,7 +191,7 @@ impl Retained {
                 visuals,
                 &mut work,
             );
-            append_layer_fragments(&mut builder, layout.size(), fragments);
+            append_layer_fragments(&mut builder, fragments);
             let commit_key = CommitKey::Popup(panel.node_id());
             let previous_popup = self.commits.get(&commit_key).cloned();
             let popup_commit = builder
@@ -187,8 +202,16 @@ impl Retained {
                     .as_ref()
                     .is_none_or(|previous| !Arc::ptr_eq(previous, &popup_commit)),
             ));
-            let popup_properties =
-                self.property_snapshot(commit_key, &popup_commit, layout, interaction);
+            let popup_properties = self
+                .property_snapshot(
+                    commit_key,
+                    &popup_commit,
+                    layout,
+                    visuals,
+                    interaction,
+                    PropertySample::CommitBaseline,
+                )
+                .expect("freshly painted popup properties must satisfy their resident topology");
             let panel_scene = popup_commit
                 .compatibility_scene(&popup_properties)
                 .expect("the legacy popup adapter receives its own property snapshot");
@@ -232,11 +255,21 @@ impl Retained {
     pub(super) fn tick_properties(
         &mut self,
         layout: &layout::Layout,
+        visuals: &Visuals,
         interaction: Option<&super::super::interaction::Interaction>,
     ) -> Option<(Arc<super::Commit>, super::Properties, Vec<overlay::Draft>)> {
         let base_key = CommitKey::Base;
         let commit = self.commits.get(&base_key).cloned()?;
-        let properties = self.property_snapshot(base_key, &commit, layout, interaction);
+        let properties = self
+            .property_snapshot(
+                base_key,
+                &commit,
+                layout,
+                visuals,
+                interaction,
+                PropertySample::Current,
+            )
+            .ok()?;
         let keyed =
             self.overlays
                 .iter()
@@ -252,14 +285,22 @@ impl Retained {
         let overlays = keyed
             .into_iter()
             .map(|(draft, key, popup_commit)| {
-                let popup_properties =
-                    self.property_snapshot(key, &popup_commit, layout, interaction);
+                let popup_properties = self
+                    .property_snapshot(
+                        key,
+                        &popup_commit,
+                        layout,
+                        visuals,
+                        interaction,
+                        PropertySample::Current,
+                    )
+                    .ok()?;
                 let scene = popup_commit
                     .compatibility_scene(&popup_properties)
                     .expect("cached popup properties remain compatible with their commit");
-                draft.with_property_state(popup_properties, scene)
+                Some(draft.with_property_state(popup_properties, scene))
             })
-            .collect::<Vec<_>>();
+            .collect::<Option<Vec<_>>>()?;
         self.overlays = overlays.clone();
         Some((commit, properties, overlays))
     }
@@ -269,39 +310,69 @@ impl Retained {
         key: CommitKey,
         commit: &super::Commit,
         layout: &layout::Layout,
+        visuals: &Visuals,
         interaction: Option<&super::super::interaction::Interaction>,
-    ) -> super::Properties {
-        let values = layout
+        sample: PropertySample,
+    ) -> Result<super::Properties, super::commit::ContractError> {
+        let mut values = layout
             .scroll_projections()
             .iter()
-            .filter(|projection| {
-                commit.nodes().iter().any(|node| {
-                    node.id() == projection.node()
-                        && node.declares(super::PropertyKind::ScrollOffset)
-                })
-            })
-            .map(|projection| {
-                let offset = interaction
-                    .map(super::super::interaction::Interaction::scroll)
-                    .map(|scroll| scroll.offset(projection.target()))
-                    .map(|offset| projection.viewport().resolve(offset))
-                    .unwrap_or_else(|| projection.viewport().resolved_scroll());
-                super::PropertyValue::ScrollOffset {
+            .filter_map(|projection| {
+                let declaration = commit
+                    .nodes()
+                    .iter()
+                    .find(|node| node.id() == projection.node())?
+                    .scroll()?;
+                let offset = match sample {
+                    PropertySample::CommitBaseline => declaration.baseline(),
+                    PropertySample::Current => interaction
+                        .map(super::super::interaction::Interaction::scroll)
+                        .map(|scroll| scroll.offset(projection.target()))
+                        .map(|offset| projection.viewport().resolve(offset))
+                        .unwrap_or_else(|| declaration.baseline()),
+                };
+                Some(super::PropertyValue::ScrollOffset {
                     node: projection.node(),
                     x: offset.x() as f32,
                     y: offset.y() as f32,
-                }
+                })
             })
             .collect::<Vec<_>>();
+        let mut scrollbar_nodes = HashSet::new();
+        for chrome in layout.chrome() {
+            let node = chrome.owner();
+            if !scrollbar_nodes.insert(node)
+                || !commit.nodes().iter().any(|candidate| {
+                    candidate.id() == node && candidate.declares(super::PropertyKind::Scrollbar)
+                })
+            {
+                continue;
+            }
+            let (opacity, thickness) = layout
+                .chrome()
+                .iter()
+                .filter(|candidate| candidate.owner() == node)
+                .map(|candidate| visuals.scrollbar(candidate.target()))
+                .fold((0.0_f32, 1.0_f32), |(opacity, thickness), visual| {
+                    (
+                        opacity.max(visual.opacity()),
+                        thickness.max(visual.thickness() as f32),
+                    )
+                });
+            values.push(super::PropertyValue::Scrollbar {
+                node,
+                opacity,
+                thickness,
+            });
+        }
         let previous = self.properties.get(&key);
         let (properties, advanced) =
-            super::Properties::snapshot(commit, previous, self.next_property_serial, values)
-                .expect("retained scroll properties must satisfy their declared topology");
+            super::Properties::snapshot(commit, previous, self.next_property_serial, values)?;
         if advanced {
             self.next_property_serial = self.next_property_serial.next();
         }
         self.properties.insert(key, properties.clone());
-        properties
+        Ok(properties)
     }
 
     fn layer_fragments(
@@ -469,6 +540,7 @@ fn commit_builder(
         let Some(declaration) = super::ScrollDeclaration::new(
             projection.viewport().visible_content(),
             projection.layer_bounds(),
+            projection.resident_bounds(),
             projection.viewport().resolved_scroll(),
         ) else {
             continue;
@@ -478,20 +550,13 @@ fn commit_builder(
     builder
 }
 
-fn append_layer_fragments(
-    target: &mut super::CommitBuilder,
-    size: geometry::Size,
-    fragments: LayerFragments,
-) {
+fn append_layer_fragments(target: &mut super::CommitBuilder, fragments: LayerFragments) {
     append_scoped_fragments(target, fragments.frames);
     append_scoped_fragments(target, fragments.tracks);
     let mut late = fragments.late;
     late.sort_by_key(viewport_chrome::Projection::layer_order);
     for projection in late {
-        let owner = projection.owner();
-        let mut fragment = Scene::new_with_clear(size, super::Color::rgba(0, 0, 0, 0));
-        projection.paint_into(&mut fragment);
-        target.append_fragment(owner, &fragment);
+        projection.append_to_commit(target);
     }
 }
 
@@ -1007,25 +1072,52 @@ fn project_scrollbar(
 ) {
     let theme_scrollbar = theme.scrollbar();
     let visual = visuals.scrollbar(chrome.target());
-    let visible = match theme_scrollbar.metrics.policy {
-        crate::theme::ScrollbarPolicy::GutterAlways => 1.0,
-        crate::theme::ScrollbarPolicy::OverlayAuto => visual.opacity(),
-    };
-    if visible <= 0.0 {
-        return;
-    }
-
     let base_thickness = match theme_scrollbar.metrics.policy {
         crate::theme::ScrollbarPolicy::GutterAlways => theme_scrollbar.metrics.thickness.max(1),
         crate::theme::ScrollbarPolicy::OverlayAuto => {
             theme_scrollbar.appearance.overlay_thickness.max(1)
         }
     };
-    let thickness = match visual.thickness_motion() {
-        super::Motion::Moving | super::Motion::Resting => visual.thickness().max(base_thickness),
+    let maximum_thickness = theme_scrollbar
+        .appearance
+        .hover_thickness
+        .max(base_thickness);
+    let track = chrome.track_with_thickness(base_thickness);
+    let thumb = chrome.thumb_with_thickness(base_thickness);
+    let axis = chrome.axis();
+    let (edge, track_start, track_extent, thumb_start, thumb_extent) = match axis {
+        crate::interaction::ScrollbarAxis::Vertical => (
+            track.right(),
+            track.y(),
+            track.height(),
+            thumb.y(),
+            thumb.height(),
+        ),
+        crate::interaction::ScrollbarAxis::Horizontal => (
+            track.bottom(),
+            track.x(),
+            track.width(),
+            thumb.x(),
+            thumb.width(),
+        ),
     };
-    let track = chrome.track_with_thickness(thickness);
-    let thumb = chrome.thumb_with_thickness(thickness);
+    let track_projection = super::ContentProjection::ScrollbarTrack {
+        axis,
+        edge,
+        base_thickness,
+        maximum_thickness,
+    };
+    let thumb_projection = super::ContentProjection::ScrollbarThumb {
+        axis,
+        edge,
+        base_thickness,
+        maximum_thickness,
+        baseline_start: thumb_start,
+        baseline_extent: thumb_extent,
+        baseline_position: thumb_start.saturating_sub(track_start),
+        travel: track_extent.saturating_sub(thumb_extent),
+        maximum_offset: chrome.maximum_offset(),
+    };
     let appearance = theme_scrollbar.appearance;
     let scope = viewport_chrome::Scope::new(
         chrome
@@ -1036,15 +1128,15 @@ fn project_scrollbar(
     let mut projection = viewport_chrome::Projection::scrollbar(chrome.owner(), scope);
 
     if appearance.track.channels().3 > 0 {
-        projection.push_quad(
-            Quad::new(track, color_with_opacity(appearance.track, visible))
-                .with_rounding(appearance.rounding),
+        projection.push_scrollbar_quad(
+            Quad::new(track, appearance.track).with_rounding(appearance.rounding),
+            track_projection,
         );
     }
     if appearance.thumb.channels().3 > 0 {
-        projection.push_quad(
-            Quad::new(thumb, color_with_opacity(appearance.thumb, visible))
-                .with_rounding(appearance.rounding),
+        projection.push_scrollbar_quad(
+            Quad::new(thumb, appearance.thumb).with_rounding(appearance.rounding),
+            thumb_projection,
         );
     }
 
@@ -1056,8 +1148,9 @@ fn project_scrollbar(
         super::Color::rgba(0, 0, 0, 0)
     };
     if tint.channels().3 > 0 {
-        projection.push_quad(
-            Quad::new(thumb, color_with_opacity(tint, visible)).with_rounding(appearance.rounding),
+        projection.push_scrollbar_quad(
+            Quad::new(thumb, tint).with_rounding(appearance.rounding),
+            thumb_projection,
         );
     }
     if !projection.is_empty() {
@@ -1073,16 +1166,6 @@ fn chrome_layer_for(layout: &layout::Layout, chrome: &layout::Chrome) -> Layer {
         .find(|frame| frame.node_id() == chrome.owner())
         .map(layer_for)
         .unwrap_or(Layer::Base)
-}
-
-fn color_with_opacity(color: super::Color, opacity: f32) -> super::Color {
-    let (r, g, b, a) = color.channels();
-    super::Color::rgba(
-        r,
-        g,
-        b,
-        ((a as f32) * opacity.clamp(0.0, 1.0)).round() as u8,
-    )
 }
 
 fn role_rounding(frame: &layout::Frame, theme: &Theme) -> super::Rounding {

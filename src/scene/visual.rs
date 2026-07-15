@@ -244,10 +244,6 @@ impl Scrollbar {
         self.thickness
     }
 
-    pub(super) fn thickness_motion(self) -> Motion {
-        self.thickness_motion
-    }
-
     pub(super) fn hovered(self) -> bool {
         self.hovered
     }

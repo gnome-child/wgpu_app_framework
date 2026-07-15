@@ -1,5 +1,6 @@
 use crate::geometry::area;
 use std::collections::{HashMap, hash_map::Entry};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::diagnostics;
@@ -123,12 +124,24 @@ impl Native {
         Ok(())
     }
 
+    fn requeue_failed_activation(&mut self, window: app_window::Id, prepared: shell::Presentation) {
+        let successor = self
+            .pending_presentations
+            .remove(&window)
+            .map(super::PendingPresentation::into_newest);
+        let mut pending = super::PendingPresentation::new(prepared);
+        if let Some(successor) = successor {
+            pending.enqueue(successor);
+        }
+        self.pending_presentations.insert(window, pending);
+    }
+
     pub(in crate::platform::native) fn present_native(
         &mut self,
         presentation: &shell::Presentation,
-    ) -> Result<diagnostics::RenderReport, NativeError> {
+    ) -> Result<super::super::PresentResult, NativeError> {
         let window = presentation.window();
-        self.sync_window_surface(window)?;
+        let (_, surface_resized) = self.sync_window_surface(window)?;
         let render_format = {
             let native_window = self.windows.get(&window).ok_or_else(|| {
                 log::error!("cannot present missing native window: {window:?}");
@@ -141,6 +154,93 @@ impl Native {
             .as_ref()
             .expect("render context should exist before presenting");
         let (renderer, _) = renderer_for_format(context, &mut self.renderers, render_format);
+        let active = self.active_presentations.get(&window).cloned();
+        let active_matches = active
+            .as_ref()
+            .is_some_and(|active| Arc::ptr_eq(active.commit(), presentation.commit()));
+        let mut refreshes_active = false;
+        let mut activation_from_pending = false;
+        let actual = if active.is_none() || active_matches {
+            refreshes_active = active_matches && self.pending_presentations.contains_key(&window);
+            presentation.clone()
+        } else {
+            match self.pending_presentations.entry(window) {
+                Entry::Occupied(mut entry) => entry.get_mut().enqueue(presentation.clone()),
+                Entry::Vacant(entry) => {
+                    entry.insert(super::PendingPresentation::new(presentation.clone()));
+                }
+            }
+            let canvas = self.windows.get(&window).ok_or_else(|| {
+                log::error!("cannot prepare missing native window: {window:?}");
+                NativeError::MissingWindow { window }
+            })?;
+            let preparation = if surface_resized {
+                PreparationWindow {
+                    budget: std::time::Duration::MAX,
+                    deadline: std::time::Duration::MAX,
+                }
+            } else {
+                preparation_window(canvas.display_refresh_millihertz())
+            };
+            let preparation_started = Instant::now();
+            loop {
+                let pending = self
+                    .pending_presentations
+                    .get(&window)
+                    .expect("pending presentation was just admitted");
+                let preparing = pending.preparing.clone();
+                let newest = pending.newest().clone();
+                let remaining = preparation
+                    .budget
+                    .saturating_sub(preparation_started.elapsed());
+                if remaining.is_zero() {
+                    refreshes_active = true;
+                    break project_onto_active(
+                        active
+                            .as_ref()
+                            .expect("pending realization requires a complete active presentation"),
+                        &newest,
+                    );
+                }
+                let readiness = renderer.synchronize_commit(
+                    context,
+                    canvas.canvas(),
+                    preparing.commit(),
+                    preparing.properties(),
+                    remaining,
+                    preparation.deadline,
+                )?;
+                match readiness {
+                    render::CommitReadiness::Ready => {
+                        let pending = self
+                            .pending_presentations
+                            .remove(&window)
+                            .expect("ready preparation must still be pending");
+                        match pending.complete() {
+                            super::PendingCompletion::Activate(prepared) => {
+                                activation_from_pending = true;
+                                break prepared;
+                            }
+                            super::PendingCompletion::ActivateAndContinue { prepared, latest } => {
+                                self.pending_presentations
+                                    .insert(window, super::PendingPresentation::new(latest));
+                                activation_from_pending = true;
+                                break prepared;
+                            }
+                        }
+                    }
+                    _ => {
+                        refreshes_active = true;
+                        break project_onto_active(
+                            active.as_ref().expect(
+                                "pending realization requires a complete active presentation",
+                            ),
+                            &newest,
+                        );
+                    }
+                }
+            }
+        };
         let native_window = self.windows.get_mut(&window).ok_or_else(|| {
             log::error!("cannot present missing native window: {window:?}");
             NativeError::MissingWindow { window }
@@ -155,10 +255,19 @@ impl Native {
         let report = renderer.draw_commit(
             context,
             native_window.canvas_mut(),
-            presentation.commit(),
-            presentation.properties(),
-            presentation.overlays(),
-        )?;
+            actual.commit(),
+            actual.properties(),
+            actual.overlays(),
+        );
+        let report = match report {
+            Ok(report) => report,
+            Err(error) => {
+                if activation_from_pending {
+                    self.requeue_failed_activation(window, actual);
+                }
+                return Err(error.into());
+            }
+        };
         let draw = draw_started.elapsed();
         let acquire_wait = report
             .present_timing
@@ -187,22 +296,64 @@ impl Native {
             self.popup_prewarm.insert(window, PopupPrewarmState::Armed);
         }
 
-        Ok(
-            diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
-                .with_presented(presented)
-                .with_acquire_outcome(report.acquire_outcome)
-                .with_pipeline_timings(report.batch_prepare, encode_submit_present)
-                .with_draw_stats(report.stats)
-                .with_environment(environment)
-                .with_group_composites(group_composites)
-                .with_filter_pool_entries(filter_layer_pool_entries, filter_scratch_pool_entries),
-        )
+        if activation_from_pending {
+            if !presented {
+                self.requeue_failed_activation(window, actual.clone());
+            }
+        }
+
+        if presented {
+            self.active_presentations.insert(window, actual.clone());
+        }
+
+        let report = diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
+            .with_presented(presented)
+            .with_acquire_outcome(report.acquire_outcome)
+            .with_pipeline_timings(report.batch_prepare, encode_submit_present)
+            .with_draw_stats(report.stats)
+            .with_environment(environment)
+            .with_group_composites(group_composites)
+            .with_filter_pool_entries(filter_layer_pool_entries, filter_scratch_pool_entries);
+        let presented = super::super::Presented::new(actual, report);
+        Ok(if refreshes_active {
+            super::super::PresentResult::ActiveRefreshedAndDeferred(presented)
+        } else if self.pending_presentations.contains_key(&window) {
+            super::super::PresentResult::PresentedAndDeferred(presented)
+        } else {
+            presented.into()
+        })
+    }
+
+    pub(in crate::platform::native) fn resume_native_presentations(
+        &mut self,
+    ) -> Result<Vec<super::super::PresentResult>, NativeError> {
+        let pending = self
+            .pending_presentations
+            .values()
+            .map(|pending| pending.preparing.clone())
+            .collect::<Vec<_>>();
+        let mut results = Vec::with_capacity(pending.len());
+
+        for presentation in pending {
+            let window = presentation.window();
+            let is_current = self
+                .pending_presentations
+                .get(&window)
+                .is_some_and(|current| {
+                    Arc::ptr_eq(current.preparing.commit(), presentation.commit())
+                });
+            if is_current {
+                results.push(self.present_native(&presentation)?);
+            }
+        }
+
+        Ok(results)
     }
 
     pub(in crate::platform::native) fn sync_window_surface(
         &mut self,
         window: app_window::Id,
-    ) -> Result<surface::Format, NativeError> {
+    ) -> Result<(surface::Format, bool), NativeError> {
         self.ensure_context()?;
         let native_window = self.windows.get_mut(&window).ok_or_else(|| {
             log::error!("cannot sync surface for missing native window: {window:?}");
@@ -228,7 +379,47 @@ impl Native {
             native_window.resize(context, area, scale_factor);
         }
 
-        Ok(native_window.canvas().surface().format())
+        Ok((native_window.canvas().surface().format(), needs_resize))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PreparationWindow {
+    budget: std::time::Duration,
+    deadline: std::time::Duration,
+}
+
+fn preparation_window(refresh_millihertz: Option<u32>) -> PreparationWindow {
+    const MINIMUM: std::time::Duration = std::time::Duration::from_micros(750);
+    const DEFAULT: std::time::Duration = std::time::Duration::from_millis(4);
+    const DEFAULT_DEADLINE: std::time::Duration = std::time::Duration::from_nanos(16_666_667);
+    const MAXIMUM: std::time::Duration = std::time::Duration::from_millis(8);
+    const DRAW_RESERVE: std::time::Duration = std::time::Duration::from_millis(2);
+
+    let Some(refresh_millihertz) = refresh_millihertz.filter(|refresh| *refresh > 0) else {
+        return PreparationWindow {
+            budget: DEFAULT,
+            deadline: DEFAULT_DEADLINE,
+        };
+    };
+    let period_nanos = 1_000_000_000_000_u128 / u128::from(refresh_millihertz);
+    let period = std::time::Duration::from_nanos(period_nanos.min(u128::from(u64::MAX)) as u64);
+    PreparationWindow {
+        budget: period.saturating_sub(DRAW_RESERVE).clamp(MINIMUM, MAXIMUM),
+        deadline: period,
+    }
+}
+
+fn project_onto_active(
+    active: &shell::Presentation,
+    newest: &shell::Presentation,
+) -> shell::Presentation {
+    match newest
+        .properties()
+        .project_onto(active.commit(), active.properties())
+    {
+        Ok((properties, true)) => active.with_active_properties(properties),
+        Ok((_, false)) | Err(_) => active.clone(),
     }
 }
 
@@ -276,6 +467,40 @@ mod tests {
             Attempts {
                 first: context::Backends::vulkan(),
                 fallback: None,
+            }
+        );
+    }
+
+    #[test]
+    fn preparation_budget_tracks_refresh_with_bounded_reserve() {
+        assert_eq!(
+            preparation_window(None),
+            PreparationWindow {
+                budget: std::time::Duration::from_millis(4),
+                deadline: std::time::Duration::from_nanos(16_666_667),
+            }
+        );
+        assert_eq!(
+            preparation_window(Some(60_000)),
+            PreparationWindow {
+                budget: std::time::Duration::from_millis(8),
+                deadline: std::time::Duration::from_nanos(16_666_666),
+            }
+        );
+        assert_eq!(
+            preparation_window(Some(240_000)),
+            PreparationWindow {
+                budget: std::time::Duration::from_micros(2_166)
+                    + std::time::Duration::from_nanos(666),
+                deadline: std::time::Duration::from_micros(4_166)
+                    + std::time::Duration::from_nanos(666),
+            }
+        );
+        assert_eq!(
+            preparation_window(Some(1_000_000)),
+            PreparationWindow {
+                budget: std::time::Duration::from_micros(750),
+                deadline: std::time::Duration::from_millis(1),
             }
         );
     }

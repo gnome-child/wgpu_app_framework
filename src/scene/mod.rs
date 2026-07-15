@@ -10,13 +10,13 @@ mod visual;
 pub use crate::color::Color;
 pub(crate) use commit::{Builder as CommitBuilder, Commit, Node, Properties};
 pub(crate) use commit::{
-    Content, Draw, EffectDeclaration, GeometryRevision, OpacityDeclaration, PropertyKind,
-    PropertyRef, PropertySerial, PropertyValue, ScrollDeclaration, TopologyRevision,
+    Content, ContentProjection, Draw, EffectDeclaration, GeometryRevision, OpacityDeclaration,
+    PropertyKind, PropertyRef, PropertySerial, PropertyValue, ScrollDeclaration, TopologyRevision,
 };
 #[cfg(feature = "renderer-debug")]
 pub(crate) use commit::{
-    FixtureCase, renderer_fixture, renderer_partial_update_fixture, renderer_scroll_properties,
-    renderer_scroll_semantic_pair,
+    FixtureCase, renderer_fixture, renderer_partial_update_fixture,
+    renderer_scroll_layer_semantic_pair, renderer_scroll_properties, renderer_scroll_semantic_pair,
 };
 pub(crate) use material::GlassBase;
 pub use material::{
@@ -383,12 +383,14 @@ impl Scene {
         }
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(super) fn push_clip(&mut self, clip: Clip) {
         if clip.rect().width() > 0 && clip.rect().height() > 0 {
             self.primitives.push(Primitive::Clip(clip));
         }
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(super) fn pop_clip(&mut self) {
         self.primitives.push(Primitive::PopClip);
     }

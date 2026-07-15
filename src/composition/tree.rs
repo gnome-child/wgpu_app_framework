@@ -132,7 +132,7 @@ impl ContentRevision {
         Self(if value == 0 { 1 } else { value })
     }
 
-    fn next(self) -> Self {
+    pub(crate) fn next(self) -> Self {
         Self(self.0.saturating_add(1))
     }
 

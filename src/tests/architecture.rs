@@ -920,8 +920,9 @@ fn semantic_scene_lowering_belongs_to_renderer() {
     );
     assert!(
         surface.contains("renderer.draw_commit(")
-            && surface.contains("presentation.commit()")
-            && surface.contains("presentation.properties()")
+            && surface.contains("renderer.synchronize_commit(")
+            && surface.contains("actual.commit()")
+            && surface.contains("actual.properties()")
             && !surface.contains("render::scene::to_paint_scene_at_scale")
             && popup.contains("render::scene::to_paint_scene_at_scale")
             && popup.contains("render::scene::PopupProjection::resolve"),
@@ -3800,6 +3801,16 @@ fn per_window_state_owns_departed_cleanup() {
         native_adapter.contains("Listener<app_window::Departed> for Native"),
         "the native popup manager must own its Departed purge"
     );
+    for cleanup in [
+        "self.active_presentations.remove(&window)",
+        "self.pending_presentations.remove(&window)",
+        "renderer.cancel_commit_synchronization(pending.preparing.commit())",
+    ] {
+        assert!(
+            native_adapter.contains(cleanup),
+            "window departure must retire active/pending renderer state: {cleanup}"
+        );
+    }
     assert!(
         window_departed.contains("pub struct Departed;")
             && !window_departed.contains("notification")

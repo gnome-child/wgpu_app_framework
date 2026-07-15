@@ -10,6 +10,7 @@ use crate::interaction::Interaction;
 use crate::text;
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     path::PathBuf,
     rc::Rc,
     time::{Duration, Instant},
@@ -258,6 +259,8 @@ struct FakeBackend {
     native_popups: bool,
     fail_open: bool,
     skip_present: bool,
+    deferred_presents: usize,
+    pending_presentations: HashMap<window::Id, shell::Presentation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -329,6 +332,10 @@ impl FakeBackend {
         self.skip_present = true;
         self
     }
+
+    fn defer_next_present(&mut self) {
+        self.deferred_presents = self.deferred_presents.saturating_add(1);
+    }
 }
 
 impl platform::Backend for FakeBackend {
@@ -358,6 +365,7 @@ impl platform::Backend for FakeBackend {
         _context: &mut Self::Context<'_>,
         window: window::Id,
     ) -> Result<(), Self::Error> {
+        self.pending_presentations.remove(&window);
         self.events.push(BackendEvent::CloseWindow { id: window });
         Ok(())
     }
@@ -375,18 +383,44 @@ impl platform::Backend for FakeBackend {
         &mut self,
         _context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
-    ) -> Result<diagnostics::RenderReport, Self::Error> {
+    ) -> Result<platform::PresentResult, Self::Error> {
         self.events.push(BackendEvent::Present {
             window: presentation.window(),
             size: presentation.size(),
             clear_color: presentation.scene().clear(),
         });
-        Ok(diagnostics::RenderReport::new(
-            Duration::from_micros(10),
-            Duration::from_micros(20),
-            Instant::now(),
+        if self.deferred_presents > 0 {
+            self.deferred_presents = self.deferred_presents.saturating_sub(1);
+            self.pending_presentations
+                .insert(presentation.window(), presentation.clone());
+            return Ok(platform::PresentResult::Deferred(presentation.window()));
+        }
+        self.pending_presentations.remove(&presentation.window());
+        Ok(platform::Presented::new(
+            presentation.clone(),
+            diagnostics::RenderReport::new(
+                Duration::from_micros(10),
+                Duration::from_micros(20),
+                Instant::now(),
+            )
+            .with_presented(!self.skip_present),
         )
-        .with_presented(!self.skip_present))
+        .into())
+    }
+
+    fn resume_presentations(
+        &mut self,
+        context: &mut Self::Context<'_>,
+    ) -> Result<Vec<platform::PresentResult>, Self::Error> {
+        let pending = self
+            .pending_presentations
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        pending
+            .iter()
+            .map(|presentation| self.present(context, presentation))
+            .collect()
     }
 
     fn overlay_capabilities(&self) -> overlay::Capabilities {

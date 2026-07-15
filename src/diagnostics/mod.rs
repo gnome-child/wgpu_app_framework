@@ -13,7 +13,11 @@ pub use pipeline::Pipeline;
 pub use render::Render;
 #[cfg(feature = "renderer-debug")]
 #[doc(hidden)]
-pub use render::compare_control_gallery_property_tick;
+pub use render::{
+    compare_control_gallery_caret_blink, compare_control_gallery_incremental_activation,
+    compare_control_gallery_pending_property_refresh, compare_control_gallery_pending_scroll,
+    compare_control_gallery_pending_transition, compare_control_gallery_property_tick,
+};
 pub use scroll::Scroll;
 
 pub(crate) use store::Store;

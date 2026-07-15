@@ -2171,6 +2171,44 @@ Required witnesses:
 This is not license for Chromium's tiling, checkerboarding, GPU process, or
 unbounded raster task graph. Each would require a separate caller and receipt.
 
+### Checkpoint 8 in-flight ledger — open
+
+Progress preservation receipt, 2026-07-15. This records evidence and open
+defects; it is not checkpoint acceptance:
+
+- incremental preparation, active-output, pending-property, resize, caret, and
+  production-gallery transition witnesses now exercise the admitted
+  pending/active mechanism through the specialized debug crate;
+- strict suppression of every completed commit with a newer successor was
+  found to guarantee starvation under continuous semantic input. The queue now
+  permits one complete accepted prepared state to activate atomically while
+  retaining only the latest successor for continued preparation. A failed
+  activation is requeued ahead of that successor. “Newer exists” is therefore
+  not by itself the definition of stale; invalid, cancelled, incompatible, or
+  explicitly displaced work remains forbidden from activation;
+- the intermittent fresh-scene topology panic was traced to sampling newer
+  live scroll truth after declaring a commit's resident scroll topology. Fresh
+  properties now originate from the declaration baseline; current interaction
+  truth belongs to the property clock. Focused and repeated live proof remains
+  open at this preservation point;
+- the real 760-by-660 Control Gallery property oracle is exact at 1.0 scale but
+  still fails at 1.25. The maximum mismatched retained text pixel has an exact
+  expected match four physical pixels right and one pixel up, assigning the
+  current failure to localization/snapping rather than blend tolerance. The
+  1.25/1.5/2.0 transition matrix remains open and tolerances have not been
+  weakened;
+- live fast-scroll testing can still expose black ordinary-window output while
+  retained table content survives. Active and pending realization currently
+  share mutable renderer property storage, and code-owned receipts show large
+  repeated property uploads; complete active/pending resource isolation and a
+  black-free release-gallery smoke remain open;
+- the new `tools/renderer_debug/README.md` documents the independently runnable
+  oracle, code-owned evidence order, comparison discipline, witness-extension
+  rules, and the separate mandatory runtime-smoke rail.
+
+Checkpoint 8 remains in progress. No pending/active acceptance, sole-renderer
+claim, or runtime-completeness claim is made by this progress commit.
+
 ## Checkpoint 9 — burn down the old species
 
 The burn-down is one terminal sweep, not a deferred trash list.
@@ -2273,7 +2311,9 @@ Optional unavailable hardware is recorded as unavailable, never simulated or
 replaced by a source inference, and does not block a code-owned checkpoint.
 
 One coherent mechanism or ownership correction is committed at a time where
-practical. No push occurs unless explicitly authorized.
+practical. The user explicitly authorized checkpoint publication on
+2026-07-15: every campaign commit from that point onward is immediately
+followed by `git push` to its configured upstream.
 
 ## Non-goals
 

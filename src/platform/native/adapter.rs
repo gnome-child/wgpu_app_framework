@@ -1,8 +1,6 @@
 use super::super::{Backend, NativeError, Window};
 use super::{CursorHost, Native, NativeContext};
-use crate::{
-    diagnostics, ime, notification, overlay, pointer, session, shell, window as app_window,
-};
+use crate::{ime, notification, overlay, pointer, session, shell, window as app_window};
 
 impl Backend for Native {
     type Error = NativeError;
@@ -37,6 +35,12 @@ impl Backend for Native {
             return Err(NativeError::MissingWindow { window });
         };
         self.raw_windows.remove(&native_window.raw_id());
+        self.active_presentations.remove(&window);
+        if let Some(pending) = self.pending_presentations.remove(&window) {
+            for renderer in self.renderers.values_mut() {
+                renderer.cancel_commit_synchronization(pending.preparing.commit());
+            }
+        }
         self.cursor_hosts.remove(&window);
         self.cursor_values.remove(&window);
         self.ime_targets.remove(&window);
@@ -57,8 +61,15 @@ impl Backend for Native {
         &mut self,
         _context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
-    ) -> Result<diagnostics::RenderReport, Self::Error> {
+    ) -> Result<super::super::PresentResult, Self::Error> {
         self.present_native(presentation)
+    }
+
+    fn resume_presentations(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+    ) -> Result<Vec<super::super::PresentResult>, Self::Error> {
+        self.resume_native_presentations()
     }
 
     #[allow(private_interfaces)]

@@ -149,6 +149,171 @@ fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
 }
 
 #[test]
+fn active_property_refresh_advances_visible_input_without_activating_pending_structure() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let active = app
+        .render_scene(window, size)
+        .expect("initial active frame should prepare");
+    let active_epoch = active.epoch();
+    let active_invalidation = active.invalidation();
+    let active_layout = active.layout().clone();
+    let active_commit = std::sync::Arc::clone(active.commit());
+    let active_properties = active.properties().clone();
+    let table_cell = active
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == interaction::Id::new("detail")
+            })
+        })
+        .expect("gallery should materialize the stable scroll witness cell");
+    let point = geometry::Point::new(table_cell.rect().x() + 1, table_cell.rect().y() + 1);
+    app.finish_render_report(
+        window,
+        active_epoch,
+        active_invalidation,
+        &active_layout,
+        &active_properties,
+        active.property_only(),
+        successful_render_report(),
+    );
+    drop(active);
+
+    app.change(
+        state::Reason::programmatic("pending level change"),
+        |state| {
+            state.level = 73.0;
+        },
+    );
+    let candidate = app
+        .render_scene(window, size)
+        .expect("semantic candidate should prepare");
+    let candidate_epoch = candidate.epoch();
+    let candidate_commit = std::sync::Arc::clone(candidate.commit());
+    assert!(!std::sync::Arc::ptr_eq(&active_commit, &candidate_commit));
+    drop(candidate);
+
+    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(24))
+        .expect("guard-contained scroll should be accepted while the candidate is pending");
+    let ticked_candidate = app
+        .render_scene(window, size)
+        .expect("pending candidate should carry the latest property sample");
+    assert!(std::sync::Arc::ptr_eq(
+        &candidate_commit,
+        ticked_candidate.commit()
+    ));
+    let scroll_node = active_commit
+        .nodes()
+        .iter()
+        .find(|node| {
+            node.declares(scene::PropertyKind::ScrollOffset)
+                && ticked_candidate.properties().scroll_offset(node.id())
+                    != active_properties.scroll_offset(node.id())
+        })
+        .map(|node| node.id())
+        .expect("pending candidate should carry one changed active scroll value");
+    let (projected, changed) = ticked_candidate
+        .properties()
+        .project_onto(&active_commit, &active_properties)
+        .expect("candidate property state should project onto shared active topology");
+    assert!(changed);
+    assert_eq!(
+        projected.scroll_offset(scroll_node),
+        Some(interaction::ScrollOffset::new(0, 24))
+    );
+
+    app.finish_active_refresh(
+        window,
+        active_epoch,
+        active_invalidation,
+        &active_layout,
+        &projected,
+        successful_render_report(),
+    );
+
+    assert_eq!(
+        app.acknowledged_presentation_epoch(window),
+        Some(active_epoch),
+        "active refresh must not acknowledge the pending candidate epoch"
+    );
+    assert!(candidate_epoch > active_epoch);
+    assert_eq!(
+        app.presented_properties(window)
+            .and_then(|properties| properties.scroll_offset(scroll_node)),
+        Some(interaction::ScrollOffset::new(0, 24)),
+        "successful active refresh must become the sole visible input transform"
+    );
+    assert_eq!(
+        app.diagnostics(window)
+            .expect("window diagnostics should remain")
+            .render
+            .semantic_commits_activated,
+        1,
+        "refreshing active properties must not activate pending structure"
+    );
+}
+
+#[test]
+fn scroll_leaving_resident_topology_promotes_to_a_semantic_commit() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let active = app
+        .render_scene(window, size)
+        .expect("initial active frame should prepare");
+    let active_commit = std::sync::Arc::clone(active.commit());
+    let table_cell = active
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == interaction::Id::new("detail")
+            })
+        })
+        .expect("gallery should materialize the stable scroll witness cell");
+    let point = geometry::Point::new(table_cell.rect().x() + 1, table_cell.rect().y() + 1);
+    app.finish_render_report(
+        window,
+        active.epoch(),
+        active.invalidation(),
+        active.layout(),
+        active.properties(),
+        active.property_only(),
+        successful_render_report(),
+    );
+    drop(active);
+
+    let mut replenished = None;
+    for _ in 0..128 {
+        app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(24))
+            .expect("scroll should remain a valid input while resident content is exhausted");
+        let candidate = app
+            .render_scene(window, size)
+            .expect("scroll should always produce a complete drawable candidate");
+        if !candidate.property_only() {
+            replenished = Some(std::sync::Arc::clone(candidate.commit()));
+            break;
+        }
+    }
+
+    let replenished = replenished
+        .expect("leaving resident coverage must request semantic replenishment, not panic");
+    assert!(
+        !std::sync::Arc::ptr_eq(&active_commit, &replenished),
+        "semantic replenishment must replace the exhausted commit topology"
+    );
+}
+
+#[test]
 fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();

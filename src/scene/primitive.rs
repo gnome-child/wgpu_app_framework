@@ -340,6 +340,16 @@ impl Quad {
         self
     }
 
+    pub(in crate::scene) fn with_rect(mut self, rect: geometry::Rect) -> Self {
+        self.rect = rect;
+        self
+    }
+
+    pub(in crate::scene) fn with_opacity(mut self, opacity: f32) -> Self {
+        self.style = self.style.with_opacity(opacity);
+        self
+    }
+
     pub fn rect(&self) -> geometry::Rect {
         self.rect
     }
@@ -1057,6 +1067,17 @@ impl Style {
     pub const fn tint(self) -> Option<Brush> {
         self.tint
     }
+
+    fn with_opacity(self, opacity: f32) -> Self {
+        Self {
+            fill: self.fill.map(|brush| brush.with_opacity(opacity)),
+            stroke: self.stroke.map(|stroke| Stroke {
+                brush: stroke.brush.with_opacity(opacity),
+                ..stroke
+            }),
+            tint: self.tint.map(|brush| brush.with_opacity(opacity)),
+        }
+    }
 }
 
 impl Stroke {
@@ -1086,6 +1107,20 @@ impl Brush {
         match self {
             Self::Solid(color) => color.channels().3 > 0,
             Self::LinearGradient { from, to } => from.channels().3 > 0 || to.channels().3 > 0,
+        }
+    }
+
+    fn with_opacity(self, opacity: f32) -> Self {
+        let apply = |color: Color| {
+            let (r, g, b, a) = color.channels();
+            Color::rgba(r, g, b, (a as f32 * opacity.clamp(0.0, 1.0)).round() as u8)
+        };
+        match self {
+            Self::Solid(color) => Self::Solid(apply(color)),
+            Self::LinearGradient { from, to } => Self::LinearGradient {
+                from: apply(from),
+                to: apply(to),
+            },
         }
     }
 }

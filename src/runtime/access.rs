@@ -11,6 +11,25 @@ use super::super::{
 };
 use super::Runtime;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FinishKind {
+    Candidate { property_only: bool },
+    ActiveRefresh,
+}
+
+impl FinishKind {
+    fn property_only(self) -> bool {
+        match self {
+            Self::Candidate { property_only } => property_only,
+            Self::ActiveRefresh => true,
+        }
+    }
+
+    fn refreshes_active(self) -> bool {
+        self == Self::ActiveRefresh
+    }
+}
+
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn state(&self) -> &M {
         self.store.model()
@@ -168,10 +187,53 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         property_only: bool,
         report: super::super::diagnostics::RenderReport,
     ) -> bool {
+        self.finish_render_report_with_kind(
+            window,
+            epoch,
+            invalidation,
+            layout,
+            properties,
+            FinishKind::Candidate { property_only },
+            report,
+        )
+    }
+
+    pub(crate) fn finish_active_refresh(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+        invalidation: super::super::response::effect::Invalidation,
+        layout: &super::super::layout::Layout,
+        properties: &super::super::scene::Properties,
+        report: super::super::diagnostics::RenderReport,
+    ) -> bool {
+        self.finish_render_report_with_kind(
+            window,
+            epoch,
+            invalidation,
+            layout,
+            properties,
+            FinishKind::ActiveRefresh,
+            report,
+        )
+    }
+
+    fn finish_render_report_with_kind(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+        invalidation: super::super::response::effect::Invalidation,
+        layout: &super::super::layout::Layout,
+        properties: &super::super::scene::Properties,
+        kind: FinishKind,
+        report: super::super::diagnostics::RenderReport,
+    ) -> bool {
         if !self.session.contains(window) {
             return false;
         }
 
+        let property_only = kind.property_only();
+        let refreshes_active = kind.refreshes_active();
         let presented = report.presented();
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics
@@ -221,11 +283,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         if presented {
-            if self.session.acknowledge_presentation(window, epoch) {
+            let activated =
+                !refreshes_active && self.session.acknowledge_presentation(window, epoch);
+            if activated && !property_only {
                 self.diagnostics
                     .get_mut(window)
                     .render
                     .record_semantic_activation();
+            }
+            if activated || refreshes_active {
                 self.presented_geometry.insert(
                     window,
                     super::PresentedGeometry {
@@ -286,7 +352,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 );
                 self.session.set_cursor(window, resolved.cursor());
             }
-        } else {
+        } else if !refreshes_active {
             if property_only {
                 self.session.retry_property_tick(window);
             } else {
@@ -303,6 +369,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.presented_geometry
             .get(&window)
             .map(|geometry| std::sync::Arc::clone(&geometry.layout))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn presented_properties(
+        &self,
+        window: window::Id,
+    ) -> Option<&super::super::scene::Properties> {
+        self.presented_geometry
+            .get(&window)
+            .map(|geometry| &geometry.properties)
     }
 
     #[cfg(test)]

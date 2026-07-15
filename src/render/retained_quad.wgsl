@@ -11,7 +11,9 @@ struct NodeProperty {
     grid: vec2<f32>,
     scene_origin: vec2<f32>,
     target_size: vec2<f32>,
-    _padding: vec2<f32>,
+    opacity: f32,
+    _padding_scalar: f32,
+    _padding_vector: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
@@ -169,6 +171,9 @@ fn brush_color(in: VertexOut) -> vec4<f32> {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    if node_property.opacity <= 0.0 {
+        discard;
+    }
     let material = brush_color(in);
 
     if in.params.x > 1.5 {
@@ -190,7 +195,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             discard;
         }
 
-        return vec4<f32>(material.rgb, material.a * alpha);
+        return vec4<f32>(material.rgb, material.a * alpha * node_property.opacity);
     }
 
     let outer_sdf = rounded_rect_sdf(in.local_position, in.outer_rect, in.outer_rounding);
@@ -214,5 +219,5 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    return vec4<f32>(material.rgb, material.a * alpha);
+    return vec4<f32>(material.rgb, material.a * alpha * node_property.opacity);
 }

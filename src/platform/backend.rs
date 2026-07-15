@@ -1,5 +1,40 @@
 use super::super::{diagnostics, geometry, ime, overlay, pointer, scene, session, shell, window};
 
+pub struct Presented {
+    presentation: shell::Presentation,
+    report: diagnostics::RenderReport,
+}
+
+pub enum PresentResult {
+    Presented(Presented),
+    PresentedAndDeferred(Presented),
+    ActiveRefreshedAndDeferred(Presented),
+    Deferred(window::Id),
+}
+
+impl From<Presented> for PresentResult {
+    fn from(presented: Presented) -> Self {
+        Self::Presented(presented)
+    }
+}
+
+impl Presented {
+    pub fn new(presentation: shell::Presentation, report: diagnostics::RenderReport) -> Self {
+        Self {
+            presentation,
+            report,
+        }
+    }
+
+    pub(crate) fn into_parts(self) -> (shell::Presentation, diagnostics::RenderReport) {
+        (self.presentation, self.report)
+    }
+
+    pub(crate) fn window(&self) -> window::Id {
+        self.presentation.window()
+    }
+}
+
 pub trait Backend {
     type Error;
     type Context<'a>;
@@ -28,7 +63,14 @@ pub trait Backend {
         &mut self,
         context: &mut Self::Context<'_>,
         presentation: &shell::Presentation,
-    ) -> Result<diagnostics::RenderReport, Self::Error>;
+    ) -> Result<PresentResult, Self::Error>;
+
+    fn resume_presentations(
+        &mut self,
+        _context: &mut Self::Context<'_>,
+    ) -> Result<Vec<PresentResult>, Self::Error> {
+        Ok(Vec::new())
+    }
 
     #[allow(private_interfaces)]
     fn overlay_capabilities(&self) -> overlay::Capabilities {

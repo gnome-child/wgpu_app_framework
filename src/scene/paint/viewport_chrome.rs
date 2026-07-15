@@ -1,4 +1,6 @@
-use super::super::{Clip, Outline, Quad, Scene};
+#[cfg(test)]
+use super::super::Scene;
+use super::super::{Clip, CommitBuilder, Content, ContentProjection, Outline, Quad};
 use crate::composition;
 
 #[derive(Clone)]
@@ -23,7 +25,7 @@ enum Layer {
 #[derive(Clone)]
 enum Paint {
     Outline(Outline),
-    Quad(Quad),
+    Quad(Quad, ContentProjection),
 }
 
 impl Scope {
@@ -68,18 +70,15 @@ impl Projection {
         }
     }
 
-    pub(super) fn push_quad(&mut self, quad: Quad) {
-        self.paint.push(Paint::Quad(quad));
+    pub(super) fn push_scrollbar_quad(&mut self, quad: Quad, projection: ContentProjection) {
+        self.paint.push(Paint::Quad(quad, projection));
     }
 
     pub(super) fn is_empty(&self) -> bool {
         self.paint.is_empty()
     }
 
-    pub(super) fn owner(&self) -> composition::tree::NodeId {
-        self.owner
-    }
-
+    #[cfg(test)]
     pub(super) fn paint_into(self, scene: &mut Scene) {
         let clip_count = self.scope.clips.len();
         for clip in self.scope.clips {
@@ -88,11 +87,32 @@ impl Projection {
         for paint in self.paint {
             match paint {
                 Paint::Outline(outline) => scene.push_outline(outline),
-                Paint::Quad(quad) => scene.push_quad(quad),
+                Paint::Quad(quad, _) => scene.push_quad(quad),
             }
         }
         for _ in 0..clip_count {
             scene.pop_clip();
+        }
+    }
+    pub(super) fn append_to_commit(self, commit: &mut CommitBuilder) {
+        let clip_count = self.scope.clips.len();
+        for clip in self.scope.clips {
+            commit.push_clip(clip);
+        }
+        for paint in self.paint {
+            match paint {
+                Paint::Outline(outline) => commit.push_projected_content(
+                    self.owner,
+                    Content::Outline(outline),
+                    ContentProjection::Normal,
+                ),
+                Paint::Quad(quad, projection) => {
+                    commit.push_projected_content(self.owner, Content::Quad(quad), projection);
+                }
+            }
+        }
+        for _ in 0..clip_count {
+            commit.pop_clip();
         }
     }
 }

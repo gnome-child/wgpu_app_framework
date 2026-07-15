@@ -14,6 +14,13 @@ pub(crate) struct DrawReport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommitReadiness {
+    Pending,
+    Prepared,
+    Ready,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfacePath {
     PackedPremultiplied,
     Direct,
@@ -39,6 +46,12 @@ struct CachedScrollLayer {
     layer_bounds: paint::Rect,
     property_values: Box<[crate::scene::PropertyValue]>,
     layer: render::filter::Layer,
+}
+
+struct ScrollSegment<'a> {
+    scroll: &'a PreparedScroll,
+    index: usize,
+    batches: &'a [RenderBatch],
 }
 
 #[derive(Clone)]
@@ -319,6 +332,185 @@ impl Renderer {
         )
     }
 
+    pub(crate) fn synchronize_commit(
+        &mut self,
+        render_context: &render::Context,
+        canvas: &render::Canvas,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        budget: std::time::Duration,
+        deadline: std::time::Duration,
+    ) -> render::Result<CommitReadiness> {
+        let viewport = render::Viewport::from_canvas(canvas);
+        self.synchronize_commit_for_viewport(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            budget,
+            deadline,
+        )
+    }
+
+    fn synchronize_commit_for_viewport(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        budget: std::time::Duration,
+        deadline: std::time::Duration,
+    ) -> render::Result<CommitReadiness> {
+        let started_at = std::time::Instant::now();
+        let readiness = self.retained.synchronize_bounded(
+            render_context,
+            viewport,
+            commit,
+            &mut self.text_renderer,
+            budget,
+            deadline,
+        )?;
+        if readiness == render::retained::Synchronize::Pending {
+            return Ok(CommitReadiness::Pending);
+        }
+
+        loop {
+            let slice_started = std::time::Instant::now();
+            let prepared =
+                self.retained
+                    .prepare_pending(render_context, viewport, commit, properties)?;
+            let ready =
+                self.prepare_one_scroll_layer(render_context, viewport, &prepared, properties)?;
+            self.retained.record_preparation_slice(
+                viewport,
+                commit,
+                slice_started.elapsed(),
+                deadline,
+            );
+            if ready {
+                return Ok(CommitReadiness::Ready);
+            }
+            if started_at.elapsed() >= budget {
+                return Ok(CommitReadiness::Prepared);
+            }
+        }
+    }
+
+    pub(crate) fn cancel_commit_synchronization(
+        &mut self,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+    ) {
+        self.retained.cancel_synchronization(commit);
+    }
+
+    fn prepare_one_scroll_layer(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        prepared: &render::retained::Prepared,
+        properties: &crate::scene::Properties,
+    ) -> render::Result<bool> {
+        validate_retained_layers(
+            prepared.plan.batches(),
+            viewport.scale_factor(),
+            render_context.device().limits().max_texture_dimension_2d,
+        )?;
+        self.scroll_layers.retain(|entry| entry.revision.is_alive());
+        let mut segments = Vec::new();
+        collect_scroll_segments(prepared.plan.batches(), &mut segments);
+        let scale_bits = viewport.scale_factor().to_bits();
+
+        for segment in segments {
+            let property_values = segment.scroll.revision.property_values(properties);
+            if scroll_layer_cache_position(
+                &mut self.scroll_layers,
+                segment.scroll,
+                segment.index,
+                scale_bits,
+                &property_values,
+            )
+            .is_some()
+            {
+                continue;
+            }
+            make_scroll_layer_room(
+                &mut self.scroll_layers,
+                &self.filter_renderer,
+                segment.scroll,
+                segment.index,
+                scale_bits,
+            );
+
+            let target = render::filter::Target::from_logical_area(
+                segment.scroll.layer_bounds.area,
+                viewport.scale_factor(),
+            );
+            let layer = self.filter_renderer.create_layer(
+                render_context,
+                target,
+                "Pending Retained Scroll Layer Texture",
+            );
+            let mut encoder =
+                render_context
+                    .device()
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Pending Retained Scroll Layer Encoder"),
+                    });
+            self.filter_renderer.clear_layer(&mut encoder, &layer);
+            let mut text_render_error = None;
+            let mut draw_passes = 1;
+            let mut command_stats = CommandStats::default();
+            {
+                let mut scene_encoder = SceneEncoder::retained(
+                    SceneEncoderInput {
+                        render_context,
+                        quad_pipeline: &self.quad_pipeline,
+                        quad_vertex_buffer: self.quad_arena.buffer(),
+                        filter_renderer: &self.filter_renderer,
+                        text_renderer: &mut self.text_renderer,
+                        retained_shapes: Some(self.retained.shapes()),
+                        retained_properties: Some(&prepared.properties),
+                        scene_properties: Some(properties),
+                        encoder: &mut encoder,
+                        base_view: layer.view(),
+                        backdrop_view: layer.view(),
+                        backdrop_target: target,
+                        clear_color: wgpu::Color::TRANSPARENT,
+                        viewport: render::Viewport::from_logical_area(
+                            segment.scroll.layer_bounds.area,
+                            viewport.scale_factor(),
+                        ),
+                        base_dirty: false,
+                        inside_group: true,
+                        text_render_error: &mut text_render_error,
+                        draw_passes: &mut draw_passes,
+                        command_stats: &mut command_stats,
+                    },
+                    &mut self.scroll_layers,
+                );
+                scene_encoder.encode(segment.batches);
+            }
+            if let Some(error) = text_render_error {
+                return Err(error.into());
+            }
+            render_context
+                .queue()
+                .submit(std::iter::once(encoder.finish()));
+            self.scroll_layers.push(CachedScrollLayer {
+                node: segment.scroll.node,
+                revision: segment.scroll.revision.clone(),
+                segment: segment.index,
+                scale_bits,
+                layer_bounds: segment.scroll.layer_bounds,
+                property_values,
+                layer,
+            });
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
     pub fn draw_commit(
         &mut self,
         render_context: &render::Context,
@@ -580,6 +772,14 @@ impl Renderer {
         stats.bind_group_changes = command_stats.bind_group_changes;
         stats.scroll_layer_cache_hits = command_stats.scroll_layer_cache_hits;
         stats.scroll_layer_cache_misses = command_stats.scroll_layer_cache_misses;
+        let (scroll_layer_resources, scroll_layer_bytes) =
+            scroll_layer_resource_state(&self.scroll_layers);
+        stats.retained_gpu_resource_count = stats
+            .retained_gpu_resource_count
+            .saturating_add(scroll_layer_resources);
+        stats.retained_gpu_resource_bytes = stats
+            .retained_gpu_resource_bytes
+            .saturating_add(scroll_layer_bytes);
         stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
         stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
         stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
@@ -772,6 +972,14 @@ impl Renderer {
         stats.bind_group_changes = command_stats.bind_group_changes + usize::from(pack_popup);
         stats.scroll_layer_cache_hits = command_stats.scroll_layer_cache_hits;
         stats.scroll_layer_cache_misses = command_stats.scroll_layer_cache_misses;
+        let (scroll_layer_resources, scroll_layer_bytes) =
+            scroll_layer_resource_state(&self.scroll_layers);
+        stats.retained_gpu_resource_count = stats
+            .retained_gpu_resource_count
+            .saturating_add(scroll_layer_resources);
+        stats.retained_gpu_resource_bytes = stats
+            .retained_gpu_resource_bytes
+            .saturating_add(scroll_layer_bytes);
         stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
         stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
         stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
@@ -779,6 +987,59 @@ impl Renderer {
             command_stats.effect_intermediate_composite_bytes;
         stats.largest_effect_intermediate_bytes = command_stats.largest_effect_intermediate_bytes;
         Ok((pixels, stats))
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn synchronize_commit_offscreen_debug(
+        &mut self,
+        render_context: &render::Context,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+        budget: std::time::Duration,
+    ) -> Result<CommitReadiness, String> {
+        let viewport = render::Viewport::from_logical_area(
+            area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
+            scale_factor,
+        );
+        self.synchronize_commit_for_viewport(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            budget,
+            std::time::Duration::MAX,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn cancel_commit_synchronization_debug(
+        &mut self,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+    ) {
+        self.retained.cancel_synchronization(commit);
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn retained_state_counts_debug(&self) -> (usize, usize) {
+        self.retained.debug_state_counts()
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn retained_resource_state_debug(&self) -> (usize, usize) {
+        let (shape_count, shape_bytes) = self.retained.debug_resource_state();
+        let (scroll_count, scroll_bytes) = scroll_layer_resource_state(&self.scroll_layers);
+        (
+            shape_count
+                .saturating_add(self.text_renderer.retained_resource_count())
+                .saturating_add(scroll_count),
+            shape_bytes
+                .saturating_add(self.text_renderer.retained_resource_bytes())
+                .saturating_add(scroll_bytes),
+        )
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -1202,6 +1463,100 @@ fn validate_retained_layers(
     Ok(())
 }
 
+fn collect_scroll_segments<'a>(batches: &'a [RenderBatch], segments: &mut Vec<ScrollSegment<'a>>) {
+    for batch in batches {
+        match batch {
+            RenderBatch::Group(group) => collect_scroll_segments(&group.render_batches, segments),
+            RenderBatch::Scroll(scroll) => {
+                let mut index = 0;
+                while index < scroll.render_batches.len() {
+                    if matches!(scroll.render_batches[index], RenderBatch::Scroll(_)) {
+                        index += 1;
+                        continue;
+                    }
+                    let start = index;
+                    while index < scroll.render_batches.len()
+                        && !matches!(scroll.render_batches[index], RenderBatch::Scroll(_))
+                    {
+                        index += 1;
+                    }
+                    if start != index {
+                        segments.push(ScrollSegment {
+                            scroll,
+                            index: start,
+                            batches: &scroll.render_batches[start..index],
+                        });
+                    }
+                }
+                collect_scroll_segments(&scroll.render_batches, segments);
+            }
+            RenderBatch::Shapes(_)
+            | RenderBatch::Pane(_)
+            | RenderBatch::Text(_)
+            | RenderBatch::PushClip(_)
+            | RenderBatch::PopClip => {}
+        }
+    }
+}
+
+fn same_scroll_layer_structure(
+    entry: &CachedScrollLayer,
+    scroll: &PreparedScroll,
+    segment: usize,
+    scale_bits: u32,
+) -> bool {
+    entry.node == scroll.node
+        && entry.revision.matches(&scroll.revision)
+        && entry.segment == segment
+        && entry.scale_bits == scale_bits
+        && entry.layer_bounds == scroll.layer_bounds
+}
+
+fn scroll_layer_cache_position(
+    layers: &mut [CachedScrollLayer],
+    scroll: &PreparedScroll,
+    segment: usize,
+    scale_bits: u32,
+    property_values: &[crate::scene::PropertyValue],
+) -> Option<usize> {
+    let position = layers.iter().position(|entry| {
+        same_scroll_layer_structure(entry, scroll, segment, scale_bits)
+            && entry.property_values.as_ref() == property_values
+    })?;
+    layers[position].revision = scroll.revision.clone();
+    Some(position)
+}
+
+fn make_scroll_layer_room(
+    layers: &mut Vec<CachedScrollLayer>,
+    filter_renderer: &render::filter::Renderer,
+    scroll: &PreparedScroll,
+    segment: usize,
+    scale_bits: u32,
+) {
+    const ACTIVE_AND_PENDING_VARIANTS: usize = 2;
+    let matching = layers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            same_scroll_layer_structure(entry, scroll, segment, scale_bits).then_some(index)
+        })
+        .collect::<Vec<_>>();
+    if matching.len() >= ACTIVE_AND_PENDING_VARIANTS {
+        let retired = layers.remove(matching[0]);
+        filter_renderer.recycle_layer(retired.layer);
+    }
+}
+
+fn scroll_layer_resource_state(layers: &[CachedScrollLayer]) -> (usize, usize) {
+    (
+        layers.len(),
+        layers.iter().fold(0_usize, |bytes, entry| {
+            bytes.saturating_add(entry.layer.resource_bytes())
+        }),
+    )
+}
+
 fn prepare_brush_batch(
     arena: &mut render::quad::Arena,
     viewport: render::Viewport,
@@ -1273,6 +1628,14 @@ impl DrawStats {
         self.retained_gpu_resource_creations += other.retained_gpu_resource_creations;
         self.retained_gpu_resource_replacements += other.retained_gpu_resource_replacements;
         self.retained_gpu_resource_removals += other.retained_gpu_resource_removals;
+        self.commit_preparation_slices += other.commit_preparation_slices;
+        self.commit_preparation_total_nanos = self
+            .commit_preparation_total_nanos
+            .saturating_add(other.commit_preparation_total_nanos);
+        self.commit_preparation_max_nanos = self
+            .commit_preparation_max_nanos
+            .max(other.commit_preparation_max_nanos);
+        self.commit_preparation_deadline_misses += other.commit_preparation_deadline_misses;
         self.render_plan_rebuilds += other.render_plan_rebuilds;
         self.render_plan_reuses += other.render_plan_reuses;
         self.direct_surface_plans += other.direct_surface_plans;
@@ -2003,29 +2366,14 @@ impl<'a> SceneEncoder<'a> {
             .scene_properties
             .map(|properties| scroll.revision.property_values(properties))
             .unwrap_or_default();
-        let same_structure = |entry: &CachedScrollLayer| {
-            entry.node == scroll.node
-                && entry.revision.matches(&scroll.revision)
-                && entry.segment == segment
-                && entry.scale_bits == scale_bits
-                && entry.layer_bounds == scroll.layer_bounds
-        };
-        if let Some(position) = layers
-            .iter()
-            .position(|entry| same_structure(entry) && entry.property_values != property_values)
-        {
-            let retired = layers.swap_remove(position);
-            self.filter_renderer.recycle_layer(retired.layer);
-        }
-
-        let position = layers
-            .iter()
-            .position(|entry| same_structure(entry) && entry.property_values == property_values);
+        let position =
+            scroll_layer_cache_position(layers, scroll, segment, scale_bits, &property_values);
         let position = if let Some(position) = position {
             self.command_stats.scroll_layer_cache_hits += 1;
             position
         } else {
             self.command_stats.scroll_layer_cache_misses += 1;
+            make_scroll_layer_room(layers, self.filter_renderer, scroll, segment, scale_bits);
             let target = render::filter::Target::from_logical_area(
                 scroll.layer_bounds.area,
                 self.viewport.scale_factor(),

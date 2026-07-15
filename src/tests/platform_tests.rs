@@ -1580,6 +1580,172 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
 }
 
 #[test]
+fn deferred_parent_preparation_does_not_block_popup_or_ime_realization() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().with_native_popups(),
+    );
+
+    platform.start().expect("platform should start host");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::KeyDown {
+                key: input::Key::Character('p'),
+                modifiers: input::Modifiers::new(true, true, false, false),
+                text: None,
+            },
+        ))
+        .expect("palette shortcut should prepare command palette state");
+
+    platform.backend_mut().events.clear();
+    platform.backend_mut().clear_popup_sync_counts();
+    platform.backend_mut().defer_next_present();
+    platform.backend_mut().defer_next_present();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("pending parent preparation should remain drawable");
+
+    assert!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .any(|event| matches!(event, BackendEvent::Poll)),
+        "a deferred candidate must schedule its continuation on the poll clock"
+    );
+    assert!(
+        !platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::RequestRedraw { window: requested } if *requested == window
+        )),
+        "renderer preparation must not re-enter semantic frame production"
+    );
+    assert!(
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::PresentPopup { parent, id, .. }
+                if *parent == window && *id == interaction::CommandPalette::panel_id()
+        )),
+        "an independently presentable popup must not wait behind parent GPU preparation"
+    );
+    assert!(
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::SetIme { update }
+                if update.parent() == window
+                    && matches!(
+                        update.target(),
+                        Some(ime::Target::Popup { id, .. })
+                            if id == interaction::CommandPalette::panel_id()
+                    )
+        )),
+        "IME must follow popup synchronization without waiting for parent preparation"
+    );
+    assert_eq!(
+        platform.backend().popup_sync_counts(),
+        &[1],
+        "popup synchronization must consume the semantic work exactly once"
+    );
+
+    platform.backend_mut().events.clear();
+    platform
+        .continue_presentations()
+        .expect("unfinished backend preparation should continue without semantic work");
+    assert!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .any(|event| matches!(event, BackendEvent::Poll)),
+        "an unfinished continuation must schedule its next bounded slice"
+    );
+    assert!(
+        !platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::RequestRedraw { .. }
+                | BackendEvent::PresentPopup { .. }
+                | BackendEvent::SetIme { .. }
+        )),
+        "an unfinished continuation must not re-enter or duplicate semantic child work"
+    );
+
+    platform.backend_mut().events.clear();
+    platform
+        .continue_presentations()
+        .expect("ready parent should activate from its exact pending state");
+
+    assert!(
+        !platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::PresentPopup { .. } | BackendEvent::SetIme { .. }
+        )),
+        "activating the parent must not replay already-synchronized popup or IME work"
+    );
+}
+
+#[test]
+fn closing_a_window_retires_its_pending_presentation_continuation() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default().with_native_popups(),
+    );
+
+    platform.start().expect("platform should start host");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first redraw should present");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::KeyDown {
+                key: input::Key::Character('p'),
+                modifiers: input::Modifiers::new(true, true, false, false),
+                text: None,
+            },
+        ))
+        .expect("palette shortcut should prepare candidate state");
+    platform.backend_mut().defer_next_present();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("candidate should defer");
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::CloseRequested,
+        ))
+        .expect("window close should retire backend state");
+    platform.backend_mut().events.clear();
+    platform
+        .continue_presentations()
+        .expect("a stale poll wake should be harmless after teardown");
+
+    assert!(platform.host().windows().is_empty());
+    assert!(
+        platform.backend().events().is_empty(),
+        "retired pending work must not draw or expose popup/IME state"
+    );
+}
+
+#[test]
 fn popup_pointer_motion_without_presentation_does_not_close_native_popups() {
     let mut platform = Platform::new(
         text_editor::shell(text_editor::State::default()),
