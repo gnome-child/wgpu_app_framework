@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–9 complete, Checkpoint 10 pending**. One-Way
+Status: **complete; Checkpoints 0–10 complete**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -602,7 +602,7 @@ At each checkpoint boundary:
 | 7. Prove Qt class and decide the ceiling | Complete | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
 | 8. Optional Chromium-class upgrade | Complete; admitted by Checkpoint 7 | Active remains drawable while pending prepares; atomic activation and deadline independence proved |
 | 9. Burn down the old species | Complete | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
-| 10. Close out and teach master design | Pending | Full matrix green, instrumented acceptance, One-Way fixed point, roadmap/design synchronized, sole renderer proved |
+| 10. Close out and teach master design | Complete | Full matrix green, instrumented acceptance, One-Way fixed point, roadmap/design synchronized, sole renderer proved |
 
 ## Checkpoint 0 — claim territory and bracket the defect
 
@@ -2507,6 +2507,81 @@ The roadmap marks the campaign complete, prunes mechanisms rejected by the
 Checkpoint 7 verdict, and names any independently admitted follow-up. Capture
 artifacts stay ignored build output; the ledger retains their paths and
 interpretation.
+
+### Checkpoint 10 evidence ledger — complete
+
+Doctrine and ownership closeout, 2026-07-15:
+
+- `docs/master_design.md` now records the opening constitution verbatim, laws
+  versus candidate shapes, and the capability-boundary rule with its std-first,
+  framework-owned, open-axis, closed-data, static-realization, and no-escape-
+  hatch rails;
+- its domain map and ownership sections now teach retained scene commits and
+  properties, presentation-owned active/pending state and receipts,
+  renderer-owned retained GPU realization/global planning, and the protected
+  `Context -> Canvas -> Surface -> platform` seam. The three handoffs carry
+  disjoint fields and every field has one mutation clock;
+- the doctrine makes property-aware presented geometry the common input truth
+  and pins in-window scroll to literal-zero semantic/content work. It records
+  direct ordinary-window rendering, bounded semantic effect owners, exact popup
+  packing, and the source-pinned glyphon capability plus its removal condition;
+- `scene::Stack -> Renderer::draw_stack` is named as the sole native renderer
+  handoff. The doctrine explicitly records deletion of the immediate renderer,
+  flattened paint scene, batch compiler, compatibility adapter/selector,
+  scale-flatten bridge, and unconditional ordinary-window blit;
+- the Checkpoint 7 verdict is preserved rather than generalized by analogy:
+  incremental pending/active realization is admitted because measured semantic
+  preparation missed the development refresh, while a render thread, damage,
+  partial present, occlusion, tiles, checkerboarding, raster workers, and a GPU
+  process remain rejected without a new measured owner;
+- `docs/roadmap.md` moves the renderer from the ready queue to a complete named
+  arc, records the burn-down commit `c614ba1e`, the sole retained topology and
+  acceptance counts, the rejected heavier mechanisms, the debug-oracle guide,
+  and one independently admitted follow-up: remove the glyphon source pin when
+  upstream supplies equivalent prepared-glyph retention and copy-on-write
+  viewport transforms;
+- the One-Way ledger records the renderer territory returned at this fixed
+  point. One-Way remains user-paused at R5-70; the closeout releases only the
+  overlap claim and neither resumes nor advances that campaign.
+
+Exit-theorem audit:
+
+- all 15 clauses are satisfied by the Checkpoint 0–9 mechanism and receipts:
+  composition identity is carried, revisions come from the one change stream,
+  structure/properties/activation/visibility have disjoint clocks, typed
+  content remains closed, unchanged work is literal zero, property-aware scroll
+  and pending/active presentation are receipted, ordinary surfaces are direct,
+  alpha/material/recovery remain exact, and no mixed renderer species survives;
+- the terminal old-species sweep is empty outside architecture tombstones and
+  retirement documentation. The ownership gauge remains 47 modules, 332
+  production and 112 test-only edges, three split responsibilities, 55
+  provisional slot edges, **zero forbidden edges, zero external-boundary
+  violations, and zero slot cycles**, 2,037 `pub(crate)` declarations in 197
+  production files with a 1,989 cross-slot upper bound, 89 cross-slot test
+  edges, 120 manifest-root mentions, 394 filesystem reads, seven allowances,
+  five production panics, and 69 production expects;
+- warning-free `cargo check --workspace --all-targets` passed. The complete
+  workspace target tier passed three debug-crate tests, 1,166 root tests with
+  four intentional ignores, and both Control Gallery tests; all four doctests
+  passed. The root release deep tier passed all four witnesses and the retained
+  release debug tier passed all 16 direct GPU/oracle/lifecycle/pending/gallery
+  witnesses. All five renderer-receipt and ten One-Way parser tests, all 151
+  architecture witnesses, formatting, diff hygiene, the protected
+  `comparison_open: true` state, and the full ownership census passed;
+- the final activation benchmark remained code-owned and independently local:
+  eight measured DX12 samples after one warmup reported 31 us p50 and 57 us
+  p95/max against the 4,167 us development refresh period. No external
+  profiler, external machine, person, network service, or returned artifact
+  participated;
+- the final release Control Gallery interaction smoke is the Checkpoint 9
+  runtime-crash/pacing receipt: fast scrolling through record 220, continuous
+  typing/selection, slider capture, and column resizing remained live until
+  explicit closure, and no process remained. No topology, scheduling, input, or
+  renderer code changed during this documentation-only closeout.
+
+Checkpoint 10 and the Retained Renderer campaign are independently green. The
+new core is not a path that could plug beneath the surface; it is the sole core
+already running beneath that preserved seam.
 
 ## Verification discipline
 

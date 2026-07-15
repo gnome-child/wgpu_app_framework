@@ -75,6 +75,44 @@ is its job.
 Do not let a dependent layer pretend to be independent. Do not let an
 independent layer import the thing it should be serving.
 
+### Laws Are Inviolable; Shapes Are Candidates
+
+Preserve semantic laws; challenge implementation shapes. One owner for a fact,
+one derivation with many consumers, carried identity, presentation receipts,
+coordinate truth, exposure, and alpha conventions have constitutional standing.
+A display list, batch compiler, cache layout, helper, enum, call sequence, or
+module boundary does not. When a shape prevents the law from being practiced,
+replace the shape and delete the displaced path.
+
+This is also an upstream rule. A demanding lower consumer may prove that an
+upstream contract is too coarse or contradictory. Correct the concept at its
+owner through evidence and the smallest honest contract; do not accommodate the
+bad shape locally, create a parallel truth, or silently drop the requirement.
+
+### Boundaries Declare Capabilities
+
+An open boundary states the smallest capabilities it requires through
+std-first, boundary-owned traits; suppliers implement those traits and decide
+how the capabilities are realized. A value is admissible when it can answer the
+boundary's questions, so surprise is rejected by the type system rather than
+handled by a downcast or optional-method protocol.
+
+This rule has guardrails:
+
+- use a standard trait when it already names the capability;
+- mint a framework trait only for framework-owned meaning;
+- require a genuinely open implementor axis or a second real implementor;
+- use exhaustive typed data when the species set is framework-closed;
+- prefer static realization before erasure;
+- reject traits that mirror one concrete consumer, launder a back-edge, or act
+  only as an escape hatch.
+
+Open application extension axes earn traits. Closed renderer content uses typed
+data: content describes what it is, while the renderer alone decides how all
+content is batched, cached, ordered, clipped, and realized together. A
+`Renderable::render(&mut Renderer)` callback would surrender that global
+ownership and is forbidden.
+
 ## Module Organization
 
 The module tree should read as a conceptual map, not as a filing cabinet.
@@ -101,7 +139,13 @@ declarative description
   widget builders -> view nodes -> presentation/action data
 
 derived structure
-  composition, layout frames, scene primitives, snapshots
+  composition, layout frames, retained scene commits/properties, snapshots
+
+presentation
+  active/pending scene stacks, property sampling, activation and receipts
+
+realization
+  retained GPU resources, global render plans, Canvas and Surface
 
 runtime state
   session, interaction, clipboard, tasks, timeline
@@ -131,18 +175,20 @@ stays enforced by the compiler; floating logical points are `point::Logical`.
 Geometry should not know about widgets, commands, layout policy, scenes,
 windows, paint lists, or renderers.
 
-The private `paint` module owns renderer-ready policy and representation: its
-flattened display list, device-grid `Grid`, rounded `Rect`/`Rounding`, brushes,
-clips, groups, and material primitives. Paint consumes geometry-owned area and
-point facts; text does not import paint vocabulary. Renderer-neutral
-coordinates must not be duplicated under paint merely because paint consumes
-them.
+The private `paint` module owns closed renderer-ready leaf policy: device-grid
+`Grid`, rounded `Rect`/`Rounding`, brushes, clips, and typed shape, text, pane,
+and material values. It owns no flattened `Scene`/`Item`/`Group` display list.
+Paint consumes geometry-owned area and point facts; text does not import paint
+vocabulary. Renderer-neutral coordinates must not be duplicated under paint
+merely because paint consumes them.
 
-`render::scene` owns the one semantic-scene-to-paint projection, including
-scale snapping, color transfer, renderer material values, and the shared popup
-visual-reach projection. Native platform code consumes this renderer contract;
-it does not declare the renderer's grammar conversion or retain a second color
-bridge.
+`render::scene` owns scale-resolved preparation of each retained
+`scene::Content` value, including snapping, color transfer, renderer material
+values, and the shared popup visual-reach projection. Preparation preserves the
+commit's identity, revisions, order, clips, groups, and property topology; it
+does not flatten them into a second scene species. Native platform code consumes
+the retained stack plus the `Context`/`Canvas`/`Surface` contract; it does not
+declare renderer grammar conversion or retain a second color bridge.
 
 The layout-to-paint boundary is a geometry boundary. Layout frames use integer
 logical coordinates. Paint consumes floating logical coordinates because a
@@ -614,28 +660,57 @@ implicit side effect.
 
 `scene`
 
-Owns paint primitives and visual presentation data. Scene answers "what should
-be drawn?" It should not know the application model, command registry,
-interaction routing, or renderer internals.
+Owns the retained, renderer-independent description of what must appear. Scene
+answers "what should be drawn?" It should not know the application model,
+command registry, interaction routing, GPU resources, surface acquisition, or
+presentation activation.
 
-The renderer may lower scene primitives into the private `paint` vocabulary for
-GPU batching. `paint` is the flattened display-list seam between retained scene
-and backend rendering. It is not a second public scene API; apps and framework
-features should speak in `scene` terms unless they are inside the native
-renderer adapter.
+The rendering constitution is:
 
-Renderer queue writes apply before encoded passes execute. A shared GPU buffer
-written once per batch is therefore last-write-wins for the whole submitted
-frame, not a sequence of interleaved "update then draw" operations. Per-batch
-values, such as glyphon viewport resolution for base text versus promoted
-overlay text, must ride per-batch buffers.
+> The inside of a window obeys the popup laws already sealed at its edge.
+> Content revisions mint scene commits. Parameter animation does not mint
+> content revisions. Presentation activates and receipts commits without
+> altering them. Each handoff owns disjoint fields, and the renderer realizes
+> their combined active state without marrying their clocks.
 
-Scene clips are paint primitives. Paint applies every resolved frame clip; it
-does not decide that a role or layer should ignore clipping. Filters inside
-clipped or promoted content sample from the accumulated backdrop beneath the
-current layer, then write their result into the current local target. A filter
-inside a layer must not silently skip itself because it is no longer drawing
-directly to the main target.
+> Structure belongs to the commit; values belong to property state.
+
+> Each field has exactly one mutation clock.
+
+An immutable `scene::Commit` carries composition-owned `NodeId`, closed typed
+`Content`, local bounds, structural order, content/geometry/topology revisions,
+property declarations, opacity classes, and effect envelopes. There is no
+renderer identity. Reordering changes order, not identity; a commit-local
+content or property address cannot become a cross-commit semantic key.
+
+`composition::Changes` is the root semantic change stream. Composition records
+identity lifetime/content facts; layout and scene append only the keyed facts
+they own. Renderer synchronization compares those carried revisions and may not
+create a parallel dirty-bit authority. A truthful global cause—scale, device
+loss, theme, or surface format—may invalidate a whole resource class without
+pretending to be a node-local edit.
+
+`scene::Properties` is a complete value snapshot compatible with exactly one
+commit topology. Scroll, transform, opacity, admitted clip values, and admitted
+effect parameters tick there without changing content revisions. Adding a
+property/effect, changing its class, or exceeding its declared envelope is
+structure and therefore requires a semantic commit. Incompatible or stale
+properties are rejected; they are never truncated, rebound, or best-effort
+applied.
+
+The public `scene::Scene` remains an authored/inspection and native-material
+compatibility facade. Runtime may project it once per semantic commit where a
+public or material consumer still requires the snapshot. It is not a renderer
+handoff and cannot justify per-frame flattening. The native renderer consumes a
+closed `scene::Stack` of retained layers, each carrying exact commit/property
+objects and its material projection.
+
+Scene clips are retained topology and value declarations. Renderer preparation
+applies every resolved frame clip; it does not decide that a role or layer
+should ignore clipping. Filters inside clipped or promoted content sample from
+the accumulated backdrop beneath the current layer, then write their result
+into the current local target. A filter inside a layer must not silently skip
+itself because it is no longer drawing directly to the main target.
 
 Scene is also the presentation-space boundary. The doctrine is: layout is
 snapped, presentation is continuous, and animation is presentation. Resting
@@ -669,8 +744,95 @@ behavior; a future caller must earn and name that variant explicitly.
 
 Scene material values own their semantic constraints. In particular,
 `scene::Refraction::clamped` is the one refraction constraint computation;
-the renderer scene bridge applies it before projecting into the private display
-list, and paint/render forward the resolved values without reclamping them.
+`render::scene` applies it during retained content preparation, and later
+paint/render stages forward the resolved value without reclamping it.
+
+`presentation`
+
+Owns which complete scene stack is active, which candidate is pending, the
+activation stamp, property sampling, and successful-present receipts. A scene
+commit contains no `PresentationEpoch`; presentation stamps activation without
+mutating commit or property state. Failed, skipped, lost, or occluded attempts
+promote neither candidate structure nor sampled properties.
+
+Commit, property, and presentation handoffs touch disjoint facts:
+
+| Handoff | May change | Must not change |
+| --- | --- | --- |
+| Semantic commit | node lifetime/order, typed content, revisions, local bounds, property/effect topology | presentation epoch, current property values, surface state |
+| Property tick | values for already-declared transforms, scroll, opacity, clips, and admitted effects | node topology, content revisions, effect class/envelope, activation |
+| Presentation event | active stack, activation stamp, sampled/visible property receipt | commit contents, property values, semantic identity |
+
+The Qt/GTK-class base activates only complete ready commits and keeps guard
+replenishment bounded under synchronous presentation. Measured guard work still
+missed the development refresh while a complete active state could otherwise
+draw, which admitted the next mechanism: the presentation owner keeps that
+active state drawable while a different semantic stack prepares incrementally.
+Missing a preparation budget presents the active state again, optionally
+projected with compatible newer properties; it never exposes partially ready
+resources. One complete prepared state may activate atomically while only the
+latest successor remains queued. Failed activation is requeued; stale,
+cancelled, incompatible, resized, or departed candidates retire without
+becoming active.
+
+This pending/active mechanism is the evidence-admitted Chromium-class ceiling
+for the current framework. It does not admit a render thread, tiles,
+checkerboarding, raster workers, a GPU process, damage, occlusion, or partial
+present. Those mechanisms remain rejected until a measured owner demands them.
+
+`render`
+
+Owns retained GPU realization, content preparation, global planning, opacity
+classification, effect islands, glyph-atlas use, command encoding, and resource
+readiness. Resources key on carried `NodeId` plus relevant revisions and target
+facts—never flattened primitive hashes, property serials, presentation epochs,
+or renderer-minted identity. Unchanged content reuses its realization with zero
+scene painting, shaping/preparing, content upload, and GPU creation.
+
+Analytic shapes use one static unit-quad topology plus retained instances. Text
+preparation is retained by content revision and shares the renderer-global
+glyph caches and atlas. Property state has separate bounded copy-on-write GPU
+storage, so active and pending states can share equal values without allowing a
+candidate write to corrupt active output. Removal, commit retirement, window
+departure, popup teardown, renderer recreation, and device loss each have a
+complete cleanup/rebuild path derived from semantic state.
+
+The source-pinned glyphon delta earns only the missing capabilities required by
+that law: live retained renderers can reassert prepared glyph allocations across
+atlas trim without reshaping/reupload, and viewport transforms can use
+copy-on-write retained offsets. Replace the pin when upstream exposes equivalent
+capabilities; do not compensate with per-node atlases or unchanged-text
+repreparation.
+
+Planning is renderer-global. Scene content cannot issue draw calls or declare
+private batches. Exact blended order is preserved; safe opaque classification,
+clips, groups, target changes, popup packing, and sampling effects define the
+necessary plan boundaries. Ordinary opaque/no-effect windows render directly
+to the acquired surface with zero extra full-surface intermediate clears or
+blits. Every surviving offscreen has a semantic owner and bounded effect
+envelope; popup premultiplied packing is its own exact platform handoff.
+
+`scene::Stack -> Renderer::draw_stack` is the sole native renderer handoff.
+The immediate renderer, flattened private paint scene, batch compiler,
+compatibility oracle adapter, runtime selector, scale-flatten bridge, and
+unconditional ordinary-window composition blit have been deleted. Surviving
+direct readback and benchmark witnesses exercise the retained renderer itself;
+there is no legacy renderer standing behind an oracle or fallback flag.
+
+Renderer queue writes apply before encoded passes execute. A shared GPU buffer
+written once is last-write-wins for the submitted work, not a sequence of
+interleaved "update then draw" operations. Values that may differ between
+active/pending nodes or target spaces must live in distinct retained slots or
+per-draw bindings.
+
+`surface` / native platform
+
+Owns format, acquisition, resize, loss/recovery, submission, present, native
+tenancy, exposure, and platform receipts. The protected seam is retained
+renderer realization into `render::Context` + `render::Canvas`, then
+`render::Surface` acquire/submit/present, then native tenancy and exposure.
+Surface code does not interpret scene meaning or mint content/property truth;
+successful outcomes are receipts consumed by presentation.
 
 `overlay`
 
@@ -914,13 +1076,16 @@ visual, consumes the cloned DXGI swapchain, and owns every COM tree operation.
 This keeps renderer dependency types out of platform without moving Win32 or
 WinRT realization policy into render.
 
-The normal renderer writes the scene to an sRGB offscreen target. A Windows
-premultiplied popup pack then samples associated linear RGB, unassociates it,
-applies the exact piecewise sRGB transfer, re-associates it, and uses `REPLACE`
-to write the non-sRGB premultiplied surface. Opaque/default windows keep the
-legacy composition blit; it is not a popup handoff. Alpha evidence must use a
-real half-alpha primitive or premultiplied clear. The authoritative witness is a
-standalone primitive over a transparent clear. Its readback that proves both alpha and premultiplied RGB is the test.
+Ordinary opaque/no-effect windows render directly into the acquired surface;
+they own no default full-window offscreen or composition blit. A named sampling
+effect may select a bounded or full composition source when its semantics
+require one. A Windows premultiplied popup instead renders through its explicit
+sRGB source and pack path: the pack samples associated linear RGB,
+unassociates it, applies the exact piecewise sRGB transfer, re-associates it,
+and uses `REPLACE` to write the non-sRGB premultiplied surface. Alpha evidence
+must use a real half-alpha primitive or premultiplied clear. The authoritative
+witness is a standalone primitive over a transparent clear. The test is the
+readback that proves both alpha and premultiplied RGB.
 The result rejects clear-only witnesses and visuals nested inside panel body content as contaminated evidence.
 
 **Diagnostics.** `native_alpha_probe` owns backend, accent, and attribute
@@ -1021,11 +1186,11 @@ or zoom the accumulated scene during fades.
 Backdrop source space and local output space are separate axes. The first
 backdrop sample may read from the global accumulated composition, but every
 intermediate filter scratch target after that is local to the current target.
-This is another `Axis Splitting` case: full-window composition is accumulated
-scene truth, while target-local ping/pong scratch is filter-chain workspace.
-Material anchoring is a separate axis again: backdrop material layers sample
-source space, while surface layers such as noise use panel-local material space
-so grain rides with the glass instead of the world.
+This is another `Axis Splitting` case: the selected parent/composition target is
+accumulated scene truth, while target-local ping/pong scratch is filter-chain
+workspace. Material anchoring is a separate axis again: backdrop material
+layers sample source space, while surface layers such as noise use panel-local
+material space so grain rides with the glass instead of the world.
 
 Material and filter pass parameters derive from one context authority that owns
 the backdrop source, local source, target scratch, and global-to-local mapping;
@@ -1585,12 +1750,15 @@ responders, gestures, theme, view callbacks, and platform-facing work because
 coordinating those engines is its purpose. Runtime should delegate actual
 domain questions back to the owning engine.
 
-Runtime owns coarse invalidation scheduling. Paint-only frames reuse the cached
-window layout when size and theme still match; layout invalidation refreshes
-transient projection and recomposes without rebuilding the view; rebuild
-invalidation runs the full view projection and composition reconciliation path.
-Snapshot restore has one runtime-owned reset for transient composition,
-animation, overlay, task, gesture, history-group, and layout-cache state.
+Runtime owns coarse invalidation scheduling, not renderer invalidation truth.
+Paint-only frames may reuse cached layout; layout invalidation refreshes
+transient projection; rebuild invalidation runs view projection and composition
+reconciliation. Those values decide which upstream engines must be sampled.
+They do not authorize scene-node or GPU replacement: carried
+`composition::Changes`, keyed layout/scene revisions, property compatibility,
+and renderer resource comparisons decide that work. Snapshot restore has one
+runtime-owned reset for transient composition, animation, overlay, task,
+gesture, history-group, and layout-cache state.
 
 Erased command transactions preserve invocation cardinality in their private
 entrance type. Palette and shortcut lookup use the optional entrance because
@@ -1622,11 +1790,22 @@ removes obsolete candidate frames, never semantic input.
 Application `state::Revision` and per-window `PresentationEpoch` name different
 facts. Revision is model truth. The epoch advances presentation freshness for
 scroll, resize, focus, hover, animation, and other session or visual changes
-that need not mutate the model. A prepared frame captures an epoch and
-candidate layout, but prepared is not presented: only a successful platform
-receipt acknowledges the epoch and promotes that layout to
-`PresentedGeometry`. Skipped, lost, occluded, or otherwise unsuccessful
-attempts leave the previously visible geometry authoritative.
+that need not mutate the model. A prepared frame captures an epoch, candidate
+layout, immutable scene stack, and compatible property snapshot, but prepared
+is not presented. Only a successful platform receipt acknowledges the epoch and
+promotes the layout plus the exact sampled property state to visible truth.
+Skipped, lost, occluded, or otherwise unsuccessful attempts leave the prior
+active geometry/properties authoritative.
+
+Presented geometry is the active commit's keyed layout geometry combined with
+the successfully presented property snapshot and the established scale/space
+projection. Scroll updates authoritative interaction truth immediately, but an
+in-window scroll is a property tick: it advances neither scene structure nor
+content revision and performs zero scene paint, text shape/prepare, primitive
+prepare, or content upload. Guard-window replenishment is a bounded semantic
+commit. Hit testing, hover, capture, cursor, selection, divider manipulation,
+IME, reveal, and popup placement all consume the same receipted transform; none
+may read newer unpresented scroll truth or ask the renderer where it drew.
 
 Pointer input is interpreted through last-presented geometry, because the user
 cannot target a private candidate they never saw. Interaction retains logical
@@ -1669,8 +1848,8 @@ instrument map is:
 | `Text layout` | `text::layout`, `text::edit` | author overflows, paint calls, metric calls, visible and shaped lines, overscan segments, overlay and highlight work |
 | `Text caches` | text layout caches | line hits/misses, render-surface calls, render-cache hits/misses, render source lines and bytes |
 | `Scroll` | interaction and text viewport services | wheel events, offset changes, redraw requests, committed frame scrolls, text area viewport work |
-| `Frames` | runtime presentation | full redraws, view rebuilds, layout recomposes/reuses, text surfaces |
-| `Render` | native renderer and `diagnostics::Render` | frames, interval/acquire/draw p95, `key->present` p95, pending key samples, promoted groups, filter pool sizes |
+| `Frames` | runtime presentation | semantic commits, property ticks, view rebuilds, layout recomposes/reuses, active/pending activation, text surfaces |
+| `Render` | native renderer and `diagnostics::Render` | retained node/resource reuse, preparation and upload bytes, plan/direct/sampled topology, interval/acquire/draw p95, `key->present` p95, promoted groups, effect pools |
 | `wgpu_l3::render::filter_params` | filter encoder | filter pass uniforms and source/target rects |
 | `wgpu_l3::render::material` | pane material path | pane source/target facts and material layer sequence |
 | `wgpu_l3::overlay::fade` | overlay runtime | entry opacity, schedule, frame number, and demotion timing |
@@ -1790,7 +1969,10 @@ Correct questions:
 - Text asks: what is the document, edit state, surface, and text layout?
 - View asks: what declarative interface is being presented?
 - Layout asks: where are the presented things?
-- Scene asks: what primitives should be drawn?
+- Scene asks: what retained content, structure, and property topology must appear?
+- Presentation asks: which complete scene/property state is active and visible?
+- Renderer asks: how is that active state realized globally on the GPU?
+- Surface asks: where was encoded work acquired, submitted, and presented?
 - Interaction asks: what is the user currently doing?
 - Command asks: what capability contract exists?
 - Target asks: can this value perform this command?
@@ -1805,6 +1987,9 @@ Wrong questions:
 - View asks whether a command can execute against current app state.
 - Layout asks what command should be dispatched.
 - Scene asks what the command registry contains.
+- Presentation mutates scene content or property values while activating it.
+- Renderer mints semantic identity or accepts content-owned draw callbacks.
+- Surface interprets scene meaning or promotes an unsuccessful attempt.
 - Command registry asks what node is under the pointer.
 - Timeline asks how a text glyph should be shaped.
 - Renderer asks what app command produced a primitive.
@@ -2010,6 +2195,9 @@ Use tests to preserve:
 - Text editing and layout invariants.
 - Accidental restoration of `src/scratch` or the retired legacy root surface.
 - Renderer and platform dependency boundaries.
+- The sole retained scene-stack renderer handoff and absence of flattened paint
+  scenes, renderer-minted identity, content callbacks, legacy selectors, and
+  unconditional full-surface blits.
 - Private runtime services that should not become public vocabulary.
 - Deletion of stale concepts after unification.
 

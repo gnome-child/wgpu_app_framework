@@ -8,22 +8,6 @@ is next.
 
 ## Specced and ready
 
-36. **Retained Renderer — The Edges Teach Inward** (IN FLIGHT; CHECKPOINT 0) — replace the
-    per-frame flattened rendering core behind the proven `Context` / `Canvas` /
-    `Surface` seam. Composition
-    identity survives into retained `scene::{Commit, Node, Content,
-    Properties}`; semantic commits, property ticks, and presentation
-    activation own disjoint fields and clocks; scroll is the first literal-zero
-    property client; unchanged content retains GPU realization; ordinary
-    opaque windows lose the unconditional full-surface intermediate/blit. The
-    campaign opens with WARP correctness, DX12 PIX, and field iGPU telemetry,
-    hosts One-Way cells in every touched module, generalizes the deep readback
-    oracle, and ends with a deletion-shaped burn-down of the legacy renderer,
-    flattening, adapter, and orphans. Qt/GTK-class synchronous activation is
-    required first; Chromium pending/active, a render thread, damage, and
-    partial present are separately measurement-gated. Formulation:
-    `docs/audits/2026-07-14-retained-renderer-campaign.md`.
-
 ## Pending manual verification
 
 5. Popup-hosted cursor icon and IME candidate placement, fractional-alpha edge
@@ -58,6 +42,26 @@ is next.
     column arrives; until then uniformity stands.
 
 ## Named arcs
+
+36. **Retained Renderer — COMPLETE** (sole-renderer burn-down at `c614ba1e`,
+    2026-07-15; 1,166 ordinary root tests, four root release-deep witnesses,
+    and 16 retained GPU witnesses). Composition `NodeId` now survives through
+    immutable `scene::{Commit, Node, Content, Properties}` and the sole
+    `scene::Stack` native handoff. Structure, property values, activation, and
+    visibility have disjoint clocks; in-window scroll is literal-zero content
+    work; GPU resources and text preparation are revision-keyed and retained;
+    ordinary no-effect windows render directly without the old full-surface
+    blit. Measured guard preparation admitted incremental pending/active
+    realization so a complete active state remains drawable; it did **not**
+    admit a render thread, damage, partial present, tiles, checkerboarding, or a
+    GPU process. The legacy renderer, flattened private paint scene, batch
+    compiler, compatibility oracle adapter, selector, and orphans are deleted.
+    The surviving debug crate directly witnesses the retained renderer and is
+    documented in `tools/renderer_debug/README.md`. One independently admitted
+    dependency follow-up remains: replace the source-pinned glyphon capability
+    when upstream supplies equivalent prepared-glyph retention and copy-on-write
+    viewport transforms. Ledger:
+    `docs/audits/2026-07-14-retained-renderer-campaign.md`.
 
 10. **Tables arc — v1 COMPLETE** (`d5082175`, 2026-07-13; 906 tests). Six
     campaigns end to end: tables, grammar, polish, five truths, one text

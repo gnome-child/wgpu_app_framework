@@ -17,6 +17,14 @@ that territory while the renderer campaign is active. Cleanup findings inside
 the claim use the established One-Way loop as `OW-*` cells in the renderer
 ledger; work outside the claim remains paused here.
 
+Renderer territory release — **returned at the Retained Renderer Checkpoint 10
+fixed point on 2026-07-15**. The renderer campaign closed with one retained
+renderer, zero forbidden edges, zero external-boundary violations, zero slot
+cycles, and no legacy renderer/display-list species. Its `OW-RR-*` cells and
+final gauge are recorded in that campaign ledger. The R5-70 boundary remains
+clean and One-Way remains paused by the user; this release removes only the
+overlapping territory claim and does not resume or advance this campaign.
+
 The [crate-seams investigation](2026-07-13-crate-seams-investigation.md) is a
 useful census and source of hypotheses. It is not the architectural direction.
 The live framework, `master_design.md`, established case law, and evidence
