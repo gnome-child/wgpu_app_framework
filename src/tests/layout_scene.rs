@@ -225,6 +225,59 @@ fn unchanged_second_commit_paints_zero_scene_nodes() {
 }
 
 #[test]
+fn one_sibling_content_change_repaints_only_that_scene_identity() {
+    let changed = Rc::new(Cell::new(false));
+    let changed_for_view = Rc::clone(&changed);
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Retained sibling change"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                view::Node::stack(view::Axis::Vertical)
+                    .child(view::Node::world_text(
+                        "Stable sibling",
+                        text::Overflow::EllipsisEnd,
+                    ))
+                    .child(view::Node::world_text(
+                        if changed_for_view.get() {
+                            "BBBB"
+                        } else {
+                            "AAAA"
+                        },
+                        text::Overflow::EllipsisEnd,
+                    )),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 100);
+    app.show_scene(window, size)
+        .expect("first commit should retain both siblings");
+
+    changed.set(true);
+    app.diagnostics_mut(window)
+        .expect("window diagnostics")
+        .begin_renderer_measurement();
+    app.present(window).expect("changed view should reconcile");
+    app.show_scene(window, size)
+        .expect("changed sibling should produce the next commit");
+
+    let changes = app
+        .composition(window)
+        .expect("composition should remain installed")
+        .changes();
+    assert_eq!(changes.changed().len(), 1);
+    assert!(changes.added().is_empty());
+    assert!(changes.removed().is_empty());
+    let render = &app.diagnostics(window).expect("window diagnostics").render;
+    assert_eq!(render.semantic_commits_created, 1);
+    assert_eq!(render.scene_nodes_rebuilt, 1);
+    assert_eq!(render.scene_paint_calls, 1);
+    assert!(render.scene_nodes_reused > 0);
+}
+
+#[test]
 fn departed_scene_nodes_are_removed_once() {
     let show_extra = Rc::new(Cell::new(true));
     let show_extra_for_view = Rc::clone(&show_extra);
@@ -4972,11 +5025,22 @@ fn virtual_list_growth_shrink_and_reorder_follow_stable_provider_keys() {
     );
 
     keys.borrow_mut().truncate(3);
+    app.diagnostics_mut(window)
+        .expect("window diagnostics")
+        .begin_renderer_measurement();
     app.request_redraw(window);
     let shrunk = app
         .show_scene(window, size)
         .expect("shrunk list should render");
     assert_eq!(shrunk.scene().texts().len(), 3);
+    assert!(
+        app.diagnostics(window)
+            .expect("window diagnostics")
+            .render
+            .scene_nodes_removed
+            > 0,
+        "provider deletion must retire the departed retained scene nodes"
+    );
 }
 
 #[test]

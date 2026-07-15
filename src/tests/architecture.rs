@@ -693,20 +693,28 @@ fn examples_launch_through_the_application_ceiling() {
 
 #[test]
 fn frame_preparation_has_one_recipe() {
-    let presentation = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("runtime")
-            .join("presentation.rs"),
-    )
-    .expect("runtime presentation source should read");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let presentation = std::fs::read_to_string(root.join("runtime").join("presentation.rs"))
+        .expect("runtime presentation source should read");
+    let scene_store = std::fs::read_to_string(root.join("scene").join("store.rs"))
+        .expect("scene store source should read");
 
     assert_eq!(
+        presentation.matches("self.scene.paint(").count(),
+        1,
+        "runtime frame preparation must enter retained scene projection once"
+    );
+    assert_eq!(
+        scene_store.matches("retained.paint(").count(),
+        1,
+        "the per-window scene store must have one retained projection recipe"
+    );
+    assert_eq!(
         presentation
-            .matches("paint_parts_with_clear_theme_and_visuals")
+            .matches(".compatibility_scene(&self.properties)")
             .count(),
         1,
-        "base scene painting must have one prepared-frame owner"
+        "the prepared immutable commit must cross the legacy adapter once"
     );
     assert_eq!(
         presentation.matches("self.prepare_frame(").count(),
@@ -2475,8 +2483,7 @@ fn composition_tree_owns_identity_not_behavior() {
     }
     assert!(
         composition_tree.contains("self.removed.push(node.id);")
-            && composition_tree
-                .contains("pub(in crate::composition) fn parent(&self) -> Option<NodeId> {")
+            && composition_tree.contains("pub(crate) fn parent(&self) -> Option<NodeId> {")
             && !composition_tree.contains("self.parent.and_then"),
         "retained removal and ancestry must consume total Tree-owned identity without filtering"
     );

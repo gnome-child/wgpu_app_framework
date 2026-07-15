@@ -1,12 +1,17 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–2 complete, Checkpoint 3 in progress**. One-Way
+Status: **in flight; Checkpoints 0–3 complete, Checkpoint 4 in progress**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
 The original paired 60 Hz iGPU receipt gate was removed by explicit campaign
 correction on 2026-07-14: field hardware remains useful corroboration, but no
 external machine owns campaign progress or acceptance.
+
+The development-machine restart requested after the Checkpoint 3 implementation
+safety commits completed successfully. The campaign resumed from the ledger,
+re-ran the complete local boundary, and closed Checkpoint 3 without an external
+machine, person, network service, or returned artifact.
 
 This is a replacement campaign, not a collection of local renderer tweaks. It
 replaces the upper rendering mechanism while preserving the lower surface seam
@@ -590,8 +595,8 @@ At each checkpoint boundary:
 | 0. Claim territory and bracket the defect | Complete | Clean baseline, WARP correctness path, PIX matrix, code-owned counters and thresholds pinned |
 | 1. Ratify the retained-scene contract | Complete | Requirements-first API, ownership, revision, property, clock, cleanup, and gap ledgers approved |
 | 2. Build the equivalence oracle | Complete | Same commit through legacy and new adapters with deep-tier readback comparison and a mandatory retirement plan |
-| 3. Retain scene identity and revisions | In progress | NodeId survives painting; unchanged substructure reused; window-wide invalidation begins retirement |
-| 4. Retain GPU realization | Pending | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
+| 3. Retain scene identity and revisions | Complete | NodeId survives painting; unchanged substructure reused; window-wide invalidation begins retirement |
+| 4. Retain GPU realization | In progress | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
 | 5. Make render work semantic | Pending | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
 | 6. Make scroll a property tick | Pending | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
 | 7. Prove Qt class and decide the ceiling | Pending | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
@@ -1297,6 +1302,152 @@ Acceptance witnesses include:
   revisions;
 - every old window-wide invalidation use has a disposition: translated to an
   owned change cause, retained temporarily for the legacy adapter, or deleted.
+
+### Checkpoint 3 evidence ledger — complete
+
+Retained projection cell, 2026-07-14:
+
+- `composition::tree::ContentRevision` is the authoritative per-node content
+  currency. `Changes` now reports added, changed, and removed composition
+  `NodeId`s; reconciliation advances only the changed node's content revision.
+  Stable keyed reorder changes structural order without changing either
+  identity or content revision. No renderer revision or identity namespace was
+  admitted;
+- each `layout::Frame` carries its originating composition `NodeId`, parent,
+  and content revision. `FrameSceneKey` combines that semantic currency with
+  truthful geometry/static visual inputs, including the existing transient
+  pixel projection where required. Layout therefore preserves identity instead
+  of forcing scene painting to reconstruct it from flattened primitives;
+- `scene::{Commit, Node, Content, Properties}` is now the ordinary crate-private
+  production contract rather than a dormant oracle-only type. A commit is
+  complete and immutable, owns typed content and structure, and contains no
+  presentation epoch. Property values remain a separate complete snapshot;
+- one `scene::Builder` registers each composition identity exactly once and
+  carries cross-owner paint order in a separate structural order list. Reorder
+  can therefore reuse the exact `Arc<Node>` allocations while changing order;
+  the order carrier has no identity and cannot become a third identity space;
+- one per-window `scene::Store` owns retained frame, table-track, chrome, node,
+  and commit caches. Runtime preparation enters it once, produces the immutable
+  commit first, and only then lowers through the temporary compatibility
+  `paint::Scene` adapter required by the equivalence oracle and legacy GPU core;
+- unchanged frame keys reuse their cached fragments without invoking scene
+  paint. An unchanged complete commit reuses the exact `Arc<Commit>` and
+  `Arc<Node>` allocations. Departed identities are removed from frame and node
+  caches once; the following unchanged projection reports zero further
+  removals;
+- `overlay::{Draft, Entry, Live, Ghost, RetiringPopup, Layer}` carries the same
+  retained `Arc<Commit>` and `Arc<Properties>` through live, in-frame ghost,
+  and native-popup retirement lifetimes. Overlay identity, popup generation,
+  fade timing, and exposure clocks were not replaced or borrowed;
+- material regions retain their composition `NodeId` through commit construction
+  and compatibility lowering. Candidate scene construction remains distinct
+  from presentation activation and successful-present receipts;
+- the retained painter's per-projection seen set and statistics now have one
+  `RetainedWork` owner. That cleanup removed the checkpoint's unreasoned
+  `too_many_arguments` allowance instead of normalizing it as rewrite residue.
+
+Acceptance receipts:
+
+- `one_sibling_content_change_mints_only_that_nodes_revision` proves one
+  changed sibling produces exactly one `Changes::changed` identity, advances
+  only its content revision, and leaves root/stable-sibling revisions alone.
+  `one_sibling_content_change_repaints_only_that_scene_identity` then proves
+  the production projection creates one semantic commit, rebuilds one scene
+  node, makes one scene paint call, and reuses the remaining nodes;
+- `explicit_ids_preserve_node_ids_across_sibling_movement` and
+  `reordered_commit_reuses_nodes_but_changes_structural_order` prove stable
+  reorder preserves composition revisions and exact retained node allocations
+  while changing draw order;
+- `property_only_opacity_tick_changes_zero_node_revisions` changes a complete
+  property snapshot while content, geometry, and topology revisions remain
+  byte-for-byte unchanged. No content paint is available on that handoff;
+- `unchanged_second_commit_paints_zero_scene_nodes` reports literal
+  `semantic_commits_created == 0`, `scene_nodes_rebuilt == 0`, and
+  `scene_paint_calls == 0`, with positive retained-node reuse;
+- `departed_scene_nodes_are_removed_once` proves a departed ordinary identity
+  retires scene cache state exactly once. The mutable virtual-list witness also
+  observes positive retained-node removal after provider deletion, while the
+  existing focus/draft/capture/context witnesses continue to distinguish
+  ordinary dematerialization from provider deletion and retain the bounded pin
+  laws;
+- `removed_entry_creates_fading_ghost` and
+  `removed_native_popup_retires_on_its_native_surface_without_a_parent_ghost`
+  use `Arc::ptr_eq` to prove the ghost/retiring layers retain the exact commit
+  and property objects from their live entries;
+- retained-contract material, order, allocation-reuse, property, completeness,
+  opacity, and effect witnesses pass, and the 16-case by four-scale equivalence
+  oracle remains exact: all 64 pairs report `differing_pixels=0` and
+  `maximum_channel_delta=0`, including transparent-popup packing.
+
+Window-wide invalidation disposition, from the complete 36-use production/test
+scan:
+
+- the nine `response::effect` uses remain the closed public response/scheduling
+  vocabulary. They do not identify scene nodes, mint content revisions, or
+  invalidate renderer caches and remain temporarily because the compatibility
+  runtime still accepts the old scheduling classes;
+- three pointer/focus `Layout` request sites and the two focus sites are owned
+  geometry/input causes. Layout comparison and `FrameSceneKey`, not the enum,
+  determine which retained frames actually change;
+- the pointer/input/selection/text `Rebuild` request sites ask runtime to
+  reconcile application view truth. `composition::Changes` is the sole
+  per-node result consumed downstream; no parallel renderer change ledger was
+  created;
+- the eight `runtime::presentation` uses and three `session::window` uses are
+  initial-candidate, retry, animation-scheduling, and compatibility-adapter
+  control. They remain until the property-scroll transition and legacy
+  burn-down checkpoints, and they cannot choose a retained node revision;
+- the three test uses witness the public effect contract and legacy scheduling
+  behavior. Thus every surviving use is either an owned upstream cause or an
+  explicitly temporary adapter scheduler; zero uses act as a scene/GPU cache
+  invalidation authority.
+
+`OW-RR-3` cleanup cell: the trace is
+`composition::Tree -> layout::Frame -> scene::Store/Builder -> immutable
+scene::Commit -> temporary compatibility adapter -> presentation`, with overlay
+lifecycle as a retaining consumer rather than a second scene species. Admission
+kept the existing composition identity, change stream, material identity,
+popup generations, and presentation receipts; it added one scene projection
+owner and no renderer identity, invalidation trait, callback, or production
+selector. The old ordinary immediate-paint entry is no longer the runtime
+recipe; legacy lowering survives only after commit construction for the oracle
+and old GPU realization and is scheduled for deletion at Checkpoint 9.
+
+The touched-module re-scan corrected two stale architecture ratchets to name the
+retained recipe and total parent identity. It also found one new
+`render -> pollster` external-boundary violation in feature-gated debug support.
+The capability facade now exposes asynchronous harness construction and the
+specialized debug crate owns the blocking executor, restoring the external
+dependency boundary. The scene painter cleanup removed its new Clippy
+allowance. The final census reports 47 top-level modules, 328 production and
+112 test-only module edges, three split responsibilities, 55 provisional slot
+edges, **zero forbidden edges, zero external-boundary violations, and zero slot
+SCCs**, 1,915 `pub(crate)` declarations in 194 production files, cross-slot
+upper bound 1,868, 90 cross-slot test edges, 120 source-root mentions, 377
+filesystem reads, seven allowances, five production panics, and 53 production
+expects. The remaining allowances/expects have existing owners or the explicit
+effect-contract admission; none conceal a second renderer path.
+
+Boundary verification after the restart passed:
+
+- `cargo check --workspace --all-targets`, root all-target compilation, and all
+  maintained examples without warnings;
+- the complete workspace suite: three debug-crate tests, 1,156 root tests
+  passed with 11 intentional deep-tier ignores, and all four root doctests;
+- all 157 layout/scene witnesses and all 151 architecture witnesses;
+- the release deep tier: all 11 WARP, shader, alpha, glyph, popup packing,
+  glass/material, and text acceptance witnesses;
+- all five renderer-receipt and all ten One-Way census parser/admission tests;
+- the full ownership census above, formatting, diff hygiene, and protected
+  `comparison_open: true` state;
+- no external profiler, machine, person, network service, or returned artifact
+  participated. The implementation was preserved across the requested restart
+  by safety commits `0462b3ab` and `9d47c19d`; this ledger and cleanup form the
+  intentional independently green Checkpoint 3 closeout commit.
+
+Checkpoint 3 is independently green. Checkpoint 4 now replaces one-frame GPU
+preparation with identity/revision-keyed realization while keeping this retained
+scene, the exact oracle, and the protected lower surface seam intact.
 
 ## Checkpoint 4 — retain GPU realization
 

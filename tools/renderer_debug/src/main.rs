@@ -20,7 +20,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, case] if command == "reference" => {
             let case = parse_case(case)?;
-            let mut harness = Harness::new(1.0)?;
+            let mut harness = harness(1.0)?;
             let environment = harness.environment();
             let (image, sample) = harness.render_legacy(case)?;
             println!(
@@ -40,7 +40,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command] if command == "reference-all" => {
             for scale in [1.0, 1.25, 1.5, 2.0] {
-                let mut harness = Harness::new(scale)?;
+                let mut harness = harness(scale)?;
                 let environment = harness.environment();
                 for case in Case::ALL {
                     let (image, sample) = harness.render_legacy(case)?;
@@ -74,7 +74,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command] if command == "oracle-all" => {
             for scale in [1.0, 1.25, 1.5, 2.0] {
-                let mut harness = Harness::new(scale)?;
+                let mut harness = harness(scale)?;
                 let environment = harness.environment();
                 for case in Case::ALL {
                     let (legacy, candidate, sample) = harness.render_pair(case)?;
@@ -105,7 +105,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             if iterations == 0 {
                 return Err("iterations must be a positive integer".to_owned());
             }
-            let mut harness = Harness::new(1.0)?;
+            let mut harness = harness(1.0)?;
             let environment = harness.environment();
             let _ = harness.render_legacy(case)?;
             let mut samples = Vec::with_capacity(iterations);
@@ -134,6 +134,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 .to_owned(),
         ),
     }
+}
+
+fn harness(scale_factor: f32) -> Result<Harness, String> {
+    pollster::block_on(Harness::new(scale_factor))
 }
 
 fn parse_case(value: &str) -> Result<Case, String> {

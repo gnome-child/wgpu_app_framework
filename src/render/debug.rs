@@ -199,7 +199,7 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub fn new(scale_factor: f32) -> Result<Self, String> {
+    pub async fn new(scale_factor: f32) -> Result<Self, String> {
         let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
             scale_factor
         } else {
@@ -209,10 +209,9 @@ impl Harness {
         let backends = render::context::Backends::dx12();
         #[cfg(not(target_os = "windows"))]
         let backends = render::context::Backends::all();
-        let context = pollster::block_on(render::Context::new(render::context::Options::native(
-            backends,
-        )))
-        .map_err(|error| error.to_string())?;
+        let context = render::Context::new(render::context::Options::native(backends))
+            .await
+            .map_err(|error| error.to_string())?;
         let format = render::surface::Format::from_wgpu(wgpu::TextureFormat::Rgba8Unorm);
         let legacy = render::Renderer::new(&context, format);
         let candidate = render::Renderer::new(&context, format);

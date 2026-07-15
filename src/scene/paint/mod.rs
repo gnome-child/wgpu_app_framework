@@ -82,6 +82,12 @@ struct Seen {
     chrome: HashSet<(composition::tree::NodeId, usize)>,
 }
 
+#[derive(Default)]
+struct RetainedWork {
+    seen: Seen,
+    stats: RetainedStats,
+}
+
 struct LayerFragments {
     frames: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
     tracks: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
@@ -108,12 +114,10 @@ impl Retained {
             self.theme = Some(theme.clone());
         }
 
-        let mut seen = Seen::default();
-        let mut stats = RetainedStats::default();
+        let mut work = RetainedWork::default();
         let mut builder = commit_builder(layout, clear, None);
         for layer in [Layer::Base, Layer::Chrome] {
-            let fragments =
-                self.layer_fragments(layout, layer, None, theme, visuals, &mut seen, &mut stats);
+            let fragments = self.layer_fragments(layout, layer, None, theme, visuals, &mut work);
             append_layer_fragments(&mut builder, layout.size(), fragments);
         }
         let base_key = CommitKey::Base;
@@ -121,7 +125,7 @@ impl Retained {
         let commit = builder
             .finish(previous_base.as_ref(), &mut self.nodes)
             .expect("retained base commit must satisfy the scene contract");
-        stats.commits_created = usize::from(
+        work.stats.commits_created = usize::from(
             previous_base
                 .as_ref()
                 .is_none_or(|previous| !Arc::ptr_eq(previous, &commit)),
@@ -144,8 +148,7 @@ impl Retained {
                 Some(panel),
                 theme,
                 visuals,
-                &mut seen,
-                &mut stats,
+                &mut work,
             );
             append_layer_fragments(&mut builder, layout.size(), fragments);
             let commit_key = CommitKey::Popup(panel.node_id());
@@ -153,7 +156,7 @@ impl Retained {
             let popup_commit = builder
                 .finish(previous_popup.as_ref(), &mut self.nodes)
                 .expect("retained popup commit must satisfy the scene contract");
-            stats.commits_created = stats.commits_created.saturating_add(usize::from(
+            work.stats.commits_created = work.stats.commits_created.saturating_add(usize::from(
                 previous_popup
                     .as_ref()
                     .is_none_or(|previous| !Arc::ptr_eq(previous, &popup_commit)),
@@ -186,19 +189,18 @@ impl Retained {
             }
         }
 
-        self.frames.retain(|id, _| seen.frames.contains(id));
-        self.tracks.retain(|key, _| seen.tracks.contains(key));
-        self.chrome.retain(|key, _| seen.chrome.contains(key));
-        self.nodes.retain(|id, _| seen.frames.contains(id));
+        self.frames.retain(|id, _| work.seen.frames.contains(id));
+        self.tracks.retain(|key, _| work.seen.tracks.contains(key));
+        self.chrome.retain(|key, _| work.seen.chrome.contains(key));
+        self.nodes.retain(|id, _| work.seen.frames.contains(id));
         self.commits.retain(|key, _| seen_commits.contains(key));
-        stats.nodes_added = seen.frames.difference(&self.retained_nodes).count();
-        stats.nodes_removed = self.retained_nodes.difference(&seen.frames).count();
-        self.retained_nodes = seen.frames;
+        work.stats.nodes_added = work.seen.frames.difference(&self.retained_nodes).count();
+        work.stats.nodes_removed = self.retained_nodes.difference(&work.seen.frames).count();
+        self.retained_nodes = work.seen.frames;
 
-        (commit, properties, entries, stats)
+        (commit, properties, entries, work.stats)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn layer_fragments(
         &mut self,
         layout: &layout::Layout,
@@ -206,9 +208,9 @@ impl Retained {
         panel: Option<&layout::Frame>,
         theme: &Theme,
         visuals: &Visuals,
-        seen: &mut Seen,
-        stats: &mut RetainedStats,
+        work: &mut RetainedWork,
     ) -> LayerFragments {
+        let RetainedWork { seen, stats } = work;
         let mut frames = Vec::new();
         let mut tracks = Vec::new();
         let mut late = Vec::new();

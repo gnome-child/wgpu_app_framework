@@ -5,4 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
+pollster = "0.4.0"
 wgpu_l3 = { path = "../..", features = ["renderer-debug"] }
