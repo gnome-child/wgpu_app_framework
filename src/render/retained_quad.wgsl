@@ -182,12 +182,19 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
             in.outer_rect,
             in.outer_rounding,
         );
-        let cutout_alpha = rounded_rect_coverage(rounded_rect_sdf(
+        let cutout_alpha = rounded_rect_stable_coverage(
             in.local_position,
             in.inner_rect,
             in.inner_rounding,
-        ));
-        let penumbra = max(in.params.y, max(fwidth(caster_distance), 0.0001));
+        );
+        let penumbra = max(
+            in.params.y,
+            rounded_rect_analytic_width(
+                in.local_position,
+                in.outer_rect,
+                in.outer_rounding,
+            ),
+        );
         let alpha = (1.0 - smoothstep(-penumbra * 0.5, penumbra * 0.5, caster_distance)) *
             (1.0 - cutout_alpha);
 
@@ -201,17 +208,21 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let outer_sdf = rounded_rect_sdf(in.local_position, in.outer_rect, in.outer_rounding);
     let outer_alpha = select(
         rounded_rect_hard_coverage(outer_sdf),
-        rounded_rect_coverage(outer_sdf),
+        rounded_rect_stable_coverage(
+            in.local_position,
+            in.outer_rect,
+            in.outer_rounding,
+        ),
         in.params.w > 0.5,
     );
     var alpha = outer_alpha;
 
     if in.params.x > 0.5 {
-        let inner_alpha = rounded_rect_coverage(rounded_rect_sdf(
+        let inner_alpha = rounded_rect_stable_coverage(
             in.local_position,
             in.inner_rect,
             in.inner_rounding,
-        ));
+        );
         alpha = alpha * (1.0 - inner_alpha);
     }
 

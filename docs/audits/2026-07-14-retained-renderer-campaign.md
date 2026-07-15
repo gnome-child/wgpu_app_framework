@@ -2191,20 +2191,46 @@ defects; it is not checkpoint acceptance:
   properties now originate from the declaration baseline; current interaction
   truth belongs to the property clock. Focused and repeated live proof remains
   open at this preservation point;
-- the real 760-by-660 Control Gallery property oracle is exact at 1.0 scale but
-  still fails at 1.25. The maximum mismatched retained text pixel has an exact
-  expected match four physical pixels right and one pixel up, assigning the
-  current failure to localization/snapping rather than blend tolerance. The
-  1.25/1.5/2.0 transition matrix remains open and tolerances have not been
-  weakened;
+- the physical-grid correction is now code-owned at all three boundaries that
+  exposed it. Near-integral localized clip edges preserve their original grid
+  line before outward scissor rounding; immediate and retained rounded shapes
+  use one analytic coverage width independent of target-local derivative-quad
+  parity; group paint localization preserves the global device phase while
+  retained text prepares on that global grid and only then subtracts the
+  snapped target raster origin. Focused source/coordinate ratchets cover each
+  owner;
+- the exact 18-case compatibility/retained oracle is green at
+  1.0/1.25/1.5/2.0. The real 760-by-660 Control Gallery property transition is
+  also green at all four scales under its original four-channel-value floating
+  blend tolerance; no tolerance was widened. The synthetic retained-scroll
+  transition now runs the same four-scale matrix and reports exact pixels plus
+  literal zero content work at every scale;
+- that expanded scroll witness caught one cached-layer edge texel at 1.5 scale.
+  Pixel-aligned rectangular layer composites now use hard texture coverage
+  while rounded composites retain analytic antialiasing. The formerly leaking
+  transition is exact, making transparent cache-edge sampling structurally
+  absent rather than tolerated as the observed one-pixel seam;
 - live fast-scroll testing can still expose black ordinary-window output while
   retained table content survives. Active and pending realization currently
   share mutable renderer property storage, and code-owned receipts show large
   repeated property uploads; complete active/pending resource isolation and a
-  black-free release-gallery smoke remain open;
+  black-free release-gallery smoke remain open. The post-grid-correction release
+  smoke reproduced this deterministically: ten large table scroll injections
+  left only fragments over black until preparation settled about 2.5 seconds
+  later; continuous typing, selection, slider capture, and column resize then
+  exposed the same incomplete-output interval before recovery. The process
+  survived and was explicitly closed, so the remaining owner is activation and
+  mutable realization continuity rather than the corrected pixel/grid path;
 - the new `tools/renderer_debug/README.md` documents the independently runnable
   oracle, code-owned evidence order, comparison discipline, witness-extension
   rules, and the separate mandatory runtime-smoke rail.
+- the touched-module scan found the feature-gated caret oracle constructing an
+  `input::Input` inside diagnostics, creating a forbidden `diagnostics -> input`
+  edge and a diagnostics/runtime slot cycle. The oracle now uses the runtime's
+  existing programmatic focus capability, which owns caret-clock reset without
+  importing input vocabulary. The focused caret GPU witness passes and the
+  census is restored to zero forbidden edges, external-boundary violations, and
+  slot cycles.
 
 Checkpoint 8 remains in progress. No pending/active acceptance, sole-renderer
 claim, or runtime-completeness claim is made by this progress commit.

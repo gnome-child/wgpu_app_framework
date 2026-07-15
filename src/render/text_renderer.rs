@@ -129,6 +129,7 @@ impl TextRenderer {
         prepare_glyphs(
             render_context,
             viewport.scale_factor(),
+            [0.0; 2],
             inline_cache,
             atlas,
             swash_cache,
@@ -186,9 +187,15 @@ impl TextRenderer {
             viewport.scale_factor(),
         );
         update_glyphon_viewport(render_context, &mut glyph_viewport, target_viewport);
+        let grid = paint::Grid::new(viewport.scale_factor());
+        let raster_origin = [
+            grid.snap_text_origin(target_origin[0]),
+            grid.snap_text_origin(target_origin[1]),
+        ];
         let report = prepare_glyphs(
             render_context,
             viewport.scale_factor(),
+            raster_origin,
             &mut self.inline_cache,
             &mut self.atlas,
             &mut self.swash_cache,
@@ -298,6 +305,7 @@ impl TextRenderer {
 fn prepare_glyphs(
     render_context: &render::Context,
     scale_factor: f32,
+    raster_origin: [f32; 2],
     inline_cache: &mut InlineCache,
     atlas: &mut glyphon::TextAtlas,
     swash_cache: &mut glyphon::SwashCache,
@@ -333,6 +341,15 @@ fn prepare_glyphs(
             has_text: false,
             stats,
         });
+    }
+
+    for text in &mut prepared {
+        localize_text_area(
+            &mut text.left,
+            &mut text.top,
+            &mut text.bounds,
+            raster_origin,
+        );
     }
 
     let borrowed = prepared
@@ -381,6 +398,21 @@ fn prepare_glyphs(
         has_text: true,
         stats,
     })
+}
+
+fn localize_text_area(
+    left: &mut f32,
+    top: &mut f32,
+    bounds: &mut glyphon::TextBounds,
+    raster_origin: [f32; 2],
+) {
+    let raster_origin_i32 = [raster_origin[0] as i32, raster_origin[1] as i32];
+    *left -= raster_origin[0];
+    *top -= raster_origin[1];
+    bounds.left -= raster_origin_i32[0];
+    bounds.right -= raster_origin_i32[0];
+    bounds.top -= raster_origin_i32[1];
+    bounds.bottom -= raster_origin_i32[1];
 }
 
 fn update_glyphon_viewport(
@@ -590,6 +622,26 @@ mod tests {
         assert!(
             (actual - expected).abs() <= 0.01,
             "expected {actual} to be within 0.01 of {expected}"
+        );
+    }
+
+    #[test]
+    fn retained_text_localizes_after_global_physical_grid_preparation() {
+        let mut left = 195.0;
+        let mut top = 927.0;
+        let mut bounds = glyphon::TextBounds {
+            left: 195,
+            top: 927,
+            right: 558,
+            bottom: 949,
+        };
+
+        localize_text_area(&mut left, &mut top, &mut bounds, [24.0, 921.0]);
+
+        assert_eq!([left, top], [171.0, 6.0]);
+        assert_eq!(
+            [bounds.left, bounds.top, bounds.right, bounds.bottom],
+            [171, 6, 534, 28]
         );
     }
 

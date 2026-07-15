@@ -2723,16 +2723,18 @@ fn clip_scissor(
     let scale_factor = scale_factor.max(0.0001);
     let canvas_width = physical_area.width();
     let canvas_height = physical_area.height();
-    let left = (rect.origin.x() * scale_factor).floor().max(0.0) as u32;
-    let top = (rect.origin.y() * scale_factor).floor().max(0.0) as u32;
-    let right = ((rect.origin.x() + rect.area.width()) * scale_factor)
-        .ceil()
+    let left = physical_clip_edge(rect.origin.x(), scale_factor, f32::floor).max(0.0) as u32;
+    let top = physical_clip_edge(rect.origin.y(), scale_factor, f32::floor).max(0.0) as u32;
+    let right = physical_clip_edge(rect.origin.x() + rect.area.width(), scale_factor, f32::ceil)
         .max(0.0)
         .min(canvas_width as f32) as u32;
-    let bottom = ((rect.origin.y() + rect.area.height()) * scale_factor)
-        .ceil()
-        .max(0.0)
-        .min(canvas_height as f32) as u32;
+    let bottom = physical_clip_edge(
+        rect.origin.y() + rect.area.height(),
+        scale_factor,
+        f32::ceil,
+    )
+    .max(0.0)
+    .min(canvas_height as f32) as u32;
     let left = left.min(canvas_width);
     let top = top.min(canvas_height);
 
@@ -2742,6 +2744,17 @@ fn clip_scissor(
         right.saturating_sub(left),
         bottom.saturating_sub(top),
     )
+}
+
+fn physical_clip_edge(logical: f32, scale_factor: f32, outward: fn(f32) -> f32) -> f32 {
+    let physical = logical * scale_factor;
+    let nearest = physical.round();
+
+    if (physical - nearest).abs() <= 0.001 {
+        nearest
+    } else {
+        outward(physical)
+    }
 }
 
 fn intersect_scissor(a: render::Scissor, b: render::Scissor) -> Option<render::Scissor> {
@@ -2838,6 +2851,21 @@ mod tests {
         assert_eq!(scissor.y(), 6);
         assert_eq!(scissor.width(), 22);
         assert_eq!(scissor.height(), 18);
+    }
+
+    #[test]
+    fn clip_scissor_preserves_fractional_scale_grid_edges_after_localization() {
+        let scissor = clip_scissor(
+            Rect::new(point::logical(0.0, 0.0), area::logical(728.0, 30.400_024)),
+            area::physical(910, 57),
+            1.25,
+        )
+        .expect("localized grid-aligned clip should produce a scissor");
+
+        assert_eq!(scissor.x(), 0);
+        assert_eq!(scissor.y(), 0);
+        assert_eq!(scissor.width(), 910);
+        assert_eq!(scissor.height(), 38);
     }
 
     #[test]

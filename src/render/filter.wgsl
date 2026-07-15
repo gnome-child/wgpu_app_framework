@@ -278,7 +278,12 @@ fn fs_noise(in: CompositeOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_composite_pixel(in: CompositeOut) -> @location(0) vec4<f32> {
-    let alpha = rounded_rect_coverage(rounded_rect_sdf(in.local_position, in.rect, in.rounding));
+    let sdf = rounded_rect_sdf(in.local_position, in.rect, in.rounding);
+    let alpha = select(
+        rounded_rect_hard_coverage(sdf),
+        rounded_rect_stable_coverage(in.local_position, in.rect, in.rounding),
+        any(in.rounding > vec4<f32>(0.0)),
+    );
 
     if alpha <= 0.0 {
         discard;

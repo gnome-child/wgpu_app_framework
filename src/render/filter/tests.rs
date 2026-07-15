@@ -318,6 +318,16 @@ fn composite_pass_logs_coverage_and_alpha_params() {
 }
 
 #[test]
+fn pixel_aligned_rectangular_composites_have_hard_texture_edges() {
+    let source = include_str!("../filter.wgsl");
+    let body = source_between(source, "fn fs_composite_pixel", "let source_position");
+
+    assert!(body.contains("rounded_rect_hard_coverage"));
+    assert!(body.contains("rounded_rect_stable_coverage"));
+    assert!(body.contains("any(in.rounding > vec4<f32>(0.0))"));
+}
+
+#[test]
 fn filter_op_composites_use_context_output() {
     let source = filter_module_source();
     let draw_body = source_between(

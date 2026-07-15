@@ -202,23 +202,26 @@ mod tests {
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
     fn retained_scroll_tick_is_pixel_exact_and_reuses_all_content_work() {
-        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
-        let receipt = harness
-            .scroll_tick_receipt()
-            .expect("retained scroll property tick should render");
+        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+            let mut harness =
+                pollster::block_on(Harness::new(scale_factor)).expect("GPU harness should open");
+            let receipt = harness.scroll_tick_receipt().unwrap_or_else(|error| {
+                panic!("retained scroll property tick should render at {scale_factor}x: {error}")
+            });
 
-        assert!(receipt.initial().scene_node_realization_rebuilds() > 0);
-        assert!(receipt.initial().scroll_layer_cache_misses() > 0);
-        assert_zero_content_work(receipt.tick());
-        assert_eq!(receipt.tick().render_plan_reuses(), 1);
-        assert_eq!(receipt.tick().property_upload_bytes(), 0);
-        assert!(receipt.tick().scroll_layer_cache_hits() > 0);
-        assert_eq!(receipt.tick().scroll_layer_cache_misses(), 0);
-        assert_zero_content_work(receipt.unchanged());
-        assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
-        assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
-        assert!(receipt.unchanged().scroll_layer_cache_hits() > 0);
-        assert_eq!(receipt.unchanged().scroll_layer_cache_misses(), 0);
+            assert!(receipt.initial().scene_node_realization_rebuilds() > 0);
+            assert!(receipt.initial().scroll_layer_cache_misses() > 0);
+            assert_zero_content_work(receipt.tick());
+            assert_eq!(receipt.tick().render_plan_reuses(), 1);
+            assert_eq!(receipt.tick().property_upload_bytes(), 0);
+            assert!(receipt.tick().scroll_layer_cache_hits() > 0);
+            assert_eq!(receipt.tick().scroll_layer_cache_misses(), 0);
+            assert_zero_content_work(receipt.unchanged());
+            assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
+            assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
+            assert!(receipt.unchanged().scroll_layer_cache_hits() > 0);
+            assert_eq!(receipt.unchanged().scroll_layer_cache_misses(), 0);
+        }
     }
 
     #[test]

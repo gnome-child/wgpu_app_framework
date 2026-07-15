@@ -1526,8 +1526,9 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     drop(initial);
 
     let focus = crate::session::Focus::text(crate::control_gallery::RENDERER_DEBUG_QUERY_FOCUS);
-    app.handle_input(window, crate::input::Input::focus(focus))
-        .map_err(|error| error.to_string())?;
+    if !app.focus(window, focus) {
+        return Err("control gallery query focus did not change runtime focus".to_owned());
+    }
     let target = focus
         .text_target()
         .ok_or_else(|| "gallery query focus has no text target".to_owned())?;

@@ -1053,17 +1053,17 @@ pub(crate) fn translate_item_for_group(item: &Item, origin: point::Logical, grid
         }
         Item::Text(text) => {
             let mut text = text.clone();
-            text.rect = translate_rect(text.rect, dx, dy);
+            text.rect = translate_raster_rect_for_group(text.rect, origin, grid);
             Item::Text(text)
         }
         Item::TextViewport(text) => {
             let mut text = text.clone();
-            text.rect = translate_rect(text.rect, dx, dy);
+            text.rect = translate_raster_rect_for_group(text.rect, origin, grid);
             text.surfaces = text
                 .surfaces
                 .into_iter()
                 .map(|mut surface| {
-                    surface.rect = translate_rect(surface.rect, dx, dy);
+                    surface.rect = translate_raster_rect_for_group(surface.rect, origin, grid);
                     surface
                 })
                 .collect();
@@ -1071,7 +1071,7 @@ pub(crate) fn translate_item_for_group(item: &Item, origin: point::Logical, grid
         }
         Item::Icon(icon) => {
             let mut icon = *icon;
-            icon.rect = translate_rect(icon.rect, dx, dy);
+            icon.rect = translate_raster_rect_for_group(icon.rect, origin, grid);
             Item::Icon(icon)
         }
         Item::Shadow(shadow) => {
@@ -1097,6 +1097,21 @@ pub(crate) fn translate_item_for_group(item: &Item, origin: point::Logical, grid
             Item::Group(group)
         }
     }
+}
+
+fn translate_raster_rect_for_group(rect: Rect, origin: point::Logical, grid: Grid) -> Rect {
+    let scale_factor = grid.scale_factor();
+    let target_x = grid.snap_text_origin(origin.x());
+    let target_y = grid.snap_text_origin(origin.y());
+
+    Rect::rounded(
+        point::logical(
+            (rect.origin.x() * scale_factor - target_x) / scale_factor,
+            (rect.origin.y() * scale_factor - target_y) / scale_factor,
+        ),
+        rect.area,
+        rect.rounding,
+    )
 }
 
 fn union_rect(a: Rect, b: Rect) -> Rect {
@@ -1357,6 +1372,25 @@ mod tests {
             Rect::new(point::logical(-1.0, 13.0), area::logical(62.0, 52.0))
         );
         assert_eq!(shadow_visual_bounds(shadow, Grid::new(1.0)), group.bounds);
+    }
+
+    #[test]
+    fn group_raster_localization_preserves_fractional_global_grid_phase() {
+        let grid = Grid::new(1.5);
+        let origin = point::logical(24.666_666, 16.666_666);
+        let global = Rect::new(point::logical(27.0, 20.0), area::logical(22.0, 22.0));
+        let local = translate_raster_rect_for_group(global, origin, grid);
+        let centered_inset = 1.0;
+
+        assert_eq!(
+            grid.snap_text_origin(local.origin.x()) + grid.snap_text_origin(origin.x()),
+            grid.snap_text_origin(global.origin.x())
+        );
+        assert_eq!(
+            grid.snap_text_origin(local.origin.y() + centered_inset)
+                + grid.snap_text_origin(origin.y()),
+            grid.snap_text_origin(global.origin.y() + centered_inset)
+        );
     }
 
     #[test]

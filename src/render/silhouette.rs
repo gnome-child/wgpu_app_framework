@@ -68,6 +68,33 @@ fn rounded_rect_normal(point: vec2<f32>, rect: vec4<f32>, rounding: vec4<f32>) -
 
     return vec2<f32>(0.0, sign.y);
 }
+
+fn rounded_rect_analytic_width(
+    point: vec2<f32>,
+    rect: vec4<f32>,
+    rounding: vec4<f32>,
+) -> f32 {
+    let normal = rounded_rect_normal(point, rect, rounding);
+    let horizontal_footprint = dpdx(point);
+    let vertical_footprint = dpdy(point);
+
+    return max(
+        abs(dot(normal, horizontal_footprint)) +
+            abs(dot(normal, vertical_footprint)),
+        0.0001,
+    );
+}
+
+fn rounded_rect_stable_coverage(
+    point: vec2<f32>,
+    rect: vec4<f32>,
+    rounding: vec4<f32>,
+) -> f32 {
+    let sdf = rounded_rect_sdf(point, rect, rounding);
+    let width = rounded_rect_analytic_width(point, rect, rounding);
+
+    return clamp(0.5 - sdf / width, 0.0, 1.0);
+}
 "#;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -296,6 +323,8 @@ mod tests {
         assert!(source.contains("fn rounded_rect_coverage("));
         assert!(source.contains("fn rounded_rect_hard_coverage("));
         assert!(source.contains("fn rounded_rect_normal("));
+        assert!(source.contains("fn rounded_rect_analytic_width("));
+        assert!(source.contains("fn rounded_rect_stable_coverage("));
         assert!(source.ends_with("fn body() {}\n"));
     }
 
@@ -374,9 +403,28 @@ mod tests {
             assert_eq!(source.matches("fn rounded_rect_coverage(").count(), 1);
             assert_eq!(source.matches("fn rounded_rect_hard_coverage(").count(), 1);
             assert_eq!(source.matches("fn rounded_rect_normal(").count(), 1);
+            assert_eq!(source.matches("fn rounded_rect_analytic_width(").count(), 1);
+            assert_eq!(
+                source.matches("fn rounded_rect_stable_coverage(").count(),
+                1
+            );
             assert!(!source.contains("fn coverage("));
             assert!(!source.contains("fn hard_coverage("));
             assert!(!source.contains("fn signed_nonzero("));
+        }
+    }
+
+    #[test]
+    fn immediate_and_retained_quads_use_target_invariant_coverage() {
+        for source in [
+            include_str!("quad.wgsl"),
+            include_str!("retained_quad.wgsl"),
+        ] {
+            assert_eq!(
+                source.matches("rounded_rect_stable_coverage(").count(),
+                3,
+                "fill, outline, and shadow coverage must not depend on target-local quad parity"
+            );
         }
     }
 

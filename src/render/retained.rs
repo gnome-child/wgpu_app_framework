@@ -1575,24 +1575,14 @@ impl PlanBuilder<'_> {
                 space,
                 target,
             ),
-            crate::paint::Item::Text(_) => {
-                let local = local_item_for_space(&item, space, self.viewport.scale_factor());
-                let crate::paint::Item::Text(value) = &local else {
-                    unreachable!("localized text must remain text")
-                };
-                self.push_glyph(
-                    node,
-                    content_index,
-                    batch::Glyph::Text(value),
-                    space,
-                    target,
-                )?
-            }
-            crate::paint::Item::TextViewport(_) => {
-                let local = local_item_for_space(&item, space, self.viewport.scale_factor());
-                let crate::paint::Item::TextViewport(value) = &local else {
-                    unreachable!("localized text viewport must remain a text viewport")
-                };
+            crate::paint::Item::Text(value) => self.push_glyph(
+                node,
+                content_index,
+                batch::Glyph::Text(value),
+                space,
+                target,
+            )?,
+            crate::paint::Item::TextViewport(value) => {
                 self.stats.text_surfaces += value.surfaces.len();
                 self.push_glyph(
                     node,
@@ -1602,19 +1592,13 @@ impl PlanBuilder<'_> {
                     target,
                 )?;
             }
-            crate::paint::Item::Icon(_) => {
-                let local = local_item_for_space(&item, space, self.viewport.scale_factor());
-                let crate::paint::Item::Icon(value) = &local else {
-                    unreachable!("localized icon must remain an icon")
-                };
-                self.push_glyph(
-                    node,
-                    content_index,
-                    batch::Glyph::Icon(value),
-                    space,
-                    target,
-                )?
-            }
+            crate::paint::Item::Icon(value) => self.push_glyph(
+                node,
+                content_index,
+                batch::Glyph::Icon(value),
+                space,
+                target,
+            )?,
             crate::paint::Item::Pane(value) => {
                 self.push_pane(node, content_index, value, space, target);
             }
@@ -1865,18 +1849,6 @@ fn local_rect(mut bounds: crate::paint::Rect, parent_origin: [f32; 2]) -> crate:
         bounds.origin.y() - parent_origin[1],
     );
     bounds
-}
-
-fn local_item_for_space(
-    item: &crate::paint::Item,
-    space: TargetSpace,
-    scale_factor: f32,
-) -> crate::paint::Item {
-    crate::paint::translate_item_for_group(
-        item,
-        crate::geometry::point::logical(space.origin[0], space.origin[1]),
-        crate::paint::Grid::new(scale_factor),
-    )
 }
 
 pub(in crate::render) struct PropertyBindings {

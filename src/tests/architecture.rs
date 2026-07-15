@@ -718,8 +718,8 @@ fn frame_preparation_has_one_recipe() {
     );
     assert_eq!(
         presentation.matches("self.prepare_frame(").count(),
-        2,
-        "immediate and pending rendering must consume the same frame recipe"
+        3,
+        "immediate, pending, and property-fallback rendering must consume the same frame recipe"
     );
 }
 
