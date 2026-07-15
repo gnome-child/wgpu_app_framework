@@ -6007,6 +6007,7 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     assert!(
         layout.contains("enum ScrollResidency {")
             && layout.contains("Complete(Rect),")
+            && layout.contains("Empty,")
             && layout.contains("Incomplete,")
             && layout.contains("fn exact_virtual_residency(")
             && paint.contains("scene painting requires a complete scroll residency proof"),

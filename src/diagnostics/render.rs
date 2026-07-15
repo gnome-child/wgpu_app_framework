@@ -1701,6 +1701,9 @@ pub async fn compare_control_gallery_pending_scroll(scale_factor: f32) -> Result
             .render_scene(window, size)
             .ok_or_else(|| format!("control gallery produced no scroll candidate {index}"))?;
         for projection in candidate.layout().scroll_projections() {
+            if !projection.is_scene_drawable() {
+                continue;
+            }
             let visible = projection.viewport().visible_content();
             let resident = projection.resident_bounds().ok_or_else(|| {
                 format!("scroll candidate {index} has incomplete virtual residency")

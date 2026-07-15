@@ -371,23 +371,12 @@ fn layout_virtual_list(
         .min(i32::MAX as i64) as i32;
     let viewport = Viewport::new(
         viewport_rect,
-        Size::new(
-            viewport_rect.width(),
-            content_height.max(viewport_rect.height()),
-        ),
+        Size::new(viewport_rect.width(), content_height),
         node.scroll_offset(),
     )
     .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
-    let visible_start = (offset.y().max(0) / row_height) as usize;
-    let visible_end =
-        ((offset.y().max(0) as i64 + viewport_rect.height().max(0) as i64 + row_height as i64 - 1)
-            / row_height as i64) as usize;
-    let range = visible_start.saturating_sub(model.overscan())
-        ..visible_end
-            .saturating_add(model.overscan())
-            .min(model.len());
-    let request = crate::virtual_list::Request::new(model.id(), range);
+    let request = model.request_for_viewport(offset.y(), viewport_rect.height());
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)
@@ -438,14 +427,8 @@ fn layout_variable_virtual_list(
     {
         let mut region = measured_sequence.borrow_mut();
         region.set_width(viewport_rect.width(), provider);
-        region.request(
-            requested_offset.y(),
-            viewport_rect.height(),
-            model.overscan(),
-            Vec::new(),
-            provider,
-        );
     }
+    let _ = model.request_for_viewport(requested_offset.y(), viewport_rect.height());
 
     let table_projection = ctx.table_projection.clone();
     let row_height_floor = model.row_height();
@@ -467,33 +450,19 @@ fn layout_variable_virtual_list(
             });
         Some((row.key(), height.max(1)))
     });
-    let (offset_y, content_height, request) = {
+    let (offset_y, content_height) = {
         let mut region = measured_sequence.borrow_mut();
         let offset_y = region.refine(row_measurements, provider);
-        let request = region.request(
-            offset_y,
-            viewport_rect.height(),
-            model.overscan(),
-            Vec::new(),
-            provider,
-        );
-        (offset_y, region.content_height(), request)
+        (offset_y, region.content_height())
     };
+    let request = model.request_for_viewport(offset_y, viewport_rect.height());
     let viewport = Viewport::new(
         viewport_rect,
-        Size::new(
-            viewport_rect.width(),
-            content_height.max(viewport_rect.height()),
-        ),
+        Size::new(viewport_rect.width(), content_height),
         interaction::ScrollOffset::new(requested_offset.x(), offset_y),
     )
     .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
-    let request = crate::virtual_list::Request::variable(
-        model.id(),
-        request.range(),
-        measured_sequence.clone(),
-    );
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)

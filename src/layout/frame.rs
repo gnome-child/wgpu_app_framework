@@ -941,6 +941,21 @@ impl Frame {
         }
     }
 
+    pub(crate) fn virtual_list_request_for_offset(
+        &self,
+        offset: interaction::ScrollOffset,
+    ) -> Option<crate::virtual_list::Request> {
+        let FrameContent::VirtualList(content) = &self.content else {
+            return None;
+        };
+        let viewport = content.geometry.as_ref()?.viewport;
+        Some(
+            content
+                .model
+                .request_for_viewport(offset.y(), viewport.rect().height()),
+        )
+    }
+
     pub(crate) fn virtual_row_index_at(&self, point: Point) -> Option<usize> {
         let FrameContent::VirtualList(content) = &self.content else {
             return None;

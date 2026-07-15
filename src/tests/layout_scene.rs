@@ -3255,9 +3255,10 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
                     && cell.column() == interaction::Id::new("action")
             })
     }));
+    let distant_cell_calls = cell_calls.get().saturating_sub(calls_before_end);
     assert!(
-        cell_calls.get().saturating_sub(calls_before_end) <= 48,
-        "logical navigation must materialize only a bounded row window"
+        distant_cell_calls <= 51,
+        "logical navigation may materialize two eight-row, three-column windows plus one three-cell reveal pin: {distant_cell_calls} cell calls"
     );
 }
 

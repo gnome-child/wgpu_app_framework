@@ -217,6 +217,43 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
+    fn install_virtual_request(
+        &mut self,
+        window: window::Id,
+        request: crate::virtual_list::Request,
+    ) {
+        let mut materializations = self
+            .virtual_materializations
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        let current = materializations
+            .get(&request.id())
+            .cloned()
+            .unwrap_or_else(|| {
+                crate::virtual_list::Materialization::new(request.range(), Vec::new())
+            });
+        materializations.insert(request.id(), current.with_range(request.range()));
+        self.virtual_materializations
+            .insert(window, materializations);
+
+        let mut measurements = self
+            .virtual_measurements
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(next) = request.measurements() {
+            measurements.insert(request.id(), next);
+        } else {
+            measurements.remove(&request.id());
+        }
+        if measurements.is_empty() {
+            self.virtual_measurements.remove(&window);
+        } else {
+            self.virtual_measurements.insert(window, measurements);
+        }
+    }
+
     pub(super) fn apply_active_descendant_reveals(
         &mut self,
         window: window::Id,
@@ -246,12 +283,19 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 continue;
             };
 
-            needs_recompose |= current != offset;
+            let changed = current != offset;
+            let virtual_request = changed
+                .then(|| layout.virtual_request_for_scroll_offset(&target, offset))
+                .flatten();
+            needs_recompose |= changed;
             if self
                 .session
                 .apply_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
                 .is_some()
             {
+                if let Some(request) = virtual_request {
+                    self.install_virtual_request(window, request);
+                }
                 self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
             }
         }
@@ -470,48 +514,59 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         loop {
             let replenishment_started_at = Instant::now();
             let change = self.update_virtual_projections(window, &layout);
-            if !change.any {
-                break;
-            }
-            if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
-                log::warn!(
-                    "virtual geometry did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
+            if change.any {
+                if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
+                    log::warn!(
+                        "virtual geometry did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
+                    );
+                    break;
+                }
+                refinement_passes += 1;
+                self.present(window)?;
+                self.refresh_presented_projection(window)?;
+                let composition = self.composition.get(window)?;
+                layout = layout::Layout::compose_composition_with_theme_at(
+                    composition,
+                    size,
+                    &mut self.layout,
+                    theme,
+                    frame,
+                    self.keymap,
+                    popup_surfaces,
                 );
-                break;
+                if change.crossed_guard {
+                    self.diagnostics
+                        .get_mut(window)
+                        .render
+                        .record_replenishment_commit(replenishment_started_at.elapsed());
+                }
+                continue;
             }
-            refinement_passes += 1;
-            self.present(window)?;
-            self.refresh_presented_projection(window)?;
-            let composition = self.composition.get(window)?;
-            layout = layout::Layout::compose_composition_with_theme_at(
-                composition,
-                size,
-                &mut self.layout,
-                theme,
-                frame,
-                self.keymap,
-                popup_surfaces,
-            );
-            if change.crossed_guard {
-                self.diagnostics
-                    .get_mut(window)
-                    .render
-                    .record_replenishment_commit(replenishment_started_at.elapsed());
-            }
-        }
 
-        if self.apply_active_descendant_reveals(window, &layout, theme) {
-            self.refresh_presented_projection(window)?;
-            let composition = self.composition.get(window)?;
-            layout = layout::Layout::compose_composition_with_theme_at(
-                composition,
-                size,
-                &mut self.layout,
-                theme,
-                frame,
-                self.keymap,
-                popup_surfaces,
-            );
+            if self.apply_active_descendant_reveals(window, &layout, theme) {
+                if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
+                    log::warn!(
+                        "virtual reveal did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
+                    );
+                    break;
+                }
+                refinement_passes += 1;
+                self.present(window)?;
+                self.refresh_presented_projection(window)?;
+                let composition = self.composition.get(window)?;
+                layout = layout::Layout::compose_composition_with_theme_at(
+                    composition,
+                    size,
+                    &mut self.layout,
+                    theme,
+                    frame,
+                    self.keymap,
+                    popup_surfaces,
+                );
+                continue;
+            }
+
+            break;
         }
 
         if !layout.scene_residency_is_complete() {

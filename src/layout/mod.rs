@@ -68,6 +68,7 @@ pub(crate) struct ScrollProjection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScrollResidency {
     Complete(Rect),
+    Empty,
     Incomplete,
 }
 
@@ -92,8 +93,12 @@ impl ScrollProjection {
     pub(crate) fn resident_bounds(&self) -> Option<Rect> {
         match self.residency {
             ScrollResidency::Complete(bounds) => Some(bounds),
-            ScrollResidency::Incomplete => None,
+            ScrollResidency::Empty | ScrollResidency::Incomplete => None,
         }
+    }
+
+    pub(crate) fn is_scene_drawable(&self) -> bool {
+        matches!(self.residency, ScrollResidency::Complete(_))
     }
 }
 
@@ -287,7 +292,7 @@ impl Layout {
     pub(crate) fn scene_residency_is_complete(&self) -> bool {
         self.scroll_projections
             .iter()
-            .all(|projection| matches!(projection.residency, ScrollResidency::Complete(_)))
+            .all(|projection| !matches!(projection.residency, ScrollResidency::Incomplete))
     }
 
     pub(crate) fn scroll_ancestry(
@@ -300,30 +305,82 @@ impl Layout {
             .unwrap_or(&[])
     }
 
+    pub(crate) fn scene_scroll_ancestry_is_drawable(
+        &self,
+        node: composition::tree::NodeId,
+    ) -> bool {
+        self.scroll_ancestry(node).iter().all(|owner| {
+            let projection = self
+                .scroll_projections
+                .iter()
+                .find(|projection| projection.node == *owner)
+                .expect("every scroll ancestor must own one layout projection");
+            match projection.residency {
+                ScrollResidency::Complete(_) => true,
+                ScrollResidency::Empty => false,
+                ScrollResidency::Incomplete => {
+                    panic!("incomplete scroll residency cannot enter scene painting")
+                }
+            }
+        })
+    }
+
     pub(crate) fn scroll_property_accepts(
         &self,
         target: &interaction::Target,
         offset: interaction::ScrollOffset,
     ) -> bool {
-        let Some(projection) = self
+        let mut owns_changed_axis = false;
+        for projection in self
             .scroll_projections()
             .iter()
-            .find(|projection| &projection.target == target)
-        else {
-            return false;
-        };
-        let resolved = projection.viewport.resolve(offset);
-        if resolved != offset {
-            return false;
+            .filter(|projection| &projection.target == target)
+        {
+            let viewport = projection.viewport;
+            let maximum = viewport.max_scroll();
+            let baseline = viewport.resolved_scroll();
+            let changes_x = maximum.x() > 0 && offset.x() != baseline.x();
+            let changes_y = maximum.y() > 0 && offset.y() != baseline.y();
+            if !changes_x && !changes_y {
+                continue;
+            }
+            owns_changed_axis = true;
+            let resolved = viewport.resolve(offset);
+            if (changes_x && resolved.x() != offset.x())
+                || (changes_y && resolved.y() != offset.y())
+            {
+                return false;
+            }
+            let Some(resident_bounds) = projection.resident_bounds() else {
+                return false;
+            };
+            let dx = baseline.x().saturating_sub(resolved.x());
+            let dy = baseline.y().saturating_sub(resolved.y());
+            let bounds = translate_rect(resident_bounds, dx, dy);
+            if !viewport
+                .content_coverage_at(resolved)
+                .is_some_and(|required| contains_rect(bounds, required))
+            {
+                return false;
+            }
         }
-        let baseline = projection.viewport.resolved_scroll();
-        let dx = baseline.x().saturating_sub(resolved.x());
-        let dy = baseline.y().saturating_sub(resolved.y());
-        let Some(resident_bounds) = projection.resident_bounds() else {
-            return false;
-        };
-        let bounds = translate_rect(resident_bounds, dx, dy);
-        contains_rect(bounds, projection.viewport.visible_content())
+        owns_changed_axis
+    }
+
+    pub(crate) fn virtual_request_for_scroll_offset(
+        &self,
+        target: &interaction::Target,
+        offset: interaction::ScrollOffset,
+    ) -> Option<crate::virtual_list::Request> {
+        self.scroll_projections
+            .iter()
+            .filter(|projection| &projection.target == target)
+            .find_map(|projection| {
+                self.frames
+                    .iter()
+                    .find(|frame| frame.node_id() == projection.node)?
+                    .virtual_list_request_for_offset(offset)
+            })
     }
 
     pub(crate) fn frame_for_focus(&self, focus: session::Focus) -> Option<&Frame> {
@@ -751,6 +808,9 @@ fn scroll_layer_geometry(
     }
 
     let visible = viewport.visible_content();
+    if visible.width() <= 0 || visible.height() <= 0 {
+        return (visible, ScrollResidency::Empty);
+    }
     let max = viewport.max_scroll();
     let guard_x = (max.x() > 0)
         .then(|| visible.width().saturating_div(2))
@@ -783,10 +843,16 @@ fn scroll_layer_geometry(
                     .then_some((row.index(), frame.rect()))
                 })
                 .collect::<Vec<_>>();
-            exact_virtual_residency(requested, &rows, visible, layer_bounds)
-                .map_or(ScrollResidency::Incomplete, ScrollResidency::Complete)
+            viewport
+                .visible_content_coverage()
+                .map_or(ScrollResidency::Empty, |required| {
+                    exact_virtual_residency(requested, &rows, required, layer_bounds)
+                        .map_or(ScrollResidency::Incomplete, ScrollResidency::Complete)
+                })
         }
-        _ => ScrollResidency::Complete(layer_bounds),
+        Some(_) if viewport.visible_content_coverage().is_none() => ScrollResidency::Empty,
+        Some(_) => ScrollResidency::Incomplete,
+        None => ScrollResidency::Complete(layer_bounds),
     };
 
     (layer_bounds, residency)
@@ -795,7 +861,7 @@ fn scroll_layer_geometry(
 fn exact_virtual_residency(
     requested: Range<usize>,
     rows: &[(usize, Rect)],
-    visible: Rect,
+    required: Rect,
     layer_bounds: Rect,
 ) -> Option<Rect> {
     let mut expected = requested.start;
@@ -806,8 +872,8 @@ fn exact_virtual_residency(
         if index != expected
             || rect.width() <= 0
             || rect.height() <= 0
-            || rect.x() > visible.x()
-            || rect.right() < visible.right()
+            || rect.x() > required.x()
+            || rect.right() < required.right()
             || previous.is_some_and(|previous| previous.bottom() != rect.y())
         {
             return None;
@@ -821,7 +887,7 @@ fn exact_virtual_residency(
         return None;
     }
     let resident = intersect_rect(bounds?, layer_bounds)?;
-    contains_rect(resident, visible).then_some(resident)
+    contains_rect(resident, required).then_some(resident)
 }
 
 fn root_floating_panels(frames: &[Frame]) -> impl Iterator<Item = &Frame> {
@@ -944,5 +1010,22 @@ mod placement_tests {
                 "holes, duplicates, reordering, and pixel gaps are not drawable residency"
             );
         }
+    }
+
+    #[test]
+    fn virtual_residency_requires_content_coverage_not_blank_viewport_tail() {
+        let required_content = Rect::new(0, 0, 100, 60);
+        let layer = Rect::new(0, 0, 100, 100);
+        let rows = [
+            (0, Rect::new(0, 0, 100, 20)),
+            (1, Rect::new(0, 20, 100, 20)),
+            (2, Rect::new(0, 40, 100, 20)),
+        ];
+
+        assert_eq!(
+            exact_virtual_residency(0..3, &rows, required_content, layer),
+            Some(required_content),
+            "pixels below a short content extent are intentionally blank, not missing rows"
+        );
     }
 }

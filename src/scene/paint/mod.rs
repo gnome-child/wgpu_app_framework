@@ -391,6 +391,7 @@ impl Retained {
         for frame in layout.frames().iter().filter(|frame| {
             layer_for(frame) == layer
                 && panel.is_none_or(|panel| frame_belongs_to_panel(frame, panel))
+                && layout.scene_scroll_ancestry_is_drawable(frame.node_id())
         }) {
             seen.frames.insert(frame.node_id());
             let key = frame.scene_key();
@@ -435,6 +436,7 @@ impl Retained {
         for track in layout.table_tracks().iter().filter(|track| {
             table_track_layer_for(track) == layer
                 && panel.is_none_or(|panel| table_track_belongs_to_panel(layout, track, panel))
+                && layout.scene_scroll_ancestry_is_drawable(track.owner_node())
         }) {
             let ordinal = track_ordinals.entry(track.table_node()).or_insert(0_usize);
             let cache_key = (track.table_node(), *ordinal);
@@ -535,14 +537,25 @@ fn commit_builder(
             frame.rect(),
         );
     }
-    for projection in layout.scroll_projections() {
+    for projection in layout
+        .scroll_projections()
+        .iter()
+        .filter(|projection| projection.is_scene_drawable())
+    {
         let resident_bounds = projection
             .resident_bounds()
             .expect("scene painting requires a complete scroll residency proof");
         let declaration = super::ScrollDeclaration::new(
             projection.viewport().visible_content(),
+            geometry::Rect::new(
+                projection.viewport().rect().x(),
+                projection.viewport().rect().y(),
+                projection.viewport().content().width(),
+                projection.viewport().content().height(),
+            ),
             resident_bounds,
             projection.viewport().resolved_scroll(),
+            projection.viewport().max_scroll(),
         )
         .expect("complete scroll residency must cover its commit baseline");
         builder.declare_scroll(projection.node(), declaration);

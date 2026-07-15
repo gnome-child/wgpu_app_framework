@@ -255,8 +255,10 @@ pub(crate) struct EffectEnvelope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScrollDeclaration {
     viewport: geometry::Rect,
+    content_bounds: geometry::Rect,
     resident_bounds: geometry::Rect,
     baseline: interaction::ScrollOffset,
+    maximum: interaction::ScrollOffset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1374,19 +1376,31 @@ impl EffectEnvelope {
 impl ScrollDeclaration {
     pub(crate) fn new(
         viewport: geometry::Rect,
+        content_bounds: geometry::Rect,
         resident_bounds: geometry::Rect,
         baseline: interaction::ScrollOffset,
+        maximum: interaction::ScrollOffset,
     ) -> Option<Self> {
         (viewport.width() > 0
             && viewport.height() > 0
+            && content_bounds.width() >= 0
+            && content_bounds.height() >= 0
             && resident_bounds.width() > 0
-            && resident_bounds.height() > 0)
-            .then_some(Self {
-                viewport,
-                resident_bounds,
-                baseline,
-            })
-            .filter(|declaration| declaration.accepts(baseline))
+            && resident_bounds.height() > 0
+            && maximum.x() >= 0
+            && maximum.y() >= 0
+            && baseline.x() >= 0
+            && baseline.y() >= 0
+            && baseline.x() <= maximum.x()
+            && baseline.y() <= maximum.y())
+        .then_some(Self {
+            viewport,
+            content_bounds,
+            resident_bounds,
+            baseline,
+            maximum,
+        })
+        .filter(|declaration| declaration.accepts(baseline))
     }
 
     pub(crate) fn viewport(self) -> geometry::Rect {
@@ -1398,16 +1412,35 @@ impl ScrollDeclaration {
     }
 
     fn accepts(self, offset: interaction::ScrollOffset) -> bool {
+        if offset.x() < 0
+            || offset.y() < 0
+            || offset.x() > self.maximum.x()
+            || offset.y() > self.maximum.y()
+        {
+            return false;
+        }
+        let content = geometry::Rect::new(
+            self.content_bounds.x().saturating_sub(offset.x()),
+            self.content_bounds.y().saturating_sub(offset.y()),
+            self.content_bounds.width(),
+            self.content_bounds.height(),
+        );
+        let required_x = self.viewport.x().max(content.x());
+        let required_y = self.viewport.y().max(content.y());
+        let required_right = self.viewport.right().min(content.right());
+        let required_bottom = self.viewport.bottom().min(content.bottom());
+        if required_right <= required_x || required_bottom <= required_y {
+            return true;
+        }
+
         let dx = self.baseline.x().saturating_sub(offset.x());
         let dy = self.baseline.y().saturating_sub(offset.y());
         let resident_x = self.resident_bounds.x().saturating_add(dx);
         let resident_y = self.resident_bounds.y().saturating_add(dy);
-        resident_x <= self.viewport.x()
-            && resident_y <= self.viewport.y()
-            && resident_x.saturating_add(self.resident_bounds.width())
-                >= self.viewport.x().saturating_add(self.viewport.width())
-            && resident_y.saturating_add(self.resident_bounds.height())
-                >= self.viewport.y().saturating_add(self.viewport.height())
+        resident_x <= required_x
+            && resident_y <= required_y
+            && resident_x.saturating_add(self.resident_bounds.width()) >= required_right
+            && resident_y.saturating_add(self.resident_bounds.height()) >= required_bottom
     }
 }
 
@@ -1715,13 +1748,20 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
     let viewport = geometry::Rect::new(8, 10, 48, 40);
     let outer_bounds = geometry::Rect::new(8, 10, 80, 40);
     let inner_bounds = geometry::Rect::new(8, 10, 48, 80);
-    let outer_declaration =
-        ScrollDeclaration::new(viewport, outer_bounds, interaction::ScrollOffset::new(4, 0))
-            .expect("renderer outer-scroll fixture has a nonempty envelope");
+    let outer_declaration = ScrollDeclaration::new(
+        viewport,
+        geometry::Rect::new(viewport.x(), viewport.y(), 80, 40),
+        outer_bounds,
+        interaction::ScrollOffset::new(4, 0),
+        interaction::ScrollOffset::new(32, 0),
+    )
+    .expect("renderer outer-scroll fixture has a nonempty envelope");
     let inner_declaration = ScrollDeclaration::new(
         viewport,
+        geometry::Rect::new(viewport.x(), viewport.y(), 48, 80),
         inner_bounds,
         interaction::ScrollOffset::new(0, 12),
+        interaction::ScrollOffset::new(0, 40),
     )
     .expect("renderer inner-scroll fixture has a nonempty envelope");
     let before_node = Node::new(
@@ -2224,8 +2264,10 @@ mod tests {
         let viewport = geometry::Rect::new(0, 0, 100, 100);
         let declaration = ScrollDeclaration::new(
             viewport,
+            geometry::Rect::new(viewport.x(), viewport.y(), 100, 200),
             geometry::Rect::new(0, 0, 100, 150),
             interaction::ScrollOffset::new(0, 0),
+            interaction::ScrollOffset::new(0, 100),
         )
         .expect("scroll declaration should be valid");
         let node = empty_node(1, None)
@@ -2241,8 +2283,10 @@ mod tests {
         .expect("active scroll commit should be valid");
         let candidate_declaration = ScrollDeclaration::new(
             viewport,
+            geometry::Rect::new(viewport.x(), viewport.y(), 100, 200),
             geometry::Rect::new(0, -40, 100, 200),
             interaction::ScrollOffset::new(0, 60),
+            interaction::ScrollOffset::new(0, 100),
         )
         .expect("candidate scroll declaration should cover its rebased viewport");
         let candidate_node = node.clone().with_scroll(candidate_declaration);
@@ -2313,6 +2357,27 @@ mod tests {
     }
 
     #[test]
+    fn short_scroll_content_requires_only_its_visible_content_pixels() {
+        let viewport = geometry::Rect::new(0, 0, 100, 100);
+        let content = geometry::Rect::new(0, 0, 100, 60);
+        let resident = geometry::Rect::new(0, 0, 100, 60);
+
+        let declaration = ScrollDeclaration::new(
+            viewport,
+            content,
+            resident,
+            interaction::ScrollOffset::default(),
+            interaction::ScrollOffset::default(),
+        )
+        .expect("a short content extent must not manufacture residency for its blank tail");
+        assert!(declaration.accepts(interaction::ScrollOffset::default()));
+        assert!(
+            !declaration.accepts(interaction::ScrollOffset::new(0, 1)),
+            "blank coverage cannot legitimize an offset beyond the integral maximum"
+        );
+    }
+
+    #[test]
     fn scroll_property_preserves_absolute_offsets_beyond_float_integer_precision() {
         let viewport = geometry::Rect::new(0, 0, 100, 100);
 
@@ -2320,8 +2385,14 @@ mod tests {
             16_777_215, 16_777_216, 16_777_217, 23_999_897, 23_999_898, 23_999_899,
         ] {
             let offset = interaction::ScrollOffset::new(0, y);
-            let declaration = ScrollDeclaration::new(viewport, viewport, offset)
-                .expect("resident pixels should cover their exact large-offset baseline");
+            let declaration = ScrollDeclaration::new(
+                viewport,
+                geometry::Rect::new(viewport.x(), viewport.y(), 100, y.saturating_add(100)),
+                viewport,
+                offset,
+                interaction::ScrollOffset::new(0, y),
+            )
+            .expect("resident pixels should cover their exact large-offset baseline");
             let node = empty_node(1, None)
                 .with_properties([PropertyKind::ScrollOffset])
                 .with_scroll(declaration);
@@ -2406,8 +2477,10 @@ mod tests {
         let viewport = geometry::Rect::new(0, 0, 100, 100);
         let prepared_declaration = ScrollDeclaration::new(
             viewport,
+            geometry::Rect::new(viewport.x(), viewport.y(), 100, 260),
             geometry::Rect::new(0, 0, 100, 200),
             interaction::ScrollOffset::new(0, 0),
+            interaction::ScrollOffset::new(0, 160),
         )
         .expect("prepared structure should admit a bounded forward rebase");
         let prepared_node = empty_node(1, None)
@@ -2436,8 +2509,14 @@ mod tests {
         let latest_node = empty_node(1, None)
             .with_properties([PropertyKind::ScrollOffset])
             .with_scroll(
-                ScrollDeclaration::new(viewport, viewport, latest_offset)
-                    .expect("latest commit should cover its baseline"),
+                ScrollDeclaration::new(
+                    viewport,
+                    geometry::Rect::new(viewport.x(), viewport.y(), 100, 160),
+                    viewport,
+                    latest_offset,
+                    latest_offset,
+                )
+                .expect("latest commit should cover its baseline"),
             );
         let latest = Commit::new(
             Revision::INITIAL.next(),
@@ -2467,8 +2546,14 @@ mod tests {
         let beyond_node = empty_node(1, None)
             .with_properties([PropertyKind::ScrollOffset])
             .with_scroll(
-                ScrollDeclaration::new(viewport, viewport, beyond_prepared)
-                    .expect("successor should cover its own baseline"),
+                ScrollDeclaration::new(
+                    viewport,
+                    geometry::Rect::new(viewport.x(), viewport.y(), 100, 260),
+                    viewport,
+                    beyond_prepared,
+                    beyond_prepared,
+                )
+                .expect("successor should cover its own baseline"),
             );
         let beyond = Commit::new(
             Revision::INITIAL.next().next(),

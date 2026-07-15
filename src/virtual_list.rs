@@ -243,6 +243,32 @@ impl Model {
         }
     }
 
+    pub(crate) fn request_for_viewport(&self, offset_y: i32, viewport_height: i32) -> Request {
+        match &self.heights {
+            Heights::Uniform(row_height) => {
+                let row_height = (*row_height).max(1);
+                let visible_start = (offset_y.max(0) / row_height) as usize;
+                let visible_end =
+                    ((offset_y.max(0) as i64 + viewport_height.max(0) as i64 + row_height as i64
+                        - 1)
+                        / row_height as i64) as usize;
+                let range = visible_start.saturating_sub(self.overscan)
+                    ..visible_end.saturating_add(self.overscan).min(self.len());
+                Request::new(self.id, range)
+            }
+            Heights::Variable(measurements) => {
+                let materialization = measurements.borrow_mut().request(
+                    offset_y,
+                    viewport_height,
+                    self.overscan,
+                    Vec::new(),
+                    self.provider.as_ref(),
+                );
+                Request::variable(self.id, materialization.range(), measurements.clone())
+            }
+        }
+    }
+
     pub(crate) fn provider(&self) -> &dyn Provider {
         self.provider.as_ref()
     }
@@ -252,10 +278,6 @@ impl Model {
             Heights::Uniform(height) => (offset.max(0) / (*height).max(1)) as usize,
             Heights::Variable(region) => region.borrow().index_for_offset(offset),
         }
-    }
-
-    pub(crate) fn overscan(&self) -> usize {
-        self.overscan
     }
 
     pub(crate) fn contains_key(&self, key: Key) -> bool {

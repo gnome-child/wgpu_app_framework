@@ -52,6 +52,20 @@ impl Viewport {
         self.visible_content
     }
 
+    pub(crate) fn visible_content_coverage(self) -> Option<Rect> {
+        self.content_coverage_at(self.resolved)
+    }
+
+    pub(crate) fn content_coverage_at(self, offset: ScrollOffset) -> Option<Rect> {
+        let content = Rect::new(
+            self.rect.x().saturating_sub(offset.x()),
+            self.rect.y().saturating_sub(offset.y()),
+            self.content.width(),
+            self.content.height(),
+        );
+        intersect_rect(self.visible_content, content)
+    }
+
     pub(crate) fn content(self) -> Size {
         self.content
     }
@@ -105,6 +119,15 @@ impl Viewport {
             ),
         )
     }
+}
+
+fn intersect_rect(left: Rect, right: Rect) -> Option<Rect> {
+    let x = left.x().max(right.x());
+    let y = left.y().max(right.y());
+    let right_edge = left.right().min(right.right());
+    let bottom = left.bottom().min(right.bottom());
+    (right_edge > x && bottom > y)
+        .then(|| Rect::new(x, y, right_edge.saturating_sub(x), bottom.saturating_sub(y)))
 }
 
 fn reveal_axis(
