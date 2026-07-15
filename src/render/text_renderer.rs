@@ -264,8 +264,13 @@ impl TextRenderer {
         self.prune_retained()
     }
 
-    pub(in crate::render) fn trim(&mut self) {
+    pub(in crate::render) fn trim(&mut self) -> Result<()> {
+        self.prune_retained();
         self.atlas.trim();
+        for retained in self.retained.values() {
+            retained.renderer.retain_prepared(&mut self.atlas)?;
+        }
+        Ok(())
     }
 
     fn update_viewport(

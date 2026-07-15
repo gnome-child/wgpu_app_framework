@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use super::super::{composition, geometry, interaction};
 #[cfg(feature = "renderer-debug")]
-use super::{Brush, Glass, Material, Offset, Rasterization, Rounding, Style, TextWrap};
+use super::{Brush, Glass, Material, Offset, Rasterization, Rounding, Style, TextStyle, TextWrap};
 use super::{
     Clip, Color, Group, Icon, Outline, Pane, Primitive, Quad, Rule, Scene, Shadow, Text,
     TextViewport, Transform, region::MaterialRegion,
@@ -1971,6 +1971,78 @@ pub(crate) fn renderer_partial_update_fixture(
     )?;
     let properties = Properties::empty(&commit)?;
     Ok((commit, properties))
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_text_atlas_pressure_pair()
+-> Result<((Commit, Properties), (Commit, Properties)), ContractError> {
+    const WIDTH: i32 = 1024;
+    const HEIGHT: i32 = 768;
+    let size = geometry::Size::new(WIDTH, HEIGHT);
+    let bounds = geometry::Rect::new(0, 0, WIDTH, HEIGHT);
+    let active = Commit::new(
+        Revision::renderer_fixture(301),
+        size,
+        Color::rgba(12, 16, 24, 255),
+        vec![Node::new(
+            composition::tree::NodeId::renderer_fixture(301),
+            None,
+            bounds,
+            vec![Content::Text(
+                Text::new(
+                    geometry::Rect::new(48, 48, 928, 96),
+                    "ACTIVE RETAINED GLYPHS 0123456789",
+                    Color::rgba(238, 242, 250, 255),
+                    TextWrap::None,
+                )
+                .with_style(TextStyle::new(40.0, crate::text::document::Weight::Normal)),
+            )],
+        )],
+    )?;
+    let active_properties = Properties::empty(&active)?;
+
+    let printable = (33_u8..=126).map(char::from).collect::<String>();
+    let chunks = printable.as_bytes().chunks(24).collect::<Vec<_>>();
+    let mut nodes = Vec::new();
+    let mut fixture_id = 400_u64;
+    for (row, size_px) in (17_u32..=95).step_by(2).enumerate() {
+        for (column, chunk) in chunks.iter().enumerate() {
+            fixture_id += 1;
+            let value = std::str::from_utf8(chunk)
+                .expect("the renderer atlas fixture contains only printable ASCII");
+            nodes.push(Node::new(
+                composition::tree::NodeId::renderer_fixture(fixture_id),
+                None,
+                bounds,
+                vec![Content::Text(
+                    Text::new(
+                        geometry::Rect::new(
+                            8 + column as i32 * 254,
+                            8 + (row % 8) as i32 * 94,
+                            246,
+                            90,
+                        ),
+                        value,
+                        Color::rgba(220, 226, 238, 255),
+                        TextWrap::None,
+                    )
+                    .with_style(TextStyle::new(
+                        size_px as f32,
+                        crate::text::document::Weight::Normal,
+                    )),
+                )],
+            ));
+        }
+    }
+    let pressure = Commit::new(
+        Revision::renderer_fixture(302),
+        size,
+        Color::rgba(20, 12, 18, 255),
+        nodes,
+    )?;
+    let pressure_properties = Properties::empty(&pressure)?;
+
+    Ok(((active, active_properties), (pressure, pressure_properties)))
 }
 
 #[cfg(test)]

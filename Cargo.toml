@@ -40,7 +40,7 @@ bytemuck = "1.25.0"
 # Enables shape-run-cache for glyphon's transitive cosmic-text dependency.
 cosmic-text = { version = "0.18.2", features = ["shape-run-cache"] }
 env_logger = "0.11.10"
-glyphon = "0.11.0"
+glyphon = { version = "0.11.0", path = "third_party/glyphon" }
 log = "0.4.32"
 lru = "0.16.4"
 pollster = "0.4.0"

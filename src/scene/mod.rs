@@ -17,6 +17,7 @@ pub(crate) use commit::{
 pub(crate) use commit::{
     FixtureCase, renderer_fixture, renderer_partial_update_fixture,
     renderer_scroll_layer_semantic_pair, renderer_scroll_properties, renderer_scroll_semantic_pair,
+    renderer_text_atlas_pressure_pair,
 };
 pub(crate) use material::GlassBase;
 pub use material::{

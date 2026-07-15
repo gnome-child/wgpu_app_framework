@@ -262,8 +262,21 @@ mod tests {
         assert!(receipt.activated().commit_preparation_max_nanos() > 0);
         assert_eq!(receipt.activated().commit_preparation_deadline_misses(), 0);
         assert_eq!(receipt.activated().render_plan_rebuilds(), 1);
-        assert!(receipt.activated().scroll_layer_cache_hits() > 0);
-        assert_eq!(receipt.activated().scroll_layer_cache_misses(), 0);
+        assert!(receipt.activated().scroll_layer_cache_misses() > 0);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn retained_text_survives_shared_atlas_pressure_without_repreparation() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let receipt = harness
+            .text_atlas_retention_receipt()
+            .expect("new semantic text must not evict glyphs referenced by active retained text");
+
+        assert!(receipt.pressure().text_prepare_calls() > 0);
+        assert_zero_content_work(receipt.surviving());
+        assert_eq!(receipt.surviving().property_upload_bytes(), 0);
+        assert_eq!(receipt.surviving().render_plan_reuses(), 1);
     }
 
     #[test]

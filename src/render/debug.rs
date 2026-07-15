@@ -429,6 +429,12 @@ pub struct UnrelatedSemanticReceipt {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextAtlasRetentionReceipt {
+    pressure: Work,
+    surviving: Work,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PendingActiveReceipt {
     preparation_slices: usize,
     active_draws: usize,
@@ -491,6 +497,16 @@ impl PartialUpdateReceipt {
 
     pub fn retired(self) -> Work {
         self.retired
+    }
+}
+
+impl TextAtlasRetentionReceipt {
+    pub fn pressure(self) -> Work {
+        self.pressure
+    }
+
+    pub fn surviving(self) -> Work {
+        self.surviving
     }
 }
 
@@ -1035,7 +1051,7 @@ impl Harness {
                 break;
             }
             preparation_slices += 1;
-            let (visible, _) = self.candidate.draw_commit_offscreen_debug(
+            let (visible, active_work) = self.candidate.draw_commit_offscreen_debug(
                 &self.context,
                 &initial,
                 &initial_properties,
@@ -1048,6 +1064,12 @@ impl Harness {
                 return Err(
                     "pending resources leaked into active output before activation".to_owned(),
                 );
+            }
+            if active_work.property_upload_bytes != 0 {
+                return Err(format!(
+                    "pending preparation forced {} active property-upload bytes",
+                    active_work.property_upload_bytes
+                ));
             }
             active_draws += 1;
             if preparation_slices > 512 {
@@ -1070,9 +1092,10 @@ impl Harness {
         if active_draws == 0 {
             return Err("pending preparation never yielded to the active state".to_owned());
         }
-        if activated.scroll_layer_cache_hits == 0 || activated.scroll_layer_cache_misses != 0 {
+        if activated.scroll_layer_cache_misses == 0 {
             return Err(
-                "atomic activation did not consume only prepared retained scroll layers".to_owned(),
+                "atomic activation did not realize its candidate scroll cache in the successful activation draw"
+                    .to_owned(),
             );
         }
         if peak_pending_states != 1 {
@@ -1095,6 +1118,59 @@ impl Harness {
             peak_resources,
             peak_bytes,
             activated,
+        })
+    }
+
+    pub fn text_atlas_retention_receipt(&mut self) -> Result<TextAtlasRetentionReceipt, String> {
+        let ((active, active_properties), (pressure, pressure_properties)) =
+            scene::renderer_text_atlas_pressure_pair().map_err(|error| error.to_string())?;
+        let active = std::sync::Arc::new(active);
+        let pressure = std::sync::Arc::new(pressure);
+        let (width, height) = self.physical_extent(active.size());
+        let (expected, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &active,
+            &active_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if !expected.iter().any(|pixel| pixel[0] > 0.5) {
+            return Err("retained text atlas fixture produced no visible active glyphs".to_owned());
+        }
+        let (_, pressure_work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &pressure,
+            &pressure_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (surviving, surviving_work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &active,
+            &active_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if surviving != expected {
+            let differing = expected
+                .iter()
+                .zip(&surviving)
+                .filter(|(expected, actual)| expected != actual)
+                .count();
+            return Err(format!(
+                "atlas pressure changed {differing} pixels of unchanged retained text"
+            ));
+        }
+
+        Ok(TextAtlasRetentionReceipt {
+            pressure: pressure_work.into(),
+            surviving: surviving_work.into(),
         })
     }
 
@@ -1316,7 +1392,7 @@ impl Harness {
             if readiness == render::CommitReadiness::Ready {
                 break;
             }
-            let (visible, _) = self.candidate.draw_commit_offscreen_debug(
+            let (visible, active_work) = self.candidate.draw_commit_offscreen_debug(
                 &self.context,
                 active_commit,
                 active_properties,
@@ -1333,6 +1409,12 @@ impl Harness {
                     .count();
                 return Err(format!(
                     "pending production resources changed {changed} active pixels after slice {slices}"
+                ));
+            }
+            if active_work.property_upload_bytes != 0 {
+                return Err(format!(
+                    "pending production preparation forced {} active property-upload bytes after slice {slices}",
+                    active_work.property_upload_bytes
                 ));
             }
             active_draws = active_draws.saturating_add(1);

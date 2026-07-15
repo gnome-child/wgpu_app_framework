@@ -638,6 +638,7 @@ impl Realizer {
     pub(in crate::render) fn cancel_synchronization(&mut self, commit: &Arc<scene::Commit>) {
         self.pending
             .retain(|pending| !Arc::ptr_eq(&pending.commit, commit));
+        self.shapes.cancel_property_state(commit);
     }
 
     pub(in crate::render) fn prepare(
@@ -719,78 +720,6 @@ impl Realizer {
         })
     }
 
-    pub(in crate::render) fn prepare_pending(
-        &mut self,
-        render_context: &render::Context,
-        viewport: render::Viewport,
-        commit: &Arc<scene::Commit>,
-        properties: &scene::Properties,
-    ) -> render::Result<Prepared> {
-        properties
-            .require_compatible(commit)
-            .map_err(|_| render::Error::RetainedSceneContract)?;
-        let plan = self
-            .find_plan(commit, viewport)
-            .ok_or(render::Error::RetainedSceneContract)?;
-        let (property_bindings, property_stats) = self.shapes.prepare_properties(
-            render_context,
-            viewport,
-            commit,
-            properties,
-            &plan.property_bindings,
-        );
-        let mut stats = render::DrawStats::default();
-        apply_sync_stats(&mut stats, property_stats);
-        if let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
-            entry.viewport == viewport
-                && entry
-                    .commit
-                    .upgrade()
-                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
-        }) {
-            prepared.stats.add(stats);
-        }
-
-        Ok(Prepared {
-            plan,
-            properties: property_bindings,
-            stats: render::DrawStats::default(),
-        })
-    }
-
-    pub(in crate::render) fn record_preparation_slice(
-        &mut self,
-        viewport: render::Viewport,
-        commit: &Arc<scene::Commit>,
-        elapsed: std::time::Duration,
-        deadline: std::time::Duration,
-    ) {
-        let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
-            entry.viewport == viewport
-                && entry
-                    .commit
-                    .upgrade()
-                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
-        }) else {
-            return;
-        };
-        let elapsed_nanos = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
-        prepared.stats.commit_preparation_slices =
-            prepared.stats.commit_preparation_slices.saturating_add(1);
-        prepared.stats.commit_preparation_total_nanos = prepared
-            .stats
-            .commit_preparation_total_nanos
-            .saturating_add(elapsed_nanos);
-        prepared.stats.commit_preparation_max_nanos = prepared
-            .stats
-            .commit_preparation_max_nanos
-            .max(elapsed_nanos);
-        prepared.stats.commit_preparation_deadline_misses = prepared
-            .stats
-            .commit_preparation_deadline_misses
-            .saturating_add(usize::from(elapsed >= deadline));
-    }
-
     pub(in crate::render) fn shapes(&self) -> &Shapes {
         &self.shapes
     }
@@ -819,6 +748,7 @@ impl Realizer {
     }
 
     fn retain_commit_viewport(&mut self, commit: &Arc<scene::Commit>, viewport: render::Viewport) {
+        self.shapes.retain_property_viewport(commit, viewport);
         self.pending.retain(|pending| {
             !Arc::ptr_eq(&pending.commit, commit) || pending.viewport == viewport
         });
@@ -1853,6 +1783,7 @@ fn local_rect(mut bounds: crate::paint::Rect, parent_origin: [f32; 2]) -> crate:
 
 pub(in crate::render) struct PropertyBindings {
     offsets: HashMap<PropertyBinding, u32>,
+    slot: usize,
 }
 
 impl PropertyBindings {
@@ -1869,17 +1800,20 @@ pub(in crate::render) struct Shapes {
     instances: Vec<render::quad::Instance>,
     free: Vec<Range<u32>>,
     entries: HashMap<ResourceKey, Entry>,
+    property_stride: usize,
+    bind_group_layout: wgpu::BindGroupLayout,
+    property_slots: Vec<PropertySlot>,
+}
+
+struct PropertySlot {
+    owners: Vec<Weak<scene::Commit>>,
+    viewport_key: [u32; 3],
     viewport_buffer: wgpu::Buffer,
     property_buffer: wgpu::Buffer,
     property_capacity: usize,
-    property_stride: usize,
-    bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
-    last_property_commit: Weak<scene::Commit>,
-    last_property_serial: Option<scene::PropertySerial>,
-    last_property_bindings: Vec<PropertyBinding>,
-    last_property_viewport: [u32; 3],
-    last_property_bytes: Vec<u8>,
+    bindings: Vec<PropertyBinding>,
+    bytes: Vec<u8>,
 }
 
 impl Shapes {
@@ -1962,20 +1896,12 @@ impl Shapes {
             usage: wgpu::BufferUsages::VERTEX,
         });
         let instance_buffer = create_instance_buffer(device, INITIAL_INSTANCE_CAPACITY);
-        let viewport_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Retained Viewport Uniform"),
-            size: std::mem::size_of::<ViewportUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let property_buffer =
-            create_property_buffer(device, property_stride, INITIAL_PROPERTY_CAPACITY);
-        let bind_group = create_bind_group(
+        let property_slots = vec![create_property_slot(
             device,
             &bind_group_layout,
-            &viewport_buffer,
-            &property_buffer,
-        );
+            property_stride,
+            INITIAL_PROPERTY_CAPACITY,
+        )];
 
         Self {
             pipeline,
@@ -1985,17 +1911,9 @@ impl Shapes {
             instances: Vec::new(),
             free: Vec::new(),
             entries: HashMap::new(),
-            viewport_buffer,
-            property_buffer,
-            property_capacity: INITIAL_PROPERTY_CAPACITY,
             property_stride,
             bind_group_layout,
-            bind_group,
-            last_property_commit: Weak::new(),
-            last_property_serial: None,
-            last_property_bindings: Vec::new(),
-            last_property_viewport: [0; 3],
-            last_property_bytes: Vec::new(),
+            property_slots,
         }
     }
 
@@ -2088,29 +2006,12 @@ impl Shapes {
             return (
                 PropertyBindings {
                     offsets: HashMap::new(),
+                    slot: 0,
                 },
                 stats,
             );
         }
         let required = bindings.len().max(1);
-        let mut buffer_recreated = false;
-        if required > self.property_capacity {
-            self.property_capacity = required.next_power_of_two();
-            self.property_buffer = create_property_buffer(
-                render_context.device(),
-                self.property_stride,
-                self.property_capacity,
-            );
-            self.bind_group = create_bind_group(
-                render_context.device(),
-                &self.bind_group_layout,
-                &self.viewport_buffer,
-                &self.property_buffer,
-            );
-            stats.resource_creations += 1;
-            buffer_recreated = true;
-        }
-
         let viewport_key = [
             viewport.logical_area().width().to_bits(),
             viewport.logical_area().height().to_bits(),
@@ -2122,34 +2023,6 @@ impl Shapes {
             .enumerate()
             .map(|(index, binding)| (binding, (index * self.property_stride) as u32))
             .collect::<HashMap<_, _>>();
-        let unchanged = !buffer_recreated
-            && self
-                .last_property_commit
-                .upgrade()
-                .is_some_and(|previous| Arc::ptr_eq(&previous, commit))
-            && self.last_property_serial == Some(properties.serial())
-            && self.last_property_bindings == bindings
-            && self.last_property_viewport == viewport_key;
-        if unchanged {
-            return (PropertyBindings { offsets }, stats);
-        }
-
-        if buffer_recreated || self.last_property_viewport != viewport_key {
-            let viewport_uniform = ViewportUniform {
-                size: [
-                    viewport.logical_area().width().max(1.0),
-                    viewport.logical_area().height().max(1.0),
-                ],
-                padding: [0.0, 0.0],
-            };
-            render_context.queue().write_buffer(
-                &self.viewport_buffer,
-                0,
-                bytemuck::bytes_of(&viewport_uniform),
-            );
-            stats.property_upload_bytes += std::mem::size_of::<ViewportUniform>();
-        }
-
         let mut bytes = vec![0_u8; required * self.property_stride];
         let mut inherited_scroll = HashMap::with_capacity(commit.nodes().len());
         for node in commit.nodes() {
@@ -2209,20 +2082,97 @@ impl Shapes {
             bytes[offset..offset + std::mem::size_of::<NodeProperty>()]
                 .copy_from_slice(bytemuck::bytes_of(&property));
         }
-        if buffer_recreated || self.last_property_bytes != bytes {
-            render_context
-                .queue()
-                .write_buffer(&self.property_buffer, 0, &bytes);
-            stats.property_upload_bytes += bytes.len();
-            self.last_property_bytes = bytes;
+
+        for slot in &mut self.property_slots {
+            slot.owners.retain(|owner| owner.strong_count() > 0);
+        }
+        if let Some(slot) = self.property_slots.iter_mut().position(|slot| {
+            slot.viewport_key == viewport_key && slot.bindings == bindings && slot.bytes == bytes
+        }) {
+            add_property_owner(&mut self.property_slots[slot].owners, commit);
+            return (PropertyBindings { offsets, slot }, stats);
         }
 
-        self.last_property_commit = Arc::downgrade(commit);
-        self.last_property_serial = Some(properties.serial());
-        self.last_property_bindings = bindings.to_vec();
-        self.last_property_viewport = viewport_key;
+        let slot = self
+            .property_slots
+            .iter()
+            .position(|slot| {
+                let mut owns_commit = false;
+                let mut owns_other = false;
+                for owner in slot.owners.iter().filter_map(Weak::upgrade) {
+                    if Arc::ptr_eq(&owner, commit) {
+                        owns_commit = true;
+                    } else {
+                        owns_other = true;
+                    }
+                }
+                owns_commit && !owns_other
+            })
+            .or_else(|| {
+                self.property_slots
+                    .iter()
+                    .position(|slot| slot.owners.is_empty())
+            })
+            .unwrap_or_else(|| {
+                self.property_slots.push(create_property_slot(
+                    render_context.device(),
+                    &self.bind_group_layout,
+                    self.property_stride,
+                    INITIAL_PROPERTY_CAPACITY,
+                ));
+                stats.resource_creations += 2;
+                self.property_slots.len() - 1
+            });
 
-        (PropertyBindings { offsets }, stats)
+        let property_slot = &mut self.property_slots[slot];
+        let viewport_changed = property_slot.viewport_key != viewport_key;
+        let mut buffer_recreated = false;
+        if required > property_slot.property_capacity {
+            property_slot.property_capacity = required.next_power_of_two();
+            property_slot.property_buffer = create_property_buffer(
+                render_context.device(),
+                self.property_stride,
+                property_slot.property_capacity,
+            );
+            property_slot.bind_group = create_bind_group(
+                render_context.device(),
+                &self.bind_group_layout,
+                &property_slot.viewport_buffer,
+                &property_slot.property_buffer,
+            );
+            stats.resource_creations += 1;
+            buffer_recreated = true;
+        }
+
+        if viewport_changed {
+            let viewport_uniform = ViewportUniform {
+                size: [
+                    viewport.logical_area().width().max(1.0),
+                    viewport.logical_area().height().max(1.0),
+                ],
+                padding: [0.0, 0.0],
+            };
+            render_context.queue().write_buffer(
+                &property_slot.viewport_buffer,
+                0,
+                bytemuck::bytes_of(&viewport_uniform),
+            );
+            stats.property_upload_bytes += std::mem::size_of::<ViewportUniform>();
+        }
+
+        if buffer_recreated || property_slot.bytes != bytes {
+            render_context
+                .queue()
+                .write_buffer(&property_slot.property_buffer, 0, &bytes);
+            stats.property_upload_bytes += bytes.len();
+        }
+        property_slot.owners.clear();
+        property_slot.owners.push(Arc::downgrade(commit));
+        property_slot.viewport_key = viewport_key;
+        property_slot.bindings = bindings.to_vec();
+        property_slot.bytes = bytes;
+
+        (PropertyBindings { offsets, slot }, stats)
     }
 
     pub(in crate::render) fn draw<'a>(
@@ -2232,18 +2182,48 @@ impl Shapes {
         properties: &PropertyBindings,
     ) {
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.bind_group, &[properties.offset(batch.binding())]);
+        pass.set_bind_group(
+            0,
+            &self.property_slots[properties.slot].bind_group,
+            &[properties.offset(batch.binding())],
+        );
         pass.set_vertex_buffer(0, self.unit_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.draw(0..UNIT_QUAD.len() as u32, batch.range());
     }
 
     pub(in crate::render) fn resource_count(&self) -> usize {
-        self.entries.len().saturating_add(4)
+        self.entries
+            .len()
+            .saturating_add(2)
+            .saturating_add(self.property_slots.len().saturating_mul(2))
     }
 
     pub(in crate::render) fn collect(&mut self) -> SyncStats {
         self.prune()
+    }
+
+    fn cancel_property_state(&mut self, commit: &Arc<scene::Commit>) {
+        for slot in &mut self.property_slots {
+            remove_property_owner(&mut slot.owners, commit);
+        }
+    }
+
+    fn retain_property_viewport(
+        &mut self,
+        commit: &Arc<scene::Commit>,
+        viewport: render::Viewport,
+    ) {
+        let viewport_key = [
+            viewport.logical_area().width().to_bits(),
+            viewport.logical_area().height().to_bits(),
+            viewport.scale_factor().to_bits(),
+        ];
+        for slot in &mut self.property_slots {
+            if slot.viewport_key != viewport_key {
+                remove_property_owner(&mut slot.owners, commit);
+            }
+        }
     }
 
     pub(in crate::render) fn resource_bytes(&self) -> usize {
@@ -2254,8 +2234,11 @@ impl Shapes {
                 self.instance_capacity
                     .saturating_mul(std::mem::size_of::<render::quad::Instance>()),
             )
-            .saturating_add(std::mem::size_of::<ViewportUniform>())
-            .saturating_add(self.property_capacity.saturating_mul(self.property_stride))
+            .saturating_add(self.property_slots.iter().fold(0_usize, |bytes, slot| {
+                bytes
+                    .saturating_add(std::mem::size_of::<ViewportUniform>())
+                    .saturating_add(slot.property_capacity.saturating_mul(self.property_stride))
+            }))
     }
 
     fn prune(&mut self) -> SyncStats {
@@ -2277,8 +2260,25 @@ impl Shapes {
                 self.release(range);
             }
         }
+        let property_slots_before = self.property_slots.len();
+        let mut kept_recycle = false;
+        self.property_slots.retain_mut(|slot| {
+            slot.owners.retain(|owner| owner.strong_count() > 0);
+            if !slot.owners.is_empty() {
+                true
+            } else if !kept_recycle {
+                kept_recycle = true;
+                true
+            } else {
+                false
+            }
+        });
         SyncStats {
-            resource_removals: expired.len(),
+            resource_removals: expired.len().saturating_add(
+                property_slots_before
+                    .saturating_sub(self.property_slots.len())
+                    .saturating_mul(2),
+            ),
             ..SyncStats::default()
         }
     }
@@ -2340,6 +2340,51 @@ fn create_property_buffer(device: &wgpu::Device, stride: usize, capacity: usize)
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
+}
+
+fn create_property_slot(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    stride: usize,
+    capacity: usize,
+) -> PropertySlot {
+    let viewport_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Retained Viewport Uniform"),
+        size: std::mem::size_of::<ViewportUniform>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let property_buffer = create_property_buffer(device, stride, capacity);
+    let bind_group = create_bind_group(device, layout, &viewport_buffer, &property_buffer);
+    PropertySlot {
+        owners: Vec::new(),
+        viewport_key: [0; 3],
+        viewport_buffer,
+        property_buffer,
+        property_capacity: capacity,
+        bind_group,
+        bindings: Vec::new(),
+        bytes: Vec::new(),
+    }
+}
+
+fn add_property_owner(owners: &mut Vec<Weak<scene::Commit>>, commit: &Arc<scene::Commit>) {
+    owners.retain(|owner| owner.strong_count() > 0);
+    if !owners
+        .iter()
+        .filter_map(Weak::upgrade)
+        .any(|owner| Arc::ptr_eq(&owner, commit))
+    {
+        owners.push(Arc::downgrade(commit));
+    }
+}
+
+fn remove_property_owner(owners: &mut Vec<Weak<scene::Commit>>, commit: &Arc<scene::Commit>) {
+    owners.retain(|owner| {
+        owner
+            .upgrade()
+            .is_some_and(|owner| !Arc::ptr_eq(&owner, commit))
+    });
 }
 
 fn create_bind_group(

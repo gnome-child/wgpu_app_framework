@@ -2210,27 +2210,83 @@ defects; it is not checkpoint acceptance:
   while rounded composites retain analytic antialiasing. The formerly leaking
   transition is exact, making transparent cache-edge sampling structurally
   absent rather than tolerated as the observed one-pixel seam;
-- live fast-scroll testing can still expose black ordinary-window output while
-  retained table content survives. Active and pending realization currently
-  share mutable renderer property storage, and code-owned receipts show large
-  repeated property uploads; complete active/pending resource isolation and a
-  black-free release-gallery smoke remain open. The post-grid-correction release
-  smoke reproduced this deterministically: ten large table scroll injections
-  left only fragments over black until preparation settled about 2.5 seconds
-  later; continuous typing, selection, slider capture, and column resize then
-  exposed the same incomplete-output interval before recovery. The process
-  survived and was explicitly closed, so the remaining owner is activation and
-  mutable realization continuity rather than the corrected pixel/grid path;
+- `OW-RR-8A` traces active/pending realization through the renderer's mutable
+  state. Shape properties now use commit-owned copy-on-write GPU slots: equal
+  bytes may share, an exclusively owned slot may advance, and divergent active
+  and candidate states cannot overwrite one another. Candidate synchronization
+  no longer encodes or submits retained scroll-layer GPU work ahead of the
+  active surface draw. The active-output witnesses require literal zero active
+  property upload during every pending slice. Architecture ratchets forbid the
+  displaced single `last_property_commit` cache, pending scroll-layer submit
+  path, and the former `Prepared` readiness species;
+- that correction split the original black-output interval into two measured
+  owners. Before the queue-order correction,
+  `control-gallery-500px-idle-1784129047732.txt` recorded semantic
+  encode/submit/present p95/max at 1,919,798 us because pending GPU raster work
+  sat ahead of the active draw. After removal,
+  `control-gallery-500px-idle-1784129389531.txt` reduced that distribution to
+  5,824 us and the observed incomplete interval from about 2.5 seconds to about
+  0.5 seconds. This is preserved as causal evidence, not claimed as closure;
+- `OW-RR-8B` found the remaining incomplete-text owner at the shared glyph
+  atlas. Upstream glyphon 0.11.0 clears its live allocation set on
+  `TextAtlas::trim` but exposes no capability for retained prepared renderers to
+  reassert the glyph allocations still referenced by their vertex buffers. The
+  code-owned pressure witness first failed with **7,577 changed active pixels**
+  while unchanged text reported zero preparation. The pinned local glyphon
+  source adds only `TextRenderer::retain_prepared`: preparation records opaque
+  cache keys and the trim owner re-pins every live retained renderer without
+  shaping, rasterization, vertex rebuilding, or GPU upload. The source copy
+  preserves upstream licenses and carries an explicit removal condition when
+  upstream gains an equivalent capability;
+- the first synthetic atlas witness was falsely green because retained
+  offscreen readback omitted production's trim boundary. Correcting the harness
+  made the failure deterministic before the mechanism changed. The complete 15
+  witness release debug tier is now green, including forced atlas pressure,
+  active/pending output, production-gallery transition, scroll, caret, resize,
+  churn, and exact semantic work. The architecture ratchet requires the
+  source-pinned capability and the one shared renderer atlas rather than
+  permitting per-node atlases or unchanged-text repreparation;
+- the post-correction release gallery survived and immediately presented two
+  consecutive ten-input downward fast-scroll bursts from records 0 to 210 to
+  424 with complete pixels. Column resizing, rapid typing, selection dragging,
+  and caret blinking also remained complete; the focus outline stayed stable
+  across the caret interval. The process was explicitly closed. An earlier
+  non-moving-direction capture occurred while native feedback/hover windows
+  were present and was not accepted as a scroll receipt;
 - the new `tools/renderer_debug/README.md` documents the independently runnable
   oracle, code-owned evidence order, comparison discipline, witness-extension
-  rules, and the separate mandatory runtime-smoke rail.
+  rules, and the separate mandatory runtime-smoke rail;
 - the touched-module scan found the feature-gated caret oracle constructing an
   `input::Input` inside diagnostics, creating a forbidden `diagnostics -> input`
   edge and a diagnostics/runtime slot cycle. The oracle now uses the runtime's
   existing programmatic focus capability, which owns caret-clock reset without
   importing input vocabulary. The focused caret GPU witness passes and the
   census is restored to zero forbidden edges, external-boundary violations, and
-  slot cycles.
+  slot cycles;
+- Checkpoint 8 is still open on candidate readiness. The current activation
+  draw realizes the candidate scroll cache after synchronization reports
+  `Ready`; `control-gallery-500px-idle-1784130382819.txt` records semantic
+  batch-preparation p95/max 38,962 us and complete draw p95/max 45,189 us even
+  though encode/submit/present is 6,080 us and bounded commit preparation is
+  666 us max. A complete candidate must own that realization before activation
+  without placing its GPU work ahead of active presentation. The next cell is
+  therefore transactional candidate realization, not a claim that this
+  progress boundary already supplies deadline-independent activation;
+- progress-boundary verification passed formatting, workspace all-target
+  compilation without warnings, 1,188 library tests with 11 intentional
+  ignores, three debug-crate unit tests, both Control Gallery tests, and all
+  four doctests. The release deep tier passed all 11 WARP, text, shader, alpha,
+  glyph, popup, and material witnesses; the specialized release tier passed all
+  15 retained/oracle/pending/gallery witnesses. All five renderer-receipt and
+  ten census parser tests passed. The final gauge reports 47 top-level modules,
+  333 production and 114 test-only edges, three split responsibilities, 55
+  provisional slot edges, **zero forbidden edges, zero external-boundary
+  violations, and zero slot cycles**, 2,021 `pub(crate)` declarations in 196
+  production files with a 1,971 cross-slot upper bound, 91 cross-slot test
+  edges, 120 manifest-root mentions, 386 filesystem reads, seven allowances,
+  five production panics, and 68 production expects. The increased test edge
+  is the architecture ratchet reading the pinned dependency capability; no
+  production ownership arrow moved.
 
 Checkpoint 8 remains in progress. No pending/active acceptance, sole-renderer
 claim, or runtime-completeness claim is made by this progress commit.

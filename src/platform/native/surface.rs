@@ -206,7 +206,6 @@ impl Native {
                     context,
                     canvas.canvas(),
                     preparing.commit(),
-                    preparing.properties(),
                     remaining,
                     preparation.deadline,
                 )?;

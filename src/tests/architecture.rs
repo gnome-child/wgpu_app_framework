@@ -5716,6 +5716,14 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         std::fs::read_to_string(root.join("src/render/quad.rs")).expect("quad source should read");
     let text_renderer = std::fs::read_to_string(root.join("src/render/text_renderer.rs"))
         .expect("text renderer source should read");
+    let glyphon_renderer =
+        std::fs::read_to_string(root.join("third_party/glyphon/src/text_render.rs"))
+            .expect("pinned glyphon text renderer source should read");
+    let glyphon_atlas = std::fs::read_to_string(root.join("third_party/glyphon/src/text_atlas.rs"))
+        .expect("pinned glyphon atlas source should read");
+    let glyphon_notice =
+        std::fs::read_to_string(root.join("third_party/glyphon/README.wgpu_l3.md"))
+            .expect("pinned glyphon ownership notice should read");
     let native_surface = std::fs::read_to_string(root.join("src/platform/native/surface.rs"))
         .expect("native surface source should read");
     let scene =
@@ -5803,17 +5811,34 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && quad.contains("step_mode: wgpu::VertexStepMode::Instance")
             && retained.contains("instance_buffer")
             && retained.contains("property_buffer")
+            && retained.contains("property_slots: Vec<PropertySlot>")
             && retained.contains("owners: Vec<Weak<scene::Node>>")
-            && retained.contains("commit: Weak<scene::Commit>"),
-        "retained shapes must use one static unit mesh, separate instance/property state, and weak semantic ownership"
+            && retained.contains("owners: Vec<Weak<scene::Commit>>")
+            && retained.contains("commit: Weak<scene::Commit>")
+            && !retained.contains("last_property_commit"),
+        "retained shapes must use one static unit mesh and copy-on-write commit-owned property slots"
     );
     assert!(
-        text_renderer.contains("atlas: glyphon::TextAtlas")
+        manifest.contains("path = \"third_party/glyphon\"")
+            && text_renderer.contains("atlas: glyphon::TextAtlas")
             && text_renderer.contains("swash_cache: glyphon::SwashCache")
             && text_renderer
                 .contains("retained: HashMap<render::retained::ResourceKey, RetainedText>")
-            && text_renderer.matches("glyphon::TextAtlas").count() < 4,
-        "retained text resources must share the renderer-global glyphon atlas and caches"
+            && text_renderer.matches("glyphon::TextAtlas").count() < 4
+            && text_renderer.contains("self.atlas.trim();")
+            && text_renderer.contains("retained.renderer.retain_prepared(&mut self.atlas)?")
+            && glyphon_renderer.contains("pub fn retain_prepared(")
+            && glyphon_atlas.contains("pub(crate) fn retain_prepared(")
+            && glyphon_notice.contains("performs no shaping, rasterization")
+            && glyphon_notice.contains("remove this source copy"),
+        "retained text must share one atlas while re-pinning live prepared allocations without repreparation"
+    );
+    assert!(
+        !renderer.contains("prepare_one_scroll_layer")
+            && !renderer.contains("Pending Retained Scroll Layer")
+            && !renderer.contains("CommitReadiness::Prepared")
+            && !native_surface.contains("preparing.properties(),"),
+        "pending semantic preparation must not submit GPU scroll/property work ahead of the drawable active state"
     );
     assert!(
         native_surface.contains("renderer.draw_commit(")
