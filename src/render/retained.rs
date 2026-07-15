@@ -119,20 +119,13 @@ fn project_scrollbar_property(
             baseline_start,
             baseline_extent,
             baseline_position,
-            travel,
-            maximum_offset,
+            ..
         } => (
             axis,
             edge,
             base_thickness,
             maximum_thickness,
-            Some((
-                baseline_start,
-                baseline_extent,
-                baseline_position,
-                travel,
-                maximum_offset,
-            )),
+            Some((baseline_start, baseline_extent, baseline_position)),
         ),
     };
     let (opacity, thickness) = properties
@@ -158,18 +151,11 @@ fn project_scrollbar_property(
         thickness,
     );
 
-    if let Some((baseline_start, extent, baseline_position, travel, maximum_offset)) = thumb {
+    if let Some((baseline_start, extent, baseline_position)) = thumb {
         let offset = properties.scroll_offset(node).unwrap_or_default();
-        let offset = match axis {
-            crate::interaction::ScrollbarAxis::Vertical => offset.y(),
-            crate::interaction::ScrollbarAxis::Horizontal => offset.x(),
-        };
-        let position = if maximum_offset <= 0 {
-            0
-        } else {
-            (travel as f32 * offset.clamp(0, maximum_offset) as f32 / maximum_offset as f32).round()
-                as i32
-        };
+        let position = projection
+            .scrollbar_position(offset)
+            .expect("scrollbar thumb projection must have one integral position");
         let target_start = baseline_start
             .saturating_sub(baseline_position)
             .saturating_add(position);

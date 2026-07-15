@@ -5968,6 +5968,52 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
     }
 }
 
+#[test]
+fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
+    let interaction = include_str!("../interaction/scroll.rs");
+    let dispatch = include_str!("../runtime/input/dispatch.rs");
+    let layout = include_str!("../layout/mod.rs");
+    let scene = include_str!("../scene/commit.rs");
+    let paint = include_str!("../scene/paint/mod.rs");
+    let retained = include_str!("../render/retained.rs");
+
+    assert!(
+        interaction.contains("enum ScrollUpdate {")
+            && interaction.contains("Relative(ScrollDelta),")
+            && interaction.contains("Absolute(ScrollOffset),")
+            && interaction.contains("Geometry(ScrollOffset),")
+            && interaction.contains("pub(super) fn apply(")
+            && dispatch.contains("enum ScrollTransition {")
+            && dispatch.contains("PropertyTick(interaction::ScrollOffset),")
+            && dispatch.contains("NeedsResidency(interaction::ScrollOffset),")
+            && dispatch.matches("self.apply_scroll_transition(").count() == 2,
+        "relative and absolute input must cross one authoritative mutation and scheduling path"
+    );
+    for displaced in ["fn scroll_by(", "fn resolve_scroll("] {
+        assert!(
+            !interaction.contains(displaced) && !dispatch.contains(displaced),
+            "the displaced parallel scroll mutation path must stay absent: {displaced}"
+        );
+    }
+
+    assert!(
+        scene.contains("value: interaction::ScrollOffset,")
+            && scene.contains("i64::from(travel) * i64::from(offset)")
+            && retained.contains(".scrollbar_position(offset)")
+            && !scene.contains("maximum_offset as f32")
+            && !retained.contains("maximum_offset as f32"),
+        "absolute scroll and scrollbar projection must stay integral until bounded GPU-local geometry"
+    );
+    assert!(
+        layout.contains("enum ScrollResidency {")
+            && layout.contains("Complete(Rect),")
+            && layout.contains("Incomplete,")
+            && layout.contains("fn exact_virtual_residency(")
+            && paint.contains("scene painting requires a complete scroll residency proof"),
+        "scene painting must remain downstream of an exact complete virtual-residency proof"
+    );
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

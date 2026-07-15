@@ -633,6 +633,36 @@ impl ContentProjection {
         }
     }
 
+    pub(crate) fn scrollbar_position(self, offset: interaction::ScrollOffset) -> Option<i32> {
+        let Self::ScrollbarThumb {
+            axis,
+            travel,
+            maximum_offset,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        if maximum_offset <= 0 {
+            return Some(0);
+        }
+
+        let offset = match axis {
+            interaction::ScrollbarAxis::Vertical => offset.y(),
+            interaction::ScrollbarAxis::Horizontal => offset.x(),
+        }
+        .clamp(0, maximum_offset);
+        let numerator = i64::from(travel) * i64::from(offset);
+        let denominator = i64::from(maximum_offset);
+        let half = denominator / 2;
+        let rounded = if numerator >= 0 {
+            (numerator + half) / denominator
+        } else {
+            (numerator - half) / denominator
+        };
+        Some(rounded.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
+    }
+
     fn project_primitive(
         self,
         primitive: Primitive,
@@ -684,23 +714,13 @@ impl ContentProjection {
             ),
         };
         if let Self::ScrollbarThumb {
-            baseline_position,
-            travel,
-            maximum_offset,
-            ..
+            baseline_position, ..
         } = self
         {
             let offset = properties.scroll_offset(node).unwrap_or_default();
-            let offset = match axis {
-                interaction::ScrollbarAxis::Vertical => offset.y(),
-                interaction::ScrollbarAxis::Horizontal => offset.x(),
-            };
-            let position = if maximum_offset <= 0 {
-                0
-            } else {
-                (travel as f32 * offset.clamp(0, maximum_offset) as f32 / maximum_offset as f32)
-                    .round() as i32
-            };
+            let position = self
+                .scrollbar_position(offset)
+                .expect("scrollbar thumb projection must have one integral position");
             let delta = position.saturating_sub(baseline_position);
             rect = geometry::Rect::new(
                 rect.x()
@@ -2296,7 +2316,9 @@ mod tests {
     fn scroll_property_preserves_absolute_offsets_beyond_float_integer_precision() {
         let viewport = geometry::Rect::new(0, 0, 100, 100);
 
-        for y in [16_777_217, 23_999_999] {
+        for y in [
+            16_777_215, 16_777_216, 16_777_217, 23_999_897, 23_999_898, 23_999_899,
+        ] {
             let offset = interaction::ScrollOffset::new(0, y);
             let declaration = ScrollDeclaration::new(viewport, viewport, offset)
                 .expect("resident pixels should cover their exact large-offset baseline");
@@ -2324,6 +2346,59 @@ mod tests {
 
             assert_eq!(properties.scroll_offset(node_id), Some(offset));
         }
+    }
+
+    #[test]
+    fn scrollbar_projection_uses_one_axis_generic_integral_ratio() {
+        let vertical = ContentProjection::ScrollbarThumb {
+            axis: interaction::ScrollbarAxis::Vertical,
+            edge: 100,
+            base_thickness: 4,
+            maximum_thickness: 8,
+            baseline_start: 0,
+            baseline_extent: 20,
+            baseline_position: 0,
+            travel: 401,
+            maximum_offset: 23_999_900,
+        };
+        let horizontal = ContentProjection::ScrollbarThumb {
+            axis: interaction::ScrollbarAxis::Horizontal,
+            edge: 100,
+            base_thickness: 4,
+            maximum_thickness: 8,
+            baseline_start: 0,
+            baseline_extent: 20,
+            baseline_position: 0,
+            travel: 401,
+            maximum_offset: 23_999_900,
+        };
+
+        assert_eq!(
+            vertical.scrollbar_position(interaction::ScrollOffset::new(0, 12_000_000)),
+            Some(201)
+        );
+        assert_eq!(
+            horizontal.scrollbar_position(interaction::ScrollOffset::new(12_000_000, 0)),
+            Some(201)
+        );
+        assert_eq!(
+            vertical.scrollbar_position(interaction::ScrollOffset::new(12_000_000, 0)),
+            Some(0),
+            "vertical projection must read only vertical truth"
+        );
+        assert_eq!(
+            horizontal.scrollbar_position(interaction::ScrollOffset::new(0, 12_000_000)),
+            Some(0),
+            "horizontal projection must read only horizontal truth"
+        );
+        assert_eq!(
+            vertical.scrollbar_position(interaction::ScrollOffset::new(0, 23_999_899)),
+            Some(401)
+        );
+        assert_eq!(
+            vertical.scrollbar_position(interaction::ScrollOffset::new(0, 23_999_900)),
+            Some(401)
+        );
     }
 
     #[test]

@@ -930,7 +930,7 @@ fn million_row_virtual_list_converges_to_a_bounded_first_frame() {
 }
 
 #[test]
-fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
+fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
     let row_calls = Rc::new(Cell::new(0));
     let provider = MillionRowProvider {
         row_calls: Rc::clone(&row_calls),
@@ -941,7 +941,7 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("million.jump", 20, provider.clone())
+                crate::VirtualList::new("million.jump", 24, provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::grow()),
             )
@@ -953,12 +953,27 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         .show_scene(window, compact)
         .expect("initial virtual list should render");
     let list = initial.layout().find_role(view::Role::VirtualList)[0];
+    let point = frame_point_at(list.rect());
+    let projection = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.node() == list.node_id())
+        .expect("virtual list should declare one authoritative scroll projection");
+    let owner = projection.node();
+    let target = projection.target().clone();
+    let maximum = projection.viewport().max_scroll();
+    assert_eq!(
+        maximum,
+        interaction::ScrollOffset::new(0, 23_999_900),
+        "one million 24-pixel rows must expose the gallery-scale integral extent"
+    );
     let calls_before_jump = row_calls.get();
 
     app.scroll_at(
         window,
         compact,
-        frame_point_at(list.rect()),
+        point,
         interaction::ScrollDelta::vertical(12_000_000),
     )
     .expect("jump scroll should be handled");
@@ -973,8 +988,21 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         .collect::<Vec<_>>();
 
     assert!(
-        jumped_values.iter().any(|value| value.contains("599998")),
+        jumped_values.iter().any(|value| value.contains("499998")),
         "jump should derive the distant logical range arithmetically"
+    );
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window interaction")
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(0, 12_000_000)
+    );
+    assert_eq!(
+        jumped.properties().scroll_offset(owner),
+        Some(interaction::ScrollOffset::new(0, 12_000_000)),
+        "the scene property must derive from the same large integral position"
     );
     assert!(jumped_values.len() <= 9);
     assert!(
@@ -988,6 +1016,58 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
         "the stable view root is infrastructure; materialized list frames stay bounded"
     );
     assert!(row_calls.get().saturating_sub(calls_before_jump) <= 16);
+
+    let near_maximum = interaction::ScrollOffset::new(0, maximum.y() - 1);
+    let calls_before_absolute = row_calls.get();
+    app.handle_input(window, Input::scroll_to(target.clone(), near_maximum))
+        .expect("a gallery-scale absolute thumb position should be accepted");
+    let near_end = app
+        .show_scene(window, compact)
+        .expect("the odd offset immediately below the gallery maximum should render");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window interaction")
+            .scroll()
+            .offset(&target),
+        near_maximum
+    );
+    assert_eq!(
+        near_end.properties().scroll_offset(owner),
+        Some(near_maximum)
+    );
+    assert!(
+        near_end
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Provider row 999999"),
+        "the viewport must render through the final row instead of outrunning residency"
+    );
+    assert!(
+        row_calls.get().saturating_sub(calls_before_absolute) <= 16,
+        "a gallery-scale absolute jump must retain bounded materialization"
+    );
+
+    app.scroll_at(
+        window,
+        compact,
+        point,
+        interaction::ScrollDelta::vertical(100),
+    )
+    .expect("the final relative tick should clamp to the exact maximum");
+    let at_end = app
+        .show_scene(window, compact)
+        .expect("the exact gallery maximum should render");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window interaction")
+            .scroll()
+            .offset(&target),
+        maximum
+    );
+    assert_eq!(at_end.properties().scroll_offset(owner), Some(maximum));
 
     let tall = app
         .show_scene(window, geometry::Size::new(240, 180))
