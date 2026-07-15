@@ -656,6 +656,17 @@ impl Realizer {
             &plan.property_bindings,
         );
         apply_sync_stats(&mut stats, property_stats);
+        apply_sync_stats(
+            &mut stats,
+            prepare_text_transforms(
+                render_context,
+                viewport,
+                commit,
+                properties,
+                plan.batches(),
+                text_renderer,
+            ),
+        );
         plan.facts.apply(&mut stats);
         stats.render_batches = count_batches(plan.batches());
         stats.direct_surface_plans = usize::from(!plan.requires_surface_sampling());
@@ -682,6 +693,7 @@ impl Realizer {
         viewport: render::Viewport,
         commit: &Arc<scene::Commit>,
         properties: &scene::Properties,
+        text_renderer: &mut render::text_renderer::TextRenderer,
     ) -> render::Result<Option<Prepared>> {
         properties
             .require_compatible(commit)
@@ -698,6 +710,17 @@ impl Realizer {
         );
         let mut stats = render::DrawStats::default();
         apply_sync_stats(&mut stats, property_stats);
+        apply_sync_stats(
+            &mut stats,
+            prepare_text_transforms(
+                render_context,
+                viewport,
+                commit,
+                properties,
+                plan.batches(),
+                text_renderer,
+            ),
+        );
         if let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
             entry.viewport == viewport
                 && entry
@@ -819,6 +842,64 @@ impl Realizer {
                     .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
         })?;
         Some(self.prepared_stats.swap_remove(index).stats)
+    }
+}
+
+fn prepare_text_transforms(
+    render_context: &render::Context,
+    viewport: render::Viewport,
+    commit: &Arc<scene::Commit>,
+    properties: &scene::Properties,
+    batches: &[RenderBatch],
+    text_renderer: &mut render::text_renderer::TextRenderer,
+) -> SyncStats {
+    let mut transforms = Vec::new();
+    collect_text_transforms(batches, properties, [0.0, 0.0], &mut transforms);
+    let report =
+        text_renderer.prepare_retained_transforms(render_context, viewport, commit, &transforms);
+    SyncStats {
+        property_upload_bytes: report.property_upload_bytes,
+        resource_creations: report.resource_creations,
+        resource_removals: report.resource_removals,
+        ..SyncStats::default()
+    }
+}
+
+fn collect_text_transforms(
+    batches: &[RenderBatch],
+    properties: &scene::Properties,
+    translation: [f32; 2],
+    transforms: &mut Vec<(render::text_renderer::RetainedBatch, [f32; 2])>,
+) {
+    for batch in batches {
+        match batch {
+            RenderBatch::Text(TextBatch::Retained(batch)) => {
+                transforms.push((*batch, translation));
+            }
+            RenderBatch::Group(group) => {
+                collect_text_transforms(&group.render_batches, properties, [0.0, 0.0], transforms);
+            }
+            RenderBatch::Scroll(scroll) => {
+                let current = properties
+                    .scroll_offset(scroll.node)
+                    .unwrap_or(scroll.baseline);
+                let own = [
+                    scroll.baseline.x().saturating_sub(current.x()) as f32,
+                    scroll.baseline.y().saturating_sub(current.y()) as f32,
+                ];
+                collect_text_transforms(
+                    &scroll.render_batches,
+                    properties,
+                    [translation[0] + own[0], translation[1] + own[1]],
+                    transforms,
+                );
+            }
+            RenderBatch::Shapes(_)
+            | RenderBatch::Pane(_)
+            | RenderBatch::Text(TextBatch::Immediate { .. })
+            | RenderBatch::PushClip(_)
+            | RenderBatch::PopClip => {}
+        }
     }
 }
 

@@ -444,6 +444,14 @@ pub struct PendingActiveReceipt {
     activated: Work,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncrementalActivationReceipt {
+    environment: Environment,
+    slices: usize,
+    batch_prepare: Duration,
+    activated: Work,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChurnReceipt {
     iterations: usize,
@@ -560,6 +568,24 @@ impl PendingActiveReceipt {
     }
 
     pub fn activated(self) -> Work {
+        self.activated
+    }
+}
+
+impl IncrementalActivationReceipt {
+    pub fn environment(&self) -> &Environment {
+        &self.environment
+    }
+
+    pub fn slices(&self) -> usize {
+        self.slices
+    }
+
+    pub fn batch_prepare(&self) -> Duration {
+        self.batch_prepare
+    }
+
+    pub fn activated(&self) -> Work {
         self.activated
     }
 }
@@ -1298,7 +1324,7 @@ impl Harness {
         &mut self,
         commit: &std::sync::Arc<scene::Commit>,
         properties: &scene::Properties,
-    ) -> Result<(), String> {
+    ) -> Result<IncrementalActivationReceipt, String> {
         let (width, height) = self.physical_extent(commit.size());
         let (expected, _) = self.legacy.draw_commit_offscreen_debug(
             &self.context,
@@ -1342,7 +1368,7 @@ impl Harness {
             return Err("production scene did not exercise incremental preparation".to_owned());
         }
 
-        let (actual, _) = self.candidate.draw_commit_offscreen_debug(
+        let (actual, activated, batch_prepare) = self.candidate.draw_commit_offscreen_debug_timed(
             &self.context,
             commit,
             properties,
@@ -1370,7 +1396,12 @@ impl Harness {
             ));
         }
 
-        Ok(())
+        Ok(IncrementalActivationReceipt {
+            environment: self.environment(),
+            slices,
+            batch_prepare,
+            activated: activated.into(),
+        })
     }
 
     pub(crate) fn compare_pending_transition_preserves_active(

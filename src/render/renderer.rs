@@ -381,6 +381,7 @@ impl Renderer {
         commit: &std::sync::Arc<crate::scene::Commit>,
     ) {
         self.retained.cancel_synchronization(commit);
+        self.text_renderer.cancel_retained_transform_state(commit);
         self.ready_candidates.retain(|candidate| {
             candidate
                 .commit
@@ -436,9 +437,13 @@ impl Renderer {
         }
 
         let started = std::time::Instant::now();
-        let Some(_) =
-            self.retained
-                .prepare_candidate(render_context, viewport, commit, properties)?
+        let Some(_) = self.retained.prepare_candidate(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            &mut self.text_renderer,
+        )?
         else {
             return Ok(());
         };
@@ -763,6 +768,29 @@ impl Renderer {
         scale_factor: f32,
         pack_popup: bool,
     ) -> Result<(Vec<[f32; 4]>, DrawStats), String> {
+        let (pixels, stats, _) = self.draw_commit_offscreen_debug_timed(
+            render_context,
+            commit,
+            properties,
+            width,
+            height,
+            scale_factor,
+            pack_popup,
+        )?;
+        Ok((pixels, stats))
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn draw_commit_offscreen_debug_timed(
+        &mut self,
+        render_context: &render::Context,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+        pack_popup: bool,
+    ) -> Result<(Vec<[f32; 4]>, DrawStats, std::time::Duration), String> {
         let format = self.format;
         if pack_popup && format != wgpu::TextureFormat::Rgba8UnormSrgb {
             return Err("popup debug packing requires an sRGB renderer".to_owned());
@@ -815,6 +843,7 @@ impl Renderer {
             render_context,
             render::filter::Target::from_viewport(viewport),
         );
+        let prepare_started = std::time::Instant::now();
         let prepared = self
             .retained
             .prepare(
@@ -825,6 +854,7 @@ impl Renderer {
                 &mut self.text_renderer,
             )
             .map_err(|error| error.to_string())?;
+        let batch_prepare = prepare_started.elapsed();
         let clear_color = render::surface_color(commit.clear());
         let mut text_render_error = None;
         let mut draw_passes = 1;
@@ -905,7 +935,7 @@ impl Renderer {
         stats.effect_intermediate_composite_bytes =
             command_stats.effect_intermediate_composite_bytes;
         stats.largest_effect_intermediate_bytes = command_stats.largest_effect_intermediate_bytes;
-        Ok((pixels, stats))
+        Ok((pixels, stats, batch_prepare))
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -1855,15 +1885,12 @@ impl<'a> SceneEncoder<'a> {
                     }
                     RenderBatch::Text(TextBatch::Retained(batch)) => {
                         match self.text_renderer.render_retained(
-                            self.render_context,
                             *batch,
                             self.scroll_translation,
                             self.viewport.scale_factor(),
                             &mut pass,
                         ) {
-                            Ok(uploaded) => {
-                                self.command_stats.property_upload_bytes += uploaded;
-                            }
+                            Ok(()) => {}
                             Err(error) => {
                                 *self.text_render_error = Some(error);
                                 break;

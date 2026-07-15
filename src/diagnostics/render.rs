@@ -1374,7 +1374,7 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
 #[cfg(feature = "renderer-debug")]
 pub async fn compare_control_gallery_incremental_activation(
     scale_factor: f32,
-) -> Result<(), String> {
+) -> Result<crate::render::debug::IncrementalActivationReceipt, String> {
     let mut app = crate::control_gallery::app(crate::control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();

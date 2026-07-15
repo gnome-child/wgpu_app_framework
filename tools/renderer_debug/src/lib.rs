@@ -303,10 +303,54 @@ mod tests {
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
     fn control_gallery_incremental_activation_matches_synchronous_pixels() {
-        pollster::block_on(
-            wgpu_l3::diagnostics::compare_control_gallery_incremental_activation(1.0),
-        )
+        const WARMUP: usize = 1;
+        const SAMPLES: usize = 8;
+        let (warmup, receipts) = pollster::block_on(async {
+            let warmup =
+                wgpu_l3::diagnostics::compare_control_gallery_incremental_activation(1.0).await?;
+            let mut receipts = Vec::with_capacity(SAMPLES);
+            for _ in 0..SAMPLES {
+                receipts.push(
+                    wgpu_l3::diagnostics::compare_control_gallery_incremental_activation(1.0)
+                        .await?,
+                );
+            }
+            Ok::<_, String>((warmup, receipts))
+        })
         .expect("incremental preparation must preserve the production gallery scene");
+        let mut samples = receipts
+            .iter()
+            .map(|receipt| receipt.batch_prepare())
+            .collect::<Vec<_>>();
+        samples.sort_unstable();
+        let p50 = samples[samples.len() / 2];
+        let p95 = samples[samples.len() - 1];
+        let environment = receipts[0].environment();
+        eprintln!(
+            "control-gallery activation receipt: workload=initial-production-commit scale=1.0 warmup={} samples={} adapter={:?} backend={} device_type={} os={} architecture={} warmup_us={} p50_us={} p95_us={} max_us={} acceptance_us=4167",
+            WARMUP,
+            SAMPLES,
+            environment.adapter_name(),
+            environment.backend(),
+            environment.device_type(),
+            environment.os(),
+            environment.architecture(),
+            warmup.batch_prepare().as_micros(),
+            p50.as_micros(),
+            p95.as_micros(),
+            samples
+                .last()
+                .expect("activation sample should exist")
+                .as_micros(),
+        );
+        assert!(warmup.slices() > 1);
+        assert!(receipts.iter().all(|receipt| receipt.slices() > 1));
+        assert!(p95 < std::time::Duration::from_micros(4_167));
+        assert!(
+            receipts
+                .iter()
+                .all(|receipt| receipt.activated().commit_preparation_slices() > 0)
+        );
     }
 
     #[test]

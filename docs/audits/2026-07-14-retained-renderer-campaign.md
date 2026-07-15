@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–7 complete, Checkpoint 8 in progress**. One-Way
+Status: **in flight; Checkpoints 0–8 complete, Checkpoint 9 in progress**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -600,8 +600,8 @@ At each checkpoint boundary:
 | 5. Make render work semantic | Complete | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
 | 6. Make scroll a property tick | Complete | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
 | 7. Prove Qt class and decide the ceiling | Complete | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
-| 8. Optional Chromium-class upgrade | In progress; admitted by Checkpoint 7 | Active remains drawable while pending prepares; atomic activation and deadline independence proved |
-| 9. Burn down the old species | Pending | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
+| 8. Optional Chromium-class upgrade | Complete; admitted by Checkpoint 7 | Active remains drawable while pending prepares; atomic activation and deadline independence proved |
+| 9. Burn down the old species | In progress | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
 | 10. Close out and teach master design | Pending | Full matrix green, instrumented acceptance, One-Way fixed point, roadmap/design synchronized, sole renderer proved |
 
 ## Checkpoint 0 — claim territory and bracket the defect
@@ -2171,10 +2171,10 @@ Required witnesses:
 This is not license for Chromium's tiling, checkerboarding, GPU process, or
 unbounded raster task graph. Each would require a separate caller and receipt.
 
-### Checkpoint 8 in-flight ledger — open
+### Checkpoint 8 evidence ledger — complete
 
-Progress preservation receipt, 2026-07-15. This records evidence and open
-defects; it is not checkpoint acceptance:
+The following progress-preservation receipt records the evidence and open
+defects at its 2026-07-15 historical boundary; the closing receipts follow it:
 
 - incremental preparation, active-output, pending-property, resize, caret, and
   production-gallery transition witnesses now exercise the admitted
@@ -2291,17 +2291,29 @@ defects; it is not checkpoint acceptance:
   importing input vocabulary. The focused caret GPU witness passes and the
   census is restored to zero forbidden edges, external-boundary violations, and
   slot cycles;
-- Checkpoint 8 is still open on candidate readiness. The historical
-  `control-gallery-500px-idle-1784130382819.txt` receipt assigned 38,962 us of
-  semantic batch preparation to activation while bounded commit preparation
-  itself was 666 us max. Deleting the scroll cache removes that particular
-  late raster owner, and ready candidates now name the exact commit, viewport,
-  and property serial after post-present shape-property preparation. Retained
-  text viewport transforms are still sampled at draw, however, and the new
-  direct realization has not yet produced a replacement activation/deadline
-  receipt. The next cell remains complete transactional candidate realization
-  and remeasurement, not a claim that this progress boundary already supplies
-  deadline-independent activation;
+- the final readiness cell moved retained text viewport transforms out of draw
+  and into commit-owned copy-on-write property slots. Equal active/candidate
+  values share one slot; divergent values allocate or reuse a distinct slot,
+  cancellation removes only the cancelled commit's ownership, and draw performs
+  an exact key/value lookup with no queue write. A missing exact transform is a
+  typed renderer error rather than silently omitted text. Candidate readiness
+  is now minted only after shape and text property realization both complete;
+- the replacement code-owned production-gallery activation benchmark runs one
+  warmup and eight measured DX12 samples through the specialized debug crate.
+  On the NVIDIA GeForce RTX 4070 Ti SUPER, Windows x86-64, scale 1.0 rail, the
+  final full-tier receipt reports 70 us warmup, 25 us p50, and 52 us p95/max
+  against the 4,167 us refresh-relative ceiling. Every sample required multiple
+  incremental preparation slices and remained pixel-equivalent to synchronous
+  realization. This replaces the historical 38,962 us activation owner with a
+  complete transactional readiness receipt rather than hiding it in draw;
+- the post-mechanism ordinary release Control Gallery smoke sustained and
+  crossed scroll guards through record 243, moved slider capture from level 42
+  to 68, resized the Detail/Note divider, presented continuous text input and a
+  live drag selection with a stable focus outline, and remained alive until
+  explicit closure. Windows Graphics Capture again showed transient partial
+  black regions during high-rate input and then settled to complete output;
+  this is the already code-classified capture artifact, not a new surface-output
+  failure. No Control Gallery process remained;
 - progress-boundary verification passed formatting, workspace all-target
   compilation without warnings, 1,188 library tests with 11 intentional
   ignores, three debug-crate unit tests, both Control Gallery tests, and all
@@ -2318,8 +2330,28 @@ defects; it is not checkpoint acceptance:
   is the architecture ratchet reading the pinned dependency capability; no
   production ownership arrow moved.
 
-Checkpoint 8 remains in progress. No pending/active acceptance, sole-renderer
-claim, or runtime-completeness claim is made by this progress commit.
+Checkpoint-close verification, 2026-07-15: formatting and warning-free
+workspace all-target compilation passed. The complete workspace target suite
+passed three debug-crate tests, 1,187 root tests with 11 intentional ignores,
+and both Control Gallery tests; all four doctests passed. The release deep tier
+passed all 11 WARP, text, shader, alpha, glyph, popup-pack, and material
+witnesses. The specialized release tier passed all 15 retained, oracle,
+pending/active, atlas-pressure, resize, lifecycle, scroll, caret, and
+production-gallery witnesses, including the eight-sample activation benchmark
+above. All five renderer-receipt and ten census parser tests passed. The final
+ownership gauge remains at 47 modules, 333 production and 114 test-only edges,
+three split responsibilities, 55 provisional slot edges, **zero forbidden
+edges, zero external-boundary violations, and zero slot cycles**, 2,020
+`pub(crate)` declarations in 196 production files with a 1,970 cross-slot
+upper bound, 91 cross-slot test edges, 120 manifest-root mentions, 390
+filesystem reads, seven allowances, five production panics, and 68 production
+expects. No external profiler, external machine, person, network service, or
+returned artifact participated.
+
+Checkpoint 8 is independently green. Checkpoint 9 now owns deletion of the
+legacy renderer, compatibility oracle adapter, flattened paint/batch species,
+and every orphan that served them; sole-renderer and campaign-closeout claims
+remain pending until that burn-down and Checkpoint 10 complete.
 
 ## Checkpoint 9 — burn down the old species
 

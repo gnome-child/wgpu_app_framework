@@ -21,6 +21,9 @@ pub enum Error {
 
     #[error(transparent)]
     Render(#[from] glyphon::RenderError),
+
+    #[error("retained text transform must be prepared before draw")]
+    MissingRetainedTransform,
 }
 
 pub(in crate::render) struct TextRenderer {
@@ -31,7 +34,7 @@ pub(in crate::render) struct TextRenderer {
     swash_cache: glyphon::SwashCache,
     inline_cache: InlineCache,
     retained: HashMap<render::retained::ResourceKey, RetainedText>,
-    retained_transforms: HashMap<RetainedTextTransform, RetainedTransformViewport>,
+    retained_transforms: Vec<RetainedTransformViewport>,
 }
 
 struct RetainedText {
@@ -42,8 +45,10 @@ struct RetainedText {
 }
 
 struct RetainedTransformViewport {
-    owners: Vec<Weak<crate::scene::Node>>,
+    key: RetainedTextTransform,
+    owners: Vec<Weak<crate::scene::Commit>>,
     viewport: glyphon::Viewport,
+    offset: [i32; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,6 +69,13 @@ pub(in crate::render) struct RetainedTextReport {
     pub(in crate::render) batch: Option<RetainedBatch>,
     pub(in crate::render) stats: InlineStats,
     pub(in crate::render) prepare_calls: usize,
+    pub(in crate::render) resource_creations: usize,
+    pub(in crate::render) resource_removals: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::render) struct RetainedTransformReport {
+    pub(in crate::render) property_upload_bytes: usize,
     pub(in crate::render) resource_creations: usize,
     pub(in crate::render) resource_removals: usize,
 }
@@ -109,7 +121,7 @@ impl TextRenderer {
             swash_cache: glyphon::SwashCache::new(),
             inline_cache: InlineCache::new(),
             retained: HashMap::new(),
-            retained_transforms: HashMap::new(),
+            retained_transforms: Vec::new(),
         }
     }
 
@@ -167,14 +179,7 @@ impl TextRenderer {
         scroll_root: Option<crate::composition::tree::NodeId>,
     ) -> Result<RetainedTextReport> {
         let resource_removals = self.prune_retained();
-        let (transform, transform_creation) = self.retain_transform_viewport(
-            render_context,
-            viewport,
-            node,
-            target_size,
-            scroll,
-            scroll_root,
-        );
+        let transform = retained_transform(viewport, target_size, scroll, scroll_root);
         let key = render::retained::ResourceKey::for_target(
             node,
             content_index,
@@ -196,7 +201,6 @@ impl TextRenderer {
             return Ok(RetainedTextReport {
                 batch: entry.has_text.then_some(RetainedBatch { key, transform }),
                 resource_removals,
-                resource_creations: transform_creation,
                 ..RetainedTextReport::default()
             });
         }
@@ -244,7 +248,7 @@ impl TextRenderer {
             batch: has_text.then_some(RetainedBatch { key, transform }),
             stats: report.stats,
             prepare_calls: 1,
-            resource_creations: 1 + transform_creation,
+            resource_creations: 1,
             resource_removals,
         })
     }
@@ -261,12 +265,11 @@ impl TextRenderer {
 
     pub(in crate::render) fn render_retained(
         &mut self,
-        render_context: &render::Context,
         batch: RetainedBatch,
         scroll_translation: [f32; 2],
         scale_factor: f32,
         pass: &mut wgpu::RenderPass<'_>,
-    ) -> Result<usize> {
+    ) -> Result<()> {
         let Self {
             atlas,
             retained,
@@ -274,24 +277,18 @@ impl TextRenderer {
             ..
         } = self;
         let Some(entry) = retained.get(&batch.key) else {
-            return Ok(0);
+            return Ok(());
         };
-        let mut property_upload_bytes = 0;
         let viewport = if let Some(transform) = batch.transform {
-            let Some(transform) = retained_transforms.get_mut(&transform) else {
-                return Ok(0);
-            };
             let grid = paint::Grid::new(scale_factor);
             let offset = [
                 grid.snap_text_origin(scroll_translation[0]) as i32,
                 grid.snap_text_origin(scroll_translation[1]) as i32,
             ];
-            if transform
-                .viewport
-                .update_render_offset(render_context.queue(), offset)
-            {
-                property_upload_bytes = std::mem::size_of::<[u32; 4]>();
-            }
+            let transform = retained_transforms
+                .iter()
+                .find(|entry| entry.key == transform && entry.offset == offset)
+                .ok_or(Error::MissingRetainedTransform)?;
             &transform.viewport
         } else {
             &entry.viewport
@@ -300,7 +297,7 @@ impl TextRenderer {
             .renderer
             .render(atlas, viewport, pass)
             .map_err(Error::from)?;
-        Ok(property_upload_bytes)
+        Ok(())
     }
 
     pub(in crate::render) fn retained_resource_count(&self) -> usize {
@@ -322,6 +319,95 @@ impl TextRenderer {
 
     pub(in crate::render) fn collect_retained(&mut self) -> usize {
         self.prune_retained()
+    }
+
+    pub(in crate::render) fn prepare_retained_transforms(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<crate::scene::Commit>,
+        batches: &[(RetainedBatch, [f32; 2])],
+    ) -> RetainedTransformReport {
+        let mut report = RetainedTransformReport {
+            resource_removals: self.prune_retained_transforms(),
+            ..RetainedTransformReport::default()
+        };
+        let grid = paint::Grid::new(viewport.scale_factor());
+        let mut prepared = Vec::new();
+
+        for (batch, translation) in batches {
+            let Some(key) = batch.transform else {
+                continue;
+            };
+            let offset = [
+                grid.snap_text_origin(translation[0]) as i32,
+                grid.snap_text_origin(translation[1]) as i32,
+            ];
+            if prepared.contains(&(key, offset)) {
+                continue;
+            }
+            prepared.push((key, offset));
+
+            if let Some(entry) = self
+                .retained_transforms
+                .iter_mut()
+                .find(|entry| entry.key == key && entry.offset == offset)
+            {
+                add_transform_owner(&mut entry.owners, commit);
+                continue;
+            }
+
+            let reusable = self
+                .retained_transforms
+                .iter()
+                .position(|entry| entry.key == key && exclusively_owned_by(&entry.owners, commit));
+            if let Some(index) = reusable {
+                let entry = &mut self.retained_transforms[index];
+                if entry
+                    .viewport
+                    .update_render_offset(render_context.queue(), offset)
+                {
+                    report.property_upload_bytes = report
+                        .property_upload_bytes
+                        .saturating_add(std::mem::size_of::<[u32; 4]>());
+                }
+                entry.owners.clear();
+                entry.owners.push(Arc::downgrade(commit));
+                entry.offset = offset;
+                continue;
+            }
+
+            let mut transform = glyphon::Viewport::new(render_context.device(), &self.cache);
+            transform.update(
+                render_context.queue(),
+                glyphon::Resolution {
+                    width: key.resolution[0],
+                    height: key.resolution[1],
+                },
+            );
+            transform.update_render_offset(render_context.queue(), offset);
+            self.retained_transforms.push(RetainedTransformViewport {
+                key,
+                owners: vec![Arc::downgrade(commit)],
+                viewport: transform,
+                offset,
+            });
+            report.property_upload_bytes = report
+                .property_upload_bytes
+                .saturating_add(std::mem::size_of::<[u32; 4]>());
+            report.resource_creations = report.resource_creations.saturating_add(1);
+        }
+
+        report
+    }
+
+    pub(in crate::render) fn cancel_retained_transform_state(
+        &mut self,
+        commit: &Arc<crate::scene::Commit>,
+    ) {
+        for entry in &mut self.retained_transforms {
+            remove_transform_owner(&mut entry.owners, commit);
+        }
     }
 
     pub(in crate::render) fn trim(&mut self) -> Result<()> {
@@ -364,61 +450,76 @@ impl TextRenderer {
         self.retained
             .retain(|_, entry| entry.owners.iter().any(|owner| owner.strong_count() > 0));
         let retained_removed = before.saturating_sub(self.retained.len());
-        let transforms_before = self.retained_transforms.len();
-        self.retained_transforms.retain(|_, entry| {
+        retained_removed.saturating_add(self.prune_retained_transforms())
+    }
+
+    fn prune_retained_transforms(&mut self) -> usize {
+        let before = self.retained_transforms.len();
+        self.retained_transforms.retain_mut(|entry| {
             entry.owners.retain(|owner| owner.strong_count() > 0);
             !entry.owners.is_empty()
         });
-        retained_removed
-            .saturating_add(transforms_before.saturating_sub(self.retained_transforms.len()))
+        before.saturating_sub(self.retained_transforms.len())
     }
+}
 
-    fn retain_transform_viewport(
-        &mut self,
-        render_context: &render::Context,
-        viewport: render::Viewport,
-        node: &Arc<crate::scene::Node>,
-        target_size: [f32; 2],
-        scroll: Option<crate::composition::tree::NodeId>,
-        target: Option<crate::composition::tree::NodeId>,
-    ) -> (Option<RetainedTextTransform>, usize) {
-        let Some(scroll) = scroll else {
-            return (None, 0);
-        };
-        let target_viewport = render::Viewport::from_logical_area(
-            crate::geometry::area::logical(target_size[0], target_size[1]),
-            viewport.scale_factor(),
-        );
-        let physical = target_viewport.physical_area();
-        let key = RetainedTextTransform {
-            scroll,
-            target,
-            resolution: [physical.width(), physical.height()],
-        };
-        if let Some(entry) = self.retained_transforms.get_mut(&key) {
-            entry.owners.retain(|owner| owner.strong_count() > 0);
-            if !entry
-                .owners
-                .iter()
-                .filter_map(Weak::upgrade)
-                .any(|owner| Arc::ptr_eq(&owner, node))
-            {
-                entry.owners.push(Arc::downgrade(node));
-            }
-            return (Some(key), 0);
+fn retained_transform(
+    viewport: render::Viewport,
+    target_size: [f32; 2],
+    scroll: Option<crate::composition::tree::NodeId>,
+    target: Option<crate::composition::tree::NodeId>,
+) -> Option<RetainedTextTransform> {
+    let scroll = scroll?;
+    let target_viewport = render::Viewport::from_logical_area(
+        crate::geometry::area::logical(target_size[0], target_size[1]),
+        viewport.scale_factor(),
+    );
+    let physical = target_viewport.physical_area();
+    Some(RetainedTextTransform {
+        scroll,
+        target,
+        resolution: [physical.width(), physical.height()],
+    })
+}
+
+fn add_transform_owner(
+    owners: &mut Vec<Weak<crate::scene::Commit>>,
+    commit: &Arc<crate::scene::Commit>,
+) {
+    owners.retain(|owner| owner.strong_count() > 0);
+    if !owners
+        .iter()
+        .filter_map(Weak::upgrade)
+        .any(|owner| Arc::ptr_eq(&owner, commit))
+    {
+        owners.push(Arc::downgrade(commit));
+    }
+}
+
+fn remove_transform_owner(
+    owners: &mut Vec<Weak<crate::scene::Commit>>,
+    commit: &Arc<crate::scene::Commit>,
+) {
+    owners.retain(|owner| {
+        owner
+            .upgrade()
+            .is_some_and(|owner| !Arc::ptr_eq(&owner, commit))
+    });
+}
+
+fn exclusively_owned_by(
+    owners: &[Weak<crate::scene::Commit>],
+    commit: &Arc<crate::scene::Commit>,
+) -> bool {
+    let mut owns_commit = false;
+    for owner in owners.iter().filter_map(Weak::upgrade) {
+        if Arc::ptr_eq(&owner, commit) {
+            owns_commit = true;
+        } else {
+            return false;
         }
-
-        let mut glyph_viewport = glyphon::Viewport::new(render_context.device(), &self.cache);
-        update_glyphon_viewport(render_context, &mut glyph_viewport, target_viewport);
-        self.retained_transforms.insert(
-            key,
-            RetainedTransformViewport {
-                owners: vec![Arc::downgrade(node)],
-                viewport: glyph_viewport,
-            },
-        );
-        (Some(key), 1)
     }
+    owns_commit
 }
 
 fn prepare_glyphs(

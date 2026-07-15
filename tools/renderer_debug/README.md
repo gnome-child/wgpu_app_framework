@@ -40,6 +40,19 @@ cargo test --release -p renderer_debug control_gallery_property_tick_is_blend_eq
 cargo test --release -p renderer_debug pending_semantic_realization_yields_to_exact_active_output -- --ignored --nocapture
 ```
 
+The production-gallery activation witness is also the code-owned Checkpoint 8
+benchmark:
+
+```text
+cargo test --release -p renderer_debug control_gallery_incremental_activation_matches_synchronous_pixels -- --ignored --nocapture
+```
+
+It reports the workload, scale, adapter/backend/device class, OS/architecture,
+one warmup, eight measured samples, p50, p95, maximum, and the refresh-relative
+acceptance ceiling. The timing covers activation-side retained preparation only;
+pixel readback separately proves that incremental and synchronous realization
+produce the same complete output.
+
 Windows uses the framework's DX12-first adapter policy. An explicit
 `WGPU_BACKEND` value remains authoritative. The optional software fallback rail
 can be selected with `WGPU_L3_FORCE_FALLBACK_ADAPTER=1`; it is a correctness and

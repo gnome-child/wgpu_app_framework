@@ -5830,6 +5830,15 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && !retained.contains("last_property_commit"),
         "retained shapes must use one static unit mesh, copy-on-write node properties, and sparse shared scroll properties"
     );
+    let retained_text_draw = text_renderer
+        .split("pub(in crate::render) fn render_retained(")
+        .nth(1)
+        .and_then(|source| {
+            source
+                .split("pub(in crate::render) fn retained_resource_count")
+                .next()
+        })
+        .expect("retained text draw boundary should exist");
     assert!(
         manifest.contains("path = \"third_party/glyphon\"")
             && text_renderer.contains("atlas: glyphon::TextAtlas")
@@ -5843,11 +5852,17 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && glyphon_atlas.contains("pub(crate) fn retain_prepared(")
             && glyphon_viewport.contains("pub fn update_render_offset(")
             && glyphon_shader.contains("in_vert.pos + params.render_offset")
-            && text_renderer.contains("retained_transforms: HashMap<RetainedTextTransform")
+            && text_renderer.contains("retained_transforms: Vec<RetainedTransformViewport>")
+            && text_renderer.contains("owners: Vec<Weak<crate::scene::Commit>>")
+            && text_renderer.contains("pub(in crate::render) fn prepare_retained_transforms(")
+            && text_renderer.contains("entry.key == transform && entry.offset == offset")
+            && text_renderer.contains("MissingRetainedTransform")
+            && !retained_text_draw.contains("update_render_offset")
+            && !retained_text_draw.contains("write_buffer")
             && glyphon_notice.contains("performs no shaping, rasterization")
-            && glyphon_notice.contains("One shared viewport per")
+            && glyphon_notice.contains("copy-on-write viewport")
             && glyphon_notice.contains("remove this source copy"),
-        "retained text must share one atlas, re-pin live allocations, and translate a scroll scope through one shared viewport without repreparation"
+        "retained text must share one atlas, re-pin live allocations, and consume an exact pre-realized copy-on-write viewport transform without repreparation"
     );
     let active_present_receipt = native_surface
         .find("let presented = report.present_timing.is_some();")
@@ -5858,8 +5873,9 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
     assert!(
         active_present_receipt < candidate_realization
             && renderer.contains("ready_candidates: Vec<ReadyCandidate>")
-            && renderer
-                .contains(".prepare_candidate(render_context, viewport, commit, properties)?")
+            && renderer.contains(".prepare_candidate(")
+            && renderer.contains("&mut self.text_renderer,")
+            && retained.contains("prepare_text_transforms(")
             && renderer
                 .contains(".record_candidate_slice(viewport, commit, started.elapsed(), deadline)")
             && renderer.contains("self.encode_batches(&scroll.render_batches);")

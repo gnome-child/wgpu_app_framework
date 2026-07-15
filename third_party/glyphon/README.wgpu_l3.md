@@ -20,9 +20,10 @@ The local delta adds two retained capabilities:
   marks their existing allocations live; it performs no shaping, rasterization,
   vertex reconstruction, or GPU upload.
 - `Viewport::update_render_offset`, which uses the existing 16-byte viewport
-  uniform to move prepared vertices in device space. One shared viewport per
-  structural scroll scope lets a property tick translate retained text without
-  per-text preparation or per-text uniform writes.
+  uniform to move prepared vertices in device space. One copy-on-write viewport
+  property slot per live structural scroll value lets candidate preparation
+  realize retained text without mutating the active slot, per-text preparation,
+  or per-text uniform writes. Equal active/candidate values share the same slot.
 
 Keep the delta limited to those capabilities. When updating glyphon, first
 check whether upstream exposes equivalent retained-allocation ownership and a
