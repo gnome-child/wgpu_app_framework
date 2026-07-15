@@ -1728,6 +1728,12 @@ pub async fn compare_control_gallery_pending_scroll(scale_factor: f32) -> Result
             )?;
         } else {
             semantic_candidates = semantic_candidates.saturating_add(1);
+            harness.compare_scroll_candidate_preserves_stable_prefix(
+                &active_commit,
+                &active_properties,
+                candidate.commit(),
+                candidate.properties(),
+            )?;
             let (projected, changed) = candidate
                 .properties()
                 .project_onto(&active_commit, &active_properties)
@@ -1761,12 +1767,6 @@ pub async fn compare_control_gallery_pending_scroll(scale_factor: f32) -> Result
                 ));
             }
             if !pending_transition_witnessed {
-                harness.compare_scroll_candidate_preserves_stable_prefix(
-                    &active_commit,
-                    &active_properties,
-                    candidate.commit(),
-                    candidate.properties(),
-                )?;
                 harness.compare_pending_transition_preserves_active(
                     &active_commit,
                     &projected,

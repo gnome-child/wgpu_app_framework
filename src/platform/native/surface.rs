@@ -206,6 +206,7 @@ impl Native {
                     context,
                     canvas.canvas(),
                     preparing.commit(),
+                    preparing.properties().serial(),
                     remaining,
                     preparation.deadline,
                 )?;
@@ -240,6 +241,10 @@ impl Native {
                 }
             }
         };
+        let candidate_after_present = self
+            .pending_presentations
+            .get(&window)
+            .map(|pending| pending.preparing.clone());
         let native_window = self.windows.get_mut(&window).ok_or_else(|| {
             log::error!("cannot present missing native window: {window:?}");
             NativeError::MissingWindow { window }
@@ -288,6 +293,21 @@ impl Native {
         }
 
         let presented = report.present_timing.is_some();
+        if presented && let Some(candidate) = candidate_after_present {
+            let preparation = preparation_window(native_window.display_refresh_millihertz());
+            if let Err(error) = renderer.advance_candidate_after_present(
+                context,
+                native_window.canvas(),
+                candidate.commit(),
+                candidate.properties(),
+                preparation.deadline,
+            ) {
+                log::warn!(
+                    "candidate realization failed after a successful active present; retaining active state: {error}"
+                );
+                renderer.cancel_commit_synchronization(candidate.commit());
+            }
+        }
         if presented
             && context.windows_popup_composition_supported()
             && !self.popup_prewarm.contains_key(&window)

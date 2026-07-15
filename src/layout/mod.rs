@@ -78,6 +78,7 @@ impl ScrollProjection {
         self.viewport
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn layer_bounds(&self) -> Rect {
         self.layer_bounds
     }

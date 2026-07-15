@@ -72,6 +72,9 @@ mod tests {
     use super::*;
     use wgpu_l3::renderer_debug::{Case, Harness, Work};
 
+    const RETAINED_GLOBAL_RESOURCES: usize = 8;
+    const ONE_SCROLL_PROPERTY_UPLOAD: usize = std::mem::size_of::<[f32; 4]>();
+
     fn image(pixels: Vec<[f32; 4]>) -> Image {
         Image::new(2, 1, pixels).expect("test image dimensions should match")
     }
@@ -140,6 +143,11 @@ mod tests {
         assert_eq!(work.gpu_resource_replacements(), 0);
     }
 
+    fn assert_no_scroll_offscreen(work: Work) {
+        assert_eq!(work.scroll_layer_cache_hits(), 0);
+        assert_eq!(work.scroll_layer_cache_misses(), 0);
+    }
+
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
     fn ordered_production_commit_is_pixel_exact() {
@@ -181,7 +189,10 @@ mod tests {
             );
             assert_eq!(receipt.unchanged().opacity_unclassified_nodes(), 0);
             assert!(receipt.recreated().scene_node_realization_rebuilds() > 0);
-            assert_eq!(receipt.retired().gpu_resource_count(), 4);
+            assert_eq!(
+                receipt.retired().gpu_resource_count(),
+                RETAINED_GLOBAL_RESOURCES
+            );
             assert!(receipt.retired().gpu_resource_removals() > 0);
         }
 
@@ -195,7 +206,10 @@ mod tests {
         assert_zero_content_work(partial.surviving());
         assert_eq!(partial.surviving().render_plan_reuses(), 1);
         assert!(partial.surviving().gpu_resource_removals() > 0);
-        assert_eq!(partial.retired().gpu_resource_count(), 4);
+        assert_eq!(
+            partial.retired().gpu_resource_count(),
+            RETAINED_GLOBAL_RESOURCES
+        );
         assert!(partial.retired().gpu_resource_removals() > 0);
     }
 
@@ -210,17 +224,18 @@ mod tests {
             });
 
             assert!(receipt.initial().scene_node_realization_rebuilds() > 0);
-            assert!(receipt.initial().scroll_layer_cache_misses() > 0);
+            assert_no_scroll_offscreen(receipt.initial());
             assert_zero_content_work(receipt.tick());
             assert_eq!(receipt.tick().render_plan_reuses(), 1);
-            assert_eq!(receipt.tick().property_upload_bytes(), 0);
-            assert!(receipt.tick().scroll_layer_cache_hits() > 0);
-            assert_eq!(receipt.tick().scroll_layer_cache_misses(), 0);
+            assert_eq!(
+                receipt.tick().property_upload_bytes(),
+                ONE_SCROLL_PROPERTY_UPLOAD
+            );
+            assert_no_scroll_offscreen(receipt.tick());
             assert_zero_content_work(receipt.unchanged());
             assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
             assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
-            assert!(receipt.unchanged().scroll_layer_cache_hits() > 0);
-            assert_eq!(receipt.unchanged().scroll_layer_cache_misses(), 0);
+            assert_no_scroll_offscreen(receipt.unchanged());
         }
     }
 
@@ -232,13 +247,10 @@ mod tests {
             .scroll_unrelated_semantic_receipt()
             .expect("an unrelated semantic commit should preserve the retained scroll subtree");
 
-        assert!(receipt.initial().scroll_layer_cache_misses() > 0);
-        assert!(receipt.changed().scroll_layer_cache_hits() > 0);
-        assert_eq!(receipt.changed().scroll_layer_cache_misses(), 0);
+        assert_no_scroll_offscreen(receipt.initial());
+        assert_no_scroll_offscreen(receipt.changed());
         assert_eq!(receipt.changed().property_upload_bytes(), 0);
-        assert!(receipt.changed().draw_calls() < receipt.initial().draw_calls());
-        assert!(receipt.unchanged().scroll_layer_cache_hits() > 0);
-        assert_eq!(receipt.unchanged().scroll_layer_cache_misses(), 0);
+        assert_no_scroll_offscreen(receipt.unchanged());
         assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
     }
 
@@ -262,7 +274,7 @@ mod tests {
         assert!(receipt.activated().commit_preparation_max_nanos() > 0);
         assert_eq!(receipt.activated().commit_preparation_deadline_misses(), 0);
         assert_eq!(receipt.activated().render_plan_rebuilds(), 1);
-        assert!(receipt.activated().scroll_layer_cache_misses() > 0);
+        assert_no_scroll_offscreen(receipt.activated());
     }
 
     #[test]
@@ -369,7 +381,10 @@ mod tests {
             receipt.post_warm_byte_range().0,
             receipt.post_warm_byte_range().1
         );
-        assert_eq!(receipt.settled().gpu_resource_count(), 4);
+        assert_eq!(
+            receipt.settled().gpu_resource_count(),
+            RETAINED_GLOBAL_RESOURCES
+        );
         assert!(receipt.settled().gpu_resource_removals() > 0);
         assert!(receipt.peak_resources() > receipt.settled().gpu_resource_count());
         assert!(receipt.peak_bytes() >= receipt.settled().gpu_resource_bytes());

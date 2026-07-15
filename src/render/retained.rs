@@ -21,7 +21,10 @@ use super::{
 
 const RETAINED_QUAD_WGSL: &str = include_str!("retained_quad.wgsl");
 const INITIAL_INSTANCE_CAPACITY: usize = 256;
-const INITIAL_PROPERTY_CAPACITY: usize = 32;
+const INITIAL_PROPERTY_CAPACITY: usize = 256;
+const RETAINED_PROPERTY_SLOT_RESERVE: usize = 2;
+const INITIAL_SCROLL_PROPERTY_CAPACITY: usize = 16;
+const RETAINED_SCROLL_PROPERTY_SLOT_RESERVE: usize = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -61,7 +64,6 @@ struct ViewportUniform {
 struct NodeProperty {
     origin: [f32; 2],
     translate: [f32; 2],
-    scroll: [f32; 2],
     scale: [f32; 2],
     grid: [f32; 2],
     scene_origin: [f32; 2],
@@ -70,11 +72,24 @@ struct NodeProperty {
     padding: [f32; 3],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ScrollProperty {
+    translation: [f32; 2],
+    padding: [f32; 2],
+}
+
+impl ScrollProperty {
+    const IDENTITY: Self = Self {
+        translation: [0.0; 2],
+        padding: [0.0; 2],
+    };
+}
+
 impl NodeProperty {
     const IDENTITY: Self = Self {
         origin: [0.0, 0.0],
         translate: [0.0, 0.0],
-        scroll: [0.0, 0.0],
         scale: [1.0, 1.0],
         grid: [1.0, 0.0],
         scene_origin: [0.0, 0.0],
@@ -358,101 +373,22 @@ struct PlanEntry {
     plan: Arc<Plan>,
 }
 
-#[derive(Clone)]
-pub(in crate::render) struct ScrollLayerRevision {
-    nodes: Arc<[ScrollNodeRevision]>,
-    order: Arc<[scene::Draw]>,
-    owners: Arc<[Weak<scene::Node>]>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct ScrollNodeRevision {
-    id: composition::tree::NodeId,
-    content: composition::tree::ContentRevision,
-    geometry: scene::GeometryRevision,
-    topology: scene::TopologyRevision,
-}
-
-impl ScrollLayerRevision {
-    fn from_order(
-        order: &[scene::Draw],
-        nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
-    ) -> Self {
-        let mut seen = HashSet::new();
-        let ids = order.iter().filter_map(|draw| match draw {
-            scene::Draw::Content { node, .. }
-            | scene::Draw::PushGroup { node, .. }
-            | scene::Draw::PushScroll { node } => Some(*node),
-            scene::Draw::PushClip {
-                node: Some(node), ..
-            } => Some(*node),
-            scene::Draw::PushClip { node: None, .. }
-            | scene::Draw::PopClip
-            | scene::Draw::PopGroup
-            | scene::Draw::PopScroll => None,
-        });
-        let owners = ids
-            .filter(|id| seen.insert(*id))
-            .filter_map(|id| nodes.get(&id))
-            .cloned()
-            .collect::<Vec<_>>();
-        let revisions = owners
-            .iter()
-            .map(|node| ScrollNodeRevision {
-                id: node.id(),
-                content: node.content_revision(),
-                geometry: node.geometry_revision(),
-                topology: node.topology_revision(),
-            })
-            .collect::<Vec<_>>();
-        let owners = owners.iter().map(Arc::downgrade).collect::<Vec<_>>();
-        Self {
-            nodes: revisions.into(),
-            order: order.to_vec().into(),
-            owners: owners.into(),
-        }
-    }
-
-    pub(in crate::render) fn matches(&self, other: &Self) -> bool {
-        self.nodes == other.nodes && self.order == other.order
-    }
-
-    pub(in crate::render) fn is_alive(&self) -> bool {
-        !self.owners.is_empty() && self.owners.iter().all(|owner| owner.strong_count() > 0)
-    }
-
-    pub(in crate::render) fn property_values(
-        &self,
-        properties: &scene::Properties,
-    ) -> Box<[scene::PropertyValue]> {
-        const RASTER_PROPERTIES: [scene::PropertyKind; 4] = [
-            scene::PropertyKind::Transform,
-            scene::PropertyKind::Opacity,
-            scene::PropertyKind::Clip,
-            scene::PropertyKind::Blur,
-        ];
-        self.nodes
-            .iter()
-            .flat_map(|revision| {
-                RASTER_PROPERTIES.into_iter().filter_map(move |kind| {
-                    properties.value(scene::PropertyRef::new(revision.id, kind))
-                })
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice()
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct TargetSpace {
     origin: [f32; 2],
     size: [f32; 2],
+    target: Option<composition::tree::NodeId>,
+    scroll_root: Option<composition::tree::NodeId>,
+    current_scroll: Option<composition::tree::NodeId>,
 }
 
 impl PartialEq for TargetSpace {
     fn eq(&self, other: &Self) -> bool {
         self.origin.map(f32::to_bits) == other.origin.map(f32::to_bits)
             && self.size.map(f32::to_bits) == other.size.map(f32::to_bits)
+            && self.target == other.target
+            && self.scroll_root == other.scroll_root
+            && self.current_scroll == other.current_scroll
     }
 }
 
@@ -462,15 +398,39 @@ impl std::hash::Hash for TargetSpace {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.origin.map(f32::to_bits).hash(state);
         self.size.map(f32::to_bits).hash(state);
+        self.target.hash(state);
+        self.scroll_root.hash(state);
+        self.current_scroll.hash(state);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ScrollBinding {
+    node: Option<composition::tree::NodeId>,
+    root: Option<composition::tree::NodeId>,
+}
+
+impl ScrollBinding {
+    const IDENTITY: Self = Self {
+        node: None,
+        root: None,
+    };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct PropertyBinding {
     node: composition::tree::NodeId,
     space: TargetSpace,
-    composited_scroll: bool,
     projection: scene::ContentProjection,
+}
+
+impl PropertyBinding {
+    fn scroll(self) -> ScrollBinding {
+        ScrollBinding {
+            node: self.space.current_scroll,
+            root: self.space.scroll_root,
+        }
+    }
 }
 
 pub(in crate::render) struct Prepared {
@@ -527,9 +487,7 @@ enum PendingFrameKind {
     },
     Scroll {
         node: composition::tree::NodeId,
-        order_start: usize,
         viewport: crate::paint::Rect,
-        layer_bounds: crate::paint::Rect,
         baseline: crate::interaction::ScrollOffset,
         parent_origin: [f32; 2],
     },
@@ -578,7 +536,6 @@ impl Realizer {
             text_renderer,
             rebuilt_nodes: std::mem::take(&mut pending.rebuilt_nodes),
             property_bindings: std::mem::take(&mut pending.property_bindings),
-            composited_scroll_depth: pending.scroll_depth(),
             stats: std::mem::take(&mut pending.stats),
         };
         let ready = pending.advance(&mut builder, budget)?;
@@ -676,7 +633,6 @@ impl Realizer {
                 text_renderer,
                 rebuilt_nodes: HashSet::new(),
                 property_bindings: Vec::new(),
-                composited_scroll_depth: 0,
                 stats: render::DrawStats::default(),
             };
             let built = builder.build(commit)?;
@@ -718,6 +674,78 @@ impl Realizer {
             properties: property_bindings,
             stats,
         })
+    }
+
+    pub(in crate::render) fn prepare_candidate(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> render::Result<Option<Prepared>> {
+        properties
+            .require_compatible(commit)
+            .map_err(|_| render::Error::RetainedSceneContract)?;
+        let Some(plan) = self.find_plan(commit, viewport) else {
+            return Ok(None);
+        };
+        let (property_bindings, property_stats) = self.shapes.prepare_properties(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            &plan.property_bindings,
+        );
+        let mut stats = render::DrawStats::default();
+        apply_sync_stats(&mut stats, property_stats);
+        if let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
+            entry.viewport == viewport
+                && entry
+                    .commit
+                    .upgrade()
+                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
+        }) {
+            prepared.stats.add(stats);
+        }
+
+        Ok(Some(Prepared {
+            plan,
+            properties: property_bindings,
+            stats: render::DrawStats::default(),
+        }))
+    }
+
+    pub(in crate::render) fn record_candidate_slice(
+        &mut self,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        elapsed: std::time::Duration,
+        deadline: std::time::Duration,
+    ) {
+        let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
+            entry.viewport == viewport
+                && entry
+                    .commit
+                    .upgrade()
+                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
+        }) else {
+            return;
+        };
+        let elapsed_nanos = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
+        prepared.stats.commit_preparation_slices =
+            prepared.stats.commit_preparation_slices.saturating_add(1);
+        prepared.stats.commit_preparation_total_nanos = prepared
+            .stats
+            .commit_preparation_total_nanos
+            .saturating_add(elapsed_nanos);
+        prepared.stats.commit_preparation_max_nanos = prepared
+            .stats
+            .commit_preparation_max_nanos
+            .max(elapsed_nanos);
+        prepared.stats.commit_preparation_deadline_misses = prepared
+            .stats
+            .commit_preparation_deadline_misses
+            .saturating_add(usize::from(elapsed >= deadline));
     }
 
     pub(in crate::render) fn shapes(&self) -> &Shapes {
@@ -816,6 +844,9 @@ impl PendingPlan {
                 viewport.logical_area().width().max(1.0),
                 viewport.logical_area().height().max(1.0),
             ],
+            scroll_root: None,
+            target: None,
+            current_scroll: None,
         };
         let order = commit.order().map(|order| Arc::from(order.to_vec()));
         Self {
@@ -833,13 +864,6 @@ impl PendingPlan {
             property_bindings: Vec::new(),
             stats,
         }
-    }
-
-    fn scroll_depth(&self) -> usize {
-        self.frames
-            .iter()
-            .filter(|frame| matches!(frame.kind, PendingFrameKind::Scroll { .. }))
-            .count()
     }
 
     fn advance(
@@ -863,7 +887,6 @@ impl PendingPlan {
         let started_at = std::time::Instant::now();
         let mut prepared_content = false;
         while let Some(draw) = order.get(self.order_index) {
-            let order_index = self.order_index;
             self.order_index = self.order_index.saturating_add(1);
             let space = self
                 .frames
@@ -945,6 +968,9 @@ impl PendingPlan {
                         space: TargetSpace {
                             origin: [bounds.origin.x(), bounds.origin.y()],
                             size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
+                            target: Some(*node),
+                            scroll_root: space.current_scroll.or(space.scroll_root),
+                            current_scroll: None,
                         },
                         batches: Vec::new(),
                     });
@@ -959,32 +985,21 @@ impl PendingPlan {
                         declaration.viewport(),
                         builder.viewport.scale_factor(),
                     );
-                    let layer_bounds = render::scene::to_paint_rect_value_at_scale(
-                        declaration.layer_bounds(),
-                        builder.viewport.scale_factor(),
-                    );
                     self.frames.push(PendingFrame {
                         kind: PendingFrameKind::Scroll {
                             node: *node,
-                            order_start: order_index,
                             viewport,
-                            layer_bounds,
                             baseline: declaration.baseline(),
                             parent_origin: space.origin,
                         },
                         space: TargetSpace {
-                            origin: [layer_bounds.origin.x(), layer_bounds.origin.y()],
-                            size: [
-                                layer_bounds.area.width().max(1.0),
-                                layer_bounds.area.height().max(1.0),
-                            ],
+                            current_scroll: Some(*node),
+                            ..space
                         },
                         batches: Vec::new(),
                     });
-                    builder.composited_scroll_depth =
-                        builder.composited_scroll_depth.saturating_add(1);
                 }
-                scene::Draw::PopScroll => self.finish_scroll(builder, order),
+                scene::Draw::PopScroll => self.finish_scroll(builder),
             }
             if prepared_content && started_at.elapsed() >= budget {
                 return Ok(false);
@@ -1022,15 +1037,13 @@ impl PendingPlan {
             }));
     }
 
-    fn finish_scroll(&mut self, builder: &mut PlanBuilder<'_>, order: &[scene::Draw]) {
+    fn finish_scroll(&mut self, builder: &mut PlanBuilder<'_>) {
         let Some(frame) = (self.frames.len() > 1).then(|| self.frames.pop()).flatten() else {
             return;
         };
         let PendingFrameKind::Scroll {
             node,
-            order_start,
             viewport,
-            layer_bounds,
             baseline,
             parent_origin,
         } = frame.kind
@@ -1038,19 +1051,14 @@ impl PendingPlan {
             self.frames.push(frame);
             return;
         };
-        builder.composited_scroll_depth = builder.composited_scroll_depth.saturating_sub(1);
         builder.stats.scene_items += 1;
-        let revision =
-            ScrollLayerRevision::from_order(&order[order_start..self.order_index], &self.nodes);
         self.frames
             .last_mut()
             .expect("retained scroll must return to its parent frame")
             .batches
             .push(RenderBatch::Scroll(PreparedScroll {
                 node,
-                revision,
                 viewport: local_rect(viewport, parent_origin),
-                layer_bounds: local_rect(layer_bounds, parent_origin),
                 baseline,
                 render_batches: frame.batches,
             }));
@@ -1064,7 +1072,6 @@ struct PlanBuilder<'a> {
     text_renderer: &'a mut render::text_renderer::TextRenderer,
     rebuilt_nodes: HashSet<composition::tree::NodeId>,
     property_bindings: Vec<PropertyBinding>,
-    composited_scroll_depth: usize,
     stats: render::DrawStats,
 }
 
@@ -1084,7 +1091,6 @@ impl PlanBuilder<'_> {
         let binding = PropertyBinding {
             node,
             space,
-            composited_scroll: self.composited_scroll_depth > 0,
             projection,
         };
         if !self.property_bindings.contains(&binding) {
@@ -1114,6 +1120,9 @@ impl PlanBuilder<'_> {
                 self.viewport.logical_area().width().max(1.0),
                 self.viewport.logical_area().height().max(1.0),
             ],
+            scroll_root: None,
+            target: None,
+            current_scroll: None,
         };
         if let Some(order) = commit.order() {
             let mut index = 0;
@@ -1143,7 +1152,6 @@ impl PlanBuilder<'_> {
         target: &mut Vec<RenderBatch>,
     ) -> render::Result<()> {
         while let Some(draw) = order.get(*index) {
-            let order_index = *index;
             *index = index.saturating_add(1);
             match draw {
                 scene::Draw::Content {
@@ -1192,6 +1200,9 @@ impl PlanBuilder<'_> {
                     let group_space = TargetSpace {
                         origin: [bounds.origin.x(), bounds.origin.y()],
                         size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
+                        target: Some(*node),
+                        scroll_root: space.current_scroll.or(space.scroll_root),
+                        current_scroll: None,
                     };
                     let mut members = Vec::new();
                     self.build_order(
@@ -1220,19 +1231,11 @@ impl PlanBuilder<'_> {
                         declaration.viewport(),
                         self.viewport.scale_factor(),
                     );
-                    let layer_bounds = render::scene::to_paint_rect_value_at_scale(
-                        declaration.layer_bounds(),
-                        self.viewport.scale_factor(),
-                    );
-                    let scroll_space = TargetSpace {
-                        origin: [layer_bounds.origin.x(), layer_bounds.origin.y()],
-                        size: [
-                            layer_bounds.area.width().max(1.0),
-                            layer_bounds.area.height().max(1.0),
-                        ],
-                    };
                     let mut members = Vec::new();
-                    self.composited_scroll_depth = self.composited_scroll_depth.saturating_add(1);
+                    let scroll_space = TargetSpace {
+                        current_scroll: Some(*node),
+                        ..space
+                    };
                     self.build_order(
                         order,
                         index,
@@ -1241,15 +1244,10 @@ impl PlanBuilder<'_> {
                         scroll_space,
                         &mut members,
                     )?;
-                    self.composited_scroll_depth = self.composited_scroll_depth.saturating_sub(1);
-                    let revision =
-                        ScrollLayerRevision::from_order(&order[order_index..*index], nodes);
                     self.stats.scene_items += 1;
                     target.push(RenderBatch::Scroll(PreparedScroll {
                         node: *node,
-                        revision,
                         viewport: local_rect(viewport, space.origin),
-                        layer_bounds: local_rect(layer_bounds, space.origin),
                         baseline: declaration.baseline(),
                         render_batches: members,
                     }));
@@ -1335,6 +1333,9 @@ impl PlanBuilder<'_> {
         let body_space = own_group_bounds.map_or(parent_space, |bounds| TargetSpace {
             origin: [bounds.origin.x(), bounds.origin.y()],
             size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
+            target: Some(node.id()),
+            scroll_root: parent_space.current_scroll.or(parent_space.scroll_root),
+            current_scroll: None,
         });
         let mut body = Vec::new();
         for (index, content) in node.content().iter().enumerate() {
@@ -1588,6 +1589,8 @@ impl PlanBuilder<'_> {
             &[glyph],
             space.origin,
             space.size,
+            space.current_scroll,
+            space.target,
         )?;
         if report.prepare_calls > 0 {
             self.rebuilt_nodes.insert(node.id());
@@ -1784,11 +1787,20 @@ fn local_rect(mut bounds: crate::paint::Rect, parent_origin: [f32; 2]) -> crate:
 pub(in crate::render) struct PropertyBindings {
     offsets: HashMap<PropertyBinding, u32>,
     slot: usize,
+    scroll_offsets: HashMap<ScrollBinding, u32>,
+    scroll_slot: usize,
 }
 
 impl PropertyBindings {
     fn offset(&self, binding: PropertyBinding) -> u32 {
         self.offsets.get(&binding).copied().unwrap_or_default()
+    }
+
+    fn scroll_offset(&self, binding: PropertyBinding) -> u32 {
+        self.scroll_offsets
+            .get(&binding.scroll())
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -1803,6 +1815,9 @@ pub(in crate::render) struct Shapes {
     property_stride: usize,
     bind_group_layout: wgpu::BindGroupLayout,
     property_slots: Vec<PropertySlot>,
+    scroll_property_stride: usize,
+    scroll_bind_group_layout: wgpu::BindGroupLayout,
+    scroll_property_slots: Vec<ScrollPropertySlot>,
 }
 
 struct PropertySlot {
@@ -1816,6 +1831,15 @@ struct PropertySlot {
     bytes: Vec<u8>,
 }
 
+struct ScrollPropertySlot {
+    owners: Vec<Weak<scene::Commit>>,
+    buffer: wgpu::Buffer,
+    capacity: usize,
+    bind_group: wgpu::BindGroup,
+    bindings: Vec<ScrollBinding>,
+    bytes: Vec<u8>,
+}
+
 impl Shapes {
     pub(in crate::render) fn new(
         render_context: &render::Context,
@@ -1824,6 +1848,10 @@ impl Shapes {
         let device = render_context.device();
         let property_stride = align_up(
             std::mem::size_of::<NodeProperty>(),
+            device.limits().min_uniform_buffer_offset_alignment as usize,
+        );
+        let scroll_property_stride = align_up(
+            std::mem::size_of::<ScrollProperty>(),
             device.limits().min_uniform_buffer_offset_alignment as usize,
         );
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1855,9 +1883,25 @@ impl Shapes {
                 },
             ],
         });
+        let scroll_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Retained Scroll Property Bind Group Layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: NonZeroU64::new(
+                            std::mem::size_of::<ScrollProperty>() as u64
+                        ),
+                    },
+                    count: None,
+                }],
+            });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Retained Shape Pipeline Layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&bind_group_layout), Some(&scroll_bind_group_layout)],
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1896,12 +1940,26 @@ impl Shapes {
             usage: wgpu::BufferUsages::VERTEX,
         });
         let instance_buffer = create_instance_buffer(device, INITIAL_INSTANCE_CAPACITY);
-        let property_slots = vec![create_property_slot(
-            device,
-            &bind_group_layout,
-            property_stride,
-            INITIAL_PROPERTY_CAPACITY,
-        )];
+        let property_slots = (0..RETAINED_PROPERTY_SLOT_RESERVE)
+            .map(|_| {
+                create_property_slot(
+                    device,
+                    &bind_group_layout,
+                    property_stride,
+                    INITIAL_PROPERTY_CAPACITY,
+                )
+            })
+            .collect();
+        let scroll_property_slots = (0..RETAINED_SCROLL_PROPERTY_SLOT_RESERVE)
+            .map(|_| {
+                create_scroll_property_slot(
+                    device,
+                    &scroll_bind_group_layout,
+                    scroll_property_stride,
+                    INITIAL_SCROLL_PROPERTY_CAPACITY,
+                )
+            })
+            .collect();
 
         Self {
             pipeline,
@@ -1914,6 +1972,9 @@ impl Shapes {
             property_stride,
             bind_group_layout,
             property_slots,
+            scroll_property_stride,
+            scroll_bind_group_layout,
+            scroll_property_slots,
         }
     }
 
@@ -2007,10 +2068,49 @@ impl Shapes {
                 PropertyBindings {
                     offsets: HashMap::new(),
                     slot: 0,
+                    scroll_offsets: HashMap::new(),
+                    scroll_slot: 0,
                 },
                 stats,
             );
         }
+
+        let (offsets, slot) = self.prepare_node_properties(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            bindings,
+            &mut stats,
+        );
+        let (scroll_offsets, scroll_slot) = self.prepare_scroll_properties(
+            render_context,
+            commit,
+            properties,
+            bindings,
+            &mut stats,
+        );
+
+        (
+            PropertyBindings {
+                offsets,
+                slot,
+                scroll_offsets,
+                scroll_slot,
+            },
+            stats,
+        )
+    }
+
+    fn prepare_node_properties(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        properties: &scene::Properties,
+        bindings: &[PropertyBinding],
+        stats: &mut SyncStats,
+    ) -> (HashMap<PropertyBinding, u32>, usize) {
         let required = bindings.len().max(1);
         let viewport_key = [
             viewport.logical_area().width().to_bits(),
@@ -2024,25 +2124,6 @@ impl Shapes {
             .map(|(index, binding)| (binding, (index * self.property_stride) as u32))
             .collect::<HashMap<_, _>>();
         let mut bytes = vec![0_u8; required * self.property_stride];
-        let mut inherited_scroll = HashMap::with_capacity(commit.nodes().len());
-        for node in commit.nodes() {
-            let parent_scroll = node
-                .parent()
-                .and_then(|parent| inherited_scroll.get(&parent).copied())
-                .unwrap_or([0.0_f32; 2]);
-            let own_scroll = match properties.value(scene::PropertyRef::new(
-                node.id(),
-                scene::PropertyKind::ScrollOffset,
-            )) {
-                Some(scene::PropertyValue::ScrollOffset { x, y, .. }) => [-x.round(), -y.round()],
-                _ => [0.0, 0.0],
-            };
-            let scroll = [
-                parent_scroll[0] + own_scroll[0],
-                parent_scroll[1] + own_scroll[1],
-            ];
-            inherited_scroll.insert(node.id(), scroll);
-        }
 
         for (index, binding) in bindings.iter().copied().enumerate() {
             let Some(node) = commit.nodes().iter().find(|node| node.id() == binding.node) else {
@@ -2055,12 +2136,6 @@ impl Shapes {
             property.target_size = binding.space.size;
             match binding.projection {
                 scene::ContentProjection::Normal => {
-                    if !binding.composited_scroll {
-                        property.scroll = inherited_scroll
-                            .get(&node.id())
-                            .copied()
-                            .unwrap_or_default();
-                    }
                     if let Some(scene::PropertyValue::Transform { value, .. }) = properties.value(
                         scene::PropertyRef::new(node.id(), scene::PropertyKind::Transform),
                     ) {
@@ -2090,7 +2165,7 @@ impl Shapes {
             slot.viewport_key == viewport_key && slot.bindings == bindings && slot.bytes == bytes
         }) {
             add_property_owner(&mut self.property_slots[slot].owners, commit);
-            return (PropertyBindings { offsets, slot }, stats);
+            return (offsets, slot);
         }
 
         let slot = self
@@ -2172,7 +2247,163 @@ impl Shapes {
         property_slot.bindings = bindings.to_vec();
         property_slot.bytes = bytes;
 
-        (PropertyBindings { offsets, slot }, stats)
+        (offsets, slot)
+    }
+
+    fn prepare_scroll_properties(
+        &mut self,
+        render_context: &render::Context,
+        commit: &Arc<scene::Commit>,
+        properties: &scene::Properties,
+        bindings: &[PropertyBinding],
+        stats: &mut SyncStats,
+    ) -> (HashMap<ScrollBinding, u32>, usize) {
+        let mut scroll_bindings = Vec::new();
+        for binding in bindings.iter().map(|binding| binding.scroll()) {
+            if !scroll_bindings.contains(&binding) {
+                scroll_bindings.push(binding);
+            }
+        }
+        if scroll_bindings.is_empty() {
+            scroll_bindings.push(ScrollBinding::IDENTITY);
+        }
+
+        let offsets = scroll_bindings
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, binding)| (binding, (index * self.scroll_property_stride) as u32))
+            .collect::<HashMap<_, _>>();
+        let required = scroll_bindings.len().max(1);
+        let mut bytes = vec![0_u8; required * self.scroll_property_stride];
+        let mut inherited_scroll = HashMap::with_capacity(commit.nodes().len());
+        for node in commit.nodes() {
+            let parent_scroll = node
+                .parent()
+                .and_then(|parent| inherited_scroll.get(&parent).copied())
+                .unwrap_or([0.0_f32; 2]);
+            let own_scroll = node.scroll().map_or([0.0, 0.0], |declaration| {
+                let current = properties
+                    .scroll_offset(node.id())
+                    .unwrap_or(declaration.baseline());
+                [
+                    declaration.baseline().x().saturating_sub(current.x()) as f32,
+                    declaration.baseline().y().saturating_sub(current.y()) as f32,
+                ]
+            });
+            inherited_scroll.insert(
+                node.id(),
+                [
+                    parent_scroll[0] + own_scroll[0],
+                    parent_scroll[1] + own_scroll[1],
+                ],
+            );
+        }
+
+        for (index, binding) in scroll_bindings.iter().copied().enumerate() {
+            let inherited = binding
+                .node
+                .and_then(|node| inherited_scroll.get(&node).copied())
+                .unwrap_or_default();
+            let root = binding
+                .root
+                .and_then(|node| inherited_scroll.get(&node).copied())
+                .unwrap_or_default();
+            let property = ScrollProperty {
+                translation: [inherited[0] - root[0], inherited[1] - root[1]],
+                ..ScrollProperty::IDENTITY
+            };
+            let offset = index * self.scroll_property_stride;
+            bytes[offset..offset + std::mem::size_of::<ScrollProperty>()]
+                .copy_from_slice(bytemuck::bytes_of(&property));
+        }
+
+        for slot in &mut self.scroll_property_slots {
+            slot.owners.retain(|owner| owner.strong_count() > 0);
+        }
+        if let Some(slot) = self
+            .scroll_property_slots
+            .iter_mut()
+            .position(|slot| slot.bindings == scroll_bindings && slot.bytes == bytes)
+        {
+            add_property_owner(&mut self.scroll_property_slots[slot].owners, commit);
+            return (offsets, slot);
+        }
+
+        let slot = self
+            .scroll_property_slots
+            .iter()
+            .position(|slot| {
+                let mut owns_commit = false;
+                let mut owns_other = false;
+                for owner in slot.owners.iter().filter_map(Weak::upgrade) {
+                    if Arc::ptr_eq(&owner, commit) {
+                        owns_commit = true;
+                    } else {
+                        owns_other = true;
+                    }
+                }
+                owns_commit && !owns_other
+            })
+            .or_else(|| {
+                self.scroll_property_slots
+                    .iter()
+                    .position(|slot| slot.owners.is_empty())
+            })
+            .unwrap_or_else(|| {
+                self.scroll_property_slots.push(create_scroll_property_slot(
+                    render_context.device(),
+                    &self.scroll_bind_group_layout,
+                    self.scroll_property_stride,
+                    INITIAL_SCROLL_PROPERTY_CAPACITY,
+                ));
+                stats.resource_creations += 1;
+                self.scroll_property_slots.len() - 1
+            });
+
+        let scroll_slot = &mut self.scroll_property_slots[slot];
+        let mut buffer_recreated = false;
+        if required > scroll_slot.capacity {
+            scroll_slot.capacity = required.next_power_of_two();
+            scroll_slot.buffer = create_scroll_property_buffer(
+                render_context.device(),
+                self.scroll_property_stride,
+                scroll_slot.capacity,
+            );
+            scroll_slot.bind_group = create_scroll_bind_group(
+                render_context.device(),
+                &self.scroll_bind_group_layout,
+                &scroll_slot.buffer,
+            );
+            stats.resource_creations += 1;
+            buffer_recreated = true;
+        }
+        if buffer_recreated || scroll_slot.bytes.len() != bytes.len() {
+            render_context
+                .queue()
+                .write_buffer(&scroll_slot.buffer, 0, &bytes);
+            stats.property_upload_bytes += bytes.len();
+        } else {
+            let property_size = std::mem::size_of::<ScrollProperty>();
+            for index in 0..required {
+                let offset = index * self.scroll_property_stride;
+                let range = offset..offset + property_size;
+                if scroll_slot.bytes[range.clone()] != bytes[range.clone()] {
+                    render_context.queue().write_buffer(
+                        &scroll_slot.buffer,
+                        offset as u64,
+                        &bytes[range],
+                    );
+                    stats.property_upload_bytes += property_size;
+                }
+            }
+        }
+        scroll_slot.owners.clear();
+        scroll_slot.owners.push(Arc::downgrade(commit));
+        scroll_slot.bindings = scroll_bindings;
+        scroll_slot.bytes = bytes;
+
+        (offsets, slot)
     }
 
     pub(in crate::render) fn draw<'a>(
@@ -2187,6 +2418,11 @@ impl Shapes {
             &self.property_slots[properties.slot].bind_group,
             &[properties.offset(batch.binding())],
         );
+        pass.set_bind_group(
+            1,
+            &self.scroll_property_slots[properties.scroll_slot].bind_group,
+            &[properties.scroll_offset(batch.binding())],
+        );
         pass.set_vertex_buffer(0, self.unit_buffer.slice(..));
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         pass.draw(0..UNIT_QUAD.len() as u32, batch.range());
@@ -2197,6 +2433,7 @@ impl Shapes {
             .len()
             .saturating_add(2)
             .saturating_add(self.property_slots.len().saturating_mul(2))
+            .saturating_add(self.scroll_property_slots.len())
     }
 
     pub(in crate::render) fn collect(&mut self) -> SyncStats {
@@ -2205,6 +2442,9 @@ impl Shapes {
 
     fn cancel_property_state(&mut self, commit: &Arc<scene::Commit>) {
         for slot in &mut self.property_slots {
+            remove_property_owner(&mut slot.owners, commit);
+        }
+        for slot in &mut self.scroll_property_slots {
             remove_property_owner(&mut slot.owners, commit);
         }
     }
@@ -2239,6 +2479,15 @@ impl Shapes {
                     .saturating_add(std::mem::size_of::<ViewportUniform>())
                     .saturating_add(slot.property_capacity.saturating_mul(self.property_stride))
             }))
+            .saturating_add(
+                self.scroll_property_slots
+                    .iter()
+                    .fold(0_usize, |bytes, slot| {
+                        bytes.saturating_add(
+                            slot.capacity.saturating_mul(self.scroll_property_stride),
+                        )
+                    }),
+            )
     }
 
     fn prune(&mut self) -> SyncStats {
@@ -2261,24 +2510,42 @@ impl Shapes {
             }
         }
         let property_slots_before = self.property_slots.len();
-        let mut kept_recycle = false;
+        let mut kept_recycle = 0;
         self.property_slots.retain_mut(|slot| {
             slot.owners.retain(|owner| owner.strong_count() > 0);
             if !slot.owners.is_empty() {
                 true
-            } else if !kept_recycle {
-                kept_recycle = true;
+            } else if kept_recycle < RETAINED_PROPERTY_SLOT_RESERVE {
+                kept_recycle += 1;
+                true
+            } else {
+                false
+            }
+        });
+        let scroll_property_slots_before = self.scroll_property_slots.len();
+        let mut kept_scroll_recycle = 0;
+        self.scroll_property_slots.retain_mut(|slot| {
+            slot.owners.retain(|owner| owner.strong_count() > 0);
+            if !slot.owners.is_empty() {
+                true
+            } else if kept_scroll_recycle < RETAINED_SCROLL_PROPERTY_SLOT_RESERVE {
+                kept_scroll_recycle += 1;
                 true
             } else {
                 false
             }
         });
         SyncStats {
-            resource_removals: expired.len().saturating_add(
-                property_slots_before
-                    .saturating_sub(self.property_slots.len())
-                    .saturating_mul(2),
-            ),
+            resource_removals: expired
+                .len()
+                .saturating_add(
+                    property_slots_before
+                        .saturating_sub(self.property_slots.len())
+                        .saturating_mul(2),
+                )
+                .saturating_add(
+                    scroll_property_slots_before.saturating_sub(self.scroll_property_slots.len()),
+                ),
             ..SyncStats::default()
         }
     }
@@ -2342,6 +2609,19 @@ fn create_property_buffer(device: &wgpu::Device, stride: usize, capacity: usize)
     })
 }
 
+fn create_scroll_property_buffer(
+    device: &wgpu::Device,
+    stride: usize,
+    capacity: usize,
+) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Retained Scroll Properties"),
+        size: stride.saturating_mul(capacity.max(1)) as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn create_property_slot(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -2362,6 +2642,24 @@ fn create_property_slot(
         viewport_buffer,
         property_buffer,
         property_capacity: capacity,
+        bind_group,
+        bindings: Vec::new(),
+        bytes: Vec::new(),
+    }
+}
+
+fn create_scroll_property_slot(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    stride: usize,
+    capacity: usize,
+) -> ScrollPropertySlot {
+    let buffer = create_scroll_property_buffer(device, stride, capacity);
+    let bind_group = create_scroll_bind_group(device, layout, &buffer);
+    ScrollPropertySlot {
+        owners: Vec::new(),
+        buffer,
+        capacity,
         bind_group,
         bindings: Vec::new(),
         bytes: Vec::new(),
@@ -2413,6 +2711,25 @@ fn create_bind_group(
     })
 }
 
+fn create_scroll_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    properties: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Retained Scroll Property Bind Group"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: properties,
+                offset: 0,
+                size: NonZeroU64::new(std::mem::size_of::<ScrollProperty>() as u64),
+            }),
+        }],
+    })
+}
+
 fn align_up(value: usize, alignment: usize) -> usize {
     let alignment = alignment.max(1);
     value.div_ceil(alignment).saturating_mul(alignment)
@@ -2429,8 +2746,10 @@ mod tests {
             space: TargetSpace {
                 origin: [0.0, 0.0],
                 size: [100.0, 80.0],
+                target: None,
+                scroll_root: None,
+                current_scroll: None,
             },
-            composited_scroll: false,
             projection: scene::ContentProjection::Normal,
         }
     }
@@ -2472,53 +2791,5 @@ mod tests {
         coalesce_shape_batches(&mut batches);
 
         assert_eq!(batches.len(), 3);
-    }
-
-    #[test]
-    fn scroll_layer_revision_borrows_only_its_ordered_subtree() {
-        let mut next = 10;
-        let scroll_id = composition::tree::NodeId::layout(&mut next);
-        let item_id = composition::tree::NodeId::layout(&mut next);
-        let outside_id = composition::tree::NodeId::layout(&mut next);
-        let bounds = crate::geometry::Rect::new(0, 0, 100, 80);
-        let scroll = Arc::new(scene::Node::new(scroll_id, None, bounds, Vec::new()));
-        let item = Arc::new(scene::Node::new(
-            item_id,
-            Some(scroll_id),
-            bounds,
-            Vec::new(),
-        ));
-        let outside = Arc::new(scene::Node::new(outside_id, None, bounds, Vec::new()));
-        let nodes = [
-            (scroll_id, Arc::clone(&scroll)),
-            (item_id, Arc::clone(&item)),
-            (outside_id, Arc::clone(&outside)),
-        ]
-        .into_iter()
-        .collect::<HashMap<_, _>>();
-        let order = vec![
-            scene::Draw::PushScroll { node: scroll_id },
-            scene::Draw::Content {
-                node: item_id,
-                index: 0,
-                projection: scene::ContentProjection::Normal,
-            },
-            scene::Draw::PopScroll,
-        ];
-
-        let revision = ScrollLayerRevision::from_order(&order, &nodes);
-        let same = ScrollLayerRevision::from_order(&order, &nodes);
-        let mut changed_order = order.clone();
-        changed_order.insert(1, scene::Draw::PopClip);
-        let changed = ScrollLayerRevision::from_order(&changed_order, &nodes);
-
-        assert!(revision.matches(&same));
-        assert!(!revision.matches(&changed));
-        assert!(revision.is_alive());
-
-        drop(nodes);
-        drop(scroll);
-        drop(item);
-        assert!(!revision.is_alive());
     }
 }

@@ -23,7 +23,7 @@ impl Viewport {
                 width: 0,
                 height: 0,
             },
-            _pad: [0, 0],
+            render_offset: [0, 0],
         };
 
         let params_buffer = device.create_buffer(&BufferDescriptor {
@@ -54,6 +54,24 @@ impl Viewport {
                 )
             });
         }
+    }
+
+    /// Updates the device-space offset applied to every prepared text vertex.
+    ///
+    /// This is a retained-rendering capability: changing the offset does not
+    /// reshape text, rebuild vertices, or touch atlas allocations.
+    pub fn update_render_offset(&mut self, queue: &Queue, offset: [i32; 2]) -> bool {
+        if self.params.render_offset == offset {
+            return false;
+        }
+        self.params.render_offset = offset;
+        queue.write_buffer(&self.params_buffer, 0, unsafe {
+            slice::from_raw_parts(
+                &self.params as *const Params as *const u8,
+                mem::size_of::<Params>(),
+            )
+        });
+        true
     }
 
     /// Returns the current resolution of the `Viewport`.

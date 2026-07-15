@@ -34,17 +34,13 @@ pub struct Renderer {
     popup_packer: render::popup_pack::Packer,
     text_renderer: render::text_renderer::TextRenderer,
     retained: render::retained::Realizer,
-    scroll_layers: Vec<CachedScrollLayer>,
+    ready_candidates: Vec<ReadyCandidate>,
 }
 
-struct CachedScrollLayer {
-    node: crate::composition::tree::NodeId,
-    revision: render::retained::ScrollLayerRevision,
-    segment: usize,
-    scale_bits: u32,
-    layer_bounds: paint::Rect,
-    property_values: Box<[crate::scene::PropertyValue]>,
-    layer: render::filter::Layer,
+struct ReadyCandidate {
+    commit: std::sync::Weak<crate::scene::Commit>,
+    viewport: render::Viewport,
+    properties: crate::scene::PropertySerial,
 }
 
 #[derive(Clone)]
@@ -100,9 +96,7 @@ pub(in crate::render) struct PreparedGroup {
 #[derive(Clone)]
 pub(in crate::render) struct PreparedScroll {
     pub(in crate::render) node: crate::composition::tree::NodeId,
-    pub(in crate::render) revision: render::retained::ScrollLayerRevision,
     pub(in crate::render) viewport: paint::Rect,
-    pub(in crate::render) layer_bounds: paint::Rect,
     pub(in crate::render) baseline: crate::interaction::ScrollOffset,
     pub(in crate::render) render_batches: Vec<RenderBatch>,
 }
@@ -112,6 +106,7 @@ struct CommandStats {
     draw_calls: usize,
     pipeline_changes: usize,
     bind_group_changes: usize,
+    property_upload_bytes: usize,
     scroll_layer_cache_hits: usize,
     scroll_layer_cache_misses: usize,
     effect_intermediate_clears: usize,
@@ -195,8 +190,6 @@ struct SceneEncoder<'a> {
     text_render_error: &'a mut Option<render::text_renderer::Error>,
     draw_passes: &'a mut usize,
     command_stats: &'a mut CommandStats,
-    scroll_layers: Option<&'a mut Vec<CachedScrollLayer>>,
-    scroll_origin: [f32; 2],
     scroll_translation: [f32; 2],
     scroll_clip: Option<paint::Rect>,
 }
@@ -234,7 +227,7 @@ impl Renderer {
             popup_packer: render::popup_pack::Packer::new(render_context),
             text_renderer: render::text_renderer::TextRenderer::new(render_context, format),
             retained: render::retained::Realizer::new(render_context, format),
-            scroll_layers: Vec::new(),
+            ready_candidates: Vec::new(),
         }
     }
 
@@ -330,11 +323,19 @@ impl Renderer {
         render_context: &render::Context,
         canvas: &render::Canvas,
         commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: crate::scene::PropertySerial,
         budget: std::time::Duration,
         deadline: std::time::Duration,
     ) -> render::Result<CommitReadiness> {
         let viewport = render::Viewport::from_canvas(canvas);
-        self.synchronize_commit_for_viewport(render_context, viewport, commit, budget, deadline)
+        self.synchronize_commit_for_viewport(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            budget,
+            deadline,
+        )
     }
 
     fn synchronize_commit_for_viewport(
@@ -342,6 +343,7 @@ impl Renderer {
         render_context: &render::Context,
         viewport: render::Viewport,
         commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: crate::scene::PropertySerial,
         budget: std::time::Duration,
         deadline: std::time::Duration,
     ) -> render::Result<CommitReadiness> {
@@ -356,7 +358,22 @@ impl Renderer {
         if readiness == render::retained::Synchronize::Pending {
             return Ok(CommitReadiness::Pending);
         }
-        Ok(CommitReadiness::Ready)
+        self.ready_candidates
+            .retain(|candidate| candidate.commit.strong_count() > 0);
+        Ok(
+            if self.ready_candidates.iter().any(|candidate| {
+                candidate.viewport == viewport
+                    && candidate.properties == properties
+                    && candidate
+                        .commit
+                        .upgrade()
+                        .is_some_and(|candidate| std::sync::Arc::ptr_eq(&candidate, commit))
+            }) {
+                CommitReadiness::Ready
+            } else {
+                CommitReadiness::Pending
+            },
+        )
     }
 
     pub(crate) fn cancel_commit_synchronization(
@@ -364,6 +381,75 @@ impl Renderer {
         commit: &std::sync::Arc<crate::scene::Commit>,
     ) {
         self.retained.cancel_synchronization(commit);
+        self.ready_candidates.retain(|candidate| {
+            candidate
+                .commit
+                .upgrade()
+                .is_some_and(|candidate| !std::sync::Arc::ptr_eq(&candidate, commit))
+        });
+    }
+
+    pub(crate) fn advance_candidate_after_present(
+        &mut self,
+        render_context: &render::Context,
+        canvas: &render::Canvas,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        deadline: std::time::Duration,
+    ) -> render::Result<()> {
+        let viewport = render::Viewport::from_canvas(canvas);
+        self.advance_candidate_for_viewport_after_present(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            deadline,
+        )
+    }
+
+    fn advance_candidate_for_viewport_after_present(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        deadline: std::time::Duration,
+    ) -> render::Result<()> {
+        self.ready_candidates.retain(|candidate| {
+            candidate.commit.strong_count() > 0
+                && !(candidate.viewport == viewport
+                    && candidate
+                        .commit
+                        .upgrade()
+                        .is_some_and(|candidate| std::sync::Arc::ptr_eq(&candidate, commit))
+                    && candidate.properties != properties.serial())
+        });
+        if self.ready_candidates.iter().any(|candidate| {
+            candidate.viewport == viewport
+                && candidate.properties == properties.serial()
+                && candidate
+                    .commit
+                    .upgrade()
+                    .is_some_and(|candidate| std::sync::Arc::ptr_eq(&candidate, commit))
+        }) {
+            return Ok(());
+        }
+
+        let started = std::time::Instant::now();
+        let Some(_) =
+            self.retained
+                .prepare_candidate(render_context, viewport, commit, properties)?
+        else {
+            return Ok(());
+        };
+        self.retained
+            .record_candidate_slice(viewport, commit, started.elapsed(), deadline);
+        self.ready_candidates.push(ReadyCandidate {
+            commit: std::sync::Arc::downgrade(commit),
+            viewport,
+            properties: properties.serial(),
+        });
+        Ok(())
     }
 
     pub fn draw_commit(
@@ -486,8 +572,6 @@ impl Renderer {
         let popup_packer = &self.popup_packer;
         let retained_shapes = retained_properties.map(|_| self.retained.shapes());
         let text_renderer = &mut self.text_renderer;
-        self.scroll_layers.retain(|entry| entry.revision.is_alive());
-        let scroll_layers = &mut self.scroll_layers;
         let mut text_render_error = None;
         let mut draw_passes = 0;
         let mut command_stats = CommandStats::default();
@@ -500,30 +584,27 @@ impl Renderer {
                 let Some(composition_view) = filter_renderer.composition_view() else {
                     return;
                 };
-                let mut scene_encoder = SceneEncoder::retained(
-                    SceneEncoderInput {
-                        render_context,
-                        quad_pipeline,
-                        quad_vertex_buffer,
-                        filter_renderer,
-                        text_renderer,
-                        retained_shapes,
-                        retained_properties,
-                        scene_properties,
-                        encoder,
-                        base_view: composition_view,
-                        backdrop_view: composition_view,
-                        backdrop_target: render::filter::Target::from_viewport(main_viewport),
-                        clear_color,
-                        viewport: main_viewport,
-                        base_dirty: true,
-                        inside_group: false,
-                        text_render_error: &mut text_render_error,
-                        draw_passes: &mut draw_passes,
-                        command_stats: &mut command_stats,
-                    },
-                    &mut *scroll_layers,
-                );
+                let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                    render_context,
+                    quad_pipeline,
+                    quad_vertex_buffer,
+                    filter_renderer,
+                    text_renderer,
+                    retained_shapes,
+                    retained_properties,
+                    scene_properties,
+                    encoder,
+                    base_view: composition_view,
+                    backdrop_view: composition_view,
+                    backdrop_target: render::filter::Target::from_viewport(main_viewport),
+                    clear_color,
+                    viewport: main_viewport,
+                    base_dirty: true,
+                    inside_group: false,
+                    text_render_error: &mut text_render_error,
+                    draw_passes: &mut draw_passes,
+                    command_stats: &mut command_stats,
+                });
                 scene_encoder.encode(batches);
                 if text_render_error.is_some() {
                     return;
@@ -546,30 +627,27 @@ impl Renderer {
                 {
                     let _clear = begin_main_pass(encoder, &view, clear_color, true);
                 }
-                let mut scene_encoder = SceneEncoder::retained(
-                    SceneEncoderInput {
-                        render_context,
-                        quad_pipeline,
-                        quad_vertex_buffer,
-                        filter_renderer,
-                        text_renderer,
-                        retained_shapes,
-                        retained_properties,
-                        scene_properties,
-                        encoder,
-                        base_view: &view,
-                        backdrop_view: &view,
-                        backdrop_target: filter_target,
-                        clear_color,
-                        viewport: main_viewport,
-                        base_dirty: true,
-                        inside_group: false,
-                        text_render_error: &mut text_render_error,
-                        draw_passes: &mut draw_passes,
-                        command_stats: &mut command_stats,
-                    },
-                    &mut *scroll_layers,
-                );
+                let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                    render_context,
+                    quad_pipeline,
+                    quad_vertex_buffer,
+                    filter_renderer,
+                    text_renderer,
+                    retained_shapes,
+                    retained_properties,
+                    scene_properties,
+                    encoder,
+                    base_view: &view,
+                    backdrop_view: &view,
+                    backdrop_target: filter_target,
+                    clear_color,
+                    viewport: main_viewport,
+                    base_dirty: true,
+                    inside_group: false,
+                    text_render_error: &mut text_render_error,
+                    draw_passes: &mut draw_passes,
+                    command_stats: &mut command_stats,
+                });
                 scene_encoder.encode(batches);
             })?
         } else {
@@ -580,30 +658,27 @@ impl Renderer {
                 let Some(composition_view) = filter_renderer.composition_view() else {
                     return;
                 };
-                let mut scene_encoder = SceneEncoder::retained(
-                    SceneEncoderInput {
-                        render_context,
-                        quad_pipeline,
-                        quad_vertex_buffer,
-                        filter_renderer,
-                        text_renderer,
-                        retained_shapes,
-                        retained_properties,
-                        scene_properties,
-                        encoder,
-                        base_view: composition_view,
-                        backdrop_view: composition_view,
-                        backdrop_target: render::filter::Target::from_viewport(main_viewport),
-                        clear_color,
-                        viewport: main_viewport,
-                        base_dirty: true,
-                        inside_group: false,
-                        text_render_error: &mut text_render_error,
-                        draw_passes: &mut draw_passes,
-                        command_stats: &mut command_stats,
-                    },
-                    &mut *scroll_layers,
-                );
+                let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                    render_context,
+                    quad_pipeline,
+                    quad_vertex_buffer,
+                    filter_renderer,
+                    text_renderer,
+                    retained_shapes,
+                    retained_properties,
+                    scene_properties,
+                    encoder,
+                    base_view: composition_view,
+                    backdrop_view: composition_view,
+                    backdrop_target: render::filter::Target::from_viewport(main_viewport),
+                    clear_color,
+                    viewport: main_viewport,
+                    base_dirty: true,
+                    inside_group: false,
+                    text_render_error: &mut text_render_error,
+                    draw_passes: &mut draw_passes,
+                    command_stats: &mut command_stats,
+                });
                 scene_encoder.encode(batches);
                 if text_render_error.is_some() {
                     return;
@@ -625,16 +700,11 @@ impl Renderer {
         stats.resource_transition_boundaries = draw_passes.saturating_sub(1);
         stats.pipeline_changes = command_stats.pipeline_changes;
         stats.bind_group_changes = command_stats.bind_group_changes;
+        stats.property_upload_bytes = stats
+            .property_upload_bytes
+            .saturating_add(command_stats.property_upload_bytes);
         stats.scroll_layer_cache_hits = command_stats.scroll_layer_cache_hits;
         stats.scroll_layer_cache_misses = command_stats.scroll_layer_cache_misses;
-        let (scroll_layer_resources, scroll_layer_bytes) =
-            scroll_layer_resource_state(&self.scroll_layers);
-        stats.retained_gpu_resource_count = stats
-            .retained_gpu_resource_count
-            .saturating_add(scroll_layer_resources);
-        stats.retained_gpu_resource_bytes = stats
-            .retained_gpu_resource_bytes
-            .saturating_add(scroll_layer_bytes);
         stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
         stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
         stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
@@ -769,31 +839,27 @@ impl Renderer {
             let _clear = begin_main_pass(&mut encoder, &view, clear_color, true);
         }
         {
-            self.scroll_layers.retain(|entry| entry.revision.is_alive());
-            let mut scene_encoder = SceneEncoder::retained(
-                SceneEncoderInput {
-                    render_context,
-                    quad_pipeline: &self.quad_pipeline,
-                    quad_vertex_buffer: self.quad_arena.buffer(),
-                    filter_renderer: &self.filter_renderer,
-                    text_renderer: &mut self.text_renderer,
-                    retained_shapes: Some(self.retained.shapes()),
-                    retained_properties: Some(&prepared.properties),
-                    scene_properties: Some(properties),
-                    encoder: &mut encoder,
-                    base_view: &view,
-                    backdrop_view: &view,
-                    backdrop_target: render::filter::Target::from_viewport(viewport),
-                    clear_color,
-                    viewport,
-                    base_dirty: true,
-                    inside_group: false,
-                    text_render_error: &mut text_render_error,
-                    draw_passes: &mut draw_passes,
-                    command_stats: &mut command_stats,
-                },
-                &mut self.scroll_layers,
-            );
+            let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                render_context,
+                quad_pipeline: &self.quad_pipeline,
+                quad_vertex_buffer: self.quad_arena.buffer(),
+                filter_renderer: &self.filter_renderer,
+                text_renderer: &mut self.text_renderer,
+                retained_shapes: Some(self.retained.shapes()),
+                retained_properties: Some(&prepared.properties),
+                scene_properties: Some(properties),
+                encoder: &mut encoder,
+                base_view: &view,
+                backdrop_view: &view,
+                backdrop_target: render::filter::Target::from_viewport(viewport),
+                clear_color,
+                viewport,
+                base_dirty: true,
+                inside_group: false,
+                text_render_error: &mut text_render_error,
+                draw_passes: &mut draw_passes,
+                command_stats: &mut command_stats,
+            });
             scene_encoder.encode(prepared.plan.batches());
         }
         if let Some(error) = text_render_error {
@@ -828,16 +894,11 @@ impl Renderer {
         stats.resource_transition_boundaries = draw_passes.saturating_sub(1);
         stats.pipeline_changes = command_stats.pipeline_changes + usize::from(pack_popup);
         stats.bind_group_changes = command_stats.bind_group_changes + usize::from(pack_popup);
+        stats.property_upload_bytes = stats
+            .property_upload_bytes
+            .saturating_add(command_stats.property_upload_bytes);
         stats.scroll_layer_cache_hits = command_stats.scroll_layer_cache_hits;
         stats.scroll_layer_cache_misses = command_stats.scroll_layer_cache_misses;
-        let (scroll_layer_resources, scroll_layer_bytes) =
-            scroll_layer_resource_state(&self.scroll_layers);
-        stats.retained_gpu_resource_count = stats
-            .retained_gpu_resource_count
-            .saturating_add(scroll_layer_resources);
-        stats.retained_gpu_resource_bytes = stats
-            .retained_gpu_resource_bytes
-            .saturating_add(scroll_layer_bytes);
         stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
         stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
         stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
@@ -869,7 +930,35 @@ impl Renderer {
             render_context,
             viewport,
             commit,
+            properties.serial(),
             budget,
+            std::time::Duration::MAX,
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn advance_candidate_after_present_offscreen_debug(
+        &mut self,
+        render_context: &render::Context,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> Result<(), String> {
+        properties
+            .require_compatible(commit)
+            .map_err(|error| error.to_string())?;
+        let viewport = render::Viewport::from_logical_area(
+            area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
+            scale_factor,
+        );
+        self.advance_candidate_for_viewport_after_present(
+            render_context,
+            viewport,
+            commit,
+            properties,
             std::time::Duration::MAX,
         )
         .map_err(|error| error.to_string())
@@ -880,7 +969,7 @@ impl Renderer {
         &mut self,
         commit: &std::sync::Arc<crate::scene::Commit>,
     ) {
-        self.retained.cancel_synchronization(commit);
+        self.cancel_commit_synchronization(commit);
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -891,14 +980,9 @@ impl Renderer {
     #[cfg(feature = "renderer-debug")]
     pub(super) fn retained_resource_state_debug(&self) -> (usize, usize) {
         let (shape_count, shape_bytes) = self.retained.debug_resource_state();
-        let (scroll_count, scroll_bytes) = scroll_layer_resource_state(&self.scroll_layers);
         (
-            shape_count
-                .saturating_add(self.text_renderer.retained_resource_count())
-                .saturating_add(scroll_count),
-            shape_bytes
-                .saturating_add(self.text_renderer.retained_resource_bytes())
-                .saturating_add(scroll_bytes),
+            shape_count.saturating_add(self.text_renderer.retained_resource_count()),
+            shape_bytes.saturating_add(self.text_renderer.retained_resource_bytes()),
         )
     }
 
@@ -1310,7 +1394,6 @@ fn validate_retained_layers(
                 validate_retained_layers(&group.render_batches, scale_factor, limit)?;
             }
             RenderBatch::Scroll(scroll) => {
-                validate_retained_layer("scroll", scroll.layer_bounds.area, scale_factor, limit)?;
                 validate_retained_layers(&scroll.render_batches, scale_factor, limit)?;
             }
             RenderBatch::Shapes(_)
@@ -1321,64 +1404,6 @@ fn validate_retained_layers(
         }
     }
     Ok(())
-}
-
-fn same_scroll_layer_structure(
-    entry: &CachedScrollLayer,
-    scroll: &PreparedScroll,
-    segment: usize,
-    scale_bits: u32,
-) -> bool {
-    entry.node == scroll.node
-        && entry.revision.matches(&scroll.revision)
-        && entry.segment == segment
-        && entry.scale_bits == scale_bits
-        && entry.layer_bounds == scroll.layer_bounds
-}
-
-fn scroll_layer_cache_position(
-    layers: &mut [CachedScrollLayer],
-    scroll: &PreparedScroll,
-    segment: usize,
-    scale_bits: u32,
-    property_values: &[crate::scene::PropertyValue],
-) -> Option<usize> {
-    let position = layers.iter().position(|entry| {
-        same_scroll_layer_structure(entry, scroll, segment, scale_bits)
-            && entry.property_values.as_ref() == property_values
-    })?;
-    layers[position].revision = scroll.revision.clone();
-    Some(position)
-}
-
-fn make_scroll_layer_room(
-    layers: &mut Vec<CachedScrollLayer>,
-    filter_renderer: &render::filter::Renderer,
-    scroll: &PreparedScroll,
-    segment: usize,
-    scale_bits: u32,
-) {
-    const ACTIVE_AND_PENDING_VARIANTS: usize = 2;
-    let matching = layers
-        .iter()
-        .enumerate()
-        .filter_map(|(index, entry)| {
-            same_scroll_layer_structure(entry, scroll, segment, scale_bits).then_some(index)
-        })
-        .collect::<Vec<_>>();
-    if matching.len() >= ACTIVE_AND_PENDING_VARIANTS {
-        let retired = layers.remove(matching[0]);
-        filter_renderer.recycle_layer(retired.layer);
-    }
-}
-
-fn scroll_layer_resource_state(layers: &[CachedScrollLayer]) -> (usize, usize) {
-    (
-        layers.len(),
-        layers.iter().fold(0_usize, |bytes, entry| {
-            bytes.saturating_add(entry.layer.resource_bytes())
-        }),
-    )
 }
 
 fn prepare_brush_batch(
@@ -1743,20 +1768,9 @@ impl<'a> SceneEncoder<'a> {
             text_render_error: input.text_render_error,
             draw_passes: input.draw_passes,
             command_stats: input.command_stats,
-            scroll_layers: None,
-            scroll_origin: [0.0, 0.0],
             scroll_translation: [0.0, 0.0],
             scroll_clip: None,
         }
-    }
-
-    fn retained(
-        input: SceneEncoderInput<'a>,
-        scroll_layers: &'a mut Vec<CachedScrollLayer>,
-    ) -> Self {
-        let mut encoder = Self::new(input);
-        encoder.scroll_layers = Some(scroll_layers);
-        encoder
     }
 
     fn encode(&mut self, render_batches: &[RenderBatch]) {
@@ -1840,9 +1854,20 @@ impl<'a> SceneEncoder<'a> {
                         self.command_stats.record_draws(1, true);
                     }
                     RenderBatch::Text(TextBatch::Retained(batch)) => {
-                        if let Err(error) = self.text_renderer.render_retained(*batch, &mut pass) {
-                            *self.text_render_error = Some(error);
-                            break;
+                        match self.text_renderer.render_retained(
+                            self.render_context,
+                            *batch,
+                            self.scroll_translation,
+                            self.viewport.scale_factor(),
+                            &mut pass,
+                        ) {
+                            Ok(uploaded) => {
+                                self.command_stats.property_upload_bytes += uploaded;
+                            }
+                            Err(error) => {
+                                *self.text_render_error = Some(error);
+                                break;
+                            }
                         }
                         self.command_stats.record_draws(1, true);
                     }
@@ -1894,7 +1919,12 @@ impl<'a> SceneEncoder<'a> {
     }
 
     fn encode_pane(&mut self, prepared: &PreparedPane) {
-        let pane = &prepared.pane;
+        let mut pane = prepared.pane.clone();
+        pane.rect = translated_rect(pane.rect, self.scroll_translation);
+        pane.source_rect = pane
+            .source_rect
+            .map(|source| translated_rect(source, self.scroll_translation));
+        let pane = &pane;
         let Some(scissor) = current_scissor(
             &self.clip_stack,
             self.viewport.physical_area(),
@@ -2026,10 +2056,9 @@ impl<'a> SceneEncoder<'a> {
             return;
         }
 
-        let group_target = render::filter::Target::from_logical_area(
-            group.bounds.area,
-            self.viewport.scale_factor(),
-        );
+        let bounds = translated_rect(group.bounds, self.scroll_translation);
+        let group_target =
+            render::filter::Target::from_logical_area(bounds.area, self.viewport.scale_factor());
         let group_layer = self.filter_renderer.create_layer(
             self.render_context,
             group_target,
@@ -2038,7 +2067,6 @@ impl<'a> SceneEncoder<'a> {
         self.filter_renderer.clear_layer(self.encoder, &group_layer);
         *self.draw_passes += 1;
 
-        let mut scroll_layers = self.scroll_layers.take();
         {
             let group_view = group_layer.view();
             let input = SceneEncoderInput {
@@ -2056,7 +2084,7 @@ impl<'a> SceneEncoder<'a> {
                 backdrop_target: self.output_target,
                 clear_color: wgpu::Color::TRANSPARENT,
                 viewport: render::Viewport::from_logical_area(
-                    group.bounds.area,
+                    bounds.area,
                     self.viewport.scale_factor(),
                 ),
                 base_dirty: false,
@@ -2065,15 +2093,9 @@ impl<'a> SceneEncoder<'a> {
                 draw_passes: self.draw_passes,
                 command_stats: self.command_stats,
             };
-            if let Some(layers) = scroll_layers.as_deref_mut() {
-                let mut group_encoder = SceneEncoder::retained(input, layers);
-                group_encoder.encode(&group.render_batches);
-            } else {
-                let mut group_encoder = SceneEncoder::new(input);
-                group_encoder.encode(&group.render_batches);
-            }
+            let mut group_encoder = SceneEncoder::new(input);
+            group_encoder.encode(&group.render_batches);
         }
-        self.scroll_layers = scroll_layers;
 
         if let Some(output) = current_target_view(self.base_view, &self.layers, &self.clip_stack) {
             self.filter_renderer
@@ -2083,8 +2105,8 @@ impl<'a> SceneEncoder<'a> {
                     source: &group_layer,
                     output,
                     target: self.output_target,
-                    clip: paint::Clip { rect: group.bounds },
-                    source_rect: Some(group_layer_source_rect(group.bounds)),
+                    clip: paint::Clip { rect: bounds },
+                    source_rect: Some(group_layer_source_rect(bounds)),
                     scissor: current_scissor(
                         &self.clip_stack,
                         self.viewport.physical_area(),
@@ -2100,7 +2122,6 @@ impl<'a> SceneEncoder<'a> {
     }
 
     fn encode_scroll(&mut self, scroll: &PreparedScroll) {
-        let parent_origin = self.scroll_origin;
         let parent_translation = self.scroll_translation;
         let parent_clip = self.scroll_clip;
         let current = self
@@ -2115,178 +2136,20 @@ impl<'a> SceneEncoder<'a> {
             parent_translation[0] + own_translation[0],
             parent_translation[1] + own_translation[1],
         ];
-        let viewport = translated_rect(
-            scroll.viewport,
-            [
-                parent_origin[0] + parent_translation[0],
-                parent_origin[1] + parent_translation[1],
-            ],
-        );
+        let viewport = translated_rect(scroll.viewport, parent_translation);
         let Some(visible) = parent_clip
             .map(|clip| intersect_rect(clip, viewport))
             .unwrap_or(Some(viewport))
         else {
             return;
         };
-        let destination = translated_rect(
-            scroll.layer_bounds,
-            [
-                parent_origin[0] + translation[0],
-                parent_origin[1] + translation[1],
-            ],
-        );
-
-        let mut index = 0;
-        while index < scroll.render_batches.len() {
-            if let RenderBatch::Scroll(nested) = &scroll.render_batches[index] {
-                self.scroll_origin = [
-                    parent_origin[0] + scroll.layer_bounds.origin.x(),
-                    parent_origin[1] + scroll.layer_bounds.origin.y(),
-                ];
-                self.scroll_translation = translation;
-                self.scroll_clip = Some(visible);
-                self.encode_scroll(nested);
-                index += 1;
-                continue;
-            }
-
-            let start = index;
-            while index < scroll.render_batches.len()
-                && !matches!(scroll.render_batches[index], RenderBatch::Scroll(_))
-            {
-                index += 1;
-            }
-            self.encode_scroll_segment(
-                scroll,
-                start,
-                &scroll.render_batches[start..index],
-                destination,
-                visible,
-            );
-        }
-
-        self.scroll_origin = parent_origin;
+        self.scroll_translation = translation;
+        self.scroll_clip = Some(visible);
+        self.push_clip(paint::Clip { rect: visible });
+        self.encode_batches(&scroll.render_batches);
+        self.composite_clip_layer();
         self.scroll_translation = parent_translation;
         self.scroll_clip = parent_clip;
-    }
-
-    fn encode_scroll_segment(
-        &mut self,
-        scroll: &PreparedScroll,
-        segment: usize,
-        batches: &[RenderBatch],
-        destination: paint::Rect,
-        visible: paint::Rect,
-    ) {
-        if batches.is_empty() {
-            return;
-        }
-        let Some(layers) = self.scroll_layers.take() else {
-            self.encode_batches(batches);
-            return;
-        };
-        let scale_bits = self.viewport.scale_factor().to_bits();
-        let property_values = self
-            .scene_properties
-            .map(|properties| scroll.revision.property_values(properties))
-            .unwrap_or_default();
-        let position =
-            scroll_layer_cache_position(layers, scroll, segment, scale_bits, &property_values);
-        let position = if let Some(position) = position {
-            self.command_stats.scroll_layer_cache_hits += 1;
-            position
-        } else {
-            self.command_stats.scroll_layer_cache_misses += 1;
-            make_scroll_layer_room(layers, self.filter_renderer, scroll, segment, scale_bits);
-            let target = render::filter::Target::from_logical_area(
-                scroll.layer_bounds.area,
-                self.viewport.scale_factor(),
-            );
-            let layer = self.filter_renderer.create_layer(
-                self.render_context,
-                target,
-                "Retained Scroll Layer Texture",
-            );
-            self.filter_renderer.clear_layer(self.encoder, &layer);
-            *self.draw_passes += 1;
-            {
-                let input = SceneEncoderInput {
-                    render_context: self.render_context,
-                    quad_pipeline: self.quad_pipeline,
-                    quad_vertex_buffer: self.quad_vertex_buffer,
-                    filter_renderer: self.filter_renderer,
-                    text_renderer: self.text_renderer,
-                    retained_shapes: self.retained_shapes,
-                    retained_properties: self.retained_properties,
-                    scene_properties: self.scene_properties,
-                    encoder: self.encoder,
-                    base_view: layer.view(),
-                    backdrop_view: self.backdrop_view,
-                    backdrop_target: target,
-                    clear_color: wgpu::Color::TRANSPARENT,
-                    viewport: render::Viewport::from_logical_area(
-                        scroll.layer_bounds.area,
-                        self.viewport.scale_factor(),
-                    ),
-                    base_dirty: false,
-                    inside_group: true,
-                    text_render_error: self.text_render_error,
-                    draw_passes: self.draw_passes,
-                    command_stats: self.command_stats,
-                };
-                let mut layer_encoder = SceneEncoder::retained(input, &mut *layers);
-                layer_encoder.encode(batches);
-            }
-            layers.push(CachedScrollLayer {
-                node: scroll.node,
-                revision: scroll.revision.clone(),
-                segment,
-                scale_bits,
-                layer_bounds: scroll.layer_bounds,
-                property_values,
-                layer,
-            });
-            layers.len() - 1
-        };
-
-        let Some(output) = current_target_view(self.base_view, &self.layers, &self.clip_stack)
-        else {
-            self.scroll_layers = Some(layers);
-            return;
-        };
-        let Some(scroll_scissor) = clip_scissor(
-            visible,
-            self.viewport.physical_area(),
-            self.viewport.scale_factor(),
-        ) else {
-            self.scroll_layers = Some(layers);
-            return;
-        };
-        let Some(scissor) = current_scissor(
-            &self.clip_stack,
-            self.viewport.physical_area(),
-            self.viewport.scale_factor(),
-        )
-        .and_then(|current| intersect_scissor(current, scroll_scissor)) else {
-            self.scroll_layers = Some(layers);
-            return;
-        };
-        self.filter_renderer
-            .composite_layer(render::filter::LayerComposite {
-                render_context: self.render_context,
-                encoder: self.encoder,
-                source: &layers[position].layer,
-                output,
-                target: self.output_target,
-                clip: paint::Clip { rect: destination },
-                source_rect: Some(group_layer_source_rect(scroll.layer_bounds)),
-                scissor: Some(scissor),
-                opacity: 1.0,
-            });
-        self.command_stats.record_draws(1, true);
-        *self.draw_passes += 1;
-        self.mark_current_dirty();
-        self.scroll_layers = Some(layers);
     }
 
     fn push_clip(&mut self, clip: paint::Clip) {
@@ -2350,6 +2213,7 @@ impl<'a> SceneEncoder<'a> {
             resolved.rect.origin.x() - clip.scene_origin[0],
             resolved.rect.origin.y() - clip.scene_origin[1],
         );
+        resolved.rect = translated_rect(resolved.rect, self.scroll_translation);
         resolved
     }
 
@@ -2839,14 +2703,14 @@ mod tests {
     }
 
     #[test]
-    fn retained_layer_limit_rejects_the_reported_oversized_scroll_texture() {
-        let error = validate_retained_layer("scroll", area::logical(760.0, 16_862.0), 1.0, 8_192)
-            .expect_err("the reported layer must be rejected before WGPU texture creation");
+    fn retained_layer_limit_rejects_an_oversized_group_effect_texture() {
+        let error = validate_retained_layer("group", area::logical(760.0, 16_862.0), 1.0, 8_192)
+            .expect_err("an oversized semantic offscreen must be rejected before WGPU creation");
 
         assert!(matches!(
             error,
             render::Error::RetainedLayerLimit {
-                kind: "scroll",
+                kind: "group",
                 width: 760,
                 height: 16_862,
                 limit: 8_192,
@@ -2855,7 +2719,7 @@ mod tests {
     }
 
     #[test]
-    fn group_filter_encoding_is_local_but_group_composite_back_is_parent_space() {
+    fn group_filter_encoding_is_local_but_group_composite_uses_parent_scroll_space() {
         let source = std::fs::read_to_string(file!()).expect("renderer source should be readable");
         let encode_group = source
             .split("fn encode_group")
@@ -2865,13 +2729,12 @@ mod tests {
             .next()
             .expect("encode_group should precede push_clip");
 
-        assert!(
-            encode_group.contains("let group_target = render::filter::Target::from_logical_area")
-        );
+        assert!(encode_group.contains("translated_rect(group.bounds, self.scroll_translation)"));
+        assert!(encode_group.contains("Target::from_logical_area(bounds.area"));
         assert!(encode_group.contains("base_view: group_view"));
         assert!(encode_group.contains("viewport: render::Viewport::from_logical_area"));
         assert!(encode_group.contains("target: self.output_target"));
-        assert!(encode_group.contains("source_rect: Some(group_layer_source_rect(group.bounds))"));
+        assert!(encode_group.contains("source_rect: Some(group_layer_source_rect(bounds))"));
     }
 
     #[test]

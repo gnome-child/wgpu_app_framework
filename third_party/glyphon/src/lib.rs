@@ -76,7 +76,7 @@ pub struct Resolution {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Params {
     screen_resolution: Resolution,
-    _pad: [u32; 2],
+    render_offset: [i32; 2],
 }
 
 /// Controls the visible area of the text. Any text outside of the visible area will be clipped.

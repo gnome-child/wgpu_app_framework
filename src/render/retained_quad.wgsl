@@ -6,7 +6,6 @@ struct Viewport {
 struct NodeProperty {
     origin: vec2<f32>,
     translate: vec2<f32>,
-    scroll: vec2<f32>,
     scale: vec2<f32>,
     grid: vec2<f32>,
     scene_origin: vec2<f32>,
@@ -16,8 +15,14 @@ struct NodeProperty {
     _padding_vector: vec2<f32>,
 };
 
+struct ScrollProperty {
+    translation: vec2<f32>,
+    _padding: vec2<f32>,
+};
+
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<uniform> node_property: NodeProperty;
+@group(1) @binding(0) var<uniform> scroll_property: ScrollProperty;
 
 struct VertexIn {
     @location(0) corner: vec2<f32>,
@@ -48,7 +53,7 @@ struct VertexOut {
 
 fn transform_point(point: vec2<f32>) -> vec2<f32> {
     return (point - node_property.origin) * node_property.scale +
-        node_property.origin + node_property.translate + node_property.scroll -
+        node_property.origin + node_property.translate + scroll_property.translation -
         node_property.scene_origin;
 }
 
@@ -61,7 +66,7 @@ fn transform_rect(rect: vec4<f32>) -> vec4<f32> {
 }
 
 fn transform_scrolled_point(point: vec2<f32>) -> vec2<f32> {
-    let origin = node_property.origin + node_property.scroll;
+    let origin = node_property.origin + scroll_property.translation;
     return (point - origin) * node_property.scale + origin + node_property.translate -
         node_property.scene_origin;
 }
@@ -125,7 +130,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     var raster_rect = transform_rect(in.raster_rect);
     if node_property.grid.y > 0.5 && in.params.x < 0.5 {
         let source_rect = snap_rect(vec4<f32>(
-            in.source_rect.xy + node_property.scroll,
+            in.source_rect.xy + scroll_property.translation,
             in.source_rect.zw,
         ));
         outer_rect = snap_rect_with_stable_size(transform_scrolled_rect(source_rect));

@@ -12,13 +12,20 @@ glyph allocations referenced by its retained vertex buffer. Preparing unrelated
 text after a trim can therefore evict allocations still used by active retained
 text.
 
-The local delta adds `TextRenderer::retain_prepared`, backed by a private
-`TextAtlas::retain_prepared` operation. Preparation records the opaque cache
-keys already used to build the renderer. Retention only checks those keys and
-marks their existing allocations live; it performs no shaping, rasterization,
-vertex reconstruction, or GPU upload.
+The local delta adds two retained capabilities:
 
-Keep the delta limited to that capability. When updating glyphon, first check
-whether upstream exposes equivalent retained-allocation ownership. If it does,
-remove this source copy and return `Cargo.toml` to a registry dependency after
-the renderer debug atlas-pressure witness passes against the upstream API.
+- `TextRenderer::retain_prepared`, backed by a private
+  `TextAtlas::retain_prepared` operation. Preparation records the opaque cache
+  keys already used to build the renderer. Retention only checks those keys and
+  marks their existing allocations live; it performs no shaping, rasterization,
+  vertex reconstruction, or GPU upload.
+- `Viewport::update_render_offset`, which uses the existing 16-byte viewport
+  uniform to move prepared vertices in device space. One shared viewport per
+  structural scroll scope lets a property tick translate retained text without
+  per-text preparation or per-text uniform writes.
+
+Keep the delta limited to those capabilities. When updating glyphon, first
+check whether upstream exposes equivalent retained-allocation ownership and a
+bounded prepared-text transform. If it does, remove this source copy and return
+`Cargo.toml` to a registry dependency after the renderer debug atlas-pressure
+and retained-scroll witnesses pass against the upstream API.

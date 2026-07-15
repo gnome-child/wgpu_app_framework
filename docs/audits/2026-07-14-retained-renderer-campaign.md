@@ -2205,11 +2205,27 @@ defects; it is not checkpoint acceptance:
   blend tolerance; no tolerance was widened. The synthetic retained-scroll
   transition now runs the same four-scale matrix and reports exact pixels plus
   literal zero content work at every scale;
-- that expanded scroll witness caught one cached-layer edge texel at 1.5 scale.
-  Pixel-aligned rectangular layer composites now use hard texture coverage
-  while rounded composites retain analytic antialiasing. The formerly leaking
-  transition is exact, making transparent cache-edge sampling structurally
-  absent rather than tolerated as the observed one-pixel seam;
+- the cached scroll layer was subsequently rejected as the wrong resource
+  shape. Its texture envelope scaled with the retained resident window, had
+  already attempted a 16,862 px allocation against an 8,192 px device limit,
+  and made transparent cache-edge sampling representable. Scroll content now
+  renders directly under its declared rectangular clip. Shapes consume one
+  shared sparse scroll uniform per structural scroll scope, retained text uses
+  one bounded viewport offset per scroll/target scope, and clips, groups, and
+  pane effects translate at their existing owners. No retained scroll texture,
+  layer composite, segment cache, or device-limit branch survives;
+- the four-scale retained-scroll witness is exact after that deletion. A
+  changed nested scroll writes exactly one 16-byte shape scroll property,
+  unchanged repetition writes zero bytes, and both paths report zero scene
+  paint, shaping, text preparation, primitive preparation, and content upload.
+  The complete 15-witness specialized release tier remains green, including
+  production-gallery pending scroll, pending/active isolation, atlas pressure,
+  resize, caret, lifecycle, and churn;
+- the final non-debug release smoke survived two consecutive ten-input fast
+  scroll bursts from record 0 through record 428, then resized the Detail/Note
+  divider, presented continuous 34-character text input, and presented a live
+  drag selection with the focus outline stable. The process remained alive and
+  was explicitly closed with no remaining Control Gallery process;
 - `OW-RR-8A` traces active/pending realization through the renderer's mutable
   state. Shape properties now use commit-owned copy-on-write GPU slots: equal
   bytes may share, an exclusively owned slot may advance, and divergent active
@@ -2253,6 +2269,18 @@ defects; it is not checkpoint acceptance:
   across the caret interval. The process was explicitly closed. An earlier
   non-moving-direction capture occurred while native feedback/hover windows
   were present and was not accepted as a scroll receipt;
+- a later Windows Graphics Capture smoke briefly displayed a black fixed
+  prefix during rapid input even though the settled gallery was complete. A
+  temporary code-owned native-surface readback hashed the exact submitted
+  upper half on every active refresh, pending projection, activation, and
+  property tick. Every 1,270-by-672 sample was identical
+  (`aa518477cb6ed005`) with 853,440 nonblack samples while the capture API still
+  showed black. A blocking queue fence and FIFO-present experiment changed
+  neither the capture behavior nor the hash. This classifies that observation
+  as stale/partial capture output rather than renderer output; the temporary
+  readback, presentation logging, fence, and present-mode experiment were all
+  deleted. The independently exact surface pixels and real process-survival
+  smoke remain the acceptance rails;
 - the new `tools/renderer_debug/README.md` documents the independently runnable
   oracle, code-owned evidence order, comparison discipline, witness-extension
   rules, and the separate mandatory runtime-smoke rail;
@@ -2263,15 +2291,17 @@ defects; it is not checkpoint acceptance:
   importing input vocabulary. The focused caret GPU witness passes and the
   census is restored to zero forbidden edges, external-boundary violations, and
   slot cycles;
-- Checkpoint 8 is still open on candidate readiness. The current activation
-  draw realizes the candidate scroll cache after synchronization reports
-  `Ready`; `control-gallery-500px-idle-1784130382819.txt` records semantic
-  batch-preparation p95/max 38,962 us and complete draw p95/max 45,189 us even
-  though encode/submit/present is 6,080 us and bounded commit preparation is
-  666 us max. A complete candidate must own that realization before activation
-  without placing its GPU work ahead of active presentation. The next cell is
-  therefore transactional candidate realization, not a claim that this
-  progress boundary already supplies deadline-independent activation;
+- Checkpoint 8 is still open on candidate readiness. The historical
+  `control-gallery-500px-idle-1784130382819.txt` receipt assigned 38,962 us of
+  semantic batch preparation to activation while bounded commit preparation
+  itself was 666 us max. Deleting the scroll cache removes that particular
+  late raster owner, and ready candidates now name the exact commit, viewport,
+  and property serial after post-present shape-property preparation. Retained
+  text viewport transforms are still sampled at draw, however, and the new
+  direct realization has not yet produced a replacement activation/deadline
+  receipt. The next cell remains complete transactional candidate realization
+  and remeasurement, not a claim that this progress boundary already supplies
+  deadline-independent activation;
 - progress-boundary verification passed formatting, workspace all-target
   compilation without warnings, 1,188 library tests with 11 intentional
   ignores, three debug-crate unit tests, both Control Gallery tests, and all
@@ -2281,9 +2311,9 @@ defects; it is not checkpoint acceptance:
   ten census parser tests passed. The final gauge reports 47 top-level modules,
   333 production and 114 test-only edges, three split responsibilities, 55
   provisional slot edges, **zero forbidden edges, zero external-boundary
-  violations, and zero slot cycles**, 2,021 `pub(crate)` declarations in 196
-  production files with a 1,971 cross-slot upper bound, 91 cross-slot test
-  edges, 120 manifest-root mentions, 386 filesystem reads, seven allowances,
+  violations, and zero slot cycles**, 2,020 `pub(crate)` declarations in 196
+  production files with a 1,970 cross-slot upper bound, 91 cross-slot test
+  edges, 120 manifest-root mentions, 390 filesystem reads, seven allowances,
   five production panics, and 68 production expects. The increased test edge
   is the architecture ratchet reading the pinned dependency capability; no
   production ownership arrow moved.

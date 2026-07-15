@@ -17,7 +17,7 @@ struct VertexOutput {
 
 struct Params {
     screen_resolution: vec2<u32>,
-    _pad: vec2<u32>,
+    render_offset: vec2<i32>,
 };
 
 @group(0) @binding(0)
@@ -42,7 +42,7 @@ fn srgb_to_linear(c: f32) -> f32 {
 
 @vertex
 fn vs_main(in_vert: VertexInput) -> VertexOutput {
-    var pos = in_vert.pos;
+    var pos = in_vert.pos + params.render_offset;
     let width = in_vert.dim & 0xffffu;
     let height = (in_vert.dim & 0xffff0000u) >> 16u;
     let color = in_vert.color;

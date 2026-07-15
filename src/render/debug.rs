@@ -1071,6 +1071,15 @@ impl Harness {
                     active_work.property_upload_bytes
                 ));
             }
+            self.candidate
+                .advance_candidate_after_present_offscreen_debug(
+                    &self.context,
+                    &changed,
+                    &changed_properties,
+                    width,
+                    height,
+                    self.scale_factor,
+                )?;
             active_draws += 1;
             if preparation_slices > 512 {
                 return Err("bounded semantic preparation did not converge".to_owned());
@@ -1092,11 +1101,8 @@ impl Harness {
         if active_draws == 0 {
             return Err("pending preparation never yielded to the active state".to_owned());
         }
-        if activated.scroll_layer_cache_misses == 0 {
-            return Err(
-                "atomic activation did not realize its candidate scroll cache in the successful activation draw"
-                    .to_owned(),
-            );
+        if activated.scroll_layer_cache_misses != 0 || activated.scroll_layer_cache_hits != 0 {
+            return Err("atomic activation reintroduced a scroll offscreen cache".to_owned());
         }
         if peak_pending_states != 1 {
             return Err("pending preparation never occupied exactly one candidate slot".to_owned());
@@ -1227,6 +1233,15 @@ impl Harness {
             if readiness == render::CommitReadiness::Ready {
                 break;
             }
+            self.candidate
+                .advance_candidate_after_present_offscreen_debug(
+                    &self.context,
+                    &commit,
+                    &properties,
+                    resized_width,
+                    resized_height,
+                    self.scale_factor,
+                )?;
             if slice == 16_383 {
                 return Err("resized pending realization did not converge".to_owned());
             }
@@ -1310,6 +1325,15 @@ impl Harness {
             if readiness == render::CommitReadiness::Ready {
                 break;
             }
+            self.candidate
+                .advance_candidate_after_present_offscreen_debug(
+                    &self.context,
+                    commit,
+                    properties,
+                    width,
+                    height,
+                    self.scale_factor,
+                )?;
             if slices > 16_384 {
                 return Err("incremental semantic preparation did not converge".to_owned());
             }
@@ -1417,6 +1441,15 @@ impl Harness {
                     active_work.property_upload_bytes
                 ));
             }
+            self.candidate
+                .advance_candidate_after_present_offscreen_debug(
+                    &self.context,
+                    candidate_commit,
+                    candidate_properties,
+                    width,
+                    height,
+                    self.scale_factor,
+                )?;
             active_draws = active_draws.saturating_add(1);
             if slices > 16_384 {
                 return Err("pending production transition did not converge".to_owned());

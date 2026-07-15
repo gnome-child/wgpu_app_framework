@@ -256,7 +256,6 @@ pub(crate) struct EffectEnvelope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScrollDeclaration {
     viewport: geometry::Rect,
-    layer_bounds: geometry::Rect,
     resident_bounds: geometry::Rect,
     baseline: interaction::ScrollOffset,
 }
@@ -1336,19 +1335,15 @@ impl EffectEnvelope {
 impl ScrollDeclaration {
     pub(crate) fn new(
         viewport: geometry::Rect,
-        layer_bounds: geometry::Rect,
         resident_bounds: geometry::Rect,
         baseline: interaction::ScrollOffset,
     ) -> Option<Self> {
         (viewport.width() > 0
             && viewport.height() > 0
-            && layer_bounds.width() > 0
-            && layer_bounds.height() > 0
             && resident_bounds.width() > 0
             && resident_bounds.height() > 0)
             .then_some(Self {
                 viewport,
-                layer_bounds,
                 resident_bounds,
                 baseline,
             })
@@ -1357,10 +1352,6 @@ impl ScrollDeclaration {
 
     pub(crate) fn viewport(self) -> geometry::Rect {
         self.viewport
-    }
-
-    pub(crate) fn layer_bounds(self) -> geometry::Rect {
-        self.layer_bounds
     }
 
     pub(crate) fn baseline(self) -> interaction::ScrollOffset {
@@ -1686,16 +1677,11 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
     let viewport = geometry::Rect::new(8, 10, 48, 40);
     let outer_bounds = geometry::Rect::new(8, 10, 80, 40);
     let inner_bounds = geometry::Rect::new(8, 10, 48, 80);
-    let outer_declaration = ScrollDeclaration::new(
-        viewport,
-        outer_bounds,
-        outer_bounds,
-        interaction::ScrollOffset::new(4, 0),
-    )
-    .expect("renderer outer-scroll fixture has a nonempty envelope");
+    let outer_declaration =
+        ScrollDeclaration::new(viewport, outer_bounds, interaction::ScrollOffset::new(4, 0))
+            .expect("renderer outer-scroll fixture has a nonempty envelope");
     let inner_declaration = ScrollDeclaration::new(
         viewport,
-        inner_bounds,
         inner_bounds,
         interaction::ScrollOffset::new(0, 12),
     )
@@ -2198,11 +2184,10 @@ mod tests {
     }
 
     #[test]
-    fn candidate_scroll_projects_only_while_the_active_layer_covers_its_viewport() {
+    fn candidate_scroll_projects_only_while_the_resident_window_covers_its_viewport() {
         let viewport = geometry::Rect::new(0, 0, 100, 100);
         let declaration = ScrollDeclaration::new(
             viewport,
-            geometry::Rect::new(0, 0, 100, 200),
             geometry::Rect::new(0, 0, 100, 150),
             interaction::ScrollOffset::new(0, 0),
         )
@@ -2220,7 +2205,6 @@ mod tests {
         .expect("active scroll commit should be valid");
         let candidate_declaration = ScrollDeclaration::new(
             viewport,
-            geometry::Rect::new(0, -40, 100, 200),
             geometry::Rect::new(0, -40, 100, 200),
             interaction::ScrollOffset::new(0, 60),
         )

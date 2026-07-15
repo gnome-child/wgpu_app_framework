@@ -5721,11 +5721,20 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             .expect("pinned glyphon text renderer source should read");
     let glyphon_atlas = std::fs::read_to_string(root.join("third_party/glyphon/src/text_atlas.rs"))
         .expect("pinned glyphon atlas source should read");
+    let glyphon_viewport =
+        std::fs::read_to_string(root.join("third_party/glyphon/src/viewport.rs"))
+            .expect("pinned glyphon viewport source should read");
+    let glyphon_shader = std::fs::read_to_string(root.join("third_party/glyphon/src/shader.wgsl"))
+        .expect("pinned glyphon shader source should read");
     let glyphon_notice =
         std::fs::read_to_string(root.join("third_party/glyphon/README.wgpu_l3.md"))
             .expect("pinned glyphon ownership notice should read");
     let native_surface = std::fs::read_to_string(root.join("src/platform/native/surface.rs"))
         .expect("native surface source should read");
+    let canvas = std::fs::read_to_string(root.join("src/render/canvas.rs"))
+        .expect("render canvas source should read");
+    let surface = std::fs::read_to_string(root.join("src/render/surface.rs"))
+        .expect("render surface source should read");
     let scene =
         std::fs::read_to_string(root.join("src/scene/mod.rs")).expect("scene module should read");
     let commit = std::fs::read_to_string(root.join("src/scene/commit.rs"))
@@ -5812,11 +5821,14 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && retained.contains("instance_buffer")
             && retained.contains("property_buffer")
             && retained.contains("property_slots: Vec<PropertySlot>")
+            && retained.contains("scroll_property_slots: Vec<ScrollPropertySlot>")
+            && retained.contains("struct ScrollProperty")
+            && retained.contains("stats.property_upload_bytes += property_size;")
             && retained.contains("owners: Vec<Weak<scene::Node>>")
             && retained.contains("owners: Vec<Weak<scene::Commit>>")
             && retained.contains("commit: Weak<scene::Commit>")
             && !retained.contains("last_property_commit"),
-        "retained shapes must use one static unit mesh and copy-on-write commit-owned property slots"
+        "retained shapes must use one static unit mesh, copy-on-write node properties, and sparse shared scroll properties"
     );
     assert!(
         manifest.contains("path = \"third_party/glyphon\"")
@@ -5829,16 +5841,42 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && text_renderer.contains("retained.renderer.retain_prepared(&mut self.atlas)?")
             && glyphon_renderer.contains("pub fn retain_prepared(")
             && glyphon_atlas.contains("pub(crate) fn retain_prepared(")
+            && glyphon_viewport.contains("pub fn update_render_offset(")
+            && glyphon_shader.contains("in_vert.pos + params.render_offset")
+            && text_renderer.contains("retained_transforms: HashMap<RetainedTextTransform")
             && glyphon_notice.contains("performs no shaping, rasterization")
+            && glyphon_notice.contains("One shared viewport per")
             && glyphon_notice.contains("remove this source copy"),
-        "retained text must share one atlas while re-pinning live prepared allocations without repreparation"
+        "retained text must share one atlas, re-pin live allocations, and translate a scroll scope through one shared viewport without repreparation"
     );
+    let active_present_receipt = native_surface
+        .find("let presented = report.present_timing.is_some();")
+        .expect("native presentation should derive successful surface truth");
+    let candidate_realization = native_surface
+        .find("renderer.advance_candidate_after_present(")
+        .expect("candidate realization should have a post-present owner");
     assert!(
-        !renderer.contains("prepare_one_scroll_layer")
+        active_present_receipt < candidate_realization
+            && renderer.contains("ready_candidates: Vec<ReadyCandidate>")
+            && renderer
+                .contains(".prepare_candidate(render_context, viewport, commit, properties)?")
+            && renderer
+                .contains(".record_candidate_slice(viewport, commit, started.elapsed(), deadline)")
+            && renderer.contains("self.encode_batches(&scroll.render_batches);")
+            && renderer.contains("canvas.draw(render_context")
+            && canvas.contains("self.surface.render(render_context, encode)")
+            && surface.contains("submit([encoder.finish()]);")
+            && native_surface.contains("retaining active state: {error}")
+            && !renderer.contains("candidate_transaction")
+            && !renderer.contains("CachedScrollLayer")
+            && !renderer.contains("scroll_layers")
+            && !renderer.contains("Retained Scroll Layer Texture")
+            && !renderer.contains("Candidate Post-Present Scroll Layer")
+            && !renderer.contains("on_submitted_work_done")
+            && !renderer.contains("prepare_one_scroll_layer")
             && !renderer.contains("Pending Retained Scroll Layer")
-            && !renderer.contains("CommitReadiness::Prepared")
-            && !native_surface.contains("preparing.properties(),"),
-        "pending semantic preparation must not submit GPU scroll/property work ahead of the drawable active state"
+            && !renderer.contains("CommitReadiness::Prepared"),
+        "candidate readiness must prepare exact commit-owned properties after an active receipt while scroll remains a direct property transform with no cache texture, candidate queue, or lower-surface fork"
     );
     assert!(
         native_surface.contains("renderer.draw_commit(")
