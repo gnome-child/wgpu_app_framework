@@ -166,14 +166,18 @@ impl Realization {
         )
     }
 
-    pub(crate) fn visual_offset(self) -> geometry::Point {
+    /// The retained parent-layout point that maps to the popup surface's
+    /// visual origin. The panel itself begins at `panel_offset` inside that
+    /// surface, so its authored origin must remain exactly there after the
+    /// retained renderer subtracts this point.
+    pub(crate) fn retained_visual_origin(self) -> geometry::Point {
         geometry::Point::new(
-            self.visual_bounds()
+            self.local_bounds()
                 .x()
-                .saturating_sub(self.host_bounds().x()),
-            self.visual_bounds()
+                .saturating_sub(self.panel_offset().x()),
+            self.local_bounds()
                 .y()
-                .saturating_sub(self.host_bounds().y()),
+                .saturating_sub(self.panel_offset().y()),
         )
     }
 
@@ -208,6 +212,10 @@ mod tests {
         );
 
         assert_eq!(realization.local_to_host(), geometry::Point::new(-120, 0));
+        assert_eq!(
+            realization.retained_visual_origin(),
+            geometry::Point::new(690, 10)
+        );
         assert_eq!(
             realization.retained_point(geometry::Point::new(15, 12)),
             geometry::Point::new(715, 32)

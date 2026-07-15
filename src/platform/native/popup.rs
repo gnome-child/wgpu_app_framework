@@ -367,16 +367,11 @@ impl Native {
             material_resolution.fidelity(),
             material_resolution.region_fidelity()
         );
-        let visual_offset = popup_realization.visual_offset();
-        let local_bounds = popup_realization.local_bounds();
         let visual_bounds = popup_realization.visual_bounds();
         let layer = crate::scene::Layer::projected(
             Arc::clone(presentation.commit()),
             Arc::clone(presentation.properties()),
-            crate::geometry::Point::new(
-                local_bounds.x().saturating_sub(visual_offset.x()),
-                local_bounds.y().saturating_sub(visual_offset.y()),
-            ),
+            popup_realization.retained_visual_origin(),
             crate::geometry::Rect::new(0, 0, visual_bounds.width(), visual_bounds.height()),
             if uses_composition {
                 1.0
