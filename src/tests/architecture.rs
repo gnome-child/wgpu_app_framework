@@ -5658,10 +5658,16 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         std::fs::read_to_string(root.join("src/lib.rs")).expect("library source should read");
     let render =
         std::fs::read_to_string(root.join("src/render/mod.rs")).expect("render module should read");
+    let scene =
+        std::fs::read_to_string(root.join("src/scene/mod.rs")).expect("scene module should read");
     let commit = std::fs::read_to_string(root.join("src/scene/commit.rs"))
         .expect("scene commit source should read");
     let composition = std::fs::read_to_string(root.join("src/composition/tree.rs"))
         .expect("composition tree source should read");
+    let presentation = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))
+        .expect("runtime presentation source should read");
+    let overlay =
+        std::fs::read_to_string(root.join("src/overlay.rs")).expect("overlay source should read");
 
     assert!(
         manifest.contains("default = []")
@@ -5686,8 +5692,18 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
     assert!(
         commit.contains("id: composition::tree::NodeId,")
             && !commit.contains("RenderNodeId")
+            && !commit.contains("revision_currency!(ContentRevision)")
             && !commit.contains("PresentationEpoch"),
         "scene commits must carry composition identity and must not borrow the presentation clock"
+    );
+    assert!(
+        scene.contains("mod commit;")
+            && !scene.contains("#[cfg(feature = \"renderer-debug\")]\nmod commit;")
+            && presentation.contains("commit: Arc<scene::Commit>")
+            && presentation.contains(".compatibility_scene(&self.properties)")
+            && overlay.contains("commit: Arc<scene::Commit>")
+            && overlay.contains("properties: Arc<scene::Properties>"),
+        "the retained contract must be production-owned before the legacy adapter and survive overlay lifecycles"
     );
     let content = commit
         .split("pub(crate) enum Content {")
