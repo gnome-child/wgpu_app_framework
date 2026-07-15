@@ -333,8 +333,7 @@ impl Retained {
                 };
                 Some(super::PropertyValue::ScrollOffset {
                     node: projection.node(),
-                    x: offset.x() as f32,
-                    y: offset.y() as f32,
+                    value: offset,
                 })
             })
             .collect::<Vec<_>>();

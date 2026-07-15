@@ -202,8 +202,7 @@ pub(crate) enum PropertyValue {
     },
     ScrollOffset {
         node: composition::tree::NodeId,
-        x: f32,
-        y: f32,
+        value: interaction::ScrollOffset,
     },
     Opacity {
         node: composition::tree::NodeId,
@@ -565,9 +564,9 @@ impl Commit {
         {
             primitives.extend(self.compatibility_node(child, properties));
         }
-        if let Some(PropertyValue::ScrollOffset { x, y, .. }) = scroll {
-            let dx = -x.round() as i32;
-            let dy = -y.round() as i32;
+        if let Some(PropertyValue::ScrollOffset { value, .. }) = scroll {
+            let dx = value.x().saturating_neg();
+            let dy = value.y().saturating_neg();
             primitives = primitives
                 .iter()
                 .map(|primitive| primitive.translated(dx, dy))
@@ -1193,10 +1192,7 @@ impl Properties {
         node: composition::tree::NodeId,
     ) -> Option<interaction::ScrollOffset> {
         match self.value(PropertyRef::new(node, PropertyKind::ScrollOffset)) {
-            Some(PropertyValue::ScrollOffset { x, y, .. }) => Some(interaction::ScrollOffset::new(
-                x.round() as i32,
-                y.round() as i32,
-            )),
+            Some(PropertyValue::ScrollOffset { value, .. }) => Some(value),
             _ => None,
         }
     }
@@ -1248,15 +1244,8 @@ impl PropertyValue {
                     && value.scale_x().is_finite()
                     && value.scale_y().is_finite()
             }
-            Self::ScrollOffset { x, y, .. } => {
-                x.is_finite()
-                    && y.is_finite()
-                    && node.scroll.is_none_or(|scroll| {
-                        scroll.accepts(interaction::ScrollOffset::new(
-                            x.round() as i32,
-                            y.round() as i32,
-                        ))
-                    })
+            Self::ScrollOffset { value, .. } => {
+                node.scroll.is_some_and(|scroll| scroll.accepts(value))
             }
             Self::Opacity { value, .. } => value.is_finite() && (0.0..=1.0).contains(&value),
             Self::Clip { rect, .. } => rect_is_within(rect, node.local_bounds),
@@ -1290,7 +1279,7 @@ impl PropertyValue {
     }
 
     fn is_projectable_onto(self, commit: &Commit) -> bool {
-        let Self::ScrollOffset { node, x, y } = self else {
+        let Self::ScrollOffset { node, value } = self else {
             return true;
         };
         commit
@@ -1298,12 +1287,7 @@ impl PropertyValue {
             .iter()
             .find(|candidate| candidate.id == node)
             .and_then(|node| node.scroll)
-            .is_some_and(|scroll| {
-                scroll.accepts(interaction::ScrollOffset::new(
-                    x.round() as i32,
-                    y.round() as i32,
-                ))
-            })
+            .is_some_and(|scroll| scroll.accepts(value))
     }
 }
 
@@ -1422,8 +1406,7 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
             });
             values.push(PropertyValue::ScrollOffset {
                 node: root_id,
-                x: 2.0,
-                y: -1.0,
+                value: interaction::ScrollOffset::new(2, -1),
             });
             Node::new(
                 root_id,
@@ -1820,13 +1803,11 @@ pub(crate) fn renderer_scroll_properties(
         vec![
             PropertyValue::ScrollOffset {
                 node: outer,
-                x: 4.0,
-                y: 0.0,
+                value: interaction::ScrollOffset::new(4, 0),
             },
             PropertyValue::ScrollOffset {
                 node: inner,
-                x: 0.0,
-                y: offset_y as f32,
+                value: interaction::ScrollOffset::new(0, offset_y),
             },
         ],
         vec![
@@ -2222,8 +2203,7 @@ mod tests {
             PropertySerial::INITIAL,
             vec![PropertyValue::ScrollOffset {
                 node: node_id,
-                x: 0.0,
-                y: 0.0,
+                value: interaction::ScrollOffset::new(0, 0),
             }],
             Vec::new(),
         )
@@ -2233,8 +2213,7 @@ mod tests {
             PropertySerial::INITIAL.next(),
             vec![PropertyValue::ScrollOffset {
                 node: node_id,
-                x: 0.0,
-                y: 24.0,
+                value: interaction::ScrollOffset::new(0, 24),
             }],
             vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
         )
@@ -2253,8 +2232,7 @@ mod tests {
             PropertySerial::INITIAL.next(),
             vec![PropertyValue::ScrollOffset {
                 node: node_id,
-                x: 0.0,
-                y: 60.0,
+                value: interaction::ScrollOffset::new(0, 60),
             }],
             vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
         )
@@ -2270,14 +2248,47 @@ mod tests {
                 PropertySerial::INITIAL.next(),
                 vec![PropertyValue::ScrollOffset {
                     node: node_id,
-                    x: 0.0,
-                    y: 60.0,
+                    value: interaction::ScrollOffset::new(0, 60),
                 }],
                 vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
             )
             .is_err(),
             "an active commit must reject pixels outside its retained scroll envelope"
         );
+    }
+
+    #[test]
+    fn scroll_property_preserves_absolute_offsets_beyond_float_integer_precision() {
+        let viewport = geometry::Rect::new(0, 0, 100, 100);
+
+        for y in [16_777_217, 23_999_999] {
+            let offset = interaction::ScrollOffset::new(0, y);
+            let declaration = ScrollDeclaration::new(viewport, viewport, offset)
+                .expect("resident pixels should cover their exact large-offset baseline");
+            let node = empty_node(1, None)
+                .with_properties([PropertyKind::ScrollOffset])
+                .with_scroll(declaration);
+            let node_id = node.id();
+            let commit = Commit::new(
+                Revision::INITIAL,
+                geometry::Size::new(100, 100),
+                Color::rgba(0, 0, 0, 0),
+                vec![node],
+            )
+            .expect("large-offset scroll commit should be valid");
+            let properties = Properties::new(
+                &commit,
+                PropertySerial::INITIAL,
+                vec![PropertyValue::ScrollOffset {
+                    node: node_id,
+                    value: offset,
+                }],
+                Vec::new(),
+            )
+            .expect("scene properties must not round-trip absolute scroll through f32");
+
+            assert_eq!(properties.scroll_offset(node_id), Some(offset));
+        }
     }
 
     fn ordered_builder(
