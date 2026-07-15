@@ -11,6 +11,8 @@ impl<M: State, E: Send + 'static, B: Backend> Runner<M, E, B> {
             error: None,
             executor: None,
             task_proxy: None,
+            presentation_pulse: Default::default(),
+            pulse_satisfied_redraws: Default::default(),
         }
     }
 

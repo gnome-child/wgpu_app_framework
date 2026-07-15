@@ -187,6 +187,8 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 presentation.epoch(),
                 presentation.invalidation(),
                 presentation.layout(),
+                presentation.properties(),
+                presentation.property_only(),
                 report,
             );
             if retry {

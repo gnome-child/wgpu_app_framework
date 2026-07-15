@@ -14,6 +14,7 @@ pub(crate) use scroll::Scroll;
 pub use scroll::{ScrollDelta, ScrollOffset};
 pub(crate) use selection::Selections;
 pub(crate) use table::Tables;
+pub(crate) use target::ScrollbarAxis;
 pub use target::{Kind, Target};
 
 use crate::text;

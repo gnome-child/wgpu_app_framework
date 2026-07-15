@@ -30,6 +30,8 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
         epoch,
         candidate.invalidation(),
         candidate.layout(),
+        candidate.properties(),
+        candidate.property_only(),
         successful_render_report().with_presented(false),
     );
 
@@ -73,6 +75,8 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
         retry.epoch(),
         retry.invalidation(),
         retry.layout(),
+        retry.properties(),
+        retry.property_only(),
         successful_render_report(),
     );
 
@@ -100,6 +104,8 @@ fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
         visible.epoch(),
         visible.invalidation(),
         visible.layout(),
+        visible.properties(),
+        visible.property_only(),
         successful_render_report(),
     );
     let visible_layout = app
@@ -127,6 +133,8 @@ fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
         candidate.epoch(),
         candidate.invalidation(),
         candidate.layout(),
+        candidate.properties(),
+        candidate.property_only(),
         successful_render_report().with_presented(false),
     );
 
@@ -161,6 +169,8 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
         newer.epoch(),
         newer.invalidation(),
         newer.layout(),
+        newer.properties(),
+        newer.property_only(),
         successful_render_report(),
     );
     app.finish_render_report(
@@ -168,6 +178,8 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
         older.epoch(),
         older.invalidation(),
         older.layout(),
+        older.properties(),
+        older.property_only(),
         successful_render_report(),
     );
 
@@ -213,6 +225,8 @@ fn model_revision_desired_epoch_and_acknowledged_epoch_are_independent_facts() {
         candidate.epoch(),
         candidate.invalidation(),
         candidate.layout(),
+        candidate.properties(),
+        candidate.property_only(),
         successful_render_report(),
     );
     assert_eq!(app.revision(), revision);
@@ -245,6 +259,8 @@ fn window_teardown_removes_acknowledged_geometry() {
         candidate.epoch(),
         candidate.invalidation(),
         candidate.layout(),
+        candidate.properties(),
+        candidate.property_only(),
         successful_render_report(),
     );
     assert_eq!(app.window_residues(window).presented_geometry, 1);

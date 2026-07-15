@@ -5,7 +5,7 @@ use std::{
 
 use thiserror::Error;
 
-use super::super::{composition, geometry};
+use super::super::{composition, geometry, interaction};
 #[cfg(feature = "renderer-debug")]
 use super::{Brush, Glass, Material, Offset, Rasterization, Rounding, Style, TextWrap};
 use super::{
@@ -46,6 +46,16 @@ impl GeometryRevision {
     }
 }
 
+impl PropertySerial {
+    pub(crate) fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
+}
+
 impl TopologyRevision {
     fn next(self) -> Self {
         Self(self.0.saturating_add(1))
@@ -73,6 +83,7 @@ pub(crate) struct Node {
     local_bounds: geometry::Rect,
     content: Vec<Content>,
     properties: Vec<PropertyKind>,
+    scroll: Option<ScrollDeclaration>,
     clip: Option<Clip>,
     opacity: OpacityDeclaration,
     effect: EffectDeclaration,
@@ -95,6 +106,10 @@ pub(crate) enum Draw {
         opacity: f32,
     },
     PopGroup,
+    PushScroll {
+        node: composition::tree::NodeId,
+    },
+    PopScroll,
 }
 
 pub(crate) struct Builder {
@@ -112,6 +127,8 @@ struct NodeDraft {
     content_revision: composition::tree::ContentRevision,
     bounds: geometry::Rect,
     content: Vec<Content>,
+    properties: Vec<PropertyKind>,
+    scroll: Option<ScrollDeclaration>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,6 +224,19 @@ pub(crate) struct EffectEnvelope {
     maximum_sampling_reach: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollDeclaration {
+    viewport: geometry::Rect,
+    layer_bounds: geometry::Rect,
+    baseline: interaction::ScrollOffset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrderStop {
+    Group,
+    Scroll,
+}
+
 #[derive(Debug, Clone, PartialEq, Error)]
 pub(crate) enum ContractError {
     #[error("scene commit contains duplicate composition identity {0:?}")]
@@ -254,6 +284,7 @@ pub(crate) enum FixtureCase {
     SolidPane,
     RoundedClip,
     NestedClip,
+    Scroll,
     GroupOpacity,
     OrderedGroup,
     GlassPane,
@@ -355,7 +386,7 @@ impl Commit {
             return Ok(Scene {
                 size: self.size,
                 clear: self.clear,
-                primitives: self.compatibility_order(order),
+                primitives: self.compatibility_order(order, properties),
                 material_regions: self.material_regions.clone(),
             });
         }
@@ -371,10 +402,10 @@ impl Commit {
         })
     }
 
-    fn compatibility_order(&self, order: &[Draw]) -> Vec<Primitive> {
+    fn compatibility_order(&self, order: &[Draw], properties: &Properties) -> Vec<Primitive> {
         let mut primitives = Vec::new();
         let mut index = 0;
-        self.compatibility_order_until(order, &mut index, false, &mut primitives);
+        self.compatibility_order_until(order, &mut index, None, properties, &mut primitives);
         primitives
     }
 
@@ -382,7 +413,8 @@ impl Commit {
         &self,
         order: &[Draw],
         index: &mut usize,
-        stop_at_group_end: bool,
+        stop: Option<OrderStop>,
+        properties: &Properties,
         target: &mut Vec<Primitive>,
     ) {
         while let Some(draw) = order.get(*index) {
@@ -403,13 +435,51 @@ impl Commit {
                 Draw::PopClip => target.push(Primitive::PopClip),
                 Draw::PushGroup { opacity, .. } => {
                     let mut members = Vec::new();
-                    self.compatibility_order_until(order, index, true, &mut members);
+                    self.compatibility_order_until(
+                        order,
+                        index,
+                        Some(OrderStop::Group),
+                        properties,
+                        &mut members,
+                    );
                     if let Some(group) = Group::new(members, *opacity) {
                         target.push(Primitive::Group(group));
                     }
                 }
-                Draw::PopGroup if stop_at_group_end => return,
+                Draw::PushScroll { node } => {
+                    let mut members = Vec::new();
+                    self.compatibility_order_until(
+                        order,
+                        index,
+                        Some(OrderStop::Scroll),
+                        properties,
+                        &mut members,
+                    );
+                    let declaration = self
+                        .nodes
+                        .iter()
+                        .find(|candidate| candidate.id == *node)
+                        .and_then(|node| node.scroll);
+                    if let Some(declaration) = declaration {
+                        let current = properties
+                            .scroll_offset(*node)
+                            .unwrap_or(declaration.baseline);
+                        let dx = declaration.baseline.x().saturating_sub(current.x());
+                        let dy = declaration.baseline.y().saturating_sub(current.y());
+                        let mut clipped = Vec::with_capacity(members.len().saturating_add(2));
+                        clipped.push(Primitive::Clip(Clip::new(declaration.viewport)));
+                        clipped
+                            .extend(members.iter().map(|primitive| primitive.translated(dx, dy)));
+                        clipped.push(Primitive::PopClip);
+                        target.extend(clipped);
+                    } else {
+                        target.extend(members);
+                    }
+                }
+                Draw::PopGroup if stop == Some(OrderStop::Group) => return,
                 Draw::PopGroup => {}
+                Draw::PopScroll if stop == Some(OrderStop::Scroll) => return,
+                Draw::PopScroll => {}
             }
         }
     }
@@ -544,7 +614,32 @@ impl Builder {
             content_revision,
             bounds,
             content: Vec::new(),
+            properties: Vec::new(),
+            scroll: None,
         });
+    }
+
+    pub(crate) fn declare_scroll(
+        &mut self,
+        id: composition::tree::NodeId,
+        declaration: ScrollDeclaration,
+    ) {
+        let Some(index) = self.node_indices.get(&id).copied() else {
+            return;
+        };
+        let node = &mut self.nodes[index];
+        if !node.properties.contains(&PropertyKind::ScrollOffset) {
+            node.properties.push(PropertyKind::ScrollOffset);
+        }
+        node.scroll = Some(declaration);
+    }
+
+    pub(crate) fn push_scroll(&mut self, node: composition::tree::NodeId) {
+        self.order.push(Draw::PushScroll { node });
+    }
+
+    pub(crate) fn pop_scroll(&mut self) {
+        self.order.push(Draw::PopScroll);
     }
 
     pub(crate) fn push_clip(&mut self, clip: Clip) {
@@ -653,6 +748,7 @@ impl Node {
             local_bounds,
             content,
             properties: Vec::new(),
+            scroll: None,
             clip: None,
             opacity: OpacityDeclaration::Blended,
             effect: EffectDeclaration::None,
@@ -668,7 +764,10 @@ impl Node {
             }
         });
         let topology_revision = previous.map_or(TopologyRevision::INITIAL, |previous| {
-            if previous.parent == draft.parent {
+            if previous.parent == draft.parent
+                && previous.properties == draft.properties
+                && previous.scroll == draft.scroll
+            {
                 previous.topology_revision
             } else {
                 previous.topology_revision.next()
@@ -682,7 +781,8 @@ impl Node {
             topology_revision,
             local_bounds: draft.bounds,
             content: draft.content,
-            properties: Vec::new(),
+            properties: draft.properties,
+            scroll: draft.scroll,
             clip: None,
             opacity: OpacityDeclaration::Blended,
             effect: EffectDeclaration::None,
@@ -717,6 +817,12 @@ impl Node {
         self
     }
 
+    #[cfg(feature = "renderer-debug")]
+    pub(crate) fn with_scroll(mut self, scroll: ScrollDeclaration) -> Self {
+        self.scroll = Some(scroll);
+        self
+    }
+
     #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn with_opacity(mut self, opacity: OpacityDeclaration) -> Self {
         self.opacity = opacity;
@@ -743,6 +849,10 @@ impl Node {
 
     pub(crate) fn declares(&self, kind: PropertyKind) -> bool {
         self.properties.contains(&kind)
+    }
+
+    pub(crate) fn scroll(&self) -> Option<ScrollDeclaration> {
+        self.scroll
     }
 
     pub(crate) fn clip(&self) -> Option<Clip> {
@@ -773,6 +883,10 @@ impl Node {
 impl PropertyRef {
     pub(crate) const fn new(node: composition::tree::NodeId, kind: PropertyKind) -> Self {
         Self { node, kind }
+    }
+
+    pub(crate) const fn kind(self) -> PropertyKind {
+        self.kind
     }
 }
 
@@ -821,8 +935,36 @@ impl Properties {
         })
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn empty(commit: &Commit) -> Result<Self, ContractError> {
         Self::new(commit, PropertySerial::INITIAL, Vec::new(), Vec::new())
+    }
+
+    pub(crate) fn snapshot(
+        commit: &Commit,
+        previous: Option<&Self>,
+        serial: PropertySerial,
+        values: Vec<PropertyValue>,
+    ) -> Result<(Self, bool), ContractError> {
+        if let Some(previous) = previous
+            && previous.commit == commit.revision
+            && previous.values == values
+        {
+            return Ok((previous.clone(), false));
+        }
+        let changed =
+            if let Some(previous) = previous.filter(|value| value.commit == commit.revision) {
+                values
+                    .iter()
+                    .filter_map(|value| {
+                        let property = value.property_ref();
+                        (previous.value(property) != Some(*value)).then_some(property)
+                    })
+                    .collect()
+            } else {
+                values.iter().map(|value| value.property_ref()).collect()
+            };
+        Self::new(commit, serial, values, changed).map(|snapshot| (snapshot, true))
     }
 
     pub(crate) fn require_compatible(&self, commit: &Commit) -> Result<(), ContractError> {
@@ -843,14 +985,23 @@ impl Properties {
             .find(|value| value.property_ref() == property)
     }
 
+    pub(crate) fn scroll_offset(
+        &self,
+        node: composition::tree::NodeId,
+    ) -> Option<interaction::ScrollOffset> {
+        match self.value(PropertyRef::new(node, PropertyKind::ScrollOffset)) {
+            Some(PropertyValue::ScrollOffset { x, y, .. }) => Some(interaction::ScrollOffset::new(
+                x.round() as i32,
+                y.round() as i32,
+            )),
+            _ => None,
+        }
+    }
+
     pub(crate) fn serial(&self) -> PropertySerial {
         self.serial
     }
 
-    #[expect(
-        dead_code,
-        reason = "Checkpoint 6 consumes the admitted changed-property set for sparse uploads"
-    )]
     pub(crate) fn changed(&self) -> &[PropertyRef] {
         &self.changed
     }
@@ -922,12 +1073,45 @@ impl EffectEnvelope {
     }
 }
 
+impl ScrollDeclaration {
+    pub(crate) fn new(
+        viewport: geometry::Rect,
+        layer_bounds: geometry::Rect,
+        baseline: interaction::ScrollOffset,
+    ) -> Option<Self> {
+        (viewport.width() > 0
+            && viewport.height() > 0
+            && layer_bounds.width() > 0
+            && layer_bounds.height() > 0)
+            .then_some(Self {
+                viewport,
+                layer_bounds,
+                baseline,
+            })
+    }
+
+    pub(crate) fn viewport(self) -> geometry::Rect {
+        self.viewport
+    }
+
+    pub(crate) fn layer_bounds(self) -> geometry::Rect {
+        self.layer_bounds
+    }
+
+    pub(crate) fn baseline(self) -> interaction::ScrollOffset {
+        self.baseline
+    }
+}
+
 #[cfg(feature = "renderer-debug")]
 pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties), ContractError> {
     use crate::icon as icons;
 
     if matches!(case, FixtureCase::OrderedGroup) {
         return renderer_ordered_group_fixture();
+    }
+    if matches!(case, FixtureCase::Scroll) {
+        return renderer_scroll_fixture();
     }
 
     let root_id = composition::tree::NodeId::renderer_fixture(1);
@@ -1128,6 +1312,7 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
             );
             Node::new(root_id, None, bounds, Vec::new())
         }
+        FixtureCase::Scroll => unreachable!("scroll fixture returned before node projection"),
         FixtureCase::GroupOpacity => {
             values.push(PropertyValue::Opacity {
                 node: root_id,
@@ -1211,6 +1396,169 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
         commit.property_topology().to_vec(),
     )?;
     Ok((commit, properties))
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
+    let before = composition::tree::NodeId::renderer_fixture(40);
+    let outer = composition::tree::NodeId::renderer_fixture(41);
+    let inner = composition::tree::NodeId::renderer_fixture(42);
+    let after = composition::tree::NodeId::renderer_fixture(43);
+    let size = geometry::Size::new(64, 64);
+    let viewport = geometry::Rect::new(8, 10, 48, 40);
+    let outer_bounds = geometry::Rect::new(8, 10, 80, 40);
+    let inner_bounds = geometry::Rect::new(8, 10, 48, 80);
+    let outer_declaration =
+        ScrollDeclaration::new(viewport, outer_bounds, interaction::ScrollOffset::new(4, 0))
+            .expect("renderer outer-scroll fixture has a nonempty envelope");
+    let inner_declaration = ScrollDeclaration::new(
+        viewport,
+        inner_bounds,
+        interaction::ScrollOffset::new(0, 12),
+    )
+    .expect("renderer inner-scroll fixture has a nonempty envelope");
+    let before_node = Node::new(
+        before,
+        None,
+        geometry::Rect::new(2, 2, 60, 6),
+        vec![Content::Quad(Quad::new(
+            geometry::Rect::new(2, 2, 60, 6),
+            Color::rgba(26, 217, 115, 255),
+        ))],
+    );
+    let outer_node = Node::new(
+        outer,
+        None,
+        outer_bounds,
+        vec![
+            Content::Quad(Quad::new(
+                geometry::Rect::new(8, 10, 48, 5),
+                Color::rgba(217, 230, 242, 255),
+            )),
+            Content::Quad(Quad::new(
+                geometry::Rect::new(8, 48, 48, 2),
+                Color::rgba(179, 191, 204, 255),
+            )),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(outer_declaration);
+    let inner_node = Node::new(
+        inner,
+        Some(outer),
+        inner_bounds,
+        vec![
+            Content::Quad(Quad::new(
+                geometry::Rect::new(8, 16, 48, 28),
+                Color::rgba(230, 51, 38, 255),
+            )),
+            Content::Quad(Quad::new(
+                geometry::Rect::new(8, 50, 48, 32),
+                Color::rgba(38, 102, 230, 255),
+            )),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(inner_declaration);
+    let after_node = Node::new(
+        after,
+        None,
+        geometry::Rect::new(2, 56, 60, 6),
+        vec![Content::Quad(Quad::new(
+            geometry::Rect::new(2, 56, 60, 6),
+            Color::rgba(230, 204, 38, 255),
+        ))],
+    );
+    let commit = Commit::from_parts(
+        Revision::INITIAL,
+        size,
+        Color::rgba(0, 0, 0, 0),
+        vec![
+            Arc::new(before_node),
+            Arc::new(outer_node),
+            Arc::new(inner_node),
+            Arc::new(after_node),
+        ],
+        Some(vec![
+            Draw::PushClip {
+                node: None,
+                clip: Clip::new(geometry::Rect::new(1, 1, 62, 62))
+                    .with_rounding(Rounding::fixed(3.0)),
+            },
+            Draw::Content {
+                node: before,
+                index: 0,
+            },
+            Draw::PushGroup {
+                node: outer,
+                bounds: geometry::Rect::from_size(size),
+                opacity: 0.82,
+            },
+            Draw::PushScroll { node: outer },
+            Draw::Content {
+                node: outer,
+                index: 0,
+            },
+            Draw::PushScroll { node: inner },
+            Draw::Content {
+                node: inner,
+                index: 0,
+            },
+            Draw::PopScroll,
+            Draw::PopScroll,
+            Draw::PushScroll { node: outer },
+            Draw::Content {
+                node: outer,
+                index: 1,
+            },
+            Draw::PushScroll { node: inner },
+            Draw::Content {
+                node: inner,
+                index: 1,
+            },
+            Draw::PopScroll,
+            Draw::PopScroll,
+            Draw::PopGroup,
+            Draw::Content {
+                node: after,
+                index: 0,
+            },
+            Draw::PopClip,
+        ]),
+        Vec::new(),
+    )?;
+    let properties = renderer_scroll_properties(&commit, 12, 1)?;
+    Ok((commit, properties))
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_scroll_properties(
+    commit: &Commit,
+    offset_y: i32,
+    serial: u64,
+) -> Result<Properties, ContractError> {
+    let outer = composition::tree::NodeId::renderer_fixture(41);
+    let inner = composition::tree::NodeId::renderer_fixture(42);
+    Properties::new(
+        commit,
+        PropertySerial(serial.max(1)),
+        vec![
+            PropertyValue::ScrollOffset {
+                node: outer,
+                x: 4.0,
+                y: 0.0,
+            },
+            PropertyValue::ScrollOffset {
+                node: inner,
+                x: 0.0,
+                y: offset_y as f32,
+            },
+        ],
+        vec![
+            PropertyRef::new(outer, PropertyKind::ScrollOffset),
+            PropertyRef::new(inner, PropertyKind::ScrollOffset),
+        ],
+    )
 }
 
 #[cfg(feature = "renderer-debug")]

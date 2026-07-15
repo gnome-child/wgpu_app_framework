@@ -187,6 +187,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         hit: &layout::Hit,
         point: geometry::Point,
     ) -> Option<VirtualRowGesture> {
+        if hit.is_chrome() {
+            return None;
+        }
         let table_cell = hit.table_cell();
         let composition = self.composition.get(window)?;
         let row = composition.provided_row_for_node(hit.frame().node_id());
@@ -318,9 +321,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 input::Outcome::ignored()
             });
         };
-        let hit = self
-            .presented_layout(window)
-            .and_then(|layout| layout.hit_test_on_surface(location.point(), location.surface()));
+        let hit = self.presented_geometry.get(&window).and_then(|geometry| {
+            geometry.hit_test_on_surface(location.point(), location.surface())
+        });
         let resolved = self.resolve_press(window, location.point(), modifiers, hit);
         let cursor_changed = self.set_pointer_cursor(window, resolved.cursor());
 
@@ -605,7 +608,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> std::result::Result<input::Outcome, Error> {
         self.session.set_pointer_location(window, point, surface);
         self.session.cancel_click_sequence(window);
-        let Some(layout) = self.presented_layout(window) else {
+        let Some(geometry) = self.presented_geometry.get(&window).cloned() else {
             return Ok(input::Outcome::ignored());
         };
         let modifiers = self
@@ -617,7 +620,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             window,
             point,
             modifiers,
-            layout.hit_test_on_surface(point, surface),
+            geometry.hit_test_on_surface(point, surface),
         );
         self.set_pointer_cursor(window, resolved.cursor());
         let hovered = resolved.target().cloned();
@@ -633,7 +636,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return self.handle_view(window, view::Action::pointer_move(hovered));
         };
 
-        let dragged = layout.drag_action_for_target(&target, point, &mut self.layout);
+        let dragged = geometry.drag_action_for_target(&target, point, &mut self.layout);
         let demoted_text_box_activation = dragged
             .as_ref()
             .is_some_and(|(role, _)| *role == view::Role::TextBox)
@@ -694,12 +697,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
         self.session.set_pointer_location(window, point, surface);
-        let Some(layout) = self.presented_layout(window) else {
+        let Some(geometry) = self.presented_geometry.get(&window).cloned() else {
             return Ok(input::Outcome::ignored());
         };
-        let viewport_target = layout.scroll_target_at_surface(point, delta, surface);
+        let viewport_target = geometry.scroll_target_at_surface(point, delta, surface);
         let Some(target) = viewport_target.or_else(|| {
-            layout
+            geometry
                 .hit_test_on_surface(point, surface)
                 .and_then(|hit| hit.target().cloned())
         }) else {

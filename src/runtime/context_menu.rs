@@ -40,8 +40,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let owner_id = menu.context_owner()?;
         let anchor = menu.context_anchor()?;
         let available = self
-            .presented_layout(window)
-            .and_then(|layout| layout.context_available_for_node(owner_id))?;
+            .presented_geometry
+            .get(&window)
+            .and_then(|geometry| geometry.context_available_for_node(owner_id))?;
         let (path, traversal) = self.captured_context_path(window)?;
         let sections = self.context_sections(window, &path, traversal);
         (!sections.is_empty())
@@ -55,13 +56,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(focus) = self.session.focused(window) else {
             return Ok(crate::input::Outcome::ignored());
         };
-        let Some((node, anchor)) = self.presented_layout(window).and_then(|layout| {
-            let focused = layout.frame_for_focus(focus)?;
-            let rect = focused.rect();
-            Some((
-                focused.node_id(),
-                geometry::Point::new(rect.x(), rect.bottom()),
-            ))
+        let Some((node, anchor)) = self.presented_geometry.get(&window).and_then(|presented| {
+            let (node, rect) = presented.focus_node_and_rect(focus)?;
+            Some((node, geometry::Point::new(rect.x(), rect.bottom())))
         }) else {
             return Ok(crate::input::Outcome::ignored());
         };
@@ -205,8 +202,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         surface: crate::popup::Surface,
     ) -> std::result::Result<crate::input::Outcome, crate::command::Error> {
         let Some(node) = self
-            .presented_layout(window)
-            .and_then(|layout| layout.context_node_at_surface(point, surface))
+            .presented_geometry
+            .get(&window)
+            .and_then(|geometry| geometry.context_node_at_surface(point, surface))
         else {
             return Ok(crate::input::Outcome::ignored());
         };

@@ -199,6 +199,11 @@ fn bound_text_box_scene_paints_text_box_text_not_command_label() {
 
     app.handle_input(window, Input::focus(focus))
         .expect("text box focus should be handled");
+    let focused = app
+        .show_scene(window, geometry::Size::new(240, 80))
+        .expect("focused empty text box should render before typing");
+    assert!(scene_contains_text(focused.scene(), "Search"));
+
     app.handle_input(window, Input::text_commit("q"))
         .expect("text box commit should be handled");
 
@@ -208,6 +213,13 @@ fn bound_text_box_scene_paints_text_box_text_not_command_label() {
 
     assert!(scene_contains_text_surface(typed.scene(), "q"));
     assert!(!scene_contains_text(typed.scene(), "Submit Text"));
+
+    app.handle_input(window, Input::text_commit("r"))
+        .expect("the next text box commit should be handled");
+    let typed_again = app
+        .show_scene(window, geometry::Size::new(240, 80))
+        .expect("each rendered draft revision should paint immediately");
+    assert!(scene_contains_text_surface(typed_again.scene(), "qr"));
 }
 
 #[test]
@@ -1400,6 +1412,64 @@ fn text_box_selection_and_caret_are_painted_as_widget_chrome() {
             .any(|quad| quad.fill().channels() == (10, 132, 255, 96)),
         "selected text box should paint a selection highlight"
     );
+}
+
+#[test]
+fn consecutive_presented_selection_ticks_repaint_each_range() {
+    let focus = session::Focus::text("find");
+    let mut app = Runtime::new(TextBoxSubmitState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Text Box Live Selection"));
+        })
+        .view(move |_, _| {
+            widget::view(|ui| {
+                ui.text_box(widget::TextBox::new("abcd").focus(focus));
+            })
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 80);
+    app.show_scene(window, size)
+        .expect("initial render should install a composition");
+    app.handle_input(window, Input::focus(focus))
+        .expect("text box focus should be handled");
+    app.show_scene(window, size)
+        .expect("focused caret should present before selection begins");
+
+    let extend_left = || {
+        Input::key_down(
+            input::Key::ArrowLeft,
+            input::Modifiers::new(true, false, false, false),
+        )
+    };
+    app.handle_input(window, extend_left())
+        .expect("the first selection tick should be handled");
+    let first = app
+        .show_scene(window, size)
+        .expect("the first selection range should present");
+    let first = first
+        .scene()
+        .quads()
+        .into_iter()
+        .find(|quad| quad.fill().channels() == (10, 132, 255, 96))
+        .expect("the first selection range should paint")
+        .rect();
+
+    app.handle_input(window, extend_left())
+        .expect("the second selection tick should be handled");
+    let second = app
+        .show_scene(window, size)
+        .expect("the second selection range should present");
+    let second = second
+        .scene()
+        .quads()
+        .into_iter()
+        .find(|quad| quad.fill().channels() == (10, 132, 255, 96))
+        .expect("the second selection range should paint")
+        .rect();
+
+    assert!(second.width() > first.width());
 }
 
 #[test]

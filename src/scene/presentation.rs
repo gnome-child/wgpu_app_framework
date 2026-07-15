@@ -14,6 +14,7 @@ pub struct Presentation {
     commit: Arc<Commit>,
     properties: Properties,
     overlays: Scene,
+    property_only: bool,
 }
 
 impl Presentation {
@@ -27,6 +28,7 @@ impl Presentation {
         commit: Arc<Commit>,
         properties: Properties,
         overlays: Scene,
+        property_only: bool,
     ) -> Self {
         Self {
             window,
@@ -38,6 +40,7 @@ impl Presentation {
             commit,
             properties,
             overlays,
+            property_only,
         }
     }
 
@@ -51,6 +54,7 @@ impl Presentation {
         commit: Arc<Commit>,
         properties: Properties,
         overlays: Scene,
+        property_only: bool,
     ) -> Self {
         Self::new(
             window,
@@ -62,6 +66,7 @@ impl Presentation {
             commit,
             properties,
             overlays,
+            property_only,
         )
     }
 
@@ -103,6 +108,10 @@ impl Presentation {
 
     pub(crate) fn properties(&self) -> &Properties {
         &self.properties
+    }
+
+    pub(crate) fn property_only(&self) -> bool {
+        self.property_only
     }
 
     pub(crate) fn overlays(&self) -> &Scene {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::super::{layout, notification, overlay, theme::Theme, window};
+use super::super::{interaction, layout, notification, overlay, theme::Theme, window};
 use super::{Color, Commit, Properties, Visuals, paint};
 
 #[derive(Default)]
@@ -17,10 +17,23 @@ impl Store {
         clear: Color,
         theme: &Theme,
         visuals: &Visuals,
+        interaction: Option<&interaction::Interaction>,
     ) -> (Arc<Commit>, Properties, Vec<overlay::Draft>, PaintStats) {
         let retained = self.windows.entry(window).or_default();
-        let (commit, properties, overlays, stats) = retained.paint(layout, clear, theme, visuals);
+        let (commit, properties, overlays, stats) =
+            retained.paint(layout, clear, theme, visuals, interaction);
         (commit, properties, overlays, PaintStats::from(stats))
+    }
+
+    pub(crate) fn tick_properties(
+        &mut self,
+        window: window::Id,
+        layout: &layout::Layout,
+        interaction: Option<&interaction::Interaction>,
+    ) -> Option<(Arc<Commit>, Properties, Vec<overlay::Draft>, PaintStats)> {
+        let retained = self.windows.get_mut(&window)?;
+        let (commit, properties, overlays) = retained.tick_properties(layout, interaction)?;
+        Some((commit, properties, overlays, PaintStats::default()))
     }
 
     #[cfg(test)]

@@ -37,7 +37,6 @@ pub(super) struct RetainedStats {
     pub(super) chrome_paints: usize,
 }
 
-#[derive(Default)]
 pub(super) struct Retained {
     theme: Option<Theme>,
     retained_nodes: HashSet<composition::tree::NodeId>,
@@ -46,6 +45,9 @@ pub(super) struct Retained {
     chrome: HashMap<(composition::tree::NodeId, usize), CachedChrome>,
     nodes: HashMap<composition::tree::NodeId, Arc<super::Node>>,
     commits: HashMap<CommitKey, Arc<super::Commit>>,
+    properties: HashMap<CommitKey, super::Properties>,
+    overlays: Vec<overlay::Draft>,
+    next_property_serial: super::PropertySerial,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,9 +91,33 @@ struct RetainedWork {
 }
 
 struct LayerFragments {
-    frames: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
-    tracks: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
+    frames: Vec<Fragment>,
+    tracks: Vec<Fragment>,
     late: Vec<viewport_chrome::Projection>,
+}
+
+struct Fragment {
+    owner: composition::tree::NodeId,
+    clip: Option<Clip>,
+    scrolls: Vec<composition::tree::NodeId>,
+    body: Scene,
+}
+
+impl Default for Retained {
+    fn default() -> Self {
+        Self {
+            theme: None,
+            retained_nodes: HashSet::new(),
+            frames: HashMap::new(),
+            tracks: HashMap::new(),
+            chrome: HashMap::new(),
+            nodes: HashMap::new(),
+            commits: HashMap::new(),
+            properties: HashMap::new(),
+            overlays: Vec::new(),
+            next_property_serial: super::PropertySerial::INITIAL,
+        }
+    }
 }
 
 impl Retained {
@@ -101,6 +127,7 @@ impl Retained {
         clear: super::Color,
         theme: &Theme,
         visuals: &Visuals,
+        interaction: Option<&super::super::interaction::Interaction>,
     ) -> (
         Arc<super::Commit>,
         super::Properties,
@@ -131,8 +158,7 @@ impl Retained {
                 .is_none_or(|previous| !Arc::ptr_eq(previous, &commit)),
         );
         self.commits.insert(base_key, Arc::clone(&commit));
-        let properties = super::Properties::empty(&commit)
-            .expect("a property-free retained commit accepts an empty snapshot");
+        let properties = self.property_snapshot(base_key, &commit, layout, interaction);
 
         let mut entries = Vec::new();
         let mut seen_commits = HashSet::from([base_key]);
@@ -161,8 +187,8 @@ impl Retained {
                     .as_ref()
                     .is_none_or(|previous| !Arc::ptr_eq(previous, &popup_commit)),
             ));
-            let popup_properties = super::Properties::empty(&popup_commit)
-                .expect("a property-free popup commit accepts an empty snapshot");
+            let popup_properties =
+                self.property_snapshot(commit_key, &popup_commit, layout, interaction);
             let panel_scene = popup_commit
                 .compatibility_scene(&popup_properties)
                 .expect("the legacy popup adapter receives its own property snapshot");
@@ -194,11 +220,88 @@ impl Retained {
         self.chrome.retain(|key, _| work.seen.chrome.contains(key));
         self.nodes.retain(|id, _| work.seen.frames.contains(id));
         self.commits.retain(|key, _| seen_commits.contains(key));
+        self.properties.retain(|key, _| seen_commits.contains(key));
         work.stats.nodes_added = work.seen.frames.difference(&self.retained_nodes).count();
         work.stats.nodes_removed = self.retained_nodes.difference(&work.seen.frames).count();
         self.retained_nodes = work.seen.frames;
+        self.overlays = entries.clone();
 
         (commit, properties, entries, work.stats)
+    }
+
+    pub(super) fn tick_properties(
+        &mut self,
+        layout: &layout::Layout,
+        interaction: Option<&super::super::interaction::Interaction>,
+    ) -> Option<(Arc<super::Commit>, super::Properties, Vec<overlay::Draft>)> {
+        let base_key = CommitKey::Base;
+        let commit = self.commits.get(&base_key).cloned()?;
+        let properties = self.property_snapshot(base_key, &commit, layout, interaction);
+        let keyed =
+            self.overlays
+                .iter()
+                .cloned()
+                .filter_map(|draft| {
+                    let commit = Arc::clone(draft.commit());
+                    let key = self.commits.iter().find_map(|(key, candidate)| {
+                        Arc::ptr_eq(candidate, &commit).then_some(*key)
+                    })?;
+                    Some((draft, key, commit))
+                })
+                .collect::<Vec<_>>();
+        let overlays = keyed
+            .into_iter()
+            .map(|(draft, key, popup_commit)| {
+                let popup_properties =
+                    self.property_snapshot(key, &popup_commit, layout, interaction);
+                let scene = popup_commit
+                    .compatibility_scene(&popup_properties)
+                    .expect("cached popup properties remain compatible with their commit");
+                draft.with_property_state(popup_properties, scene)
+            })
+            .collect::<Vec<_>>();
+        self.overlays = overlays.clone();
+        Some((commit, properties, overlays))
+    }
+
+    fn property_snapshot(
+        &mut self,
+        key: CommitKey,
+        commit: &super::Commit,
+        layout: &layout::Layout,
+        interaction: Option<&super::super::interaction::Interaction>,
+    ) -> super::Properties {
+        let values = layout
+            .scroll_projections()
+            .iter()
+            .filter(|projection| {
+                commit.nodes().iter().any(|node| {
+                    node.id() == projection.node()
+                        && node.declares(super::PropertyKind::ScrollOffset)
+                })
+            })
+            .map(|projection| {
+                let offset = interaction
+                    .map(super::super::interaction::Interaction::scroll)
+                    .map(|scroll| scroll.offset(projection.target()))
+                    .map(|offset| projection.viewport().resolve(offset))
+                    .unwrap_or_else(|| projection.viewport().resolved_scroll());
+                super::PropertyValue::ScrollOffset {
+                    node: projection.node(),
+                    x: offset.x() as f32,
+                    y: offset.y() as f32,
+                }
+            })
+            .collect::<Vec<_>>();
+        let previous = self.properties.get(&key);
+        let (properties, advanced) =
+            super::Properties::snapshot(commit, previous, self.next_property_serial, values)
+                .expect("retained scroll properties must satisfy their declared topology");
+        if advanced {
+            self.next_property_serial = self.next_property_serial.next();
+        }
+        self.properties.insert(key, properties.clone());
+        properties
     }
 
     fn layer_fragments(
@@ -249,7 +352,12 @@ impl Retained {
             let clip = frame
                 .clip()
                 .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-            frames.push((frame.node_id(), clip, cached.body));
+            frames.push(Fragment {
+                owner: frame.node_id(),
+                clip,
+                scrolls: layout.scroll_ancestry(frame.node_id()).to_vec(),
+                body: cached.body,
+            });
             late.extend(cached.late);
         }
 
@@ -282,7 +390,12 @@ impl Retained {
             let clip = track
                 .clip()
                 .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-            tracks.push((track.table_node(), clip, cached.body));
+            tracks.push(Fragment {
+                owner: track.owner_node(),
+                clip,
+                scrolls: layout.scroll_ancestry(track.owner_node()).to_vec(),
+                body: cached.body,
+            });
         }
 
         let mut chrome_ordinals = HashMap::new();
@@ -352,6 +465,16 @@ fn commit_builder(
             frame.rect(),
         );
     }
+    for projection in layout.scroll_projections() {
+        let Some(declaration) = super::ScrollDeclaration::new(
+            projection.viewport().visible_content(),
+            projection.layer_bounds(),
+            projection.viewport().resolved_scroll(),
+        ) else {
+            continue;
+        };
+        builder.declare_scroll(projection.node(), declaration);
+    }
     builder
 }
 
@@ -360,8 +483,8 @@ fn append_layer_fragments(
     size: geometry::Size,
     fragments: LayerFragments,
 ) {
-    append_shared_clip_fragments(target, fragments.frames);
-    append_shared_clip_fragments(target, fragments.tracks);
+    append_scoped_fragments(target, fragments.frames);
+    append_scoped_fragments(target, fragments.tracks);
     let mut late = fragments.late;
     late.sort_by_key(viewport_chrome::Projection::layer_order);
     for projection in late {
@@ -372,16 +495,33 @@ fn append_layer_fragments(
     }
 }
 
-fn append_shared_clip_fragments(
-    target: &mut super::CommitBuilder,
-    fragments: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
-) {
+fn append_scoped_fragments(target: &mut super::CommitBuilder, fragments: Vec<Fragment>) {
     let mut active_clip = None;
-    for (owner, clip, fragment) in fragments {
-        switch_commit_clip_scope(target, &mut active_clip, clip);
-        target.append_fragment(owner, &fragment);
+    let mut active_scrolls = Vec::new();
+    for fragment in fragments {
+        if active_scrolls != fragment.scrolls {
+            switch_commit_clip_scope(target, &mut active_clip, None);
+            let shared = active_scrolls
+                .iter()
+                .zip(&fragment.scrolls)
+                .take_while(|(left, right)| left == right)
+                .count();
+            for _ in shared..active_scrolls.len() {
+                target.pop_scroll();
+            }
+            active_scrolls.truncate(shared);
+            for scroll in fragment.scrolls.iter().skip(shared) {
+                target.push_scroll(*scroll);
+                active_scrolls.push(*scroll);
+            }
+        }
+        switch_commit_clip_scope(target, &mut active_clip, fragment.clip);
+        target.append_fragment(fragment.owner, &fragment.body);
     }
     switch_commit_clip_scope(target, &mut active_clip, None);
+    for _ in 0..active_scrolls.len() {
+        target.pop_scroll();
+    }
 }
 
 fn switch_commit_clip_scope(

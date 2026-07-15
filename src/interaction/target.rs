@@ -39,6 +39,17 @@ enum Identity {
         id: composition::tree::NodeId,
         element: Option<Id>,
     },
+    Scrollbar {
+        id: composition::tree::NodeId,
+        element: Option<Id>,
+        axis: ScrollbarAxis,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ScrollbarAxis {
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -120,9 +131,20 @@ impl Target {
     pub(crate) fn scrollbar_node(
         node: composition::tree::NodeId,
         element: Option<Id>,
+        axis: ScrollbarAxis,
         label: impl Into<String>,
     ) -> Self {
-        Self::node(Kind::Scrollbar, node, element, label).with_capture()
+        Self {
+            kind: Kind::Scrollbar,
+            identity: Identity::Scrollbar {
+                id: node,
+                element,
+                axis,
+            },
+            label: label.into(),
+            source: None,
+            captures: true,
+        }
     }
 
     pub fn floating_panel(id: impl Into<Id>, label: impl Into<String>) -> Self {
@@ -158,14 +180,14 @@ impl Target {
         match self.identity {
             Identity::Element(id) => Some(id),
             Identity::TableCell(_) => None,
-            Identity::Node { element, .. } => element,
+            Identity::Node { element, .. } | Identity::Scrollbar { element, .. } => element,
         }
     }
 
     pub(crate) fn node_id(&self) -> Option<composition::tree::NodeId> {
         match self.identity {
             Identity::Element(_) | Identity::TableCell(_) => None,
-            Identity::Node { id, .. } => Some(id),
+            Identity::Node { id, .. } | Identity::Scrollbar { id, .. } => Some(id),
         }
     }
 
@@ -185,7 +207,7 @@ impl Target {
     pub(crate) fn table_cell(&self) -> Option<crate::table::Cell> {
         match self.identity {
             Identity::TableCell(cell) => Some(cell),
-            Identity::Element(_) | Identity::Node { .. } => None,
+            Identity::Element(_) | Identity::Node { .. } | Identity::Scrollbar { .. } => None,
         }
     }
 
@@ -249,5 +271,28 @@ impl Target {
             source: None,
             captures: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScrollbarAxis, Target};
+    use crate::composition::tree::NodeId;
+
+    #[test]
+    fn scrollbar_axis_is_part_of_target_identity() {
+        let mut next = 1;
+        let node = NodeId::layout(&mut next);
+        let horizontal = Target::scrollbar_node(
+            node,
+            None,
+            ScrollbarAxis::Horizontal,
+            "Horizontal Scrollbar",
+        );
+        let vertical =
+            Target::scrollbar_node(node, None, ScrollbarAxis::Vertical, "Vertical Scrollbar");
+
+        assert_ne!(horizontal, vertical);
+        assert_ne!(horizontal.focus_key(), vertical.focus_key());
     }
 }

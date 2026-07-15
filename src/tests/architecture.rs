@@ -2707,7 +2707,7 @@ fn resolved_press_is_the_one_cursor_semantics_owner() {
     assert!(
         modifier_body.contains("self.resolve_press(")
             && modifier_body.contains("self.set_pointer_cursor(")
-            && modifier_body.contains("presented_layout(window)")
+            && modifier_body.contains("self.presented_geometry.get(&window)")
             && !modifier_body.contains("request_invalidation")
             && !modifier_body.contains("handle_view")
             && !modifier_body.contains("apply_window_update"),
@@ -2723,7 +2723,7 @@ fn resolved_press_is_the_one_cursor_semantics_owner() {
         "parent and popup modifier events must reach the retained pointer clock"
     );
     assert!(
-        runtime_pointer.contains("self.presented_layout(window)")
+        runtime_pointer.contains("self.presented_geometry.get(&window)")
             && runtime_access.contains("self.presented_geometry.insert(")
             && runtime_access.contains("self.resolve_press("),
         "cursor resolution must consume last-presented geometry, including after a successful receipt"

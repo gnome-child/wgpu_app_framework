@@ -6,5 +6,5 @@ mod view;
 
 pub use runtime::app;
 pub use state::{Mode, RendererViewport, State};
-#[cfg_attr(test, allow(unused_imports))]
+#[cfg_attr(any(test, feature = "renderer-debug"), allow(unused_imports))]
 pub use view::window_size;

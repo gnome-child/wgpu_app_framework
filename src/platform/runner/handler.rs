@@ -52,10 +52,33 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
         event: WinitWindowEvent,
     ) {
         let native_started_at = Instant::now();
+        if matches!(event, WinitWindowEvent::RedrawRequested)
+            && let Some(window) = self.platform.backend().window_for_raw(raw_window)
+            && self.pulse_satisfied_redraws.remove(&window)
+            && self
+                .platform
+                .host()
+                .shell()
+                .runtime()
+                .session()
+                .window(window)
+                .is_some_and(|window| !window.redraw_requested())
+        {
+            self.presentation_pulse.mark_presented(Instant::now());
+            self.finish_native_pass(event_loop);
+            return;
+        }
         let translation_started_at = Instant::now();
         let Some(event) = self.translate_window_event(raw_window, &event) else {
             return;
         };
+        let redraw_requested = matches!(
+            event,
+            crate::host::Event::Window {
+                event: crate::host::WindowEvent::RedrawRequested,
+                ..
+            }
+        );
         let translation_duration = translation_started_at.elapsed();
         let window = event.window_id();
 
@@ -79,6 +102,9 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
                 .shell_mut()
                 .runtime_mut()
                 .record_native_event_pass(window, native_started_at.elapsed());
+        }
+        if redraw_requested {
+            self.presentation_pulse.mark_presented(Instant::now());
         }
 
         self.finish_native_pass(event_loop);

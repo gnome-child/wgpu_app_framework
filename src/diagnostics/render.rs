@@ -144,6 +144,27 @@ struct InputSample {
 }
 
 impl Render {
+    pub(crate) fn record_property_attempt(
+        &mut self,
+        properties: &crate::scene::Properties,
+        property_only: bool,
+        presented: bool,
+    ) {
+        let serial = properties.serial().value();
+        self.candidate_property_serial = serial;
+        self.sampled_property_serial = serial;
+        if property_only {
+            self.property_ticks += 1;
+            self.changed_property_values += properties.changed().len();
+            if !presented {
+                self.skipped_property_attempts += 1;
+            }
+        }
+        if presented {
+            self.visible_property_serial = serial;
+        }
+    }
+
     pub(crate) fn record_scene_projection(&mut self, stats: crate::scene::PaintStats) {
         self.semantic_commits_created += stats.commits_created();
         self.scene_nodes_added += stats.nodes_added();
@@ -1057,6 +1078,59 @@ fn write_distribution(receipt: &mut String, name: &str, samples: &Samples) {
     let _ = writeln!(receipt, "{name}_p95={}", samples.p95());
     let _ = writeln!(receipt, "{name}_p99={}", samples.p99());
     let _ = writeln!(receipt, "{name}_max={}", samples.max());
+}
+
+#[cfg(feature = "renderer-debug")]
+pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<(), String> {
+    let mut app = crate::control_gallery::app(crate::control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = crate::geometry::Size::new(760, 700);
+    let initial = app
+        .render_scene(window, size)
+        .ok_or_else(|| "control gallery did not produce an initial scene".to_owned())?;
+    app.finish_render_report(
+        window,
+        initial.epoch(),
+        initial.invalidation(),
+        initial.layout(),
+        initial.properties(),
+        initial.property_only(),
+        RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+    );
+    let body = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == crate::interaction::Id::new("detail")
+            })
+        })
+        .ok_or_else(|| "control gallery did not materialize a visible table cell".to_owned())?;
+    let rect = body.rect();
+    let point = crate::geometry::Point::new(rect.x() + 1, rect.y() + 1);
+    let commit = std::sync::Arc::clone(initial.commit());
+    let initial_properties = initial.properties().clone();
+    drop(initial);
+
+    app.scroll_at(
+        window,
+        size,
+        point,
+        crate::interaction::ScrollDelta::vertical(24),
+    )
+    .map_err(|error| error.to_string())?;
+    let tick = app
+        .render_scene(window, size)
+        .ok_or_else(|| "control gallery did not produce a property tick".to_owned())?;
+    if !tick.property_only() || !std::sync::Arc::ptr_eq(&commit, tick.commit()) {
+        return Err("control gallery scroll escaped the retained property clock".to_owned());
+    }
+
+    let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
+    harness.compare_retained_scroll_transition(&commit, &initial_properties, tick.properties())
 }
 
 #[cfg(test)]

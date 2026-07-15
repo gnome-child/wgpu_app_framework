@@ -53,7 +53,7 @@ mod render;
 #[doc(hidden)]
 pub use render::debug as renderer_debug;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "renderer-debug"))]
 #[path = "../examples/control_gallery/app/mod.rs"]
 mod control_gallery;
 #[cfg(test)]

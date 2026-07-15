@@ -256,6 +256,20 @@ struct Live {
 }
 
 impl Draft {
+    pub(crate) fn commit(&self) -> &Arc<scene::Commit> {
+        &self.commit
+    }
+
+    pub(crate) fn with_property_state(
+        mut self,
+        properties: scene::Properties,
+        scene: scene::Scene,
+    ) -> Self {
+        self.properties = Arc::new(properties);
+        self.scene = scene;
+        self
+    }
+
     #[cfg(test)]
     pub(crate) fn new(id: interaction::Id, bounds: geometry::Rect, scene: scene::Scene) -> Self {
         let (commit, properties) = scene::Commit::legacy_test_pair(&scene);

@@ -1625,12 +1625,11 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
                 .is_some_and(|cell| cell.column() == interaction::Id::new("action"))
         })
         .expect("far-right track");
+    let initial_action_divider = initial_action_track
+        .divider_hit_rect()
+        .expect("projected far-right hit zone");
     assert!(
-        initial_action_track
-            .divider_hit_rect()
-            .expect("projected far-right hit zone")
-            .x()
-            >= 240,
+        initial_action_divider.x() >= 240,
         "an offscreen divider must not clamp into a false viewport-edge target"
     );
 
@@ -1666,6 +1665,20 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     let scrolled_name = geometry_for(&scrolled, "name");
     let scrolled_detail = geometry_for(&scrolled, "detail");
     let scrolled_action = geometry_for(&scrolled, "action");
+    assert!(scrolled.property_only());
+    assert!(std::sync::Arc::ptr_eq(initial.commit(), scrolled.commit()));
+    let horizontal_projection = scrolled
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.viewport().max_scroll().x() > 0)
+        .expect("table should retain horizontal property topology");
+    assert_eq!(
+        scrolled
+            .properties()
+            .scroll_offset(horizontal_projection.node()),
+        Some(interaction::ScrollOffset::new(70, 0))
+    );
     let (scrolled_vertical_viewport, scrolled_vertical_track) = vertical_scrollbar(&scrolled);
     assert_eq!(
         scrolled_vertical_viewport.visible_frame(),
@@ -1677,13 +1690,12 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         (initial_detail, scrolled_detail),
         (initial_action, scrolled_action),
     ] {
-        assert_eq!(after.0.x(), before.0.x() - 70);
-        assert_eq!(after.1.x(), before.1.x() - 70);
-        assert_eq!(after.2, before.2 - 70);
-        assert_eq!(after.0.width(), before.0.width());
-        assert_eq!(after.1.width(), before.1.width());
+        assert_eq!(
+            after, before,
+            "property ticks must not rewrite commit geometry"
+        );
     }
-    assert_eq!(scrolled_action.0.right(), 240);
+    assert_eq!(scrolled_action.0.right(), 310);
     assert_eq!(
         scrolled
             .layout()
@@ -1697,7 +1709,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
             .and_then(layout::table::Track::divider_hit_rect)
             .expect("revealed far-right hit zone")
             .right(),
-        240
+        initial_action_divider.right()
     );
 
     let detail_track = scrolled
@@ -1715,6 +1727,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
             .divider_hit_rect()
             .expect("visible detail hit zone"),
     );
+    let resize_start = geometry::Point::new(resize_start.x() - 70, resize_start.y());
     let resize_end = geometry::Point::new(resize_start.x() + 20, resize_start.y());
     app.pointer_down_at(window, size, resize_start)
         .expect("scrolled divider should capture");
@@ -1729,7 +1742,11 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     assert_eq!(resized_detail.0.width(), 140);
     assert_eq!(resized_detail.1.width(), 140);
     assert_eq!(resized_detail.0.right(), resized_detail.2);
-    assert_eq!(resized_detail.2 - scrolled_detail.2, 20);
+    assert_eq!(
+        resized_detail.2,
+        scrolled_detail.2 - 70 + 20,
+        "the semantic resize commit rebases the presented scroll before applying the new width"
+    );
 }
 
 #[test]
@@ -1759,11 +1776,15 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
         .filter(|frame| frame.rect().right() <= table_viewport.visible_frame().right())
         .max_by_key(|frame| frame.rect().right())
         .expect("a visible sortable header should exist");
-    let point = frame_point_at(header.rect());
+    let point = geometry::Point::new(
+        header.rect().right().saturating_sub(8),
+        header.rect().y().saturating_add(1),
+    );
     let original = header.target().expect("sortable header target").clone();
+    let scroll_delta = interaction::ScrollDelta::horizontal(16);
     let horizontal = initial
         .layout()
-        .scroll_target_at(point, interaction::ScrollDelta::horizontal(10_000))
+        .scroll_target_at(point, scroll_delta)
         .expect("header point should resolve the table horizontal viewport");
 
     app.pointer_move_at(window, size, point)
@@ -1774,29 +1795,24 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
             .and_then(|interaction| interaction.pointer().hovered()),
         Some(&original)
     );
-    app.handle_input(
-        window,
-        Input::scroll(horizontal, interaction::ScrollDelta::horizontal(10_000)),
-    )
-    .expect("horizontal table scroll should be handled");
+    let hovered = app
+        .show_scene(window, size)
+        .expect("header hover should present before scrolling");
+    app.handle_input(window, Input::scroll(horizontal, scroll_delta))
+        .expect("horizontal table scroll should be handled");
 
     let skipped = app
         .render_scene(window, size)
         .expect("scrolled candidate should prepare");
-    let projected = skipped
+    assert!(skipped.property_only());
+    assert!(std::sync::Arc::ptr_eq(hovered.commit(), skipped.commit()));
+    assert!(skipped.properties().serial() > hovered.properties().serial());
+    let baseline_target = skipped
         .layout()
         .hit_test(point)
-        .expect("stationary point should hit the scrolled header");
-    let projected_target = projected
-        .target()
-        .expect("scrolled header should expose a target")
-        .clone();
-    assert_ne!(projected_target, original);
-    assert!(projected.frame().table_header_cell().is_some());
-    assert!(skipped.scene().quads().iter().any(|quad| {
-        quad.rect() == projected.frame().rect()
-            && quad.fill() == Theme::default().table().header_hover_tint
-    }));
+        .and_then(|hit| hit.target().cloned())
+        .expect("retained baseline layout should remain hittable");
+    assert_eq!(baseline_target, original);
     assert_eq!(
         app.session()
             .interaction(window)
@@ -1809,6 +1825,8 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
         skipped.epoch(),
         skipped.invalidation(),
         skipped.layout(),
+        skipped.properties(),
+        skipped.property_only(),
         diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
             .with_presented(false),
     );
@@ -1823,21 +1841,18 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
     let shown = app
         .show_scene(window, size)
         .expect("scrolled frame should retry and present");
-    let shown_target = shown
-        .layout()
-        .hit_test(point)
+    assert!(shown.property_only());
+    assert!(std::sync::Arc::ptr_eq(hovered.commit(), shown.commit()));
+    let shown_target = app
+        .hit_test(window, size, point)
         .and_then(|hit| hit.target().cloned())
         .expect("presented header target");
-    assert_eq!(shown_target, projected_target);
+    assert_ne!(shown_target, original);
     assert_eq!(
         app.session()
             .interaction(window)
             .and_then(|interaction| interaction.pointer().hovered()),
-        Some(&projected_target)
-    );
-    assert!(
-        !app.session().window(window).unwrap().redraw_requested(),
-        "the presented frame already contains the corrected hover"
+        Some(&shown_target)
     );
 }
 
@@ -1871,15 +1886,19 @@ fn stationary_pointer_transfers_hover_as_virtual_table_rows_scroll_beneath_it() 
         .expect("record cell should be interactive");
     app.pointer_move_at(window, size, point)
         .expect("record hover should be handled");
+    let hovered = app
+        .show_scene(window, size)
+        .expect("record hover should present before scrolling");
 
     app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(48))
         .expect("table body should scroll beneath the stationary point");
     let shown = app
         .show_scene(window, size)
         .expect("scrolled table should present");
-    let projected = shown
-        .layout()
-        .hit_test(point)
+    assert!(shown.property_only());
+    assert!(std::sync::Arc::ptr_eq(hovered.commit(), shown.commit()));
+    let projected = app
+        .hit_test(window, size, point)
         .and_then(|hit| hit.target().cloned())
         .expect("stationary point should hit a replacement row");
 
@@ -1889,10 +1908,6 @@ fn stationary_pointer_transfers_hover_as_virtual_table_rows_scroll_beneath_it() 
             .interaction(window)
             .and_then(|interaction| interaction.pointer().hovered()),
         Some(&projected)
-    );
-    assert!(
-        !app.session().window(window).unwrap().redraw_requested(),
-        "row-hover transfer is part of the scrolled frame"
     );
 }
 
@@ -6101,16 +6116,25 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
     let rendered = app
         .show_scene(window, size)
         .expect("partly clipped focus should render");
+    assert!(rendered.property_only());
+    assert!(std::sync::Arc::ptr_eq(initial.commit(), rendered.commit()));
     let focused = rendered
         .layout()
         .find_role(view::Role::TextBox)
         .into_iter()
         .next()
         .expect("focused field should remain laid out");
-    assert!(focused.rect().y() < viewport.y());
-    assert!(focused.rect().bottom() > viewport.y());
+    let focused_rect = focused.rect();
+    let presented_focused = geometry::Rect::new(
+        focused.rect().x(),
+        focused.rect().y().saturating_sub(16),
+        focused.rect().width(),
+        focused.rect().height(),
+    );
+    assert!(presented_focused.y() < viewport.y());
+    assert!(presented_focused.bottom() > viewport.y());
 
-    assert_outline_is_scoped_by_clip(rendered.scene(), focused.rect(), viewport);
+    assert_outline_is_scoped_by_clip(rendered.scene(), focused_rect, viewport);
 
     app.scroll_at(
         window,
@@ -6560,6 +6584,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .map(layout::Chrome::track)
         .next()
         .expect("scrollbar chrome should be projected");
+    let scrollbar_target = initial.layout().chrome()[0].target().clone();
     let press = geometry::Point::new(track.x().saturating_add(track.width() / 2), track.y() + 1);
     let drag = geometry::Point::new(
         track.x().saturating_add(track.width() / 2),
@@ -6568,8 +6593,25 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
 
     app.pointer_down_at(window, size, press)
         .expect("scroll pointer down should be handled");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::pointer::Capture::target),
+        Some(&scrollbar_target),
+        "the scrollbar that won hit testing must own capture"
+    );
     app.pointer_drag_at(window, size, drag)
         .expect("scroll pointer drag should be handled");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window should have interaction")
+            .scroll()
+            .offset(&target),
+        expected_max_scroll,
+        "drag must update authoritative scroll before presentation"
+    );
     app.show_scene(window, size)
         .expect("scroll feedback should render");
 
@@ -6581,6 +6623,166 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .offset(&target);
 
     assert_eq!(offset, expected_max_scroll);
+}
+
+#[test]
+fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
+    let mut app = scroll_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(220, 120);
+    let initial = app
+        .show_scene(window, size)
+        .expect("scroll view should warm its retained commit");
+    let scroll = first_scroll_frame(&initial);
+    let point = frame_point_at(scroll.rect());
+    let target = scroll.target().expect("scroll target").clone();
+    let projection = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.target() == &target)
+        .cloned()
+        .expect("scroll should declare retained property topology");
+    let initial_serial = initial.properties().serial();
+    let initial_commit = std::sync::Arc::clone(initial.commit());
+
+    app.diagnostics_mut(window)
+        .expect("window diagnostics")
+        .begin_renderer_measurement();
+    for tick in 0..4 {
+        let outcome = app
+            .scroll_at(window, size, point, interaction::ScrollDelta::vertical(8))
+            .expect("each in-window delta should be accepted");
+        assert_eq!(
+            outcome.effect(),
+            &response::Effect::None,
+            "in-window delta {tick} must stay off the content clock"
+        );
+    }
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window interaction")
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(0, 32)
+    );
+
+    let tick = app
+        .render_scene(window, size)
+        .expect("coalesced property tick should prepare once");
+    assert!(tick.property_only());
+    assert!(std::sync::Arc::ptr_eq(&initial_commit, tick.commit()));
+    assert!(tick.properties().serial() > initial_serial);
+    assert_eq!(
+        tick.properties().scroll_offset(projection.node()),
+        Some(interaction::ScrollOffset::new(0, 32))
+    );
+    app.finish_render_report(
+        window,
+        tick.epoch(),
+        tick.invalidation(),
+        tick.layout(),
+        tick.properties(),
+        tick.property_only(),
+        diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+    );
+
+    let render = &app.diagnostics(window).expect("window diagnostics").render;
+    assert_eq!(render.property_ticks, 1);
+    assert_eq!(render.changed_property_values, 1);
+    assert_eq!(render.semantic_commits_created, 0);
+    assert_eq!(render.scene_nodes_rebuilt, 0);
+    assert_eq!(render.scene_paint_calls, 0);
+    assert_eq!(
+        render.visible_property_serial,
+        tick.properties().serial().value()
+    );
+}
+
+#[test]
+fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
+    let mut app = nested_clipped_scroll_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .show_scene(window, geometry::Size::new(240, 180))
+        .expect("nested scrolls should render");
+    let projections = rendered.layout().scroll_projections();
+
+    assert_eq!(projections.len(), 2, "both scroll owners need projections");
+    assert!(std::ptr::eq(
+        projections,
+        rendered.layout().scroll_projections()
+    ));
+    for projection in projections {
+        let viewport = projection.viewport();
+        let visible = viewport.visible_content();
+        let bounds = projection.layer_bounds();
+        let max = viewport.max_scroll();
+        let width_limit = if max.x() > 0 {
+            visible.width().saturating_mul(2)
+        } else {
+            visible.width()
+        };
+        let height_limit = if max.y() > 0 {
+            visible.height().saturating_mul(2)
+        } else {
+            visible.height()
+        };
+
+        assert!(bounds.x() <= visible.x());
+        assert!(bounds.y() <= visible.y());
+        assert!(bounds.right() >= visible.right());
+        assert!(bounds.bottom() >= visible.bottom());
+        assert!(bounds.width() <= width_limit);
+        assert!(bounds.height() <= height_limit);
+    }
+}
+
+#[test]
+fn control_gallery_retains_two_repeated_nested_scroll_scopes() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .show_scene(window, geometry::Size::new(760, 660))
+        .expect("control gallery should render");
+    let mut group_depth = 0_usize;
+    let mut clip_depth = 0_usize;
+    let mut scroll_depth = 0_usize;
+    let mut scrolls = Vec::new();
+    for draw in rendered
+        .commit()
+        .order()
+        .expect("gallery uses explicit order")
+    {
+        match draw {
+            scene::Draw::PushGroup { .. } => group_depth += 1,
+            scene::Draw::PopGroup => group_depth = group_depth.saturating_sub(1),
+            scene::Draw::PushClip { .. } => clip_depth += 1,
+            scene::Draw::PopClip => clip_depth = clip_depth.saturating_sub(1),
+            scene::Draw::PushScroll { node } => {
+                scrolls.push((*node, group_depth, clip_depth, scroll_depth));
+                scroll_depth += 1;
+            }
+            scene::Draw::PopScroll => scroll_depth = scroll_depth.saturating_sub(1),
+            scene::Draw::Content { .. } => {}
+        }
+    }
+    assert_eq!(scrolls.len(), 4);
+    assert_eq!(scrolls[0].0, scrolls[2].0);
+    assert_eq!(scrolls[1].0, scrolls[3].0);
+    assert_ne!(scrolls[0].0, scrolls[1].0);
+    assert_eq!((scrolls[0].1, scrolls[0].2, scrolls[0].3), (0, 0, 0));
+    assert_eq!(scrolls[1].1, 0);
+    assert_eq!(scrolls[1].2, 0);
+    assert_eq!(scrolls[1].3, 1);
+    assert_eq!((scrolls[2].1, scrolls[2].2, scrolls[2].3), (0, 0, 0));
+    assert_eq!(scrolls[3].1, 0);
+    assert_eq!(scrolls[3].2, 0);
+    assert_eq!(scrolls[3].3, 1);
 }
 
 #[test]
@@ -6646,6 +6848,114 @@ fn scrollbar_thumb_wins_hit_test_over_content() {
     assert_eq!(
         hit.target().expect("chrome should expose target").kind(),
         interaction::Kind::Scrollbar
+    );
+}
+
+#[test]
+fn scrollbar_hover_envelope_wins_hit_test_over_content() {
+    let view = widget::view(|ui| {
+        ui.add(
+            widget::Scroll::new()
+                .id("scroll.hover-envelope")
+                .height(view::Dimension::fixed(72))
+                .children(|ui| {
+                    for index in 0..8 {
+                        ui.button(widget::Button::new(format!("Row {index}")).trigger::<Ping>(()));
+                    }
+                }),
+        );
+    });
+    let mut layout_engine = layout::Engine::new();
+    let layout = layout::Layout::compose(&view, geometry::Size::new(220, 120), &mut layout_engine);
+    let chrome = layout
+        .chrome()
+        .first()
+        .expect("scrollbar chrome should be projected");
+    let track = chrome.track();
+    let interaction_track = chrome.interaction_track();
+    let point = geometry::Point::new(
+        interaction_track.x().saturating_add(1),
+        interaction_track
+            .y()
+            .saturating_add(interaction_track.height() / 2),
+    );
+
+    assert!(interaction_track.width() > track.width());
+    assert!(!track.contains(point));
+    let hit = layout
+        .hit_test(point)
+        .expect("expanded visible scrollbar band should be hit");
+    assert!(hit.is_chrome());
+    assert_eq!(
+        hit.target().expect("chrome should expose target").kind(),
+        interaction::Kind::Scrollbar
+    );
+}
+
+#[test]
+fn table_scrollbar_chrome_never_participates_in_the_row_beneath_it() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Table scrollbar ownership"));
+        })
+        .view(|_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "scrollbar.owner.table",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(120)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(180)),
+                    ],
+                    MillionTableProvider {
+                        cell_calls: Rc::new(Cell::new(0)),
+                    },
+                )
+                .height(view::Dimension::fixed(128)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 128);
+    let initial = app
+        .show_scene(window, size)
+        .expect("virtual table should render");
+    let scrollbar = initial
+        .layout()
+        .chrome()
+        .iter()
+        .find(|chrome| chrome.target().label_text() == "Vertical Scrollbar")
+        .expect("virtual table should project vertical chrome");
+    let band = scrollbar.interaction_track();
+    let point = geometry::Point::new(
+        band.x().saturating_add(band.width() / 2),
+        band.y().saturating_add(band.height() / 2),
+    );
+    let scrollbar_target = scrollbar.target().clone();
+    let table = interaction::Id::new("scrollbar.owner.table");
+    let selection_before = app.session().selection(window, table).cloned();
+    let active_cell_before = app.session().active_table_cell(window, table);
+
+    app.pointer_down_at(window, size, point)
+        .expect("scrollbar press should be handled");
+
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::pointer::Capture::target),
+        Some(&scrollbar_target),
+        "chrome must own the press and capture"
+    );
+    assert_eq!(
+        app.session().selection(window, table),
+        selection_before.as_ref(),
+        "vertical chrome must not select the virtual row beneath it"
+    );
+    assert_eq!(
+        app.session().active_table_cell(window, table),
+        active_cell_before,
+        "vertical chrome must not change the active cell beneath it"
     );
 }
 
@@ -7366,7 +7676,7 @@ fn pointer_cursor_uses_default_for_text_area_scrollbar_chrome() {
 }
 
 #[test]
-fn pointer_cursor_does_not_leak_through_palette_glass() {
+fn pointer_cursor_stays_with_palette_query_after_results_scroll() {
     let mut app = command_palette_scroll_app();
     app.start();
 
@@ -7401,12 +7711,10 @@ fn pointer_cursor_does_not_leak_through_palette_glass() {
         .expect("palette query should be laid out");
     let point = rect_bottom_point(query.rect());
 
-    assert!(
-        scrolled.layout().frames().iter().any(|frame| {
-            frame.is_palette_row() && frame.rect().contains(point) && !frame.clip_contains(point)
-        }),
-        "a clipped palette row should geometrically overlap the query"
-    );
+    let hit = app
+        .hit_test(window, size, point)
+        .expect("visible palette query should remain hittable");
+    assert_eq!(hit.frame().role(), view::Role::TextBox);
     assert_eq!(
         cursor_after_move(&mut app, window, size, point),
         Some(pointer::Cursor::Text),

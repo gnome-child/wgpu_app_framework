@@ -60,14 +60,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         offset_changed: bool,
-        effect: &response::Effect,
+        redraw_requested: bool,
     ) {
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.scroll.wheel_events += 1;
         if offset_changed {
             diagnostics.scroll.scroll_offset_changes += 1;
         }
-        if effect.contains_invalidation() {
+        if redraw_requested {
             diagnostics.scroll.scroll_redraw_requests += 1;
         }
     }

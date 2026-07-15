@@ -164,6 +164,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         epoch: window::PresentationEpoch,
         invalidation: super::super::response::effect::Invalidation,
         layout: &super::super::layout::Layout,
+        properties: &super::super::scene::Properties,
+        property_only: bool,
         report: super::super::diagnostics::RenderReport,
     ) -> bool {
         if !self.session.contains(window) {
@@ -172,6 +174,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         let presented = report.presented();
         let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics
+            .render
+            .record_property_attempt(properties, property_only, presented);
         diagnostics.render.record_present(epoch, report);
         if diagnostics.render.frames_presented.is_multiple_of(10) {
             log::debug!(
@@ -223,14 +228,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     window,
                     super::PresentedGeometry {
                         layout: std::sync::Arc::new(layout.clone()),
+                        properties: properties.clone(),
                     },
                 );
                 let location = self
                     .session
                     .interaction(window)
                     .and_then(|interaction| interaction.pointer().location());
+                let geometry = self.presented_geometry.get(&window).cloned();
                 let hit = location.and_then(|location| {
-                    layout.hit_test_on_surface(location.point(), location.surface())
+                    geometry.as_ref().and_then(|geometry| {
+                        geometry.hit_test_on_surface(location.point(), location.surface())
+                    })
                 });
                 let hovered = hit.as_ref().and_then(|hit| hit.target().cloned());
                 let hover_tip_eligible = hovered.as_ref().is_some_and(|target| {
@@ -276,7 +285,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.session.set_cursor(window, resolved.cursor());
             }
         } else {
-            self.session.retry_invalidation(window, invalidation);
+            if property_only {
+                self.session.retry_property_tick(window);
+            } else {
+                self.session.retry_invalidation(window, invalidation);
+            }
         }
         !presented
     }

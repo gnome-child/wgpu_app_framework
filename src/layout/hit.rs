@@ -6,6 +6,7 @@ pub(crate) struct Hit {
     frame: Frame,
     kind: Kind,
     table_cell: Option<crate::table::Cell>,
+    translation: [i32; 2],
 }
 
 #[derive(Clone)]
@@ -21,6 +22,7 @@ impl Hit {
             frame,
             kind: Kind::Frame,
             table_cell: None,
+            translation: [0, 0],
         }
     }
 
@@ -29,6 +31,7 @@ impl Hit {
             frame,
             kind: Kind::Chrome(chrome),
             table_cell: None,
+            translation: [0, 0],
         }
     }
 
@@ -37,6 +40,7 @@ impl Hit {
             frame,
             kind: Kind::Target(target),
             table_cell: None,
+            translation: [0, 0],
         }
     }
 
@@ -45,11 +49,17 @@ impl Hit {
             frame,
             kind: Kind::Target(target),
             table_cell: None,
+            translation: [0, 0],
         }
     }
 
     pub(super) fn with_table_cell(mut self, cell: Option<crate::table::Cell>) -> Self {
         self.table_cell = cell;
+        self
+    }
+
+    pub(super) fn with_translation(mut self, translation: [i32; 2]) -> Self {
+        self.translation = translation;
         self
     }
 
@@ -82,6 +92,7 @@ impl Hit {
     }
 
     pub(crate) fn action_at(&self, point: Point) -> Option<view::Action> {
+        let point = self.baseline_point(point);
         match &self.kind {
             Kind::Frame => self.frame.action_at(point),
             Kind::Chrome(_) | Kind::Target(_) => None,
@@ -93,6 +104,7 @@ impl Hit {
         point: Point,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
+        let point = self.baseline_point(point);
         match &self.kind {
             Kind::Frame => self.frame.action_at_with_engine(point, engine),
             Kind::Chrome(_) | Kind::Target(_) => None,
@@ -105,9 +117,17 @@ impl Hit {
         kind: crate::text::selection::PointerKind,
         engine: &mut engine::Engine,
     ) -> Option<view::Action> {
+        let point = self.baseline_point(point);
         match &self.kind {
             Kind::Frame => self.frame.text_action_at_with_engine(point, kind, engine),
             Kind::Chrome(_) | Kind::Target(_) => None,
         }
+    }
+
+    fn baseline_point(&self, point: Point) -> Point {
+        Point::new(
+            point.x().saturating_sub(self.translation[0]),
+            point.y().saturating_sub(self.translation[1]),
+        )
     }
 }

@@ -7,6 +7,7 @@ use super::{FileDialog, Focus, Session, Snapshot};
 pub struct Window {
     pub(super) facts: app_window::Facts,
     pub(super) invalidation: Option<response::effect::Invalidation>,
+    pub(super) property_tick_requested: bool,
     pub(super) projected_revision: Option<state::Revision>,
     pub(super) desired_presentation_epoch: app_window::PresentationEpoch,
     pub(super) acknowledged_presentation_epoch: Option<app_window::PresentationEpoch>,
@@ -37,6 +38,7 @@ impl Window {
         Self {
             facts,
             invalidation: Some(response::effect::Invalidation::Rebuild),
+            property_tick_requested: false,
             projected_revision: None,
             desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             acknowledged_presentation_epoch: None,
@@ -56,6 +58,7 @@ impl Window {
         Self {
             facts: snapshot.facts,
             invalidation: Some(response::effect::Invalidation::Rebuild),
+            property_tick_requested: false,
             projected_revision: None,
             desired_presentation_epoch: app_window::PresentationEpoch::initial(),
             acknowledged_presentation_epoch: None,
@@ -93,11 +96,15 @@ impl Window {
     }
 
     pub fn redraw_requested(&self) -> bool {
-        self.invalidation.is_some()
+        self.invalidation.is_some() || self.property_tick_requested
     }
 
     pub(crate) fn invalidation(&self) -> Option<response::effect::Invalidation> {
         self.invalidation
+    }
+
+    pub(crate) fn property_tick_requested(&self) -> bool {
+        self.property_tick_requested
     }
 
     pub(crate) fn projected_revision(&self) -> Option<state::Revision> {
@@ -321,13 +328,34 @@ impl Session {
         previous != window.invalidation
     }
 
+    pub(crate) fn request_property_tick(&mut self, id: app_window::Id) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        let changed = !window.property_tick_requested;
+        window.desired_presentation_epoch = window.desired_presentation_epoch.next();
+        window.property_tick_requested = true;
+        changed
+    }
+
+    pub(crate) fn retry_property_tick(&mut self, id: app_window::Id) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        let changed = !window.property_tick_requested;
+        window.property_tick_requested = true;
+        changed
+    }
+
     pub fn clear_redraw_request(&mut self, id: app_window::Id) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
         let changed = window.invalidation.is_some();
         window.invalidation = None;
-        changed
+        let property_changed = window.property_tick_requested;
+        window.property_tick_requested = false;
+        changed || property_changed
     }
 
     pub(crate) fn mark_projected(&mut self, id: app_window::Id, revision: state::Revision) -> bool {

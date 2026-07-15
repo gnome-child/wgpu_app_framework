@@ -51,7 +51,10 @@ pub(crate) struct Layout {
 pub(crate) struct Node {
     id: NodeId,
     content_revision: ContentRevision,
+    /// Authored scene state used when reconciling a freshly rebuilt view.
     scene_key: view::node::SceneKey,
+    /// The last transiently projected scene state consumed by layout/paint.
+    projected_scene_key: view::node::SceneKey,
     key: Key,
     element_id: Option<interaction::Id>,
     subject: Option<subject::Segment>,
@@ -179,7 +182,9 @@ impl Changes {
     }
 
     fn add_changed(&mut self, id: NodeId) {
-        self.changed.push(id);
+        if !self.added.contains(&id) && !self.changed.contains(&id) {
+            self.changed.push(id);
+        }
     }
 
     fn add_removed_subtree(&mut self, node: &Node) {
@@ -230,6 +235,12 @@ impl Tree {
 
     pub(crate) fn node(&self, id: NodeId) -> Option<&Node> {
         self.root.find(id)
+    }
+
+    /// Advances content revisions for transient state projected into the
+    /// installed view without rebuilding its authored structure.
+    pub(crate) fn project_scene_state(&mut self, view: &view::View, changes: &mut Changes) {
+        self.root.project_scene_state(view.root(), changes);
     }
 }
 
@@ -305,6 +316,9 @@ impl Node {
             None => ContentRevision::INITIAL,
         };
         let mut node = Self::new(id, view, parent, content_revision);
+        if let Some(old) = old {
+            node.projected_scene_key = old.projected_scene_key.clone();
+        }
         let mut used_old = HashSet::new();
 
         for (index, child) in view.children().iter().enumerate() {
@@ -354,16 +368,34 @@ impl Node {
         parent: Option<NodeId>,
         content_revision: ContentRevision,
     ) -> Self {
+        let scene_key = view.scene_key();
         Self {
             id,
             content_revision,
-            scene_key: view.scene_key(),
+            scene_key: scene_key.clone(),
+            projected_scene_key: scene_key,
             key: Key::for_view(view),
             element_id: element_id_for(view),
             subject: subject_for(view),
             provided_row: view.provided_row(),
             parent,
             children: Vec::new(),
+        }
+    }
+
+    fn project_scene_state(&mut self, view: &view::Node, changes: &mut Changes) {
+        debug_assert!(self.matches(view));
+        debug_assert_eq!(self.children.len(), view.children().len());
+
+        let projected = view.scene_key();
+        if self.projected_scene_key != projected {
+            self.projected_scene_key = projected;
+            self.content_revision = self.content_revision.next();
+            changes.add_changed(self.id);
+        }
+
+        for (child, view) in self.children.iter_mut().zip(view.children()) {
+            child.project_scene_state(view, changes);
         }
     }
 

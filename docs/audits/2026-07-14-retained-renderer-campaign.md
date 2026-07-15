@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–5 complete, Checkpoint 6 in progress**. One-Way
+Status: **in flight; Checkpoints 0–6 complete, Checkpoint 7 in progress**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -598,8 +598,8 @@ At each checkpoint boundary:
 | 3. Retain scene identity and revisions | Complete | NodeId survives painting; unchanged substructure reused; window-wide invalidation begins retirement |
 | 4. Retain GPU realization | Complete | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
 | 5. Make render work semantic | Complete | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
-| 6. Make scroll a property tick | In progress | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
-| 7. Prove Qt class and decide the ceiling | Pending | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
+| 6. Make scroll a property tick | Complete | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
+| 7. Prove Qt class and decide the ceiling | In progress | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
 | 8. Optional Chromium-class upgrade | Gated by Checkpoint 7 | If admitted: active remains drawable while pending prepares; atomic activation and deadline independence proved |
 | 9. Burn down the old species | Pending | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
 | 10. Close out and teach master design | Pending | Full matrix green, instrumented acceptance, One-Way fixed point, roadmap/design synchronized, sole renderer proved |
@@ -839,6 +839,16 @@ Checkpoint 6 must retest continuous selection and editing presentation so the
 campaign neither claims an accidental fix nor carries the idle-flush behavior
 through its presentation witnesses; its scrollbar witnesses must also require
 horizontal/vertical hit-test and capture parity with zero click-through.
+
+Checkpoint 6 live-regression addendum, 2026-07-15: the in-flight retained-scroll
+path made interaction broadly choppy, and a large fast Control Gallery scroll
+attempted to create a `Retained Scroll Layer Texture` with Y dimension 16,862
+against the selected device's 8,192 limit, causing a fatal WGPU validation
+panic. These are campaign defects, not optional field observations. The
+checkpoint must bound every retained scroll window independently of total
+content/nested descendants, reject any offscreen target above the actual device
+limit before WGPU creation, and pass a real release-gallery fast-scroll and
+general-interaction smoke before it may close.
 
 The code-owned baseline pins renderer draw p95 at 2.675 ms for in-window scroll
 and 2.852 ms for the witnessed guard stream on the 240 Hz DX12 rail, with guard
@@ -1847,6 +1857,140 @@ inside the pinned 16.667 ms ceiling, and no visible hitch occurs in the local
 interactive smoke. They do not claim
 that active presentation can proceed concurrently with replenishment.
 
+### Checkpoint 6 evidence ledger — complete
+
+Implementation receipt, 2026-07-15:
+
+- scroll state now has a property-clock route distinct from semantic scene
+  commits. A guard-contained wheel stream updates the retained scroll property,
+  preserves the commit structure and baseline coordinates, coalesces to the
+  latest sampled value, and promotes that exact value to input truth only after
+  a successful present. Focused skipped/retry witnesses prove that an
+  unsuccessful frame promotes neither geometry nor input;
+- layout owns retained scroll projections, group ancestry, fixed chrome, sticky
+  headers, nested clips, and presented-coordinate hit testing. The property
+  handoff no longer rebuilds the large table hit-test tree. Selection, editing,
+  caret/reveal, native popup placement, header/divider hit envelopes, pointer
+  capture, stationary hover, and nested scroll clips all consume the same
+  successfully presented transform;
+- the literal-zero runtime witness applies four 8 px deltas wholly inside the
+  half-viewport guard and requires each input effect to remain `None`. Its
+  aggregate asserts zero scene painting, text shaping, text preparation,
+  primitive preparation, content upload, and content revisions. The dedicated
+  GPU harness independently renders the same retained transition and asserts
+  pixel equivalence with zero primitive/text preparation, shaping, or content
+  upload;
+- the actual Control Gallery now participates in the specialized debug-crate
+  oracle through the narrow feature-gated diagnostics observation boundary.
+  The oracle runs the real gallery commit before and after a guard-contained
+  property tick. Exact pixels remain the first acceptance path; equivalent
+  floating blend routes are bounded at a maximum four-channel-value delta. The
+  renderer does not import the gallery, layout tests do not import the renderer,
+  and the production build has no debug-crate dependency;
+- guard replenishment remains a semantic commit and rebases its property state
+  atomically. Resident retained scroll textures are bounded by viewport/guard
+  scope and the selected device limit, including nested descendants. This
+  corrected the reported fatal attempt to create a 16,862 px texture on an
+  8,192 px device; repeated large/fast release-gallery scrolling now survives
+  without validation failure;
+- transient text and selection changes request and present interaction frames
+  while the input stream is active. In an uncontested release smoke, 32 typed
+  characters completed and were visible in the same 156 ms transaction, a
+  selection drag completed with its highlight visible in 75 ms, and a slider
+  capture completed with its value visible in 68 ms. A stale overflow tooltip
+  also disappeared when its text ceased overflowing without requiring pointer
+  motion. These replace the recorded idle-only typing/selection behavior;
+- vertical and horizontal scrollbar chrome now share the same chrome-owned
+  admission path. `Hit::Chrome` cannot be reinterpreted as the row or table cell
+  behind it, so scrollbar capture leaves row selection and active-cell truth
+  unchanged. The focused witness closes the reported vertical-only
+  click-through/source-of-truth deviation.
+
+Paired local release receipt:
+
+- the admitted 500 px in-window run is
+  `target/release/examples/renderer-receipts/control-gallery-500px-in-window-scroll-cp6-admitted-1784099811391.txt`.
+  It records 68/68 presented/acquired frames, 52 property ticks, zero guard
+  crossings, zero replenishments, draw p95 2.716 ms, zero full-surface blits,
+  and an exact final sampled/visible property serial;
+- the matching 800 px guard run is
+  `target/release/examples/renderer-receipts/control-gallery-800px-guard-boundary-cp6-admitted-1784099836196.txt`.
+  Sixteen large/fast scrolls produced 16 guard crossings, 16 replenishment
+  commits, and 16 timing samples. Replenishment p95 was 7.065 ms, inside the
+  Checkpoint 6 synchronous 16.667 ms ceiling; the process survived and the
+  retained-texture device-limit regression did not recur;
+- `tools/check_renderer_receipts.py` admits the pair without an external
+  machine or profiler. The receipts deliberately do not use the Checkpoint 7
+  final renderer-budget flag: on the local 240 Hz display, the in-window run
+  still records three renderer deadline misses and the guard run records draw
+  p95 8.761 ms plus 32 misses against a 4.167 ms refresh. The user's broader
+  "all interaction is choppy" report therefore remains an explicit Checkpoint
+  7 pacing defect, not a claim silently erased by Checkpoint 6. Automation
+  injection/waits contaminate frame-interval timing, so code-owned draw and
+  replenishment timings remain the acceptance currency.
+
+Touched-module cleanup cells:
+
+- `OW-RR-6A` — complete trace:
+  `wheel input -> layout scroll owner -> scene::Properties -> retained property
+  upload -> successful presentation receipt`. Challenge found that the old
+  window-wide invalidation and flattened hit tree forced semantic rebuilding
+  for a value-only change. Admission retained scroll projections and ancestry
+  at layout's owner, preserved baseline commit geometry, and bound guard
+  crossing to the one semantic replenishment path. Rewire moved ordinary wheel
+  motion to the property clock; focused zero-work, retry, nesting, sticky, and
+  divider ratchets prevent the displaced coupling from returning;
+- `OW-RR-6B` — complete trace:
+  `sampled property -> renderer draw -> presentation activation -> presented
+  geometry -> input/hover/popup consumers`. Challenge found consumers reading
+  candidate or commit-time geometry and interaction updates waiting for the
+  input stream to go idle. Admission placed the sampled property on the frame
+  receipt and the activated property on the presentation owner. A
+  refresh-relative presentation pulse services active interaction without
+  minting content truth. Skipped/retry, typing, selection, capture, and popup
+  witnesses ratchet the one receipt-owned promotion;
+- `OW-RR-6C` — complete trace:
+  `layout scrollbar chrome -> Hit::Chrome -> chrome capture`. Challenge proved
+  that row-gesture derivation could reinterpret vertical scrollbar ownership as
+  the underlying virtual row. Admission makes chrome terminal for row/table
+  gestures; Reduce removes the accidental second interpretation. One shared
+  horizontal/vertical path and the no-selection-change witness are the fixed
+  point;
+- `OW-RR-6D` — the real-gallery GPU oracle initially crossed an upward test
+  dependency from layout tests into `render`. Rewire moved the observation to a
+  feature-gated `diagnostics::render` helper consumed by the dedicated
+  `renderer_debug` crate. The main renderer keeps its closed typed boundary,
+  production does not depend on the debug crate, and architecture ratchets
+  reject a demo-app or GPU dependency leak;
+- touched production modules shed stale commit-coordinate expectations and
+  unused pulse state while preserving the sole semantic identity and the
+  structure/value split. The final gauge reports 47 top-level modules, 333
+  production and 113 test-only edges, three split responsibilities, 55
+  provisional slot edges, **zero forbidden edges, zero external-boundary
+  violations, and zero slot SCCs**, 1,989 `pub(crate)` declarations in 195
+  production files with a 1,939 cross-slot bound, 90 cross-slot test edges, 120
+  source-root mentions, 383 filesystem reads, seven allowances, five production
+  panics, and 55 production expects.
+
+Verification freeze, 2026-07-15: `cargo fmt --all --check`,
+`cargo check --workspace --all-targets`, diff hygiene, and the protected
+`comparison_open: true` state passed. The full library tier passed 1,173 tests
+with 11 intentional ignores; all 162 layout/scene and 151 architecture tests
+passed independently. Workspace all-target compilation, all maintained example
+tests, and all four doctests passed. The release deep tier passed all 11 WARP,
+shader, alpha, glyph, popup, material, and text witnesses; the specialized
+release debug tier passed all six semantic-work, ordered-commit, retained-scroll,
+churn, real-gallery oracle, and lifecycle witnesses. All five renderer-receipt
+and ten One-Way parser/admission tests plus the full ownership census passed.
+The release gallery was launched and exercised directly after the final build;
+no external profiler, external machine, person, network service, or returned
+artifact participated.
+
+Checkpoint 6 is independently green. Checkpoint 7 now owns the measured 240 Hz
+deadline misses and the broad interaction-choppiness report while deciding, by
+evidence, whether Qt-class synchronous activation is sufficient or a
+Chromium-class mechanism is admitted.
+
 ## Checkpoint 7 — prove Qt class and decide the ceiling
 
 Repeat the complete Checkpoint 0 matrix with the legacy path still available
@@ -2002,6 +2146,12 @@ proportion to the changed seam, run:
   without warnings;
 - the full library suite and doctests;
 - all maintained example/application smokes;
+- a real release Control Gallery launch-and-interaction smoke after every
+  checkpoint that changes renderer topology, presentation scheduling, or input
+  projection, and after any correction to those paths. The smoke exercises fast
+  and large scrolling, continuous typing/selection feedback, and representative
+  controls while monitoring process survival; code-only tests and offscreen
+  readbacks do not substitute for this runtime-crash and pacing rail;
 - One-Way census parser tests and the full ownership gauge;
 - diff hygiene and protected-state checks;
 - the release deep GPU tier whenever scene, alpha, text, material, shader,

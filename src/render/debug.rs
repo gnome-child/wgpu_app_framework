@@ -19,6 +19,7 @@ pub enum Case {
     SolidPane,
     RoundedClip,
     NestedClip,
+    Scroll,
     GroupOpacity,
     OrderedGroup,
     GlassPane,
@@ -26,7 +27,7 @@ pub enum Case {
 }
 
 impl Case {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Empty,
         Self::SolidQuad,
         Self::GradientQuad,
@@ -40,6 +41,7 @@ impl Case {
         Self::SolidPane,
         Self::RoundedClip,
         Self::NestedClip,
+        Self::Scroll,
         Self::GroupOpacity,
         Self::OrderedGroup,
         Self::GlassPane,
@@ -61,6 +63,7 @@ impl Case {
             Self::SolidPane => "solid-pane",
             Self::RoundedClip => "rounded-clip",
             Self::NestedClip => "nested-clip",
+            Self::Scroll => "scroll",
             Self::GroupOpacity => "group-opacity",
             Self::OrderedGroup => "ordered-group",
             Self::GlassPane => "glass-pane",
@@ -91,6 +94,7 @@ impl Case {
             Self::SolidPane => scene::FixtureCase::SolidPane,
             Self::RoundedClip => scene::FixtureCase::RoundedClip,
             Self::NestedClip => scene::FixtureCase::NestedClip,
+            Self::Scroll => scene::FixtureCase::Scroll,
             Self::GroupOpacity => scene::FixtureCase::GroupOpacity,
             Self::OrderedGroup => scene::FixtureCase::OrderedGroup,
             Self::GlassPane => scene::FixtureCase::GlassPane,
@@ -381,6 +385,13 @@ pub struct PartialUpdateReceipt {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollTickReceipt {
+    initial: Work,
+    tick: Work,
+    unchanged: Work,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChurnReceipt {
     iterations: usize,
     peak_resources: usize,
@@ -433,6 +444,20 @@ impl PartialUpdateReceipt {
 
     pub fn retired(self) -> Work {
         self.retired
+    }
+}
+
+impl ScrollTickReceipt {
+    pub fn initial(self) -> Work {
+        self.initial
+    }
+
+    pub fn tick(self) -> Work {
+        self.tick
+    }
+
+    pub fn unchanged(self) -> Work {
+        self.unchanged
     }
 }
 
@@ -732,6 +757,194 @@ impl Harness {
             recreated: recreated_stats.into(),
             retired: retired_stats.into(),
         })
+    }
+
+    pub fn scroll_tick_receipt(&mut self) -> Result<ScrollTickReceipt, String> {
+        let (commit, initial_properties) = scene::renderer_fixture(scene::FixtureCase::Scroll)
+            .map_err(|error| error.to_string())?;
+        let tick_properties =
+            scene::renderer_scroll_properties(&commit, 24, 2).map_err(|error| error.to_string())?;
+        let expected_scene = commit
+            .compatibility_scene(&tick_properties)
+            .map_err(|error| error.to_string())?;
+        let expected = render::scene::to_paint_scene_at_scale(&expected_scene, self.scale_factor);
+        let commit = std::sync::Arc::new(commit);
+        let (width, height) = self.physical_extent(commit.size());
+
+        let (_, initial_stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &initial_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (tick_pixels, tick_stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &tick_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (unchanged_pixels, unchanged_stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &tick_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected_pixels, _) = render_image(
+            &self.context,
+            &mut self.legacy,
+            &expected,
+            width,
+            height,
+            self.scale_factor,
+        )?;
+        if tick_pixels.as_slice() != expected_pixels.pixels() {
+            let differing = tick_pixels
+                .iter()
+                .zip(expected_pixels.pixels())
+                .enumerate()
+                .filter_map(|(index, (candidate, expected))| {
+                    (candidate != expected).then_some((index, *candidate, *expected))
+                })
+                .collect::<Vec<_>>();
+            let first = differing.first().copied();
+            let last = differing.last().copied();
+            return Err(format!(
+                "retained scroll property tick differs from compatibility oracle: pixels={} first={first:?} last={last:?}",
+                differing.len()
+            ));
+        }
+        if tick_pixels != unchanged_pixels {
+            return Err("unchanged retained scroll property state changed pixels".to_owned());
+        }
+
+        Ok(ScrollTickReceipt {
+            initial: initial_stats.into(),
+            tick: tick_stats.into(),
+            unchanged: unchanged_stats.into(),
+        })
+    }
+
+    pub(crate) fn compare_retained_scroll_transition(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        initial: &scene::Properties,
+        tick: &scene::Properties,
+    ) -> Result<(), String> {
+        let expected_scene = commit
+            .compatibility_scene(tick)
+            .map_err(|error| error.to_string())?;
+        let expected = render::scene::to_paint_scene_at_scale(&expected_scene, self.scale_factor);
+        let (width, height) = self.physical_extent(commit.size());
+
+        let (initial_candidate, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            initial,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let initial_expected_scene = commit
+            .compatibility_scene(initial)
+            .map_err(|error| error.to_string())?;
+        let initial_expected =
+            render::scene::to_paint_scene_at_scale(&initial_expected_scene, self.scale_factor);
+        let (initial_expected, _) = render_image(
+            &self.context,
+            &mut self.legacy,
+            &initial_expected,
+            width,
+            height,
+            self.scale_factor,
+        )?;
+        let (candidate, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            tick,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected, _) = render_image(
+            &self.context,
+            &mut self.legacy,
+            &expected,
+            width,
+            height,
+            self.scale_factor,
+        )?;
+
+        if candidate.as_slice() == expected.pixels()
+            && initial_candidate.as_slice() == initial_expected.pixels()
+        {
+            Ok(())
+        } else {
+            let mut differing = 0_usize;
+            let mut min_x = width;
+            let mut min_y = height;
+            let mut max_x = 0_u32;
+            let mut max_y = 0_u32;
+            let mut maximum_channel_delta = 0.0_f32;
+            let mut over_four_bytes = 0_usize;
+            let mut first = None;
+            let mut last = None;
+            for (index, (candidate, expected)) in
+                candidate.iter().zip(expected.pixels()).enumerate()
+            {
+                if candidate == expected {
+                    continue;
+                }
+                let x = index as u32 % width;
+                let y = index as u32 / width;
+                differing += 1;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+                let delta = candidate
+                    .iter()
+                    .zip(expected)
+                    .map(|(candidate, expected)| (candidate - expected).abs())
+                    .fold(0.0_f32, f32::max);
+                maximum_channel_delta = maximum_channel_delta.max(delta);
+                over_four_bytes += usize::from(delta > 4.0 / 255.0);
+                let sample = (x, y, *candidate, *expected);
+                first.get_or_insert(sample);
+                last = Some(sample);
+            }
+            let initial_differing = initial_candidate
+                .iter()
+                .zip(initial_expected.pixels())
+                .filter(|(candidate, expected)| candidate != expected)
+                .count();
+            let initial_maximum_channel_delta = initial_candidate
+                .iter()
+                .zip(initial_expected.pixels())
+                .flat_map(|(candidate, expected)| candidate.iter().zip(expected))
+                .map(|(candidate, expected)| (candidate - expected).abs())
+                .fold(0.0_f32, f32::max);
+            const FLOATING_BLEND_TOLERANCE: f32 = 4.0 / 255.0;
+            if maximum_channel_delta <= FLOATING_BLEND_TOLERANCE
+                && initial_maximum_channel_delta <= FLOATING_BLEND_TOLERANCE
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "runtime retained scroll transition exceeds the floating-blend oracle tolerance: tolerance={FLOATING_BLEND_TOLERANCE} tick_pixels={differing} tick_max_delta={maximum_channel_delta} tick_over_tolerance={over_four_bytes} initial_pixels={initial_differing} initial_max_delta={initial_maximum_channel_delta} bounds=({min_x},{min_y})-({max_x},{max_y}) first={first:?} last={last:?}"
+                ))
+            }
+        }
     }
 
     pub fn partial_update_receipt(&mut self) -> Result<PartialUpdateReceipt, String> {

@@ -12,6 +12,7 @@ const MAX_VIRTUAL_REFINEMENT_PASSES: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameNeed {
     Idle,
+    Properties,
     Invalidated(response::effect::Invalidation),
 }
 
@@ -27,6 +28,7 @@ struct PreparedFrame {
     capabilities: crate::overlay::Capabilities,
     native_popup_dark: bool,
     overlay_schedule: animation::Schedule,
+    property_only: bool,
 }
 
 struct RealizedFrame {
@@ -45,15 +47,20 @@ impl FrameNeed {
     fn immediate_invalidation(self) -> response::effect::Invalidation {
         match self {
             Self::Idle => response::effect::Invalidation::Paint,
+            Self::Properties => response::effect::Invalidation::Paint,
             Self::Invalidated(invalidation) => invalidation,
         }
     }
 
-    fn pending_invalidation(self) -> Option<response::effect::Invalidation> {
+    fn pending(self) -> Option<Self> {
         match self {
             Self::Idle => None,
-            Self::Invalidated(invalidation) => Some(invalidation),
+            pending => Some(pending),
         }
+    }
+
+    fn property_only(self) -> bool {
+        self == Self::Properties
     }
 }
 
@@ -103,6 +110,7 @@ impl PreparedFrame {
                 self.commit,
                 self.properties,
                 overlay_scene,
+                self.property_only,
             ),
             popup_presentations,
             ime_update: ime::Update::new(self.window, ime_target),
@@ -293,7 +301,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 window_state
                     .invalidation()
                     .map(FrameNeed::Invalidated)
-                    .unwrap_or(FrameNeed::Idle),
+                    .unwrap_or_else(|| {
+                        if window_state.property_tick_requested() {
+                            FrameNeed::Properties
+                        } else {
+                            FrameNeed::Idle
+                        }
+                    }),
             )
         }
     }
@@ -543,6 +557,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 );
                 let layout =
                     self.compose_presentation_layout(window, size, theme, frame, popup_surfaces)?;
+                self.apply_layout_feedback(window, &layout);
                 self.record_layout_diagnostics(window, &layout);
                 self.cache_layout(window, size, theme, popup_surfaces, &layout);
                 return Some(layout);
@@ -554,6 +569,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
         let layout =
             self.compose_presentation_layout(window, size, theme, frame, popup_surfaces)?;
+        self.apply_layout_feedback(window, &layout);
         self.record_layout_diagnostics(window, &layout);
         self.cache_layout(window, size, theme, popup_surfaces, &layout);
         Some(layout)
@@ -609,13 +625,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let mut popup_presentations = Vec::new();
         let mut ime_updates = Vec::new();
 
-        if let Some(invalidation) = self
-            .frame_need(window)
-            .map(FrameNeed::immediate_invalidation)
-        {
+        if let Some(need) = self.frame_need(window) {
             let theme = self.active_theme();
             if let Some(prepared) =
-                self.prepare_pending_frame(window, size, invalidation, &theme, Instant::now())
+                self.prepare_pending_frame(window, size, need, &theme, Instant::now())
             {
                 let realized = prepared.realize();
                 presentations.push(realized.presentation);
@@ -946,12 +959,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
         size: geometry::Size,
-        invalidation: response::effect::Invalidation,
+        need: FrameNeed,
         theme: &crate::theme::Theme,
         now: Instant,
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
         let frame_started_at = Instant::now();
+        let invalidation = need.immediate_invalidation();
+        let property_only = need.property_only();
         let revision = self.revision();
         let rebuilt = invalidation == response::effect::Invalidation::Rebuild;
         let rebuild_started_at = Instant::now();
@@ -971,22 +986,45 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let layout =
             self.layout_for_scene(window, size, theme, frame, invalidation, popup_surfaces)?;
         let layout_elapsed = layout_started_at.elapsed();
-        self.apply_layout_feedback(window, &layout);
         let epoch = self.session.window(window)?.desired_presentation_epoch();
         let assembly_started_at = Instant::now();
         let interaction = self.interaction_projected_for_layout(window, &layout);
-        let visual_update =
-            self.visual_animations
-                .update_window(window, &layout, interaction.as_ref(), theme, now);
         let canvas_color = self.canvas_color(window);
-        let (commit, properties, entries, scene_stats) = self.scene.paint(
-            window,
-            &layout,
-            canvas_color,
-            theme,
-            visual_update.visuals(),
-        );
-        let visual_schedule = visual_update.schedule();
+        let (commit, properties, entries, scene_stats, visual_schedule) = if property_only {
+            let (commit, properties, entries, scene_stats) =
+                self.scene
+                    .tick_properties(window, &layout, interaction.as_ref())?;
+            (
+                commit,
+                properties,
+                entries,
+                scene_stats,
+                animation::Schedule::Idle,
+            )
+        } else {
+            let visual_update = self.visual_animations.update_window(
+                window,
+                &layout,
+                interaction.as_ref(),
+                theme,
+                now,
+            );
+            let (commit, properties, entries, scene_stats) = self.scene.paint(
+                window,
+                &layout,
+                canvas_color,
+                theme,
+                visual_update.visuals(),
+                interaction.as_ref(),
+            );
+            (
+                commit,
+                properties,
+                entries,
+                scene_stats,
+                visual_update.schedule(),
+            )
+        };
         let overlay_update =
             self.overlays
                 .update_window(window, entries, theme.overlay(), capabilities, now);
@@ -1039,6 +1077,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             capabilities,
             native_popup_dark: theme.variant() == crate::theme::Variant::Dark,
             overlay_schedule,
+            property_only,
         })
     }
 
@@ -1046,18 +1085,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
         size: geometry::Size,
-        invalidation: response::effect::Invalidation,
+        need: FrameNeed,
         theme: &crate::theme::Theme,
         now: Instant,
     ) -> Option<PreparedFrame> {
-        self.prepare_frame(
-            window,
-            size,
-            invalidation,
-            theme,
-            now,
-            self.overlay_capabilities,
-        )
+        self.prepare_frame(window, size, need, theme, now, self.overlay_capabilities)
     }
 
     pub fn render_scene(
@@ -1080,6 +1112,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
+            presentation.properties(),
+            presentation.property_only(),
             crate::diagnostics::RenderReport::new(
                 std::time::Duration::ZERO,
                 std::time::Duration::ZERO,
@@ -1116,6 +1150,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
+            presentation.properties(),
+            presentation.property_only(),
             crate::diagnostics::RenderReport::new(
                 std::time::Duration::ZERO,
                 std::time::Duration::ZERO,
@@ -1131,12 +1167,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
         now: Instant,
     ) -> Option<scene::Presentation> {
-        let invalidation = self.frame_need(window)?.immediate_invalidation();
+        let need = self.frame_need(window)?;
         let theme = self.active_theme();
         let prepared = self.prepare_frame(
             window,
             size,
-            invalidation,
+            need,
             &theme,
             now,
             crate::overlay::Capabilities::in_frame_only(),
@@ -1158,6 +1194,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
+            presentation.properties(),
+            presentation.property_only(),
             crate::diagnostics::RenderReport::new(
                 std::time::Duration::ZERO,
                 std::time::Duration::ZERO,
@@ -1180,8 +1218,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .windows()
             .iter()
             .filter_map(|window| {
-                let invalidation = self.frame_need(window.id())?.pending_invalidation()?;
-                Some((window.id(), invalidation))
+                let need = self.frame_need(window.id())?.pending()?;
+                Some((window.id(), need))
             })
             .collect::<Vec<_>>();
         let mut rendered = Vec::with_capacity(windows.len());
@@ -1190,9 +1228,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let theme = self.active_theme();
         let now = Instant::now();
 
-        for (window, invalidation) in windows {
+        for (window, need) in windows {
             let Some(prepared) =
-                self.prepare_pending_frame(window, size_for(window), invalidation, &theme, now)
+                self.prepare_pending_frame(window, size_for(window), need, &theme, now)
             else {
                 continue;
             };
@@ -1224,8 +1262,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         point: geometry::Point,
         surface: crate::popup::Surface,
     ) -> Option<layout::Hit> {
-        let layout = self.presented_layout(window)?;
-        layout.hit_test_on_surface(point, surface)
+        self.presented_geometry
+            .get(&window)?
+            .hit_test_on_surface(point, surface)
     }
 }
 

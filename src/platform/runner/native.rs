@@ -80,6 +80,8 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
 
         self.events
             .retain_windows(|window| windows.contains(&window));
+        self.pulse_satisfied_redraws
+            .retain(|window| windows.contains(window));
 
         for window in windows {
             if let Some(scale_factor) = self.platform.backend().scale_factor(window) {
@@ -98,9 +100,62 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
 
         self.dispatch_pending_tasks();
 
+        if let Err(error) = self.present_due_interaction_frame(event_loop) {
+            self.fail(event_loop, error);
+            return;
+        }
+
         if !self.exit_if_finished(event_loop) {
             self.sync_control_flow(event_loop);
         }
+    }
+
+    fn present_due_interaction_frame(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<(), Error<NativeError>> {
+        let pending = self
+            .platform
+            .host()
+            .shell()
+            .runtime()
+            .session()
+            .windows()
+            .iter()
+            .filter(|window| window.redraw_requested())
+            .map(crate::session::Window::id)
+            .collect::<Vec<_>>();
+        if pending.is_empty() {
+            return Ok(());
+        }
+
+        let refresh_millihertz = pending
+            .iter()
+            .filter_map(|window| self.platform.backend().display_refresh_millihertz(*window))
+            .max();
+        let now = Instant::now();
+        let due = self.presentation_pulse.is_due(now, refresh_millihertz);
+        if !due {
+            return Ok(());
+        }
+
+        let mut context = super::super::NativeContext::new(event_loop);
+        self.platform.drain_with(&mut context)?;
+        self.presentation_pulse.mark_presented(Instant::now());
+        for window in pending {
+            let still_pending = self
+                .platform
+                .host()
+                .shell()
+                .runtime()
+                .session()
+                .window(window)
+                .is_some_and(crate::session::Window::redraw_requested);
+            if !still_pending {
+                self.pulse_satisfied_redraws.insert(window);
+            }
+        }
+        Ok(())
     }
 
     fn dispatch_pending_tasks(&mut self) {
@@ -183,6 +238,7 @@ mod tests {
 
     use super::control_flow;
     use crate::animation::Schedule;
+    use crate::platform::runner::PresentationPulse;
 
     #[test]
     fn event_loop_projection_preserves_every_schedule_outcome() {
@@ -196,6 +252,18 @@ mod tests {
         );
         assert_eq!(control_flow(Schedule::At(now), now), ControlFlow::Poll);
         assert_eq!(control_flow(Schedule::NextFrame, now), ControlFlow::Poll);
+    }
+
+    #[test]
+    fn presentation_pulse_is_refresh_relative_and_never_waits_for_first_frame() {
+        let mut pulse = PresentationPulse::default();
+        let now = Instant::now();
+
+        assert!(pulse.is_due(now, Some(60_000)));
+        pulse.mark_presented(now);
+        assert!(!pulse.is_due(now + Duration::from_millis(8), Some(60_000)));
+        assert!(pulse.is_due(now + Duration::from_millis(17), Some(60_000)));
+        assert!(pulse.is_due(now + Duration::from_millis(7), Some(144_000)));
     }
 }
 

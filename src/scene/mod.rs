@@ -11,10 +11,12 @@ pub use crate::color::Color;
 pub(crate) use commit::{Builder as CommitBuilder, Commit, Node, Properties};
 pub(crate) use commit::{
     Content, Draw, EffectDeclaration, GeometryRevision, OpacityDeclaration, PropertyKind,
-    PropertyRef, PropertySerial, PropertyValue, TopologyRevision,
+    PropertyRef, PropertySerial, PropertyValue, ScrollDeclaration, TopologyRevision,
 };
 #[cfg(feature = "renderer-debug")]
-pub(crate) use commit::{FixtureCase, renderer_fixture, renderer_partial_update_fixture};
+pub(crate) use commit::{
+    FixtureCase, renderer_fixture, renderer_partial_update_fixture, renderer_scroll_properties,
+};
 pub(crate) use material::GlassBase;
 pub use material::{
     BackdropBlur, BackdropEdgeMode, BackdropLayer, Glass, Luminosity, Material, Noise, Refraction,

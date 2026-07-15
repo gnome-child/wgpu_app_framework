@@ -6,7 +6,7 @@ use super::{
     view,
 };
 use crate::animation;
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 mod algorithm;
 mod chrome;
@@ -50,8 +50,78 @@ pub(crate) struct Layout {
     frames: Vec<Frame>,
     chrome: Vec<Chrome>,
     table_tracks: Vec<table::Track>,
+    scroll_ancestries: HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
+    scroll_projections: Vec<ScrollProjection>,
     virtual_list_requests: Vec<crate::virtual_list::Request>,
-    native_popup_surfaces: HashSet<interaction::Id>,
+    native_popup_owners: HashMap<composition::tree::NodeId, interaction::Id>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScrollProjection {
+    node: composition::tree::NodeId,
+    target: interaction::Target,
+    viewport: Viewport,
+    layer_bounds: Rect,
+}
+
+impl ScrollProjection {
+    pub(crate) fn node(&self) -> composition::tree::NodeId {
+        self.node
+    }
+
+    pub(crate) fn target(&self) -> &interaction::Target {
+        &self.target
+    }
+
+    pub(crate) fn viewport(&self) -> Viewport {
+        self.viewport
+    }
+
+    pub(crate) fn layer_bounds(&self) -> Rect {
+        self.layer_bounds
+    }
+}
+
+fn union_rect(left: Rect, right: Rect) -> Rect {
+    let x = left.x().min(right.x());
+    let y = left.y().min(right.y());
+    Rect::new(
+        x,
+        y,
+        left.right().max(right.right()).saturating_sub(x),
+        left.bottom().max(right.bottom()).saturating_sub(y),
+    )
+}
+
+fn intersect_rect(left: Rect, right: Rect) -> Option<Rect> {
+    let x = left.x().max(right.x());
+    let y = left.y().max(right.y());
+    let right_edge = left.right().min(right.right());
+    let bottom_edge = left.bottom().min(right.bottom());
+    (right_edge > x && bottom_edge > y).then(|| {
+        Rect::new(
+            x,
+            y,
+            right_edge.saturating_sub(x),
+            bottom_edge.saturating_sub(y),
+        )
+    })
+}
+
+fn translate_rect(rect: Rect, dx: i32, dy: i32) -> Rect {
+    Rect::new(
+        rect.x().saturating_add(dx),
+        rect.y().saturating_add(dy),
+        rect.width(),
+        rect.height(),
+    )
+}
+
+fn contains_rect(outer: Rect, inner: Rect) -> bool {
+    outer.x() <= inner.x()
+        && outer.y() <= inner.y()
+        && outer.right() >= inner.right()
+        && outer.bottom() >= inner.bottom()
 }
 
 impl Layout {
@@ -135,16 +205,33 @@ impl Layout {
             algorithm::compose_frames(view.root(), root, size, engine, theme, frame, keymap);
         let chrome = chrome::project(&frames, theme);
         let table_tracks = table::project(&frames);
+        let scroll_ancestries = project_scroll_ancestries(&frames);
+        let scroll_projections =
+            project_scroll_projections(&frames, &table_tracks, &scroll_ancestries);
         let virtual_list_requests = frames
             .iter()
             .filter_map(Frame::virtual_list_request)
             .cloned()
             .collect();
-        let native_popup_surfaces = match popup_surfaces {
-            PopupSurfaces::InFrame => HashSet::new(),
-            PopupSurfaces::Native => root_floating_panels(&frames)
-                .filter_map(|panel| panel.target()?.element_id())
-                .collect(),
+        let native_popup_owners = match popup_surfaces {
+            PopupSurfaces::InFrame => HashMap::new(),
+            PopupSurfaces::Native => {
+                let panels = root_floating_panels(&frames)
+                    .filter_map(|panel| Some((panel.target()?.element_id()?, panel)))
+                    .collect::<Vec<_>>();
+                frames
+                    .iter()
+                    .filter_map(|frame| {
+                        panels
+                            .iter()
+                            .filter(|(_, panel)| {
+                                frame.node_id() == panel.node_id() || frame.is_descendant_of(panel)
+                            })
+                            .max_by_key(|(_, panel)| panel.path_depth())
+                            .map(|(id, _)| (frame.node_id(), *id))
+                    })
+                    .collect()
+            }
         };
 
         Self {
@@ -152,8 +239,10 @@ impl Layout {
             frames,
             chrome,
             table_tracks,
+            scroll_ancestries,
+            scroll_projections,
             virtual_list_requests,
-            native_popup_surfaces,
+            native_popup_owners,
         }
     }
 
@@ -174,6 +263,43 @@ impl Layout {
 
     pub(crate) fn frame_for_node(&self, node: composition::tree::NodeId) -> Option<&Frame> {
         self.frames.iter().find(|frame| frame.node_id() == node)
+    }
+
+    pub(crate) fn scroll_projections(&self) -> &[ScrollProjection] {
+        &self.scroll_projections
+    }
+
+    pub(crate) fn scroll_ancestry(
+        &self,
+        node: composition::tree::NodeId,
+    ) -> &[composition::tree::NodeId] {
+        self.scroll_ancestries
+            .get(&node)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub(crate) fn scroll_property_accepts(
+        &self,
+        target: &interaction::Target,
+        offset: interaction::ScrollOffset,
+    ) -> bool {
+        let Some(projection) = self
+            .scroll_projections()
+            .iter()
+            .find(|projection| &projection.target == target)
+        else {
+            return false;
+        };
+        let resolved = projection.viewport.resolve(offset);
+        if resolved != offset {
+            return false;
+        }
+        let baseline = projection.viewport.resolved_scroll();
+        let dx = baseline.x().saturating_sub(resolved.x());
+        let dy = baseline.y().saturating_sub(resolved.y());
+        let bounds = translate_rect(projection.layer_bounds, dx, dy);
+        contains_rect(bounds, projection.viewport.visible_content())
     }
 
     pub(crate) fn frame_for_focus(&self, focus: session::Focus) -> Option<&Frame> {
@@ -254,17 +380,28 @@ impl Layout {
         point: Point,
         surface: crate::popup::Surface,
     ) -> Option<Hit> {
+        self.hit_test_on_surface_projected(point, surface, &|_, point| Some((point, [0, 0])))
+    }
+
+    pub(crate) fn hit_test_on_surface_projected(
+        &self,
+        point: Point,
+        surface: crate::popup::Surface,
+        project: &impl Fn(composition::tree::NodeId, Point) -> Option<(Point, [i32; 2])>,
+    ) -> Option<Hit> {
         let table_cell = self
             .frames
             .iter()
             .rev()
-            .find(|frame| {
-                self.surface_accepts_frame(surface, frame)
+            .find_map(|frame| {
+                let (point, _) = project(frame.node_id(), point)?;
+                (self.surface_accepts_frame(surface, frame)
                     && frame.table_cell().is_some()
                     && frame.rect().contains(point)
-                    && frame.clip_contains(point)
+                    && frame.clip_contains(point))
+                .then(|| frame.table_cell())
             })
-            .and_then(Frame::table_cell);
+            .flatten();
         if let Some((owner, chrome)) = self
             .chrome
             .iter()
@@ -280,40 +417,48 @@ impl Layout {
             return Some(Hit::chrome(owner.clone(), chrome.clone()).with_table_cell(table_cell));
         }
 
-        if let Some(track) = self
-            .table_tracks
-            .iter()
-            .rev()
-            .find(|track| track.accepts_resize_hit(point))
-        {
+        if let Some((track, translation)) = self.table_tracks.iter().rev().find_map(|track| {
+            let (point, translation) = project(track.owner_node(), point)?;
+            track
+                .accepts_resize_hit(point)
+                .then_some((track, translation))
+        }) {
             let header = self.frames.iter().find(|frame| {
                 Some(frame.node_id()) == track.header_node()
                     && self.surface_accepts_frame(surface, frame)
             })?;
             return Some(
                 Hit::table_divider(header.clone(), track.divider_target()?)
+                    .with_translation(translation)
                     .with_table_cell(table_cell),
             );
         }
 
-        if let Some((frame, target)) = self.frames.iter().rev().find_map(|frame| {
+        if let Some((frame, target, translation)) = self.frames.iter().rev().find_map(|frame| {
+            let (point, translation) = project(frame.node_id(), point)?;
             (self.surface_accepts_frame(surface, frame)
                 && frame
                     .input_indicator_rect()
                     .is_some_and(|rect| rect.contains(point))
                 && frame.clip_contains(point))
-            .then(|| Some((frame, frame.input_indicator_target()?)))
+            .then(|| Some((frame, frame.input_indicator_target()?, translation)))
             .flatten()
         }) {
-            return Some(Hit::indicator(frame.clone(), target).with_table_cell(table_cell));
+            return Some(
+                Hit::indicator(frame.clone(), target)
+                    .with_translation(translation)
+                    .with_table_cell(table_cell),
+            );
         }
 
         self.frames
             .iter()
             .rev()
-            .find(|frame| self.surface_accepts_frame(surface, frame) && frame.accepts_hit(point))
-            .cloned()
-            .map(Hit::new)
+            .find_map(|frame| {
+                let (point, translation) = project(frame.node_id(), point)?;
+                (self.surface_accepts_frame(surface, frame) && frame.accepts_hit(point))
+                    .then(|| Hit::new(frame.clone()).with_translation(translation))
+            })
             .map(|hit| hit.with_table_cell(table_cell))
     }
 
@@ -324,15 +469,28 @@ impl Layout {
         self.context_node_at_surface(point, crate::popup::Surface::Parent)
     }
 
+    #[cfg(test)]
     pub(crate) fn context_node_at_surface(
         &self,
         point: Point,
         surface: crate::popup::Surface,
     ) -> Option<composition::tree::NodeId> {
+        self.context_node_at_surface_projected(point, surface, &|_, point| Some(point))
+    }
+
+    pub(crate) fn context_node_at_surface_projected(
+        &self,
+        point: Point,
+        surface: crate::popup::Surface,
+        project: &impl Fn(composition::tree::NodeId, Point) -> Option<Point>,
+    ) -> Option<composition::tree::NodeId> {
         self.frames
             .iter()
             .rev()
             .find(|frame| {
+                let Some(point) = project(frame.node_id(), point) else {
+                    return false;
+                };
                 self.surface_accepts_frame(surface, frame)
                     && frame.rect().contains(point)
                     && frame.clip_contains(point)
@@ -353,11 +511,12 @@ impl Layout {
         )
     }
 
-    pub(crate) fn drag_action_for_target(
+    pub(crate) fn drag_action_for_target_projected(
         &self,
         target: &interaction::Target,
         point: Point,
         engine: &mut Engine,
+        project: &impl Fn(composition::tree::NodeId, Point) -> Option<Point>,
     ) -> Option<(view::Role, Option<view::Action>)> {
         if let Some(chrome) = self.chrome.iter().find(|chrome| chrome.target() == target) {
             return Some((
@@ -374,6 +533,7 @@ impl Layout {
             .iter()
             .find(|track| track.divider_target().as_ref() == Some(target))
         {
+            let point = project(track.owner_node(), point)?;
             return Some((view::Role::Label, track.resize_action_at(point)));
         }
 
@@ -381,9 +541,10 @@ impl Layout {
             .iter()
             .find(|frame| frame.target() == Some(target))
             .map(|frame| {
+                let point = project(frame.node_id(), point);
                 (
                     frame.role(),
-                    frame.drag_action_at_with_engine(point, engine),
+                    point.and_then(|point| frame.drag_action_at_with_engine(point, engine)),
                 )
             })
     }
@@ -397,21 +558,44 @@ impl Layout {
         self.scroll_target_at_surface(point, delta, crate::popup::Surface::Parent)
     }
 
+    #[cfg(test)]
     pub(crate) fn scroll_target_at_surface(
         &self,
         point: Point,
         delta: interaction::ScrollDelta,
         surface: crate::popup::Surface,
     ) -> Option<interaction::Target> {
+        self.scroll_target_at_surface_projected(
+            point,
+            delta,
+            surface,
+            &|_, point| Some(point),
+            &|_, viewport| viewport.resolved_scroll(),
+        )
+    }
+
+    pub(crate) fn scroll_target_at_surface_projected(
+        &self,
+        point: Point,
+        delta: interaction::ScrollDelta,
+        surface: crate::popup::Surface,
+        project: &impl Fn(composition::tree::NodeId, Point) -> Option<Point>,
+        offset: &impl Fn(&interaction::Target, Viewport) -> interaction::ScrollOffset,
+    ) -> Option<interaction::Target> {
         self.frames
             .iter()
             .rev()
             .find(|frame| {
+                let Some(point) = project(frame.node_id(), point) else {
+                    return false;
+                };
                 self.surface_accepts_frame(surface, frame)
                     && frame.viewport().is_some_and(|viewport| {
                         viewport.rect().contains(point)
                             && frame.clip_contains(point)
-                            && viewport.can_consume(delta)
+                            && frame.target().is_some_and(|target| {
+                                viewport.can_consume_from(offset(target, viewport), delta)
+                            })
                     })
             })
             .and_then(Frame::target)
@@ -427,20 +611,7 @@ impl Layout {
     }
 
     fn native_popup_owner(&self, frame: &Frame) -> Option<interaction::Id> {
-        self.frames
-            .iter()
-            .filter(|candidate| candidate.role() == view::Role::FloatingPanel)
-            .filter_map(|candidate| {
-                let id = candidate.target()?.element_id()?;
-                self.native_popup_surfaces
-                    .contains(&id)
-                    .then_some((id, candidate))
-            })
-            .filter(|(_, candidate)| {
-                candidate.node_id() == frame.node_id() || frame.is_descendant_of(candidate)
-            })
-            .max_by_key(|(_, candidate)| candidate.path_depth())
-            .map(|(id, _)| id)
+        self.native_popup_owners.get(&frame.node_id()).copied()
     }
 
     pub(crate) fn reveal_offset_for_descendant(
@@ -469,6 +640,112 @@ impl Layout {
             .filter(|frame| frame.role() == role)
             .collect()
     }
+}
+
+fn project_scroll_ancestries(
+    frames: &[Frame],
+) -> HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>> {
+    let by_node = frames
+        .iter()
+        .map(|frame| (frame.node_id(), frame))
+        .collect::<HashMap<_, _>>();
+    frames
+        .iter()
+        .map(|frame| {
+            let mut ancestry = Vec::new();
+            let mut parent = frame.parent();
+            while let Some(id) = parent {
+                let Some(frame) = by_node.get(&id) else {
+                    break;
+                };
+                if frame.property_scroll_viewport().is_some() {
+                    ancestry.push(id);
+                }
+                parent = frame.parent();
+            }
+            ancestry.reverse();
+            (frame.node_id(), ancestry)
+        })
+        .collect()
+}
+
+fn project_scroll_projections(
+    frames: &[Frame],
+    table_tracks: &[table::Track],
+    scroll_ancestries: &HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
+) -> Vec<ScrollProjection> {
+    frames
+        .iter()
+        .filter_map(|frame| {
+            let viewport = frame.property_scroll_viewport()?;
+            let target = frame.target()?.clone();
+            let node = frame.node_id();
+            Some(ScrollProjection {
+                node,
+                target,
+                viewport,
+                layer_bounds: scroll_layer_bounds(
+                    frames,
+                    table_tracks,
+                    scroll_ancestries,
+                    node,
+                    viewport,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn scroll_layer_bounds(
+    frames: &[Frame],
+    table_tracks: &[table::Track],
+    scroll_ancestries: &HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
+    owner: composition::tree::NodeId,
+    viewport: Viewport,
+) -> Rect {
+    let nearest_scroll = |node| {
+        scroll_ancestries
+            .get(&node)
+            .and_then(|ancestry| ancestry.last())
+            .copied()
+    };
+    let mut bounds = None;
+    for frame in frames
+        .iter()
+        .filter(|frame| frame.node_id() != owner && nearest_scroll(frame.node_id()) == Some(owner))
+    {
+        bounds = Some(union_rect(
+            bounds.unwrap_or_else(|| frame.rect()),
+            frame.rect(),
+        ));
+    }
+    for track in table_tracks
+        .iter()
+        .filter(|track| nearest_scroll(track.owner_node()) == Some(owner))
+    {
+        bounds = Some(union_rect(
+            bounds.unwrap_or_else(|| track.rule_rect()),
+            track.rule_rect(),
+        ));
+    }
+
+    let visible = viewport.visible_content();
+    let max = viewport.max_scroll();
+    let guard_x = (max.x() > 0)
+        .then(|| visible.width().saturating_div(2))
+        .unwrap_or(0);
+    let guard_y = (max.y() > 0)
+        .then(|| visible.height().saturating_div(2))
+        .unwrap_or(0);
+    let guard = Rect::new(
+        visible.x().saturating_sub(guard_x),
+        visible.y().saturating_sub(guard_y),
+        visible.width().saturating_add(guard_x.saturating_mul(2)),
+        visible.height().saturating_add(guard_y.saturating_mul(2)),
+    );
+    let realized = bounds.map_or(visible, |bounds| union_rect(bounds, visible));
+
+    intersect_rect(realized, guard).unwrap_or(visible)
 }
 
 fn root_floating_panels(frames: &[Frame]) -> impl Iterator<Item = &Frame> {

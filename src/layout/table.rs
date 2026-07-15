@@ -34,6 +34,7 @@ pub(crate) struct Track {
     clip: Option<Clip>,
     floating_layer: bool,
     table_node: composition::tree::NodeId,
+    owner_node: composition::tree::NodeId,
 }
 
 #[derive(Clone, PartialEq)]
@@ -81,6 +82,7 @@ impl Track {
             clip: header.clip(),
             floating_layer: table.is_floating_layer(),
             table_node: table.node_id(),
+            owner_node: header.node_id(),
         })
     }
 
@@ -97,6 +99,7 @@ impl Track {
             clip: row.clip(),
             floating_layer: table.is_floating_layer(),
             table_node: table.node_id(),
+            owner_node: row.node_id(),
         }
     }
 
@@ -126,6 +129,10 @@ impl Track {
 
     pub(crate) fn table_node(&self) -> composition::tree::NodeId {
         self.table_node
+    }
+
+    pub(crate) fn owner_node(&self) -> composition::tree::NodeId {
+        self.owner_node
     }
 
     pub(crate) fn header_node(&self) -> Option<composition::tree::NodeId> {

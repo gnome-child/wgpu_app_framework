@@ -320,6 +320,15 @@ impl Native {
         self.windows.get(&window).map(Window::scale_factor)
     }
 
+    pub(in crate::platform) fn display_refresh_millihertz(
+        &self,
+        window: app_window::Id,
+    ) -> Option<u32> {
+        self.windows
+            .get(&window)
+            .and_then(Window::display_refresh_millihertz)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.windows.is_empty()
     }

@@ -58,6 +58,7 @@ impl Composition {
                 .project_layout_interaction_retained(interaction, &tree);
         }
         self.view.project_focus_retained(focus, &tree);
+        self.tree.project_scene_state(&self.view, &mut self.changes);
     }
 
     pub(crate) fn tree(&self) -> &Tree {

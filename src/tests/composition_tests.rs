@@ -2,6 +2,51 @@ use super::*;
 use crate::composition::{Tree, tree};
 
 #[test]
+fn transient_text_projection_advances_the_existing_nodes_content_revision() {
+    let focus = session::Focus::text("projected.text");
+    let window = window::Id::new(1);
+    let authored = || {
+        View::new(view::Node::root().child(view::Node::text_box_state(
+            view::TextBox::new("").with_focus(focus),
+        )))
+    };
+    let mut store = composition::Store::default();
+    store.install(window, authored());
+    let installed = store.install(window, authored());
+    assert!(installed.changes().is_empty());
+    let text = installed.tree().root().children()[0].node_id();
+    let initial = installed.tree().node(text).unwrap().content_revision();
+    let mut interaction = interaction::Interaction::new(8);
+    let target = focus
+        .text_target()
+        .expect("text focus should identify its draft target");
+    assert!(interaction.activate_text_draft(target, "q"));
+
+    let installed = store
+        .get_mut(window)
+        .expect("the installed composition should remain available");
+    installed.project_transient_state(Some(&interaction), Some(focus));
+    let projected = installed.tree().node(text).unwrap().content_revision();
+
+    assert_eq!(projected.get(), initial.get() + 1);
+    assert_eq!(installed.changes().changed(), &[text]);
+
+    installed.project_transient_state(Some(&interaction), Some(focus));
+    assert_eq!(
+        installed.tree().node(text).unwrap().content_revision(),
+        projected,
+        "an unchanged transient projection must not mint another revision"
+    );
+
+    let installed = store.install(window, authored());
+    assert_eq!(
+        installed.tree().node(text).unwrap().content_revision(),
+        projected,
+        "rebuilding the same authored view must not erase or re-mint projected state"
+    );
+}
+
+#[test]
 fn explicit_ids_preserve_node_ids_across_sibling_movement() {
     let mut store = composition::Store::default();
     let window = window::Id::new(1);

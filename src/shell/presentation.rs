@@ -12,6 +12,7 @@ pub struct Presentation {
     commit: Arc<scene::Commit>,
     properties: scene::Properties,
     overlays: scene::Scene,
+    property_only: bool,
 }
 
 impl Presentation {
@@ -26,6 +27,7 @@ impl Presentation {
             commit: Arc::clone(presentation.commit()),
             properties: presentation.properties().clone(),
             overlays: presentation.overlays().clone(),
+            property_only: presentation.property_only(),
         }
     }
 
@@ -63,6 +65,10 @@ impl Presentation {
 
     pub(crate) fn properties(&self) -> &scene::Properties {
         &self.properties
+    }
+
+    pub(crate) fn property_only(&self) -> bool {
+        self.property_only
     }
 
     pub(crate) fn overlays(&self) -> &scene::Scene {

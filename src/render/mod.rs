@@ -137,6 +137,16 @@ pub enum Error {
 
     #[error("retained scene properties do not belong to the supplied commit")]
     RetainedSceneContract,
+
+    #[error(
+        "retained {kind} layer physical size {width}x{height} exceeds the device 2D texture limit {limit}"
+    )]
+    RetainedLayerLimit {
+        kind: &'static str,
+        width: u32,
+        height: u32,
+        limit: u32,
+    },
 }
 
 #[cfg(test)]

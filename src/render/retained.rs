@@ -14,8 +14,8 @@ use crate::{composition, scene};
 use super::{
     self as render, batch,
     renderer::{
-        PreparedClip, PreparedGroup, PreparedPane, RenderBatch, ShapeBatch as EncodedShapeBatch,
-        TextBatch,
+        PreparedClip, PreparedGroup, PreparedPane, PreparedScroll, RenderBatch,
+        ShapeBatch as EncodedShapeBatch, TextBatch,
     },
 };
 
@@ -266,6 +266,7 @@ impl std::hash::Hash for TargetSpace {
 struct PropertyBinding {
     node: composition::tree::NodeId,
     space: TargetSpace,
+    composited_scroll: bool,
 }
 
 pub(in crate::render) struct Prepared {
@@ -325,8 +326,10 @@ impl Realizer {
                 viewport,
                 shapes: &mut self.shapes,
                 text_renderer,
+                commit: Arc::downgrade(commit),
                 rebuilt_nodes: HashSet::new(),
                 property_bindings: Vec::new(),
+                composited_scroll_depth: 0,
                 stats: render::DrawStats::default(),
             };
             let built = builder.build(commit)?;
@@ -386,9 +389,17 @@ struct PlanBuilder<'a> {
     viewport: render::Viewport,
     shapes: &'a mut Shapes,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
+    commit: Weak<scene::Commit>,
     rebuilt_nodes: HashSet<composition::tree::NodeId>,
     property_bindings: Vec<PropertyBinding>,
+    composited_scroll_depth: usize,
     stats: render::DrawStats,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlanStop {
+    Group,
+    Scroll,
 }
 
 impl PlanBuilder<'_> {
@@ -397,14 +408,18 @@ impl PlanBuilder<'_> {
         node: composition::tree::NodeId,
         space: TargetSpace,
     ) -> PropertyBinding {
-        let binding = PropertyBinding { node, space };
+        let binding = PropertyBinding {
+            node,
+            space,
+            composited_scroll: self.composited_scroll_depth > 0,
+        };
         if !self.property_bindings.contains(&binding) {
             self.property_bindings.push(binding);
         }
         binding
     }
 
-    fn build(&mut self, commit: &scene::Commit) -> render::Result<Plan> {
+    fn build(&mut self, commit: &Arc<scene::Commit>) -> render::Result<Plan> {
         let nodes = commit
             .nodes()
             .iter()
@@ -428,7 +443,7 @@ impl PlanBuilder<'_> {
         };
         if let Some(order) = commit.order() {
             let mut index = 0;
-            self.build_order(order, &mut index, false, &nodes, main, &mut batches)?;
+            self.build_order(order, &mut index, None, &nodes, main, &mut batches)?;
         } else {
             for node in commit.nodes().iter().filter(|node| node.parent().is_none()) {
                 self.build_node(commit, node, main, &mut batches)?;
@@ -448,12 +463,13 @@ impl PlanBuilder<'_> {
         &mut self,
         order: &[scene::Draw],
         index: &mut usize,
-        stop_at_group_end: bool,
+        stop: Option<PlanStop>,
         nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
         space: TargetSpace,
         target: &mut Vec<RenderBatch>,
     ) -> render::Result<()> {
         while let Some(draw) = order.get(*index) {
+            let order_index = *index;
             *index = index.saturating_add(1);
             match draw {
                 scene::Draw::Content { node, index } => {
@@ -500,7 +516,14 @@ impl PlanBuilder<'_> {
                         size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
                     };
                     let mut members = Vec::new();
-                    self.build_order(order, index, true, nodes, group_space, &mut members)?;
+                    self.build_order(
+                        order,
+                        index,
+                        Some(PlanStop::Group),
+                        nodes,
+                        group_space,
+                        &mut members,
+                    )?;
                     self.stats.scene_items += 1;
                     self.stats.group_composites += 1;
                     self.stats.effect_island_nodes += 1;
@@ -511,8 +534,51 @@ impl PlanBuilder<'_> {
                         render_batches: members,
                     }));
                 }
-                scene::Draw::PopGroup if stop_at_group_end => return Ok(()),
+                scene::Draw::PushScroll { node } => {
+                    let Some(declaration) = nodes.get(node).and_then(|node| node.scroll()) else {
+                        continue;
+                    };
+                    let viewport = render::scene::to_paint_rect_value_at_scale(
+                        declaration.viewport(),
+                        self.viewport.scale_factor(),
+                    );
+                    let layer_bounds = render::scene::to_paint_rect_value_at_scale(
+                        declaration.layer_bounds(),
+                        self.viewport.scale_factor(),
+                    );
+                    let scroll_space = TargetSpace {
+                        origin: [layer_bounds.origin.x(), layer_bounds.origin.y()],
+                        size: [
+                            layer_bounds.area.width().max(1.0),
+                            layer_bounds.area.height().max(1.0),
+                        ],
+                    };
+                    let mut members = Vec::new();
+                    self.composited_scroll_depth = self.composited_scroll_depth.saturating_add(1);
+                    self.build_order(
+                        order,
+                        index,
+                        Some(PlanStop::Scroll),
+                        nodes,
+                        scroll_space,
+                        &mut members,
+                    )?;
+                    self.composited_scroll_depth = self.composited_scroll_depth.saturating_sub(1);
+                    self.stats.scene_items += 1;
+                    target.push(RenderBatch::Scroll(PreparedScroll {
+                        commit: self.commit.clone(),
+                        node: *node,
+                        scope: order_index,
+                        viewport: local_rect(viewport, space.origin),
+                        layer_bounds: local_rect(layer_bounds, space.origin),
+                        baseline: declaration.baseline(),
+                        render_batches: members,
+                    }));
+                }
+                scene::Draw::PopGroup if stop == Some(PlanStop::Group) => return Ok(()),
                 scene::Draw::PopGroup => {}
+                scene::Draw::PopScroll if stop == Some(PlanStop::Scroll) => return Ok(()),
+                scene::Draw::PopScroll => {}
             }
         }
         Ok(())
@@ -551,6 +617,7 @@ impl PlanBuilder<'_> {
                     }
                 }
                 scene::Draw::PopGroup => break,
+                scene::Draw::PushScroll { .. } | scene::Draw::PopScroll => {}
             }
         }
         crate::paint::group_from_items(
@@ -991,6 +1058,7 @@ fn count_batches(batches: &[RenderBatch]) -> usize {
         .iter()
         .map(|batch| match batch {
             RenderBatch::Group(group) => 1 + count_batches(&group.render_batches),
+            RenderBatch::Scroll(scroll) => 1 + count_batches(&scroll.render_batches),
             _ => 1,
         })
         .sum()
@@ -1001,6 +1069,8 @@ fn coalesce_shape_batches(batches: &mut Vec<RenderBatch>) {
     for mut batch in batches.drain(..) {
         if let RenderBatch::Group(group) = &mut batch {
             coalesce_shape_batches(&mut group.render_batches);
+        } else if let RenderBatch::Scroll(scroll) = &mut batch {
+            coalesce_shape_batches(&mut scroll.render_batches);
         }
         let merged = match (coalesced.last_mut(), &batch) {
             (
@@ -1020,6 +1090,14 @@ fn local_group_bounds(
     mut bounds: crate::paint::Rect,
     parent_origin: [f32; 2],
 ) -> crate::paint::Rect {
+    bounds.origin = crate::geometry::point::logical(
+        bounds.origin.x() - parent_origin[0],
+        bounds.origin.y() - parent_origin[1],
+    );
+    bounds
+}
+
+fn local_rect(mut bounds: crate::paint::Rect, parent_origin: [f32; 2]) -> crate::paint::Rect {
     bounds.origin = crate::geometry::point::logical(
         bounds.origin.x() - parent_origin[0],
         bounds.origin.y() - parent_origin[1],
@@ -1361,10 +1439,12 @@ impl Shapes {
             };
 
             let mut property = NodeProperty::IDENTITY;
-            property.scroll = inherited_scroll
-                .get(&node.id())
-                .copied()
-                .unwrap_or_default();
+            if !binding.composited_scroll {
+                property.scroll = inherited_scroll
+                    .get(&node.id())
+                    .copied()
+                    .unwrap_or_default();
+            }
             property.grid[0] = viewport.scale_factor();
             property.scene_origin = binding.space.origin;
             property.target_size = binding.space.size;
@@ -1553,6 +1633,7 @@ mod tests {
                 origin: [0.0, 0.0],
                 size: [100.0, 80.0],
             },
+            composited_scroll: false,
         }
     }
 

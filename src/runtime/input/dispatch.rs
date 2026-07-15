@@ -113,24 +113,45 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::Scroll { target, delta } => {
-                let scrolled = self.session.scroll_by(window, target, delta);
+                let scrolled = self.session.scroll_by(window, target.clone(), delta);
                 let effect = if scrolled {
-                    response::Effect::Layout
+                    let offset = self
+                        .session
+                        .interaction(window)
+                        .map(|interaction| interaction.scroll().offset(&target))
+                        .unwrap_or_default();
+                    if self
+                        .presented_layout(window)
+                        .is_some_and(|layout| layout.scroll_property_accepts(&target, offset))
+                    {
+                        self.session.request_property_tick(window);
+                        response::Effect::None
+                    } else {
+                        response::Effect::Layout
+                    }
                 } else {
                     response::Effect::None
                 };
-                self.record_scroll_input(window, scrolled, &effect);
+                self.record_scroll_input(window, scrolled, scrolled);
 
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::ScrollTo { target, offset } => {
-                let scrolled = self.session.resolve_scroll(window, target, offset);
+                let scrolled = self.session.resolve_scroll(window, target.clone(), offset);
                 let effect = if scrolled {
-                    response::Effect::Layout
+                    if self
+                        .presented_layout(window)
+                        .is_some_and(|layout| layout.scroll_property_accepts(&target, offset))
+                    {
+                        self.session.request_property_tick(window);
+                        response::Effect::None
+                    } else {
+                        response::Effect::Layout
+                    }
                 } else {
                     response::Effect::None
                 };
-                self.record_scroll_input(window, scrolled, &effect);
+                self.record_scroll_input(window, scrolled, scrolled);
 
                 Ok(self.window_outcome(window, false, effect))
             }

@@ -1,6 +1,8 @@
 use super::super::{composition, geometry::Rect, interaction, theme};
 use super::{Frame, Viewport, frame::Clip};
 
+use interaction::ScrollbarAxis as Axis;
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Chrome {
     owner: composition::tree::NodeId,
@@ -15,16 +17,11 @@ struct ViewportScope {
     clips: Vec<Clip>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Axis {
-    Horizontal,
-    Vertical,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Scrollbar {
     axis: Axis,
     track: Rect,
+    interaction_track: Rect,
     thumb: Rect,
     viewport: Viewport,
 }
@@ -54,7 +51,7 @@ impl Chrome {
     }
 
     pub(crate) fn accepts_hit(&self, point: super::super::geometry::Point) -> bool {
-        self.scope.contains(point) && self.scrollbar.track.contains(point)
+        self.scope.contains(point) && self.scrollbar.interaction_track.contains(point)
     }
 
     pub(crate) fn scroll_offset_at(
@@ -84,6 +81,11 @@ impl Chrome {
     #[cfg(test)]
     pub(crate) fn track(&self) -> Rect {
         self.scrollbar.track
+    }
+
+    #[cfg(test)]
+    pub(crate) fn interaction_track(&self) -> Rect {
+        self.scrollbar.interaction_track
     }
 }
 
@@ -185,6 +187,7 @@ fn scrollbar_target(frame: &Frame, axis: Axis) -> interaction::Target {
     interaction::Target::scrollbar_node(
         frame.node_id(),
         frame.target().and_then(interaction::Target::element_id),
+        axis,
         label,
     )
 }
@@ -231,6 +234,11 @@ fn scrollbar_for_axis(viewport: Viewport, theme: &theme::Theme, axis: Axis) -> O
     Some(Scrollbar {
         axis,
         track,
+        interaction_track: resize_cross_axis(
+            track,
+            axis,
+            scrollbar.appearance.hover_thickness.max(thickness).max(1),
+        ),
         thumb,
         viewport,
     })

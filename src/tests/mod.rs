@@ -849,6 +849,8 @@ where
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
+            presentation.properties(),
+            presentation.property_only(),
             diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
         );
     }

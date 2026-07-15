@@ -11,6 +11,9 @@ pub use crate::render::RendererEnvironment;
 pub use frame::Frame;
 pub use pipeline::Pipeline;
 pub use render::Render;
+#[cfg(feature = "renderer-debug")]
+#[doc(hidden)]
+pub use render::compare_control_gallery_property_tick;
 pub use scroll::Scroll;
 
 pub(crate) use store::Store;

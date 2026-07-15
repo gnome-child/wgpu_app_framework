@@ -911,6 +911,27 @@ impl Frame {
         }
     }
 
+    pub(crate) fn property_scroll_viewport(&self) -> Option<Viewport> {
+        match &self.content {
+            FrameContent::Scroll(ScrollContent::Ordinary { viewport }) => *viewport,
+            FrameContent::Scroll(ScrollContent::Table { resolved }) => {
+                resolved.as_ref().map(|resolved| resolved.viewport)
+            }
+            FrameContent::VirtualList(content) => {
+                content.geometry.as_ref().map(|geometry| geometry.viewport)
+            }
+            FrameContent::Structural(_)
+            | FrameContent::Menu
+            | FrameContent::Binding
+            | FrameContent::Separator(_)
+            | FrameContent::Text(_)
+            | FrameContent::Button(_)
+            | FrameContent::Choice(_)
+            | FrameContent::Slider(_)
+            | FrameContent::FloatingPanel(_) => None,
+        }
+    }
+
     pub(crate) fn virtual_list_request(&self) -> Option<&crate::virtual_list::Request> {
         match &self.content {
             FrameContent::VirtualList(content) => {

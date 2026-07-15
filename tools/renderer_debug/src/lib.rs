@@ -201,6 +201,32 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
+    fn retained_scroll_tick_is_pixel_exact_and_reuses_all_content_work() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let receipt = harness
+            .scroll_tick_receipt()
+            .expect("retained scroll property tick should render");
+
+        assert!(receipt.initial().scene_node_realization_rebuilds() > 0);
+        assert_zero_content_work(receipt.tick());
+        assert_eq!(receipt.tick().render_plan_reuses(), 1);
+        assert!(receipt.tick().property_upload_bytes() > 0);
+        assert_zero_content_work(receipt.unchanged());
+        assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
+        assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn control_gallery_property_tick_is_blend_equivalent_offscreen() {
+        pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_property_tick(
+            1.0,
+        ))
+        .expect("the production gallery property tick must match its compatibility oracle");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
     fn retained_gpu_high_water_settles_after_commit_churn() {
         let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
         let receipt = harness
