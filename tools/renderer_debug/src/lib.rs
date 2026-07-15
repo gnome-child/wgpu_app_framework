@@ -208,12 +208,35 @@ mod tests {
             .expect("retained scroll property tick should render");
 
         assert!(receipt.initial().scene_node_realization_rebuilds() > 0);
+        assert!(receipt.initial().scroll_layer_cache_misses() > 0);
         assert_zero_content_work(receipt.tick());
         assert_eq!(receipt.tick().render_plan_reuses(), 1);
-        assert!(receipt.tick().property_upload_bytes() > 0);
+        assert_eq!(receipt.tick().property_upload_bytes(), 0);
+        assert!(receipt.tick().scroll_layer_cache_hits() > 0);
+        assert_eq!(receipt.tick().scroll_layer_cache_misses(), 0);
         assert_zero_content_work(receipt.unchanged());
         assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
         assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
+        assert!(receipt.unchanged().scroll_layer_cache_hits() > 0);
+        assert_eq!(receipt.unchanged().scroll_layer_cache_misses(), 0);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn unrelated_semantic_commit_reuses_retained_scroll_subtree() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let receipt = harness
+            .scroll_unrelated_semantic_receipt()
+            .expect("an unrelated semantic commit should preserve the retained scroll subtree");
+
+        assert!(receipt.initial().scroll_layer_cache_misses() > 0);
+        assert!(receipt.changed().scroll_layer_cache_hits() > 0);
+        assert_eq!(receipt.changed().scroll_layer_cache_misses(), 0);
+        assert_eq!(receipt.changed().property_upload_bytes(), 0);
+        assert!(receipt.changed().draw_calls() < receipt.initial().draw_calls());
+        assert!(receipt.unchanged().scroll_layer_cache_hits() > 0);
+        assert_eq!(receipt.unchanged().scroll_layer_cache_misses(), 0);
+        assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
     }
 
     #[test]

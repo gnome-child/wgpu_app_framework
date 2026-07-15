@@ -240,6 +240,91 @@ struct PlanEntry {
     plan: Arc<Plan>,
 }
 
+#[derive(Clone)]
+pub(in crate::render) struct ScrollLayerRevision {
+    nodes: Arc<[ScrollNodeRevision]>,
+    order: Arc<[scene::Draw]>,
+    owners: Arc<[Weak<scene::Node>]>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ScrollNodeRevision {
+    id: composition::tree::NodeId,
+    content: composition::tree::ContentRevision,
+    geometry: scene::GeometryRevision,
+    topology: scene::TopologyRevision,
+}
+
+impl ScrollLayerRevision {
+    fn from_order(
+        order: &[scene::Draw],
+        nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
+    ) -> Self {
+        let mut seen = HashSet::new();
+        let ids = order.iter().filter_map(|draw| match draw {
+            scene::Draw::Content { node, .. }
+            | scene::Draw::PushGroup { node, .. }
+            | scene::Draw::PushScroll { node } => Some(*node),
+            scene::Draw::PushClip {
+                node: Some(node), ..
+            } => Some(*node),
+            scene::Draw::PushClip { node: None, .. }
+            | scene::Draw::PopClip
+            | scene::Draw::PopGroup
+            | scene::Draw::PopScroll => None,
+        });
+        let owners = ids
+            .filter(|id| seen.insert(*id))
+            .filter_map(|id| nodes.get(&id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let revisions = owners
+            .iter()
+            .map(|node| ScrollNodeRevision {
+                id: node.id(),
+                content: node.content_revision(),
+                geometry: node.geometry_revision(),
+                topology: node.topology_revision(),
+            })
+            .collect::<Vec<_>>();
+        let owners = owners.iter().map(Arc::downgrade).collect::<Vec<_>>();
+        Self {
+            nodes: revisions.into(),
+            order: order.to_vec().into(),
+            owners: owners.into(),
+        }
+    }
+
+    pub(in crate::render) fn matches(&self, other: &Self) -> bool {
+        self.nodes == other.nodes && self.order == other.order
+    }
+
+    pub(in crate::render) fn is_alive(&self) -> bool {
+        !self.owners.is_empty() && self.owners.iter().all(|owner| owner.strong_count() > 0)
+    }
+
+    pub(in crate::render) fn property_values(
+        &self,
+        properties: &scene::Properties,
+    ) -> Box<[scene::PropertyValue]> {
+        const RASTER_PROPERTIES: [scene::PropertyKind; 4] = [
+            scene::PropertyKind::Transform,
+            scene::PropertyKind::Opacity,
+            scene::PropertyKind::Clip,
+            scene::PropertyKind::Blur,
+        ];
+        self.nodes
+            .iter()
+            .flat_map(|revision| {
+                RASTER_PROPERTIES.into_iter().filter_map(move |kind| {
+                    properties.value(scene::PropertyRef::new(revision.id, kind))
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct TargetSpace {
     origin: [f32; 2],
@@ -326,7 +411,6 @@ impl Realizer {
                 viewport,
                 shapes: &mut self.shapes,
                 text_renderer,
-                commit: Arc::downgrade(commit),
                 rebuilt_nodes: HashSet::new(),
                 property_bindings: Vec::new(),
                 composited_scroll_depth: 0,
@@ -389,7 +473,6 @@ struct PlanBuilder<'a> {
     viewport: render::Viewport,
     shapes: &'a mut Shapes,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
-    commit: Weak<scene::Commit>,
     rebuilt_nodes: HashSet<composition::tree::NodeId>,
     property_bindings: Vec<PropertyBinding>,
     composited_scroll_depth: usize,
@@ -564,11 +647,12 @@ impl PlanBuilder<'_> {
                         &mut members,
                     )?;
                     self.composited_scroll_depth = self.composited_scroll_depth.saturating_sub(1);
+                    let revision =
+                        ScrollLayerRevision::from_order(&order[order_index..*index], nodes);
                     self.stats.scene_items += 1;
                     target.push(RenderBatch::Scroll(PreparedScroll {
-                        commit: self.commit.clone(),
                         node: *node,
-                        scope: order_index,
+                        revision,
                         viewport: local_rect(viewport, space.origin),
                         layer_bounds: local_rect(layer_bounds, space.origin),
                         baseline: declaration.baseline(),
@@ -1145,6 +1229,7 @@ pub(in crate::render) struct Shapes {
     last_property_serial: Option<scene::PropertySerial>,
     last_property_bindings: Vec<PropertyBinding>,
     last_property_viewport: [u32; 3],
+    last_property_bytes: Vec<u8>,
 }
 
 impl Shapes {
@@ -1260,6 +1345,7 @@ impl Shapes {
             last_property_serial: None,
             last_property_bindings: Vec::new(),
             last_property_viewport: [0; 3],
+            last_property_bytes: Vec::new(),
         }
     }
 
@@ -1398,19 +1484,21 @@ impl Shapes {
             return (PropertyBindings { offsets }, stats);
         }
 
-        let viewport_uniform = ViewportUniform {
-            size: [
-                viewport.logical_area().width().max(1.0),
-                viewport.logical_area().height().max(1.0),
-            ],
-            padding: [0.0, 0.0],
-        };
-        render_context.queue().write_buffer(
-            &self.viewport_buffer,
-            0,
-            bytemuck::bytes_of(&viewport_uniform),
-        );
-        stats.property_upload_bytes += std::mem::size_of::<ViewportUniform>();
+        if buffer_recreated || self.last_property_viewport != viewport_key {
+            let viewport_uniform = ViewportUniform {
+                size: [
+                    viewport.logical_area().width().max(1.0),
+                    viewport.logical_area().height().max(1.0),
+                ],
+                padding: [0.0, 0.0],
+            };
+            render_context.queue().write_buffer(
+                &self.viewport_buffer,
+                0,
+                bytemuck::bytes_of(&viewport_uniform),
+            );
+            stats.property_upload_bytes += std::mem::size_of::<ViewportUniform>();
+        }
 
         let mut bytes = vec![0_u8; required * self.property_stride];
         let mut inherited_scroll = HashMap::with_capacity(commit.nodes().len());
@@ -1460,10 +1548,13 @@ impl Shapes {
             bytes[offset..offset + std::mem::size_of::<NodeProperty>()]
                 .copy_from_slice(bytemuck::bytes_of(&property));
         }
-        render_context
-            .queue()
-            .write_buffer(&self.property_buffer, 0, &bytes);
-        stats.property_upload_bytes += bytes.len();
+        if buffer_recreated || self.last_property_bytes != bytes {
+            render_context
+                .queue()
+                .write_buffer(&self.property_buffer, 0, &bytes);
+            stats.property_upload_bytes += bytes.len();
+            self.last_property_bytes = bytes;
+        }
 
         self.last_property_commit = Arc::downgrade(commit);
         self.last_property_serial = Some(properties.serial());
@@ -1674,5 +1765,52 @@ mod tests {
         coalesce_shape_batches(&mut batches);
 
         assert_eq!(batches.len(), 3);
+    }
+
+    #[test]
+    fn scroll_layer_revision_borrows_only_its_ordered_subtree() {
+        let mut next = 10;
+        let scroll_id = composition::tree::NodeId::layout(&mut next);
+        let item_id = composition::tree::NodeId::layout(&mut next);
+        let outside_id = composition::tree::NodeId::layout(&mut next);
+        let bounds = crate::geometry::Rect::new(0, 0, 100, 80);
+        let scroll = Arc::new(scene::Node::new(scroll_id, None, bounds, Vec::new()));
+        let item = Arc::new(scene::Node::new(
+            item_id,
+            Some(scroll_id),
+            bounds,
+            Vec::new(),
+        ));
+        let outside = Arc::new(scene::Node::new(outside_id, None, bounds, Vec::new()));
+        let nodes = [
+            (scroll_id, Arc::clone(&scroll)),
+            (item_id, Arc::clone(&item)),
+            (outside_id, Arc::clone(&outside)),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let order = vec![
+            scene::Draw::PushScroll { node: scroll_id },
+            scene::Draw::Content {
+                node: item_id,
+                index: 0,
+            },
+            scene::Draw::PopScroll,
+        ];
+
+        let revision = ScrollLayerRevision::from_order(&order, &nodes);
+        let same = ScrollLayerRevision::from_order(&order, &nodes);
+        let mut changed_order = order.clone();
+        changed_order.insert(1, scene::Draw::PopClip);
+        let changed = ScrollLayerRevision::from_order(&changed_order, &nodes);
+
+        assert!(revision.matches(&same));
+        assert!(!revision.matches(&changed));
+        assert!(revision.is_alive());
+
+        drop(nodes);
+        drop(scroll);
+        drop(item);
+        assert!(!revision.is_alive());
     }
 }

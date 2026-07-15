@@ -884,10 +884,6 @@ impl PropertyRef {
     pub(crate) const fn new(node: composition::tree::NodeId, kind: PropertyKind) -> Self {
         Self { node, kind }
     }
-
-    pub(crate) const fn kind(self) -> PropertyKind {
-        self.kind
-    }
 }
 
 impl Properties {
@@ -1559,6 +1555,24 @@ pub(crate) fn renderer_scroll_properties(
             PropertyRef::new(inner, PropertyKind::ScrollOffset),
         ],
     )
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_scroll_semantic_pair()
+-> Result<((Commit, Properties), (Commit, Properties)), ContractError> {
+    let (initial, initial_properties) = renderer_scroll_fixture()?;
+    let mut changed_nodes = initial.nodes.clone();
+    changed_nodes[0] = Arc::new(changed_nodes[0].as_ref().clone().with_content_revision(2));
+    let changed = Commit::from_parts(
+        Revision::renderer_fixture(2),
+        initial.size,
+        initial.clear,
+        changed_nodes,
+        initial.order.clone(),
+        initial.material_regions.clone(),
+    )?;
+    let changed_properties = renderer_scroll_properties(&changed, 12, 2)?;
+    Ok(((initial, initial_properties), (changed, changed_properties)))
 }
 
 #[cfg(feature = "renderer-debug")]

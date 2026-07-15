@@ -16,6 +16,7 @@ pub(crate) use commit::{
 #[cfg(feature = "renderer-debug")]
 pub(crate) use commit::{
     FixtureCase, renderer_fixture, renderer_partial_update_fixture, renderer_scroll_properties,
+    renderer_scroll_semantic_pair,
 };
 pub(crate) use material::GlassBase;
 pub use material::{

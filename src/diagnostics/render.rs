@@ -32,8 +32,14 @@ pub struct Render {
     pub replenishment_commits: usize,
     pub frames_attempted: usize,
     pub frames_presented: usize,
+    pub property_frames_attempted: usize,
+    pub property_frames_presented: usize,
+    pub semantic_frames_attempted: usize,
+    pub semantic_frames_presented: usize,
     pub missed_refresh_opportunities: usize,
     pub renderer_deadline_misses: usize,
+    pub property_renderer_deadline_misses: usize,
+    pub semantic_renderer_deadline_misses: usize,
     pub scene_items: usize,
     pub render_batches: usize,
     pub glyph_batches: usize,
@@ -88,6 +94,10 @@ pub struct Render {
     pub pipeline_changes_total: usize,
     pub bind_group_changes: usize,
     pub bind_group_changes_total: usize,
+    pub scroll_layer_cache_hits: usize,
+    pub scroll_layer_cache_hits_total: usize,
+    pub scroll_layer_cache_misses: usize,
+    pub scroll_layer_cache_misses_total: usize,
     pub clip_batches: usize,
     pub opaque_nodes: usize,
     pub blended_nodes: usize,
@@ -131,6 +141,12 @@ pub struct Render {
     batch_prepare: Samples,
     encode_submit_present: Samples,
     draw: Samples,
+    property_batch_prepare: Samples,
+    property_encode_submit_present: Samples,
+    property_draw: Samples,
+    semantic_batch_prepare: Samples,
+    semantic_encode_submit_present: Samples,
+    semantic_draw: Samples,
     key_to_present: Samples,
     replenishment_commit: Samples,
     pending_inputs: VecDeque<InputSample>,
@@ -200,9 +216,15 @@ impl Render {
     pub(crate) fn record_present(
         &mut self,
         epoch: crate::window::PresentationEpoch,
+        property_only: bool,
         report: RenderReport,
     ) {
         self.frames_attempted += 1;
+        if property_only {
+            self.property_frames_attempted += 1;
+        } else {
+            self.semantic_frames_attempted += 1;
+        }
         if let Some(environment) = report.environment.clone() {
             self.environment = Some(environment);
         }
@@ -268,6 +290,10 @@ impl Render {
         self.pipeline_changes_total += report.draw_stats.pipeline_changes;
         self.bind_group_changes = report.draw_stats.bind_group_changes;
         self.bind_group_changes_total += report.draw_stats.bind_group_changes;
+        self.scroll_layer_cache_hits = report.draw_stats.scroll_layer_cache_hits;
+        self.scroll_layer_cache_hits_total += report.draw_stats.scroll_layer_cache_hits;
+        self.scroll_layer_cache_misses = report.draw_stats.scroll_layer_cache_misses;
+        self.scroll_layer_cache_misses_total += report.draw_stats.scroll_layer_cache_misses;
         self.clip_batches = report.draw_stats.clip_batches;
         self.opaque_nodes = report.draw_stats.opaque_nodes;
         self.blended_nodes = report.draw_stats.blended_nodes;
@@ -330,12 +356,34 @@ impl Render {
         self.encode_submit_present
             .record(duration_micros(report.encode_submit_present));
         self.draw.record(duration_micros(report.draw));
+        let (batch_prepare, encode_submit_present, draw) = if property_only {
+            (
+                &mut self.property_batch_prepare,
+                &mut self.property_encode_submit_present,
+                &mut self.property_draw,
+            )
+        } else {
+            (
+                &mut self.semantic_batch_prepare,
+                &mut self.semantic_encode_submit_present,
+                &mut self.semantic_draw,
+            )
+        };
+        batch_prepare.record(duration_micros(report.batch_prepare));
+        encode_submit_present.record(duration_micros(report.encode_submit_present));
+        draw.record(duration_micros(report.draw));
         if let Some(refresh) = self
             .environment
             .as_ref()
             .and_then(|environment| environment.display_refresh_millihertz)
         {
-            self.renderer_deadline_misses += missed_refresh_opportunities(report.draw, refresh);
+            let misses = missed_refresh_opportunities(report.draw, refresh);
+            self.renderer_deadline_misses += misses;
+            if property_only {
+                self.property_renderer_deadline_misses += misses;
+            } else {
+                self.semantic_renderer_deadline_misses += misses;
+            }
         }
 
         if !report.presented {
@@ -343,6 +391,11 @@ impl Render {
         }
 
         self.frames_presented += 1;
+        if property_only {
+            self.property_frames_presented += 1;
+        } else {
+            self.semantic_frames_presented += 1;
+        }
         if let Some(previous) = self.last_presented_at {
             let interval = report.presented_at.saturating_duration_since(previous);
             self.intervals.record(duration_micros(interval));
@@ -563,6 +616,26 @@ impl Render {
         let _ = writeln!(receipt, "frames_skipped={}", self.frames_skipped());
         let _ = writeln!(
             receipt,
+            "property_frames_attempted={}",
+            self.property_frames_attempted
+        );
+        let _ = writeln!(
+            receipt,
+            "property_frames_presented={}",
+            self.property_frames_presented
+        );
+        let _ = writeln!(
+            receipt,
+            "semantic_frames_attempted={}",
+            self.semantic_frames_attempted
+        );
+        let _ = writeln!(
+            receipt,
+            "semantic_frames_presented={}",
+            self.semantic_frames_presented
+        );
+        let _ = writeln!(
+            receipt,
             "missed_refresh_opportunities={}",
             self.missed_refresh_opportunities
         );
@@ -570,6 +643,16 @@ impl Render {
             receipt,
             "renderer_deadline_misses={}",
             self.renderer_deadline_misses
+        );
+        let _ = writeln!(
+            receipt,
+            "property_renderer_deadline_misses={}",
+            self.property_renderer_deadline_misses
+        );
+        let _ = writeln!(
+            receipt,
+            "semantic_renderer_deadline_misses={}",
+            self.semantic_renderer_deadline_misses
         );
         let _ = writeln!(
             receipt,
@@ -639,6 +722,28 @@ impl Render {
             &self.encode_submit_present,
         );
         write_distribution(&mut receipt, "draw_us", &self.draw);
+        write_distribution(
+            &mut receipt,
+            "property_batch_prepare_us",
+            &self.property_batch_prepare,
+        );
+        write_distribution(
+            &mut receipt,
+            "property_encode_submit_present_us",
+            &self.property_encode_submit_present,
+        );
+        write_distribution(&mut receipt, "property_draw_us", &self.property_draw);
+        write_distribution(
+            &mut receipt,
+            "semantic_batch_prepare_us",
+            &self.semantic_batch_prepare,
+        );
+        write_distribution(
+            &mut receipt,
+            "semantic_encode_submit_present_us",
+            &self.semantic_encode_submit_present,
+        );
+        write_distribution(&mut receipt, "semantic_draw_us", &self.semantic_draw);
         write_distribution(&mut receipt, "key_to_present_us", &self.key_to_present);
         write_distribution(
             &mut receipt,
@@ -775,6 +880,26 @@ impl Render {
             receipt,
             "bind_group_changes_total={}",
             self.bind_group_changes_total
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_layer_cache_hits_latest={}",
+            self.scroll_layer_cache_hits
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_layer_cache_hits_total={}",
+            self.scroll_layer_cache_hits_total
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_layer_cache_misses_latest={}",
+            self.scroll_layer_cache_misses
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_layer_cache_misses_total={}",
+            self.scroll_layer_cache_misses_total
         );
         let _ = writeln!(
             receipt,
@@ -952,8 +1077,14 @@ impl Default for Render {
             replenishment_commits: 0,
             frames_attempted: 0,
             frames_presented: 0,
+            property_frames_attempted: 0,
+            property_frames_presented: 0,
+            semantic_frames_attempted: 0,
+            semantic_frames_presented: 0,
             missed_refresh_opportunities: 0,
             renderer_deadline_misses: 0,
+            property_renderer_deadline_misses: 0,
+            semantic_renderer_deadline_misses: 0,
             scene_items: 0,
             render_batches: 0,
             glyph_batches: 0,
@@ -1008,6 +1139,10 @@ impl Default for Render {
             pipeline_changes_total: 0,
             bind_group_changes: 0,
             bind_group_changes_total: 0,
+            scroll_layer_cache_hits: 0,
+            scroll_layer_cache_hits_total: 0,
+            scroll_layer_cache_misses: 0,
+            scroll_layer_cache_misses_total: 0,
             clip_batches: 0,
             opaque_nodes: 0,
             blended_nodes: 0,
@@ -1051,6 +1186,12 @@ impl Default for Render {
             batch_prepare: Samples::default(),
             encode_submit_present: Samples::default(),
             draw: Samples::default(),
+            property_batch_prepare: Samples::default(),
+            property_encode_submit_present: Samples::default(),
+            property_draw: Samples::default(),
+            semantic_batch_prepare: Samples::default(),
+            semantic_encode_submit_present: Samples::default(),
+            semantic_draw: Samples::default(),
             key_to_present: Samples::default(),
             replenishment_commit: Samples::default(),
             pending_inputs: VecDeque::new(),
@@ -1186,6 +1327,8 @@ mod tests {
             "frame_interval_us_p99=0",
             "frame_interval_us_max=0",
             "command_preparation_us_p95=0",
+            "property_draw_us_p95=0",
+            "semantic_draw_us_p95=0",
             "replenishment_commit_us_p95=0",
             "geometry_upload_bytes_total=0",
             "content_upload_bytes_total=0",
@@ -1222,6 +1365,7 @@ mod tests {
 
         render.record_present(
             initial,
+            false,
             RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
@@ -1233,6 +1377,7 @@ mod tests {
 
         render.record_present(
             changed,
+            false,
             RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
@@ -1249,6 +1394,7 @@ mod tests {
 
         render.record_present(
             PresentationEpoch::initial(),
+            false,
             RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
@@ -1272,6 +1418,7 @@ mod tests {
 
         render.record_present(
             epoch,
+            true,
             RenderReport::new(
                 Duration::from_micros(5),
                 Duration::from_micros(10),
@@ -1282,7 +1429,50 @@ mod tests {
 
         assert_eq!(render.frames_attempted, 1);
         assert_eq!(render.frames_presented, 0);
+        assert_eq!(render.property_frames_attempted, 1);
+        assert_eq!(render.property_frames_presented, 0);
         assert_eq!(render.pending_key_to_present_samples(), 1);
         assert_eq!(render.key_to_present_p95_us(), 0);
+    }
+
+    #[test]
+    fn property_and_semantic_pipeline_timings_stay_disjoint() {
+        let mut render = Render::default();
+        let epoch = PresentationEpoch::initial();
+
+        render.record_present(
+            epoch,
+            true,
+            RenderReport::new(
+                Duration::from_micros(1),
+                Duration::from_micros(3),
+                Instant::now(),
+            )
+            .with_pipeline_timings(Duration::from_micros(1), Duration::from_micros(2)),
+        );
+        render.record_present(
+            epoch.next(),
+            false,
+            RenderReport::new(
+                Duration::from_micros(1),
+                Duration::from_micros(7),
+                Instant::now(),
+            )
+            .with_pipeline_timings(Duration::from_micros(4), Duration::from_micros(3)),
+        );
+
+        let receipt = render.receipt_text("split-timing");
+        for field in [
+            "property_frames_presented=1",
+            "semantic_frames_presented=1",
+            "property_batch_prepare_us_p95=1",
+            "property_encode_submit_present_us_p95=2",
+            "property_draw_us_p95=3",
+            "semantic_batch_prepare_us_p95=4",
+            "semantic_encode_submit_present_us_p95=3",
+            "semantic_draw_us_p95=7",
+        ] {
+            assert!(receipt.contains(field), "missing split field {field}");
+        }
     }
 }

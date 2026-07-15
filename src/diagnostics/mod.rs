@@ -45,6 +45,36 @@ impl Diagnostics {
             "scene_assembly_p95_us={}",
             self.pipeline.scene_assembly_p95_us()
         );
+        let _ = writeln!(
+            receipt,
+            "native_translation_p95_us={}",
+            self.pipeline.native_translation_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "event_handling_p95_us={}",
+            self.pipeline.event_handling_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "native_event_pass_p95_us={}",
+            self.pipeline.native_event_pass_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "view_rebuild_p95_us={}",
+            self.pipeline.view_rebuild_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "composition_reconciliation_p95_us={}",
+            self.pipeline.composition_reconciliation_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "presentation_layout_p95_us={}",
+            self.pipeline.presentation_layout_p95_us()
+        );
         let _ = writeln!(receipt, "full_redraws={}", self.frame.full_redraws);
         let _ = writeln!(receipt, "view_rebuilds={}", self.frame.view_rebuilds);
         let _ = writeln!(
@@ -108,6 +138,8 @@ mod tests {
 
         for field in [
             "scene_assembly_p95_us=0",
+            "event_handling_p95_us=0",
+            "presentation_layout_p95_us=0",
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",
             "text_area_render_surface_calls=0",

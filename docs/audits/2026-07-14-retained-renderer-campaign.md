@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–6 complete, Checkpoint 7 in progress**. One-Way
+Status: **in flight; Checkpoints 0–7 complete, Checkpoint 8 in progress**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -599,8 +599,8 @@ At each checkpoint boundary:
 | 4. Retain GPU realization | Complete | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
 | 5. Make render work semantic | Complete | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
 | 6. Make scroll a property tick | Complete | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
-| 7. Prove Qt class and decide the ceiling | In progress | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
-| 8. Optional Chromium-class upgrade | Gated by Checkpoint 7 | If admitted: active remains drawable while pending prepares; atomic activation and deadline independence proved |
+| 7. Prove Qt class and decide the ceiling | Complete | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
+| 8. Optional Chromium-class upgrade | In progress; admitted by Checkpoint 7 | Active remains drawable while pending prepares; atomic activation and deadline independence proved |
 | 9. Burn down the old species | Pending | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
 | 10. Close out and teach master design | Pending | Full matrix green, instrumented acceptance, One-Way fixed point, roadmap/design synchronized, sole renderer proved |
 
@@ -2027,6 +2027,113 @@ admitted because Chromium has one. Damage is not admitted because a retained
 renderer exists. If Qt-class meets the pinned product thresholds, rejecting
 all heavier mechanisms is a successful deletion-shaped verdict, not unfinished
 work.
+
+### Checkpoint 7 evidence ledger — complete
+
+Owner split and causal correction, 2026-07-15:
+
+- attempted/presented frames now classify property-only and semantic work
+  independently. Batch preparation, encode/submit/present, complete renderer
+  draw, and refresh-relative deadline misses carry the same classification.
+  The existing upstream phase distributions for native translation, event
+  handling, the complete native event pass, view rebuild, composition
+  reconciliation, presentation layout, and scene assembly are emitted beside
+  them. No profiler or external machine was required to assign the owner;
+- the admitted property witness is
+  `target/release/examples/renderer-receipts/control-gallery-500px-in-window-scroll-cp7-split-1784100266289.txt`.
+  Its 52 property frames report batch-prepare p95 0.273 ms,
+  encode/submit/present p95 1.219 ms, complete draw p95 1.533 ms, and **zero
+  property renderer deadline misses** on the 4.167 ms development refresh.
+  The three aggregate misses belong exclusively to 16 semantic setup frames;
+  they are not relabeled as scroll misses. The Checkpoint 6 receipt and the
+  literal-zero/runtime/readback witnesses remain the admitted clean workload
+  proof because the current native automation bridge cannot reproduce small
+  wheel deltas at a requested cursor coordinate reliably;
+- the matching guard witness is
+  `target/release/examples/renderer-receipts/control-gallery-800px-guard-boundary-cp7-split-1784100277718.txt`.
+  Sixteen guard crossings produced 91 semantic frames and 32 renderer deadline
+  misses. Semantic batch preparation p95 is 6.059 ms,
+  encode/submit/present p95 is 3.392 ms, complete draw p95 is 9.418 ms, and the
+  complete native event pass reaches 20.965 ms, including 9.107 ms of
+  presentation layout. Replenishment itself remains bounded at 6.490 ms,
+  inside the Qt-class 16.667 ms synchronous ceiling, but a 240 Hz active state
+  is not independently drawable while that semantic work completes;
+- the broad interaction-choppiness report exposed one additional whole-commit
+  coupling. `CachedScrollLayer` was keyed by the enclosing commit pointer, so
+  typing, selection, sliders, and any unrelated semantic change discarded and
+  rerasterized the million-row table layer. The cache now borrows the exact
+  ordered subtree identity/revision currencies and samples only that subtree's
+  raster-affecting transform, opacity, clip, and blur values. Scroll remains a
+  composited parameter and does not invalidate its content texture. A new
+  dedicated GPU witness changes an outside node, proves exact pixels, records
+  retained-layer hits with zero misses, and proves fewer draws;
+- the same audit found the retained shape-property buffer using the enclosing
+  commit pointer as an upload key. It now compares the realized bytes. A
+  semantic commit with identical property realization uploads zero property
+  bytes; a scroll tick also uploads zero unchanged shape-property bytes while
+  remaining pixel exact. No duplicate invalidation authority was introduced;
+- the post-correction live receipt is
+  `target/release/examples/renderer-receipts/control-gallery-typing-selection-cp7-final-1784101498259.txt`.
+  Forty-eight continuous typing/selection semantic frames record zero property
+  upload, 182 scroll-layer cache hits, 52 draws on the latest frame, renderer
+  p95 4.116 ms, and key-to-present p95 6.979 ms. Repeated large/fast scrolling
+  in the 800 px gallery reached record 140 without recreating the reported
+  over-limit texture or terminating the process. The gallery was closed after
+  each smoke.
+
+Ceiling decisions:
+
+| Candidate | Verdict | Receipt |
+| --- | --- | --- |
+| pending/active commits with independent preparation/presentation ownership | **Accept for Checkpoint 8** | Guard semantic work produces 32 refresh misses and a 20.965 ms native event pass after unrelated subtree rerasterization and redundant property upload were removed. A complete active state must remain drawable while that pending work prepares. |
+| stronger guard-path batch roots/atlas/indirect planning | **Accept as supporting Checkpoint 8 work** | The guard frame still carries 257 draws with one pipeline and bind transition per draw and 6.059 ms batch preparation. This is setup/content preparation evidence, not fill or present-wait inference. |
+| damage, occlusion, or partial present | **Reject** | Ordinary rendering is direct with zero unconditional full-surface blit; property draw is 1.533 ms and acquire wait p95 is 0.031 ms. No code-owned evidence assigns the remaining guard miss to whole-surface fill or copy bandwidth. |
+| more compact property buffers or compositor delegation | **Reject** | Exact realized-byte reuse reduces unchanged semantic and scroll shape-property upload to zero; property frames have zero misses. Popup opacity already uses the earned OS-compositor path. |
+| surface/backend cadence follow-up | **Reject** | Acquire wait is 0.026–0.031 ms and encode/submit/present remains below the semantic preparation/layout costs. Renderer and upstream preparation, not the DX12 surface clock, own the residual. |
+
+Touched-module cleanup cells:
+
+- `OW-RR-7A` traces `native event -> semantic/property classification -> draw
+  report -> presentation receipt`. One classification is sampled at render
+  attempt and consumed by every timing distribution; no diagnostic clock can
+  promote an attempted frame to presented truth;
+- `OW-RR-7B` traces `scene ordered subtree -> borrowed NodeId/revisions ->
+  retained scroll texture`. The whole-commit weak key and changed-list
+  false-positive path are deleted. Exact structure plus exact subtree property
+  values are the sole cache admission, and liveness remains borrowed from the
+  owning scene nodes;
+- `OW-RR-7C` traces `scene properties -> realized NodeProperty bytes -> GPU
+  buffer`. The commit pointer no longer causes an upload. Viewport and property
+  bytes each write only when their owned realized value changes; the debug
+  crate ratchets both semantic and property-only reuse;
+- `OW-RR-7D` traces each missed deadline through upstream preparation,
+  renderer preparation, surface acquisition, and presentation. It admits one
+  larger mechanism only where the measured owner demands it and records four
+  explicit rejections, so Checkpoint 8 cannot absorb unrelated Chromium
+  machinery by analogy.
+
+Verification freeze, 2026-07-15: formatting, workspace all-target compilation
+without warnings, diff hygiene, and the protected `comparison_open: true`
+state passed. The full library tier passed 1,175 tests with 11 intentional
+ignores; all 162 layout/scene and 151 architecture tests passed independently.
+All maintained example tests and all four doctests passed. The release deep
+tier passed all 11 WARP, measured text, shader, alpha, glyph, popup, and
+material witnesses; the specialized release debug tier passed all seven
+semantic-work, ordered-commit, retained-scroll, unrelated-semantic, churn,
+real-gallery oracle, and lifecycle witnesses. All 15 renderer-receipt and
+One-Way parser/admission tests passed. The ownership census reports 47 modules,
+333 production and 113 test-only edges, three split responsibilities, **zero
+forbidden edges, zero external-boundary violations, and zero slot cycles**,
+1,991 `pub(crate)` declarations in 195 files with a 1,941 cross-slot upper
+bound, 90 cross-slot test edges, 120 manifest-root mentions, 383 filesystem
+reads, seven allowances, five production panics, and 55 production expects.
+The exact-tree release gallery showed continuous typing/selection, survived 12
+large 800 px scroll injections through record 140, and was closed with no
+remaining process.
+
+Checkpoint 7 is independently green. Checkpoint 8 owns the admitted
+pending/active and preparation/batching work; damage, compact property
+submission, and surface/backend changes carry no silent acceptance debt.
 
 ## Checkpoint 8 — optional Chromium-class upgrade
 

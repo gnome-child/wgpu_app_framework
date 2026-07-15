@@ -177,7 +177,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         diagnostics
             .render
             .record_property_attempt(properties, property_only, presented);
-        diagnostics.render.record_present(epoch, report);
+        diagnostics
+            .render
+            .record_present(epoch, property_only, report);
         if diagnostics.render.frames_presented.is_multiple_of(10) {
             log::debug!(
                 target: "wgpu_l3::presentation_clock",

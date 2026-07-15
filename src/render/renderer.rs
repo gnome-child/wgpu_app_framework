@@ -32,11 +32,12 @@ pub struct Renderer {
 }
 
 struct CachedScrollLayer {
-    commit: std::sync::Weak<crate::scene::Commit>,
     node: crate::composition::tree::NodeId,
-    scope: usize,
+    revision: render::retained::ScrollLayerRevision,
     segment: usize,
     scale_bits: u32,
+    layer_bounds: paint::Rect,
+    property_values: Box<[crate::scene::PropertyValue]>,
     layer: render::filter::Layer,
 }
 
@@ -92,9 +93,8 @@ pub(in crate::render) struct PreparedGroup {
 
 #[derive(Clone)]
 pub(in crate::render) struct PreparedScroll {
-    pub(in crate::render) commit: std::sync::Weak<crate::scene::Commit>,
     pub(in crate::render) node: crate::composition::tree::NodeId,
-    pub(in crate::render) scope: usize,
+    pub(in crate::render) revision: render::retained::ScrollLayerRevision,
     pub(in crate::render) viewport: paint::Rect,
     pub(in crate::render) layer_bounds: paint::Rect,
     pub(in crate::render) baseline: crate::interaction::ScrollOffset,
@@ -106,6 +106,8 @@ struct CommandStats {
     draw_calls: usize,
     pipeline_changes: usize,
     bind_group_changes: usize,
+    scroll_layer_cache_hits: usize,
+    scroll_layer_cache_misses: usize,
     effect_intermediate_clears: usize,
     effect_intermediate_clear_bytes: u64,
     effect_intermediate_composites: usize,
@@ -437,8 +439,7 @@ impl Renderer {
         let popup_packer = &self.popup_packer;
         let retained_shapes = retained_properties.map(|_| self.retained.shapes());
         let text_renderer = &mut self.text_renderer;
-        self.scroll_layers
-            .retain(|entry| entry.commit.strong_count() > 0);
+        self.scroll_layers.retain(|entry| entry.revision.is_alive());
         let scroll_layers = &mut self.scroll_layers;
         let mut text_render_error = None;
         let mut draw_passes = 0;
@@ -577,6 +578,8 @@ impl Renderer {
         stats.resource_transition_boundaries = draw_passes.saturating_sub(1);
         stats.pipeline_changes = command_stats.pipeline_changes;
         stats.bind_group_changes = command_stats.bind_group_changes;
+        stats.scroll_layer_cache_hits = command_stats.scroll_layer_cache_hits;
+        stats.scroll_layer_cache_misses = command_stats.scroll_layer_cache_misses;
         stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
         stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
         stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
@@ -711,8 +714,7 @@ impl Renderer {
             let _clear = begin_main_pass(&mut encoder, &view, clear_color, true);
         }
         {
-            self.scroll_layers
-                .retain(|entry| entry.commit.strong_count() > 0);
+            self.scroll_layers.retain(|entry| entry.revision.is_alive());
             let mut scene_encoder = SceneEncoder::retained(
                 SceneEncoderInput {
                     render_context,
@@ -768,6 +770,8 @@ impl Renderer {
         stats.resource_transition_boundaries = draw_passes.saturating_sub(1);
         stats.pipeline_changes = command_stats.pipeline_changes + usize::from(pack_popup);
         stats.bind_group_changes = command_stats.bind_group_changes + usize::from(pack_popup);
+        stats.scroll_layer_cache_hits = command_stats.scroll_layer_cache_hits;
+        stats.scroll_layer_cache_misses = command_stats.scroll_layer_cache_misses;
         stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
         stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
         stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
@@ -1279,6 +1283,8 @@ impl DrawStats {
         self.resource_transition_boundaries += other.resource_transition_boundaries;
         self.pipeline_changes += other.pipeline_changes;
         self.bind_group_changes += other.bind_group_changes;
+        self.scroll_layer_cache_hits += other.scroll_layer_cache_hits;
+        self.scroll_layer_cache_misses += other.scroll_layer_cache_misses;
         self.clip_batches += other.clip_batches;
         self.opaque_nodes += other.opaque_nodes;
         self.blended_nodes += other.blended_nodes;
@@ -1993,42 +1999,33 @@ impl<'a> SceneEncoder<'a> {
             return;
         };
         let scale_bits = self.viewport.scale_factor().to_bits();
-        let same_commit = |entry: &CachedScrollLayer| {
-            entry
-                .commit
-                .upgrade()
-                .zip(scroll.commit.upgrade())
-                .is_some_and(|(cached, current)| std::sync::Arc::ptr_eq(&cached, &current))
+        let property_values = self
+            .scene_properties
+            .map(|properties| scroll.revision.property_values(properties))
+            .unwrap_or_default();
+        let same_structure = |entry: &CachedScrollLayer| {
+            entry.node == scroll.node
+                && entry.revision.matches(&scroll.revision)
+                && entry.segment == segment
+                && entry.scale_bits == scale_bits
+                && entry.layer_bounds == scroll.layer_bounds
         };
-        let reusable_values = self.scene_properties.is_none_or(|properties| {
-            properties
-                .changed()
-                .iter()
-                .all(|property| property.kind() == crate::scene::PropertyKind::ScrollOffset)
-        });
-        if !reusable_values
-            && let Some(position) = layers.iter().position(|entry| {
-                same_commit(entry)
-                    && entry.node == scroll.node
-                    && entry.scope == scroll.scope
-                    && entry.segment == segment
-                    && entry.scale_bits == scale_bits
-            })
+        if let Some(position) = layers
+            .iter()
+            .position(|entry| same_structure(entry) && entry.property_values != property_values)
         {
             let retired = layers.swap_remove(position);
             self.filter_renderer.recycle_layer(retired.layer);
         }
 
-        let position = layers.iter().position(|entry| {
-            same_commit(entry)
-                && entry.node == scroll.node
-                && entry.scope == scroll.scope
-                && entry.segment == segment
-                && entry.scale_bits == scale_bits
-        });
+        let position = layers
+            .iter()
+            .position(|entry| same_structure(entry) && entry.property_values == property_values);
         let position = if let Some(position) = position {
+            self.command_stats.scroll_layer_cache_hits += 1;
             position
         } else {
+            self.command_stats.scroll_layer_cache_misses += 1;
             let target = render::filter::Target::from_logical_area(
                 scroll.layer_bounds.area,
                 self.viewport.scale_factor(),
@@ -2069,11 +2066,12 @@ impl<'a> SceneEncoder<'a> {
                 layer_encoder.encode(batches);
             }
             layers.push(CachedScrollLayer {
-                commit: scroll.commit.clone(),
                 node: scroll.node,
-                scope: scroll.scope,
+                revision: scroll.revision.clone(),
                 segment,
                 scale_bits,
+                layer_bounds: scroll.layer_bounds,
+                property_values,
                 layer,
             });
             layers.len() - 1

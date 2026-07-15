@@ -102,6 +102,8 @@ pub(crate) struct DrawStats {
     pub(crate) resource_transition_boundaries: usize,
     pub(crate) pipeline_changes: usize,
     pub(crate) bind_group_changes: usize,
+    pub(crate) scroll_layer_cache_hits: usize,
+    pub(crate) scroll_layer_cache_misses: usize,
     pub(crate) clip_batches: usize,
     pub(crate) opaque_nodes: usize,
     pub(crate) blended_nodes: usize,

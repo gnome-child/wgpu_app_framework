@@ -205,6 +205,8 @@ pub struct Work {
     direct_surface_plans: usize,
     surface_sampling_plans: usize,
     draw_calls: usize,
+    scroll_layer_cache_hits: usize,
+    scroll_layer_cache_misses: usize,
     draw_passes: usize,
     explicit_copy_commands: usize,
     resource_transition_boundaries: usize,
@@ -284,6 +286,14 @@ impl Work {
         self.draw_calls
     }
 
+    pub fn scroll_layer_cache_hits(self) -> usize {
+        self.scroll_layer_cache_hits
+    }
+
+    pub fn scroll_layer_cache_misses(self) -> usize {
+        self.scroll_layer_cache_misses
+    }
+
     pub fn draw_passes(self) -> usize {
         self.draw_passes
     }
@@ -352,6 +362,8 @@ impl From<render::DrawStats> for Work {
             direct_surface_plans: stats.direct_surface_plans,
             surface_sampling_plans: stats.surface_sampling_plans,
             draw_calls: stats.draw_calls,
+            scroll_layer_cache_hits: stats.scroll_layer_cache_hits,
+            scroll_layer_cache_misses: stats.scroll_layer_cache_misses,
             draw_passes: stats.draw_passes,
             explicit_copy_commands: stats.explicit_copy_commands,
             resource_transition_boundaries: stats.resource_transition_boundaries,
@@ -388,6 +400,13 @@ pub struct PartialUpdateReceipt {
 pub struct ScrollTickReceipt {
     initial: Work,
     tick: Work,
+    unchanged: Work,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnrelatedSemanticReceipt {
+    initial: Work,
+    changed: Work,
     unchanged: Work,
 }
 
@@ -454,6 +473,20 @@ impl ScrollTickReceipt {
 
     pub fn tick(self) -> Work {
         self.tick
+    }
+
+    pub fn unchanged(self) -> Work {
+        self.unchanged
+    }
+}
+
+impl UnrelatedSemanticReceipt {
+    pub fn initial(self) -> Work {
+        self.initial
+    }
+
+    pub fn changed(self) -> Work {
+        self.changed
     }
 
     pub fn unchanged(self) -> Work {
@@ -829,6 +862,53 @@ impl Harness {
         Ok(ScrollTickReceipt {
             initial: initial_stats.into(),
             tick: tick_stats.into(),
+            unchanged: unchanged_stats.into(),
+        })
+    }
+
+    pub fn scroll_unrelated_semantic_receipt(
+        &mut self,
+    ) -> Result<UnrelatedSemanticReceipt, String> {
+        let ((initial, initial_properties), (changed, changed_properties)) =
+            scene::renderer_scroll_semantic_pair().map_err(|error| error.to_string())?;
+        let initial = std::sync::Arc::new(initial);
+        let changed = std::sync::Arc::new(changed);
+        let (width, height) = self.physical_extent(initial.size());
+
+        let (initial_pixels, initial_stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &initial,
+            &initial_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (changed_pixels, changed_stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &changed,
+            &changed_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (unchanged_pixels, unchanged_stats) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &changed,
+            &changed_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if initial_pixels != changed_pixels || changed_pixels != unchanged_pixels {
+            return Err("an unrelated semantic commit changed retained scroll pixels".to_owned());
+        }
+
+        Ok(UnrelatedSemanticReceipt {
+            initial: initial_stats.into(),
+            changed: changed_stats.into(),
             unchanged: unchanged_stats.into(),
         })
     }
