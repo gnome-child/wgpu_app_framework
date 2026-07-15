@@ -30,6 +30,13 @@ pub struct ScrollDelta {
     y: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollUpdate {
+    Relative(ScrollDelta),
+    Absolute(ScrollOffset),
+    Geometry(ScrollOffset),
+}
+
 impl Scroll {
     pub(crate) fn offset(&self, target: &Target) -> ScrollOffset {
         self.offsets
@@ -55,50 +62,27 @@ impl Scroll {
             .collect()
     }
 
-    pub(super) fn scroll_by(&mut self, target: Target, delta: ScrollDelta) -> bool {
-        if delta.is_zero() {
-            return false;
-        }
-
-        let Some(index) = self.offsets.iter().position(|entry| entry.target == target) else {
-            let offset = ScrollOffset::default().scrolled_by(delta);
-            if offset.is_zero() {
-                return false;
-            }
-
-            self.offsets.push(ScrollEntry { target, offset });
-            return true;
+    pub(super) fn apply(&mut self, target: Target, update: ScrollUpdate) -> Option<ScrollOffset> {
+        let before = self.offset(&target);
+        let offset = match update {
+            ScrollUpdate::Relative(delta) => before.scrolled_by(delta),
+            ScrollUpdate::Absolute(offset) | ScrollUpdate::Geometry(offset) => offset,
         };
-
-        let before = self.offsets[index].offset;
-        let offset = before.scrolled_by(delta);
-        if offset.is_zero() {
-            self.offsets.remove(index);
-        } else {
-            self.offsets[index].offset = offset;
+        if before == offset {
+            return None;
         }
 
-        before != offset
-    }
-
-    pub(super) fn scroll_to(&mut self, target: Target, offset: ScrollOffset) -> bool {
-        let Some(index) = self.offsets.iter().position(|entry| entry.target == target) else {
-            if offset.is_zero() {
-                return false;
+        let index = self.offsets.iter().position(|entry| entry.target == target);
+        if offset.is_zero() {
+            if let Some(index) = index {
+                self.offsets.remove(index);
             }
-
-            self.offsets.push(ScrollEntry { target, offset });
-            return true;
-        };
-
-        let before = self.offsets[index].offset;
-        if offset.is_zero() {
-            self.offsets.remove(index);
-        } else {
+        } else if let Some(index) = index {
             self.offsets[index].offset = offset;
+        } else {
+            self.offsets.push(ScrollEntry { target, offset });
         }
-
-        before != offset
+        Some(offset)
     }
 
     pub(super) fn reveal(&mut self, target: Target) -> bool {
@@ -208,10 +192,6 @@ impl ScrollDelta {
     pub fn y(self) -> i32 {
         self.y
     }
-
-    fn is_zero(self) -> bool {
-        self.x == 0 && self.y == 0
-    }
 }
 
 #[cfg(test)]
@@ -224,10 +204,42 @@ mod tests {
         let first = Target::scroll("same.scroll", "First Label");
         let second = Target::scroll("same.scroll", "Second Label");
 
-        assert!(scroll.scroll_by(first, ScrollDelta::vertical(42)));
+        assert_eq!(
+            scroll.apply(first, ScrollUpdate::Relative(ScrollDelta::vertical(42))),
+            Some(ScrollOffset::new(0, 42))
+        );
         assert_eq!(scroll.offset(&second), ScrollOffset::new(0, 42));
 
         assert!(scroll.reveal(second));
         assert!(scroll.should_reveal(&Target::scroll("same.scroll", "Third Label")));
+    }
+
+    #[test]
+    fn relative_absolute_and_both_axes_share_one_scroll_mutation() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("shared.scroll", "Shared");
+
+        assert_eq!(
+            scroll.apply(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::new(18, 24)),
+            ),
+            Some(ScrollOffset::new(18, 24))
+        );
+        assert_eq!(
+            scroll.apply(
+                target.clone(),
+                ScrollUpdate::Absolute(ScrollOffset::new(40, 60)),
+            ),
+            Some(ScrollOffset::new(40, 60))
+        );
+        assert_eq!(
+            scroll.apply(
+                target.clone(),
+                ScrollUpdate::Geometry(ScrollOffset::new(40, 60)),
+            ),
+            None
+        );
+        assert_eq!(scroll.offset(&target), ScrollOffset::new(40, 60));
     }
 }

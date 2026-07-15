@@ -207,7 +207,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 continue;
             };
 
-            if self.session.resolve_scroll(window, target, offset) {
+            if self
+                .session
+                .apply_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
+                .is_some()
+            {
                 self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
             }
         }
@@ -243,7 +247,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             };
 
             needs_recompose |= current != offset;
-            if self.session.resolve_scroll(window, target, offset) {
+            if self
+                .session
+                .apply_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
+                .is_some()
+            {
                 self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
             }
         }

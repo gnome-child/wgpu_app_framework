@@ -13,7 +13,7 @@ pub(crate) struct Region {
     measured: HashMap<Key, i32>,
     ordered: Vec<Entry>,
     prefix_delta: Vec<i64>,
-    viewport_offset: i64,
+    resolved_offset: i64,
     anchor: Option<Anchor>,
 }
 
@@ -40,7 +40,7 @@ impl Region {
             measured: HashMap::new(),
             ordered: Vec::new(),
             prefix_delta: Vec::new(),
-            viewport_offset: 0,
+            resolved_offset: 0,
             anchor: None,
         }
     }
@@ -59,7 +59,7 @@ impl Region {
             self.anchor = None;
         }
         self.rebuild(provider);
-        self.viewport_offset = self.viewport_offset.clamp(0, self.max_offset());
+        self.resolved_offset = self.resolved_offset.clamp(0, self.max_offset());
     }
 
     pub(crate) fn request(
@@ -71,15 +71,15 @@ impl Region {
         provider: &dyn Provider,
     ) -> Materialization {
         self.reconcile(provider);
-        self.viewport_offset = (offset.max(0) as i64).min(self.max_offset());
+        self.resolved_offset = (offset.max(0) as i64).min(self.max_offset());
         if self.len == 0 {
             self.anchor = None;
             return Materialization::new(0..0, pins);
         }
 
-        let visible_start = self.index_at(self.viewport_offset);
+        let visible_start = self.index_at(self.resolved_offset);
         let relative = self
-            .viewport_offset
+            .resolved_offset
             .saturating_sub(self.offset_of(visible_start))
             .clamp(0, i32::MAX as i64) as i32;
         self.anchor = Some(Anchor {
@@ -88,7 +88,7 @@ impl Region {
             fallback_index: visible_start,
         });
         let bottom = self
-            .viewport_offset
+            .resolved_offset
             .saturating_add(viewport_height.max(0) as i64);
         let visible_end = self.index_at(bottom).saturating_add(1).min(self.len);
         Materialization::new(
@@ -98,7 +98,9 @@ impl Region {
         )
     }
 
-    /// Refines only materialized rows and returns the anchor-preserving offset.
+    /// Refines only materialized row geometry and returns the explicit
+    /// geometry correction that keeps the first visible stable key anchored.
+    /// The session decides whether that correction becomes scroll truth.
     pub(crate) fn refine(
         &mut self,
         measurements: impl IntoIterator<Item = (Key, i32)>,
@@ -117,7 +119,7 @@ impl Region {
     pub(crate) fn set_width(&mut self, width: i32, provider: &dyn Provider) -> i32 {
         let width = width.max(0);
         if self.width == Some(width) {
-            return self.viewport_offset();
+            return self.resolved_offset();
         }
         self.width = Some(width);
         self.measured.clear();
@@ -145,8 +147,8 @@ impl Region {
         self.offset_of(self.len).clamp(0, i32::MAX as i64) as i32
     }
 
-    pub(crate) fn viewport_offset(&self) -> i32 {
-        self.viewport_offset.clamp(0, i32::MAX as i64) as i32
+    fn resolved_offset(&self) -> i32 {
+        self.resolved_offset.clamp(0, i32::MAX as i64) as i32
     }
 
     #[cfg(test)]
@@ -156,15 +158,15 @@ impl Region {
 
     fn restore_anchor(&mut self, provider: &dyn Provider) -> i32 {
         let Some(anchor) = self.anchor else {
-            self.viewport_offset = self.viewport_offset.clamp(0, self.max_offset());
-            return self.viewport_offset();
+            self.resolved_offset = self.resolved_offset.clamp(0, self.max_offset());
+            return self.resolved_offset();
         };
         let index = provider
             .index_of(anchor.key)
             .unwrap_or(anchor.fallback_index.min(self.len.saturating_sub(1)));
         let height = self.height_for(anchor.key);
         let relative = anchor.relative.min(height.saturating_sub(1)).max(0);
-        self.viewport_offset = self
+        self.resolved_offset = self
             .offset_of(index)
             .saturating_add(relative as i64)
             .clamp(0, self.max_offset());
@@ -173,7 +175,7 @@ impl Region {
             relative,
             fallback_index: index,
         });
-        self.viewport_offset()
+        self.resolved_offset()
     }
 
     fn rebuild(&mut self, provider: &dyn Provider) {
@@ -274,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_height_refinement_preserves_anchor_for_changes_above_within_and_below() {
+    fn mixed_height_refinement_returns_an_explicit_anchor_correction() {
         let records = Records::new(0..100);
         let mut region = Region::new(20);
         region.request(410, 100, 2, Vec::new(), &records);

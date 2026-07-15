@@ -4,6 +4,29 @@ use crate::{
     window,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrollTransition {
+    Unchanged,
+    PropertyTick(interaction::ScrollOffset),
+    NeedsResidency(interaction::ScrollOffset),
+}
+
+impl ScrollTransition {
+    fn offset(self) -> Option<interaction::ScrollOffset> {
+        match self {
+            Self::Unchanged => None,
+            Self::PropertyTick(offset) | Self::NeedsResidency(offset) => Some(offset),
+        }
+    }
+
+    fn effect(self) -> response::Effect {
+        match self {
+            Self::Unchanged | Self::PropertyTick(_) => response::Effect::None,
+            Self::NeedsResidency(_) => response::Effect::Layout,
+        }
+    }
+}
+
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub fn handle_input(
         &mut self,
@@ -113,47 +136,26 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::Scroll { target, delta } => {
-                let scrolled = self.session.scroll_by(window, target.clone(), delta);
-                let effect = if scrolled {
-                    let offset = self
-                        .session
-                        .interaction(window)
-                        .map(|interaction| interaction.scroll().offset(&target))
-                        .unwrap_or_default();
-                    if self
-                        .presented_layout(window)
-                        .is_some_and(|layout| layout.scroll_property_accepts(&target, offset))
-                    {
-                        self.session.request_property_tick(window);
-                        response::Effect::None
-                    } else {
-                        response::Effect::Layout
-                    }
-                } else {
-                    response::Effect::None
-                };
+                let transition = self.apply_scroll_transition(
+                    window,
+                    target,
+                    interaction::ScrollUpdate::Relative(delta),
+                );
+                let scrolled = transition.offset().is_some();
                 self.record_scroll_input(window, scrolled, scrolled);
 
-                Ok(self.window_outcome(window, false, effect))
+                Ok(self.window_outcome(window, false, transition.effect()))
             }
             input::Input::ScrollTo { target, offset } => {
-                let scrolled = self.session.resolve_scroll(window, target.clone(), offset);
-                let effect = if scrolled {
-                    if self
-                        .presented_layout(window)
-                        .is_some_and(|layout| layout.scroll_property_accepts(&target, offset))
-                    {
-                        self.session.request_property_tick(window);
-                        response::Effect::None
-                    } else {
-                        response::Effect::Layout
-                    }
-                } else {
-                    response::Effect::None
-                };
+                let transition = self.apply_scroll_transition(
+                    window,
+                    target,
+                    interaction::ScrollUpdate::Absolute(offset),
+                );
+                let scrolled = transition.offset().is_some();
                 self.record_scroll_input(window, scrolled, scrolled);
 
-                Ok(self.window_outcome(window, false, effect))
+                Ok(self.window_outcome(window, false, transition.effect()))
             }
             input::Input::ToggleMenu(menu) => {
                 let effect = if self.session.toggle_menu(window, menu) {
@@ -195,6 +197,26 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::TextDrop(drop) => self.handle_text_drop(window, drop),
+        }
+    }
+
+    fn apply_scroll_transition(
+        &mut self,
+        window: window::Id,
+        target: interaction::Target,
+        update: interaction::ScrollUpdate,
+    ) -> ScrollTransition {
+        let Some(offset) = self.session.apply_scroll(window, target.clone(), update) else {
+            return ScrollTransition::Unchanged;
+        };
+        if self
+            .presented_layout(window)
+            .is_some_and(|layout| layout.scroll_property_accepts(&target, offset))
+        {
+            self.session.request_property_tick(window);
+            ScrollTransition::PropertyTick(offset)
+        } else {
+            ScrollTransition::NeedsResidency(offset)
         }
     }
 }

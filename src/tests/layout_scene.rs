@@ -6743,7 +6743,7 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
     app.diagnostics_mut(window)
         .expect("window diagnostics")
         .begin_renderer_measurement();
-    for tick in 0..4 {
+    for tick in 0..3 {
         let outcome = app
             .scroll_at(window, size, point, interaction::ScrollDelta::vertical(8))
             .expect("each in-window delta should be accepted");
@@ -6753,6 +6753,17 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
             "in-window delta {tick} must stay off the content clock"
         );
     }
+    let absolute = app
+        .handle_input(
+            window,
+            Input::scroll_to(target.clone(), interaction::ScrollOffset::new(0, 32)),
+        )
+        .expect("in-window absolute scroll should be accepted");
+    assert_eq!(
+        absolute.effect(),
+        &response::Effect::None,
+        "wheel and scrollbar positions must share the property-tick admission path"
+    );
     assert_eq!(
         app.session()
             .interaction(window)

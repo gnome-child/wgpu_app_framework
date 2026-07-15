@@ -10,7 +10,7 @@ pub use crate::identity::Id;
 pub(crate) use command_palette::CommandPalette;
 pub use menu::Menu;
 pub(crate) use pointer::Pointer;
-pub(crate) use scroll::Scroll;
+pub(crate) use scroll::{Scroll, ScrollUpdate};
 pub use scroll::{ScrollDelta, ScrollOffset};
 pub(crate) use selection::Selections;
 pub(crate) use table::Tables;
@@ -320,12 +320,12 @@ impl Interaction {
         self.pointer.promote_hover_tip(now, delay)
     }
 
-    pub(super) fn scroll_by(&mut self, target: Target, delta: ScrollDelta) -> bool {
-        self.scroll.scroll_by(target, delta)
-    }
-
-    pub(super) fn scroll_to(&mut self, target: Target, offset: ScrollOffset) -> bool {
-        self.scroll.scroll_to(target, offset)
+    pub(super) fn apply_scroll(
+        &mut self,
+        target: Target,
+        update: scroll::ScrollUpdate,
+    ) -> Option<ScrollOffset> {
+        self.scroll.apply(target, update)
     }
 
     pub(super) fn reveal_scroll(&mut self, target: Target) -> bool {
