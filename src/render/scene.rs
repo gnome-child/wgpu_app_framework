@@ -22,6 +22,36 @@ pub(crate) struct PhysicalRect {
     rounding: [f32; 4],
 }
 
+pub(in crate::render) enum PreparedContent {
+    Quad(paint::Quad),
+    Rule(paint::Rule),
+    Text(paint::Text),
+    TextViewport(paint::TextViewport),
+    Icon(paint::Icon),
+    Shadow(paint::Shadow),
+    Pane(paint::Pane),
+    Outline(paint::Outline),
+}
+
+impl PreparedContent {
+    pub(in crate::render) fn bounds(&self, scale_factor: f32) -> paint::Rect {
+        let grid = paint::Grid::new(scale_factor);
+        match self {
+            Self::Quad(quad) => quad.transform().transformed_rect(quad.rect()),
+            Self::Rule(rule) => rule.rect,
+            Self::Text(text) => text.rect,
+            Self::TextViewport(text) => text.rect,
+            Self::Icon(icon) => icon.rect,
+            Self::Shadow(shadow) => paint::shadow_visual_bounds(*shadow, grid),
+            Self::Pane(pane) => paint::pane_effect_bounds(pane, grid),
+            Self::Outline(outline) => paint::expand_rect(
+                outline.rect,
+                outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
+            ),
+        }
+    }
+}
+
 impl PopupProjection {
     pub(crate) fn resolve(
         source: &scene::Scene,
@@ -90,14 +120,6 @@ impl PopupProjection {
     pub(crate) fn logical_area(self) -> area::Logical {
         self.visual_bounds.area
     }
-
-    #[cfg(test)]
-    fn translate_scene(self, scene: paint::Scene) -> paint::Scene {
-        scene.translated_from_origin(
-            self.visual_bounds.origin,
-            paint::Grid::new(self.scale_factor),
-        )
-    }
 }
 
 impl Scale {
@@ -152,39 +174,24 @@ pub(crate) fn physical_rounded_rect(
     }
 }
 
-#[cfg(test)]
-fn to_paint_scene(source: &scene::Scene) -> paint::Scene {
-    to_paint_scene_at_scale(source, 1.0)
-}
-
-pub(crate) fn to_paint_scene_at_scale(source: &scene::Scene, scale_factor: f32) -> paint::Scene {
-    let grid = paint::Grid::new(scale_factor);
-    let mut scene = paint::Scene::new();
-    scene.clear(super::color::paint_color(source.clear()));
-
-    for primitive in source.primitives() {
-        push_paint_primitive(primitive, &mut scene, grid);
-    }
-
-    scene
-}
-
-pub(crate) fn to_paint_content_at_scale(
+pub(in crate::render) fn prepare_content(
     content: &scene::Content,
     scale_factor: f32,
-) -> paint::Item {
+) -> PreparedContent {
     let grid = paint::Grid::new(scale_factor);
     match content {
-        scene::Content::Quad(quad) => paint::Item::Quad(to_paint_quad(quad, grid)),
-        scene::Content::Rule(rule) => paint::Item::Rule(to_paint_rule(rule, grid)),
-        scene::Content::Text(text) => paint::Item::Text(to_paint_text(text, grid)),
+        scene::Content::Quad(quad) => PreparedContent::Quad(to_paint_quad(quad, grid)),
+        scene::Content::Rule(rule) => PreparedContent::Rule(to_paint_rule(rule, grid)),
+        scene::Content::Text(text) => PreparedContent::Text(to_paint_text(text, grid)),
         scene::Content::TextViewport(text) => {
-            paint::Item::TextViewport(to_paint_text_viewport(text, grid))
+            PreparedContent::TextViewport(to_paint_text_viewport(text, grid))
         }
-        scene::Content::Icon(icon) => paint::Item::Icon(to_paint_icon(icon, grid)),
-        scene::Content::Shadow(shadow) => paint::Item::Shadow(to_paint_shadow(shadow, grid)),
-        scene::Content::Pane(pane) => paint::Item::Pane(to_paint_pane(pane, grid)),
-        scene::Content::Outline(outline) => paint::Item::Outline(to_paint_outline(outline, grid)),
+        scene::Content::Icon(icon) => PreparedContent::Icon(to_paint_icon(icon, grid)),
+        scene::Content::Shadow(shadow) => PreparedContent::Shadow(to_paint_shadow(shadow, grid)),
+        scene::Content::Pane(pane) => PreparedContent::Pane(to_paint_pane(pane, grid)),
+        scene::Content::Outline(outline) => {
+            PreparedContent::Outline(to_paint_outline(outline, grid))
+        }
     }
 }
 
@@ -194,48 +201,6 @@ pub(crate) fn to_paint_clip_value_at_scale(clip: scene::Clip, scale_factor: f32)
 
 pub(crate) fn to_paint_rect_value_at_scale(rect: geometry::Rect, scale_factor: f32) -> paint::Rect {
     into_paint_rect_at_scale(rect, paint::Grid::new(scale_factor))
-}
-
-pub(crate) fn translate_popup_scene(
-    scene: paint::Scene,
-    realization: crate::popup::Realization,
-) -> paint::Scene {
-    let offset = realization.visual_offset();
-    scene.translated_from_origin(
-        point::logical(offset.x() as f32, offset.y() as f32),
-        paint::Grid::new(realization.scale() as f32),
-    )
-}
-
-fn push_paint_primitive(primitive: &scene::Primitive, scene: &mut paint::Scene, grid: paint::Grid) {
-    match primitive {
-        scene::Primitive::Quad(quad) => scene.push_quad(to_paint_quad(quad, grid)),
-        scene::Primitive::Rule(rule) => scene.push_rule(to_paint_rule(rule, grid)),
-        scene::Primitive::Text(text) => scene.push_text(to_paint_text(text, grid)),
-        scene::Primitive::TextViewport(text) => {
-            scene.push_text_viewport(to_paint_text_viewport(text, grid));
-        }
-        scene::Primitive::Icon(icon) => scene.push_icon(to_paint_icon(icon, grid)),
-        scene::Primitive::Shadow(shadow) => scene.push_shadow(to_paint_shadow(shadow, grid)),
-        scene::Primitive::Pane(pane) => scene.push_pane(to_paint_pane(pane, grid)),
-        scene::Primitive::Clip(clip) => scene.push_clip(to_paint_clip_at_scale(clip, grid)),
-        scene::Primitive::PopClip => scene.pop_clip(),
-        scene::Primitive::Outline(outline) => scene.push_outline(to_paint_outline(outline, grid)),
-        scene::Primitive::Group(group) => {
-            if let Some(group) = to_paint_group(group, grid) {
-                scene.push_group(group);
-            }
-        }
-    }
-}
-
-fn to_paint_group(group: &scene::Group, grid: paint::Grid) -> Option<paint::Group> {
-    let mut scene = paint::Scene::new();
-    for primitive in group.primitives() {
-        push_paint_primitive(primitive, &mut scene, grid);
-    }
-
-    paint::group_from_items(scene.items(), group.opacity(), grid)
 }
 
 fn to_paint_quad(quad: &scene::Quad, grid: paint::Grid) -> paint::Quad {
@@ -613,23 +578,32 @@ mod tests {
 
     impl crate::State for NativeTextBoxState {}
 
+    fn prepared_content(source: &scene::Scene, scale: f32) -> Vec<PreparedContent> {
+        let (commit, _) = scene::Commit::test_pair(source);
+        commit
+            .nodes()
+            .iter()
+            .flat_map(|node| node.content())
+            .map(|content| prepare_content(content, scale))
+            .collect()
+    }
+
     #[test]
-    fn text_box_surface_color_is_preserved_in_paint_viewport() {
+    fn text_box_surface_color_is_preserved_in_prepared_viewport() {
         let view = widget::view(|ui| {
             ui.text_box(widget::TextBox::new("query"));
         });
         let mut engine = layout::Engine::new();
         let layout = layout::Layout::compose(&view, geometry::Size::new(160, 40), &mut engine);
         let source_scene = scene::Scene::paint_with_theme(&layout, &Theme::dark());
-        let paint = to_paint_scene(&source_scene);
-        let viewport = paint
-            .items()
+        let prepared = prepared_content(&source_scene, 1.0);
+        let viewport = prepared
             .iter()
-            .find_map(|item| match item {
-                paint::Item::TextViewport(text) => Some(text),
+            .find_map(|content| match content {
+                PreparedContent::TextViewport(text) => Some(text),
                 _ => None,
             })
-            .expect("text box should convert to paint text viewport");
+            .expect("text box should prepare a retained text viewport");
         let surface = viewport
             .surfaces
             .first()
@@ -649,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn popup_material_layers_convert_to_renderer_paint() {
+    fn popup_material_layers_prepare_for_renderer() {
         let theme = Theme::dark();
         let view = view::View::new(
             view::Node::root()
@@ -663,15 +637,14 @@ mod tests {
             &theme,
         );
         let source_scene = scene::Scene::paint_with_theme(&layout, &theme);
-        let paint = to_paint_scene(&source_scene);
-        let pane = paint
-            .items()
+        let prepared = prepared_content(&source_scene, 1.0);
+        let pane = prepared
             .iter()
-            .find_map(|item| match item {
-                paint::Item::Pane(pane) => Some(pane),
+            .find_map(|content| match content {
+                PreparedContent::Pane(pane) => Some(pane),
                 _ => None,
             })
-            .expect("popup should convert to native pane");
+            .expect("popup should prepare a retained pane");
         assert_eq!(pane.rect.rounding, paint::Rounding::fixed(10.0));
         let paint::Material::Glass(glass) = &pane.material else {
             panic!("popup pane should carry glass material");
@@ -700,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn popup_projection_reuses_shadow_reach_and_translates_every_painted_consumer() {
+    fn popup_projection_reuses_shadow_reach_for_every_prepared_consumer() {
         for theme in [Theme::light(), Theme::dark()] {
             let view = view::View::new(
                 view::Node::root()
@@ -724,30 +697,29 @@ mod tests {
 
                 let (offset_x, offset_y) = expanded.panel_offset_physical();
                 assert!(offset_x > 0 && offset_y > 0);
-                let translated = expanded.translate_scene(to_paint_scene_at_scale(&source, scale));
-                let pane = translated
-                    .items()
+                let prepared = prepared_content(&source, scale);
+                let pane = prepared
                     .iter()
-                    .find_map(|item| match item {
-                        paint::Item::Pane(pane) => Some(pane),
+                    .find_map(|content| match content {
+                        PreparedContent::Pane(pane) => Some(pane),
                         _ => None,
                     })
-                    .expect("floating panel should remain in translated paint");
+                    .expect("floating panel should remain in retained preparation");
+                let (visual_x, visual_y) = expanded.visual_offset_physical();
                 assert_eq!(
                     (
-                        (pane.rect.origin.x() * scale).round() as i32,
-                        (pane.rect.origin.y() * scale).round() as i32,
+                        (pane.rect.origin.x() * scale).round() as i32 - visual_x,
+                        (pane.rect.origin.y() * scale).round() as i32 - visual_y,
                     ),
                     (offset_x, offset_y),
                 );
-                let outline = translated
-                    .items()
+                let outline = prepared
                     .iter()
-                    .find_map(|item| match item {
-                        paint::Item::Outline(outline) => Some(outline),
+                    .find_map(|content| match content {
+                        PreparedContent::Outline(outline) => Some(outline),
                         _ => None,
                     })
-                    .expect("floating panel should retain its one painted border");
+                    .expect("floating panel should retain its one prepared border");
                 assert!((outline.width * scale - 1.0).abs() <= f32::EPSILON);
             }
         }
@@ -778,19 +750,18 @@ mod tests {
             let panel_offset = projection.panel_offset();
             assert!(panel_offset.x() > 0.0 && panel_offset.y() > 0.0);
 
-            let translated =
-                projection.translate_scene(to_paint_scene_at_scale(resolved.scene(), scale));
-            let panel = translated
-                .items()
+            let prepared = prepared_content(resolved.scene(), scale);
+            let panel = prepared
                 .iter()
-                .find_map(|item| match item {
-                    paint::Item::Quad(quad) => Some(quad.rect()),
+                .find_map(|content| match content {
+                    PreparedContent::Quad(quad) => Some(quad.rect()),
                     _ => None,
                 })
-                .expect("resolved popup panel should remain translated into visual bounds");
+                .expect("resolved popup panel should remain in retained preparation");
+            let visual_offset = projection.visual_offset_physical();
             let painted = (
-                (panel.origin.x() * scale).round() as i32,
-                (panel.origin.y() * scale).round() as i32,
+                (panel.origin.x() * scale).round() as i32 - visual_offset.0,
+                (panel.origin.y() * scale).round() as i32 - visual_offset.1,
             );
             let projected = projection.panel_offset_physical();
             assert!((painted.0 - projected.0).abs() <= 1);
@@ -853,7 +824,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_viewport_clip_converts_to_renderer_paint_clip_stack() {
+    fn scroll_viewport_clip_survives_in_retained_order() {
         let view = widget::view(|ui| {
             ui.column(|ui| {
                 ui.add(
@@ -871,21 +842,22 @@ mod tests {
         let mut engine = layout::Engine::new();
         let layout = layout::Layout::compose(&view, geometry::Size::new(200, 120), &mut engine);
         let source_scene = scene::Scene::paint_with_theme(&layout, &Theme::dark());
-        let paint = to_paint_scene(&source_scene);
+        let (commit, _) = scene::Commit::test_pair(&source_scene);
+        let order = commit
+            .order()
+            .expect("painted scene should retain draw order");
 
         assert!(
-            paint
-                .items()
+            order
                 .iter()
-                .any(|item| matches!(item, paint::Item::Clip(_))),
-            "scroll children should convert to native clip pushes"
+                .any(|draw| matches!(draw, scene::Draw::PushClip { .. })),
+            "scroll children should retain clip pushes"
         );
         assert!(
-            paint
-                .items()
+            order
                 .iter()
-                .any(|item| matches!(item, paint::Item::PopClip)),
-            "scroll children should convert to native clip pops"
+                .any(|draw| matches!(draw, scene::Draw::PopClip)),
+            "scroll children should retain clip pops"
         );
     }
 
@@ -902,7 +874,7 @@ mod tests {
     }
 
     #[test]
-    fn settled_slider_hover_transform_converts_to_snapped_geometry() {
+    fn settled_slider_hover_transform_prepares_snapped_geometry() {
         let mut app = Runtime::new(NativeSliderState { value: 5.0 })
             .commands(|commands| {
                 commands.register::<NativeSetLevel>(crate::command::Spec::new("Set Level"));
@@ -950,13 +922,13 @@ mod tests {
             let grid = paint::Grid::new(scale);
             let expected_track =
                 into_paint_rounded_rect_at_scale(track, scene::Rounding::relative(1.0), grid);
-            let paint = to_paint_scene_at_scale(settled.scene(), scale);
+            let prepared = prepared_content(settled.scene(), scale);
             let track_quad = find_slider_track_quad_by_fill(
-                paint.items(),
+                &prepared,
                 paint::Fill::Brush(paint::Brush::solid(track_color)),
                 expected_track,
             )
-            .expect("slider track should convert to a renderer paint quad");
+            .expect("slider track should prepare a retained renderer quad");
 
             assert!(
                 track_quad.transform().is_identity(),
@@ -967,7 +939,7 @@ mod tests {
                 "settled track should be aligned at scale {scale}: {:?}",
                 track_quad.rect()
             );
-            assert_no_unaligned_resting_quads(&paint, scale);
+            assert_no_unaligned_resting_quads(&prepared, scale);
         }
     }
 
@@ -1021,19 +993,19 @@ mod tests {
         let grid = paint::Grid::new(scale);
         let expected_track =
             into_paint_rounded_rect_at_scale(track, scene::Rounding::relative(1.0), grid);
-        let paint = to_paint_scene_at_scale(mid.scene(), scale);
+        let prepared = prepared_content(mid.scene(), scale);
         let track_quad = find_slider_track_quad_by_fill(
-            paint.items(),
+            &prepared,
             paint::Fill::Brush(paint::Brush::solid(super::super::color::paint_color(
                 theme.slider().track,
             ))),
             expected_track,
         )
-        .expect("slider track should convert to a renderer paint quad");
+        .expect("slider track should prepare a retained renderer quad");
 
         assert_eq!(track_quad.transform().motion, paint::Motion::Moving);
         assert!(track_quad.transform().is_identity());
-        assert_no_unaligned_resting_quads(&paint, scale);
+        assert_no_unaligned_resting_quads(&prepared, scale);
     }
 
     #[test]
@@ -1065,18 +1037,18 @@ mod tests {
         let mid = app
             .show_scene_at(window, size, start + Duration::from_millis(90))
             .expect("mid-animation glass tuner should render");
-        let paint = to_paint_scene_at_scale(mid.scene(), 1.25);
+        let prepared = prepared_content(mid.scene(), 1.25);
 
-        assert_no_unaligned_resting_quads(&paint, 1.25);
+        assert_no_unaligned_resting_quads(&prepared, 1.25);
     }
 
     fn find_slider_track_quad_by_fill(
-        items: &[paint::Item],
+        content: &[PreparedContent],
         fill: paint::Fill,
         expected_track: paint::Rect,
     ) -> Option<&paint::Quad> {
-        items.iter().find_map(|item| match item {
-            paint::Item::Quad(quad)
+        content.iter().find_map(|content| match content {
+            PreparedContent::Quad(quad)
                 if quad.style().fill == Some(fill)
                     && approximately_equal(quad.rect().origin.x(), expected_track.origin.x())
                     && approximately_equal(
@@ -1087,9 +1059,6 @@ mod tests {
             {
                 Some(quad)
             }
-            paint::Item::Group(group) => {
-                find_slider_track_quad_by_fill(&group.items, fill, expected_track)
-            }
             _ => None,
         })
     }
@@ -1098,31 +1067,23 @@ mod tests {
         (left - right).abs() <= 0.001
     }
 
-    fn assert_no_unaligned_resting_quads(scene: &paint::Scene, scale: f32) {
-        assert_no_unaligned_resting_quads_in_items(scene.items(), scale);
-    }
-
-    fn assert_no_unaligned_resting_quads_in_items(items: &[paint::Item], scale: f32) {
+    fn assert_no_unaligned_resting_quads(content: &[PreparedContent], scale: f32) {
         let grid = paint::Grid::new(scale);
-        for item in items {
-            match item {
-                paint::Item::Quad(quad) if quad.transform().motion == paint::Motion::Resting => {
-                    assert!(
-                        grid.rect_is_aligned(quad.rect()),
-                        "resting quad should be aligned at scale {scale}: {:?}",
-                        quad
-                    );
-                }
-                paint::Item::Group(group) => {
-                    assert_no_unaligned_resting_quads_in_items(&group.items, scale);
-                }
-                _ => {}
+        for content in content {
+            if let PreparedContent::Quad(quad) = content
+                && quad.transform().motion == paint::Motion::Resting
+            {
+                assert!(
+                    grid.rect_is_aligned(quad.rect()),
+                    "resting quad should be aligned at scale {scale}: {:?}",
+                    quad
+                );
             }
         }
     }
 
     #[test]
-    fn focus_outline_offset_and_rounding_convert_to_renderer_paint() {
+    fn focus_outline_offset_and_rounding_prepare_for_renderer() {
         let theme = Theme::default();
         let mut app = control_gallery::app(control_gallery::State::default());
 
@@ -1147,17 +1108,18 @@ mod tests {
             .iter()
             .find(|frame| frame.is_focused())
             .expect("focused frame should be present");
-        let paint = to_paint_scene(focused.scene());
+        let prepared = prepared_content(focused.scene(), 1.0);
         let expected_brush =
             paint::Brush::solid(super::super::color::paint_color(theme.focus().color));
-        let outline = paint
-            .items()
+        let outline = prepared
             .iter()
-            .find_map(|item| match item {
-                paint::Item::Outline(outline) if outline.brush == expected_brush => Some(outline),
+            .find_map(|content| match content {
+                PreparedContent::Outline(outline) if outline.brush == expected_brush => {
+                    Some(outline)
+                }
                 _ => None,
             })
-            .expect("focus outline should convert to renderer paint");
+            .expect("focus outline should prepare for the retained renderer");
 
         assert_eq!(
             outline.rect,
@@ -1193,18 +1155,19 @@ mod tests {
         let focused = app
             .show_scene(window, size)
             .expect("focused text box should render");
-        let paint = to_paint_scene_at_scale(focused.scene(), 1.5);
+        let prepared = prepared_content(focused.scene(), 1.5);
         let expected_brush = paint::Brush::solid(super::super::color::paint_color(
             Theme::default().focus().color,
         ));
-        let outline = paint
-            .items()
+        let outline = prepared
             .iter()
-            .find_map(|item| match item {
-                paint::Item::Outline(outline) if outline.brush == expected_brush => Some(outline),
+            .find_map(|content| match content {
+                PreparedContent::Outline(outline) if outline.brush == expected_brush => {
+                    Some(outline)
+                }
                 _ => None,
             })
-            .expect("focused text box should convert a focus outline");
+            .expect("focused text box should prepare a focus outline");
         let grid = paint::Grid::new(1.5);
         let outset = grid.snap_outset(outline.rect, outline.offset, outline.width);
         let scale = 1.5;
@@ -1282,23 +1245,39 @@ mod tests {
         ));
 
         for scale in [1.0, 1.25, 1.5, 2.0] {
-            let projected = to_paint_scene_at_scale(focused.scene(), scale);
-            let outline_index = projected
-                .items()
+            let (commit, _) = scene::Commit::test_pair(focused.scene());
+            let order = commit
+                .order()
+                .expect("focused scene should retain draw order");
+            let outline_index = order
                 .iter()
-                .position(|item| {
-                    matches!(item, paint::Item::Outline(outline) if outline.brush == focus_brush)
+                .position(|draw| {
+                    let scene::Draw::Content { node, index, .. } = draw else {
+                        return false;
+                    };
+                    let Some(content) = commit
+                        .nodes()
+                        .iter()
+                        .find(|candidate| candidate.id() == *node)
+                        .and_then(|node| node.content().get(*index))
+                    else {
+                        return false;
+                    };
+                    matches!(
+                        prepare_content(content, scale),
+                        PreparedContent::Outline(outline) if outline.brush == focus_brush
+                    )
                 })
-                .expect("renderer projection should retain the focus outline");
-            let clip_index = projected.items()[..outline_index]
+                .expect("retained draw order should retain the focus outline");
+            let clip_index = order[..outline_index]
                 .iter()
-                .rposition(|item| matches!(item, paint::Item::Clip(_)))
-                .expect("renderer projection should retain the focus clip");
-            let pop_index = projected.items()[outline_index + 1..]
+                .rposition(|draw| matches!(draw, scene::Draw::PushClip { .. }))
+                .expect("retained draw order should retain the focus clip");
+            let pop_index = order[outline_index + 1..]
                 .iter()
-                .position(|item| matches!(item, paint::Item::PopClip))
+                .position(|draw| matches!(draw, scene::Draw::PopClip))
                 .map(|offset| outline_index + 1 + offset)
-                .expect("renderer projection should close the focus clip");
+                .expect("retained draw order should close the focus clip");
 
             assert!(clip_index < outline_index, "scale {scale}");
             assert!(outline_index < pop_index, "scale {scale}");
@@ -1353,16 +1332,19 @@ mod tests {
         }));
 
         for scale in [1.0, 1.25, 1.5, 2.0] {
-            let projected = to_paint_scene_at_scale(rendered.scene(), scale);
-            let rules = projected
-                .items()
+            let prepared = prepared_content(rendered.scene(), scale);
+            let rules = prepared
                 .iter()
-                .filter_map(|item| match item {
-                    paint::Item::Rule(rule) => Some(rule),
+                .filter_map(|content| match content {
+                    PreparedContent::Rule(rule) => Some(rule),
                     _ => None,
                 })
                 .collect::<Vec<_>>();
             let grid = paint::Grid::new(scale);
+            let (commit, _) = scene::Commit::test_pair(rendered.scene());
+            let order = commit
+                .order()
+                .expect("table scene should retain draw order");
 
             assert!(!rules.is_empty(), "scale {scale}");
             assert!(rules.iter().all(|rule| rule.thickness_px == 1));
@@ -1371,15 +1353,13 @@ mod tests {
                 "scale {scale}"
             );
             assert_eq!(
-                projected
-                    .items()
+                order
                     .iter()
-                    .filter(|item| matches!(item, paint::Item::Clip(_)))
+                    .filter(|draw| matches!(draw, scene::Draw::PushClip { .. }))
                     .count(),
-                projected
-                    .items()
+                order
                     .iter()
-                    .filter(|item| matches!(item, paint::Item::PopClip))
+                    .filter(|draw| matches!(draw, scene::Draw::PopClip))
                     .count(),
                 "scale {scale}"
             );

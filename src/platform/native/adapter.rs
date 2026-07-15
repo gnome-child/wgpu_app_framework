@@ -35,10 +35,13 @@ impl Backend for Native {
             return Err(NativeError::MissingWindow { window });
         };
         self.raw_windows.remove(&native_window.raw_id());
-        self.active_presentations.remove(&window);
+        let active = self.active_presentations.remove(&window);
         if let Some(pending) = self.pending_presentations.remove(&window) {
             for renderer in self.renderers.values_mut() {
-                renderer.cancel_commit_synchronization(pending.preparing.commit());
+                renderer.cancel_stack_synchronization(
+                    pending.preparing.stack(),
+                    active.as_ref().map(shell::Presentation::stack),
+                );
             }
         }
         self.cursor_hosts.remove(&window);

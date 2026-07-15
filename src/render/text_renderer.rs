@@ -1,6 +1,6 @@
 use crate::paint;
 use crate::render;
-use crate::render::batch;
+use crate::render::content;
 #[cfg(test)]
 use crate::text::layout as text_layout;
 use crate::text::layout::{InlineCache, InlineStats};
@@ -29,8 +29,6 @@ pub enum Error {
 pub(in crate::render) struct TextRenderer {
     cache: glyphon::Cache,
     atlas: glyphon::TextAtlas,
-    renderers: Vec<glyphon::TextRenderer>,
-    viewports: Vec<glyphon::Viewport>,
     swash_cache: glyphon::SwashCache,
     inline_cache: InlineCache,
     retained: HashMap<render::retained::ResourceKey, RetainedText>,
@@ -116,54 +114,11 @@ impl TextRenderer {
         Self {
             cache,
             atlas,
-            renderers: Vec::new(),
-            viewports: Vec::new(),
             swash_cache: glyphon::SwashCache::new(),
             inline_cache: InlineCache::new(),
             retained: HashMap::new(),
             retained_transforms: Vec::new(),
         }
-    }
-
-    pub(in crate::render) fn prepare_frame(
-        &mut self,
-        render_context: &render::Context,
-        batch_count: usize,
-    ) {
-        self.ensure_renderers(batch_count, render_context);
-    }
-
-    pub(in crate::render) fn prepare_batch(
-        &mut self,
-        render_context: &render::Context,
-        viewport: render::Viewport,
-        renderer_index: usize,
-        glyphs: &[batch::Glyph<'_>],
-    ) -> Result<TextBatchReport> {
-        if glyphs.is_empty() {
-            return Ok(TextBatchReport::default());
-        }
-
-        self.update_viewport(render_context, renderer_index, viewport);
-        let Self {
-            atlas,
-            renderers,
-            viewports,
-            swash_cache,
-            inline_cache,
-            ..
-        } = self;
-        prepare_glyphs(
-            render_context,
-            viewport.scale_factor(),
-            [0.0; 2],
-            inline_cache,
-            atlas,
-            swash_cache,
-            &mut renderers[renderer_index],
-            &viewports[renderer_index],
-            glyphs,
-        )
     }
 
     pub(in crate::render) fn prepare_retained(
@@ -172,7 +127,7 @@ impl TextRenderer {
         viewport: render::Viewport,
         node: &Arc<crate::scene::Node>,
         content_index: usize,
-        glyphs: &[batch::Glyph<'_>],
+        glyphs: &[content::Glyph<'_>],
         target_origin: [f32; 2],
         target_size: [f32; 2],
         scroll: Option<crate::composition::tree::NodeId>,
@@ -251,16 +206,6 @@ impl TextRenderer {
             resource_creations: 1,
             resource_removals,
         })
-    }
-
-    pub(in crate::render) fn render(
-        &mut self,
-        renderer_index: usize,
-        pass: &mut wgpu::RenderPass<'_>,
-    ) -> Result<()> {
-        self.renderers[renderer_index]
-            .render(&self.atlas, &self.viewports[renderer_index], pass)
-            .map_err(Error::from)
     }
 
     pub(in crate::render) fn render_retained(
@@ -419,32 +364,6 @@ impl TextRenderer {
         Ok(())
     }
 
-    fn update_viewport(
-        &mut self,
-        render_context: &render::Context,
-        renderer_index: usize,
-        viewport: render::Viewport,
-    ) {
-        update_glyphon_viewport(
-            render_context,
-            &mut self.viewports[renderer_index],
-            viewport,
-        );
-    }
-
-    fn ensure_renderers(&mut self, count: usize, render_context: &render::Context) {
-        while self.renderers.len() < count {
-            self.renderers.push(glyphon::TextRenderer::new(
-                &mut self.atlas,
-                render_context.device(),
-                wgpu::MultisampleState::default(),
-                None,
-            ));
-            self.viewports
-                .push(glyphon::Viewport::new(render_context.device(), &self.cache));
-        }
-    }
-
     fn prune_retained(&mut self) -> usize {
         let before = self.retained.len();
         self.retained
@@ -531,23 +450,23 @@ fn prepare_glyphs(
     swash_cache: &mut glyphon::SwashCache,
     renderer: &mut glyphon::TextRenderer,
     viewport: &glyphon::Viewport,
-    glyphs: &[batch::Glyph<'_>],
+    glyphs: &[content::Glyph<'_>],
 ) -> Result<TextBatchReport> {
     let mut prepared = Vec::with_capacity(glyphs.len());
     let mut stats = InlineStats::default();
 
     for glyph in glyphs {
         match glyph {
-            batch::Glyph::Text(text) => {
+            content::Glyph::Text(text) => {
                 if let Some(glyph) = prepare_text(inline_cache, text, scale_factor) {
                     stats.add(glyph.stats);
                     prepared.push(glyph);
                 }
             }
-            batch::Glyph::TextViewport(text) => {
+            content::Glyph::TextViewport(text) => {
                 prepared.extend(prepare_text_viewport(text, scale_factor));
             }
-            batch::Glyph::Icon(icon) => {
+            content::Glyph::Icon(icon) => {
                 if let Some(glyph) = prepare_icon(inline_cache, icon, scale_factor) {
                     stats.add(glyph.stats);
                     prepared.push(glyph);

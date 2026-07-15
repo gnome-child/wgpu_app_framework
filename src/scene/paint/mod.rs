@@ -214,7 +214,7 @@ impl Retained {
                 .expect("freshly painted popup properties must satisfy their resident topology");
             let panel_scene = popup_commit
                 .compatibility_scene(&popup_properties)
-                .expect("the legacy popup adapter receives its own property snapshot");
+                .expect("the public popup scene snapshot receives its own property state");
             self.commits.insert(commit_key, Arc::clone(&popup_commit));
             seen_commits.insert(commit_key);
             if !panel_scene.is_empty() {

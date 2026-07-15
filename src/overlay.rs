@@ -201,6 +201,8 @@ pub(crate) struct PopupPresentation {
     id: interaction::Id,
     local_bounds: geometry::Rect,
     placement: Option<geometry::placement::Request>,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     opacity: f32,
     fade: PopupFade,
@@ -272,7 +274,7 @@ impl Draft {
 
     #[cfg(test)]
     pub(crate) fn new(id: interaction::Id, bounds: geometry::Rect, scene: scene::Scene) -> Self {
-        let (commit, properties) = scene::Commit::legacy_test_pair(&scene);
+        let (commit, properties) = scene::Commit::test_pair(&scene);
         Self::retained(id, bounds, commit, properties, scene)
     }
 
@@ -491,6 +493,14 @@ impl RetiringPopup {
 }
 
 impl Layer {
+    pub(crate) fn commit(&self) -> &Arc<scene::Commit> {
+        &self.commit
+    }
+
+    pub(crate) fn properties(&self) -> &Arc<scene::Properties> {
+        &self.properties
+    }
+
     pub(crate) fn scene(&self) -> &scene::Scene {
         debug_assert!(
             self.properties.require_compatible(&self.commit).is_ok(),
@@ -635,6 +645,8 @@ impl PopupPresentation {
         id: interaction::Id,
         local_bounds: geometry::Rect,
         placement: Option<geometry::placement::Request>,
+        commit: Arc<scene::Commit>,
+        properties: Arc<scene::Properties>,
         scene: scene::Scene,
         opacity: f32,
         fade: PopupFade,
@@ -651,6 +663,8 @@ impl PopupPresentation {
             id,
             local_bounds,
             placement,
+            commit,
+            properties,
             scene,
             opacity,
             fade,
@@ -682,6 +696,14 @@ impl PopupPresentation {
 
     pub(crate) fn scene(&self) -> &scene::Scene {
         &self.scene
+    }
+
+    pub(crate) fn commit(&self) -> &Arc<scene::Commit> {
+        &self.commit
+    }
+
+    pub(crate) fn properties(&self) -> &Arc<scene::Properties> {
+        &self.properties
     }
 
     pub(crate) fn opacity(&self) -> f32 {

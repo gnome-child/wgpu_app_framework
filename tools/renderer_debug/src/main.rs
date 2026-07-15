@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use renderer_debug::{Tolerance, compare};
 use wgpu_l3::renderer_debug::{Case, Harness};
 
 fn main() {
@@ -18,17 +17,33 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        [command, case] if command == "reference" => {
+        [command, case, scale] if command == "readback" => {
             let case = parse_case(case)?;
-            let mut harness = harness(1.0)?;
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            let mut harness = harness(scale)?;
             let environment = harness.environment();
-            let (image, sample) = harness.render_legacy(case)?;
+            let (image, sample) = harness.render(case)?;
+            validate_case(case, &image)?;
+            let nontransparent = image
+                .pixels()
+                .iter()
+                .filter(|pixel| pixel[3] > 0.0)
+                .count();
+            if case.expects_visible_pixels() != (nontransparent > 0) {
+                return Err(format!(
+                    "{} at scale {scale} violated its visibility expectation",
+                    case.name()
+                ));
+            }
             println!(
-                "case={} scale={} width={} height={} elapsed_us={} os={} architecture={} adapter={:?} backend={} device_type={}",
+                "case={} scale={} width={} height={} nontransparent={} elapsed_us={} os={} architecture={} adapter={:?} backend={} device_type={}",
                 case.name(),
                 harness.scale_factor(),
                 image.width(),
                 image.height(),
+                nontransparent,
                 sample.elapsed().as_micros(),
                 environment.os(),
                 environment.architecture(),
@@ -38,12 +53,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
             );
             Ok(())
         }
-        [command] if command == "reference-all" => {
+        [command] if command == "readback-all" => {
             for scale in [1.0, 1.25, 1.5, 2.0] {
                 let mut harness = harness(scale)?;
                 let environment = harness.environment();
                 for case in Case::ALL {
-                    let (image, sample) = harness.render_legacy(case)?;
+                    let (image, sample) = harness.render(case)?;
                     let nontransparent = image
                         .pixels()
                         .iter()
@@ -70,75 +85,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
                     );
                 }
             }
-            Ok(())
-        }
-        [command] if command == "oracle-all" => {
-            for scale in [1.0, 1.25, 1.5, 2.0] {
-                let mut harness = harness(scale)?;
-                let environment = harness.environment();
-                for case in Case::ALL {
-                    let (legacy, candidate, sample) = harness.render_pair(case)?;
-                    validate_case(case, &legacy)?;
-                    validate_case(case, &candidate)?;
-                    let difference = compare(&legacy, &candidate, Tolerance::Exact)?;
-                    println!(
-                        "case={} scale={} differing_pixels={} maximum_channel_delta={} legacy_us={} candidate_us={} adapter={:?} backend={} device_type={}",
-                        case.name(),
-                        harness.scale_factor(),
-                        difference.differing_pixels,
-                        difference.maximum_channel_delta,
-                        sample.legacy().elapsed().as_micros(),
-                        sample.candidate().elapsed().as_micros(),
-                        environment.adapter_name(),
-                        environment.backend(),
-                        environment.device_type(),
-                    );
-                }
-            }
-            Ok(())
-        }
-        [command, case, scale] if command == "oracle" => {
-            let case = parse_case(case)?;
-            let scale = scale
-                .parse::<f32>()
-                .map_err(|_| "scale must be a positive number".to_owned())?;
-            let mut harness = harness(scale)?;
-            let (legacy, candidate, sample) = harness.render_pair(case)?;
-            let difference = compare(&legacy, &candidate, Tolerance::Exact);
-            let mut changed = Vec::new();
-            for (index, (left, right)) in legacy
-                .pixels()
-                .iter()
-                .zip(candidate.pixels())
-                .enumerate()
-            {
-                if left != right {
-                    changed.push((
-                        index % legacy.width() as usize,
-                        index / legacy.width() as usize,
-                        *left,
-                        *right,
-                    ));
-                }
-            }
-            println!(
-                "case={} scale={} legacy_us={} candidate_us={} difference={difference:?} changed_bounds={:?} first={:?} maximum={:?}",
-                case.name(),
-                scale,
-                sample.legacy().elapsed().as_micros(),
-                sample.candidate().elapsed().as_micros(),
-                changed.iter().fold(None::<(usize, usize, usize, usize)>, |bounds, (x, y, _, _)| {
-                    Some(bounds.map_or((*x, *y, *x, *y), |(x0, y0, x1, y1)| {
-                        (x0.min(*x), y0.min(*y), x1.max(*x), y1.max(*y))
-                    }))
-                }),
-                &changed[..changed.len().min(8)],
-                changed.iter().max_by(|(_, _, left_a, right_a), (_, _, left_b, right_b)| {
-                    let delta_a = left_a.iter().zip(right_a).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
-                    let delta_b = left_b.iter().zip(right_b).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
-                    delta_a.total_cmp(&delta_b)
-                }),
-            );
             Ok(())
         }
         [command, case] if command == "work" => {
@@ -193,10 +139,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             let mut harness = harness(1.0)?;
             let environment = harness.environment();
-            let _ = harness.render_legacy(case)?;
+            let _ = harness.render(case)?;
             let mut samples = Vec::with_capacity(iterations);
             for _ in 0..iterations {
-                let (_, sample) = harness.render_legacy(case)?;
+                let (_, sample) = harness.render(case)?;
                 samples.push(sample.elapsed());
             }
             samples.sort_unstable();
@@ -216,7 +162,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: renderer_debug list | reference <case> | reference-all | oracle <case> <scale> | oracle-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations>"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations>"
                 .to_owned(),
         ),
     }

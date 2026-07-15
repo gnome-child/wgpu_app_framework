@@ -1,9 +1,9 @@
 # Renderer debug oracle
 
 `renderer_debug` is the renderer campaign's unpublished, development-only
-oracle and benchmark crate. It compares two realizations of the same closed
-scene fixture, reads their pixels back in-process, and reports the renderer work
-that produced them. It is deliberately not a production renderer selector or a
+oracle and benchmark crate. It drives the sole retained renderer from closed
+scene fixtures, reads pixels back in-process, and reports the semantic work that
+produced them. It is deliberately not a production renderer selector or a
 second public rendering API.
 
 Run every command below from the workspace root.
@@ -16,13 +16,13 @@ The pure comparator tests need no GPU:
 cargo test -p renderer_debug
 ```
 
-List the closed fixture cases, compare every case at the four campaign scale
-factors, or inspect one failure in detail:
+List the closed fixture cases, read every case back at the four campaign scale
+factors, or inspect one case at a chosen scale:
 
 ```text
 cargo run --release -p renderer_debug -- list
-cargo run --release -p renderer_debug -- oracle-all
-cargo run --release -p renderer_debug -- oracle ordered-group 1.25
+cargo run --release -p renderer_debug -- readback-all
+cargo run --release -p renderer_debug -- readback ordered-group 1.25
 ```
 
 The GPU acceptance witnesses are ignored during the ordinary workspace suite
@@ -64,10 +64,8 @@ The binary exposes these code-owned observations:
 
 ```text
 renderer_debug list
-renderer_debug reference <case>
-renderer_debug reference-all
-renderer_debug oracle <case> <scale>
-renderer_debug oracle-all
+renderer_debug readback <case> <scale>
+renderer_debug readback-all
 renderer_debug work <case>
 renderer_debug retention <case>
 renderer_debug partial-update
@@ -90,10 +88,11 @@ zero work.
 
 ## Choosing a comparison policy
 
-Start with `Tolerance::Exact`. Use `PerChannel` only when two proven-equivalent
-floating blend routes can round differently. Use `Silhouette` only for a named
-antialiased coverage law whose maximum channel delta and differing-pixel budget
-are both justified.
+Transition witnesses compare retained outputs from independent complete
+realizations. Start with `Tolerance::Exact`. Use `PerChannel` only when two
+proven-equivalent floating blend routes can round differently. Use `Silhouette`
+only for a named antialiased coverage law whose maximum channel delta and
+differing-pixel budget are both justified.
 
 Never increase a tolerance to hide a geometry, ordering, clipping, alpha,
 packing, or resource-lifetime defect. The detailed single-case command and the
@@ -103,8 +102,8 @@ localization or snapping; it is not evidence for a looser blend tolerance.
 
 When a transition fails, distinguish these questions before changing code:
 
-1. Does the initial retained image already differ from the compatibility
-   image?
+1. Does the initial retained image differ from an independent fresh retained
+   realization?
 2. Does only the property/activation transition differ?
 3. Is the mismatch a uniform spatial displacement, a clip boundary, a blend
    delta, missing content, or incomplete output?
@@ -119,8 +118,9 @@ fixture in the adapter.
 1. Construct one closed `scene::Commit` and one compatible complete
    `scene::Properties` snapshot. Carry composition identity; do not mint a
    renderer identity or hash flattened primitives.
-2. Feed the exact fixture to the compatibility and retained realizations. The
-   adapter may translate representation but may not change semantic input.
+2. Feed the exact commit and properties to the retained renderer. When a
+   transition needs a reference, use an independent fresh retained realization
+   of those same values; do not lower through a second representation.
 3. Cover 1.0, 1.25, 1.5, and 2.0 scale when physical snapping, text, clipping,
    or effects participate.
 4. State the comparison policy and assert the relevant semantic-work,
@@ -129,12 +129,11 @@ fixture in the adapter.
    contract logic in the ordinary suite where possible.
 6. Preserve the narrow `renderer-debug` feature boundary. Production code must
    not depend on this crate, expose WGPU handles through it, or gain a runtime
-   old/new selector.
+   renderer selector.
 
-The compatibility renderer and its adapter are temporary campaign scaffolding.
-Checkpoint 9 deletes them with the old renderer. Direct readback, work,
-topology, lifecycle, and benchmark witnesses for the sole retained renderer
-survive.
+Checkpoint 9 retired the compatibility renderer, lowering adapter, and A/B CLI.
+Direct readback, work, topology, lifecycle, transition, and benchmark witnesses
+now ratchet the sole retained renderer.
 
 ## Evidence order and runtime smoke
 

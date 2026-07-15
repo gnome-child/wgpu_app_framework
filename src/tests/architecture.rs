@@ -714,7 +714,7 @@ fn frame_preparation_has_one_recipe() {
             .matches(".compatibility_scene(&self.properties)")
             .count(),
         1,
-        "the prepared immutable commit must cross the legacy adapter once"
+        "the prepared immutable commit must materialize its public inspection facade once"
     );
     assert_eq!(
         presentation.matches("self.prepare_frame(").count(),
@@ -903,10 +903,12 @@ fn view_callback_context_is_a_facade_responsibility() {
 }
 
 #[test]
-fn semantic_scene_lowering_belongs_to_renderer() {
+fn retained_scene_stack_is_the_only_native_renderer_handoff() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let render_scene = std::fs::read_to_string(root.join("render").join("scene.rs"))
         .expect("renderer scene projection should read");
+    let scene_stack = std::fs::read_to_string(root.join("scene").join("stack.rs"))
+        .expect("retained scene stack should read");
     let native = root.join("platform").join("native");
     let surface = std::fs::read_to_string(native.join("surface.rs"))
         .expect("native surface source should read");
@@ -914,19 +916,34 @@ fn semantic_scene_lowering_belongs_to_renderer() {
         std::fs::read_to_string(native.join("popup.rs")).expect("native popup source should read");
 
     assert!(
-        render_scene.contains("fn to_paint_scene_at_scale(")
-            && render_scene.contains("struct PopupProjection"),
-        "renderer must own the compatibility scene lowering still used by popup realization"
+        render_scene.contains("enum PreparedContent")
+            && render_scene.contains("struct PopupProjection")
+            && scene_stack.contains("pub(crate) struct Stack")
+            && scene_stack.contains("pub(crate) struct Layer")
+            && scene_stack.contains("NativePopup"),
+        "scene must hand one closed retained stack to every renderer consumer"
     );
     assert!(
-        surface.contains("renderer.draw_commit(")
-            && surface.contains("renderer.synchronize_commit(")
-            && surface.contains("actual.commit()")
-            && surface.contains("actual.properties()")
-            && !surface.contains("render::scene::to_paint_scene_at_scale")
-            && popup.contains("render::scene::to_paint_scene_at_scale")
+        surface.contains("renderer.draw_stack(")
+            && surface.contains("renderer.synchronize_stack(")
+            && surface.contains("actual.stack()")
+            && popup.contains("renderer.draw_stack(")
+            && popup.contains("scene::MaterialProjection::NativePopup")
             && popup.contains("render::scene::PopupProjection::resolve"),
-        "ordinary native surfaces must consume retained commits while popup compatibility lowering remains renderer-owned"
+        "ordinary and popup native surfaces must consume the same retained stack handoff"
+    );
+    assert!(
+        !render_scene.contains("to_paint_scene")
+            && !surface.contains("to_paint_scene")
+            && !popup.contains("to_paint_scene")
+            && !root.join("render").join("batch.rs").exists()
+            && !root.join("render").join("primitive.rs").exists()
+            && !root.join("render").join("quad.wgsl").exists()
+            && !root.join("paint").join("scene.rs").exists()
+            && !std::fs::read_to_string(root.join("paint").join("mod.rs"))
+                .expect("paint source should read")
+                .contains("pub struct Scene"),
+        "the private flattened scene, batch compiler, and immediate quad species must stay absent"
     );
     assert!(
         !native.join("paint.rs").exists() && !native.join("color.rs").exists(),
@@ -3602,14 +3619,14 @@ fn glyphon_viewports_are_owned_per_prepared_text_resource() {
     let text_renderer = std::fs::read_to_string(src_dir.join("render").join("text_renderer.rs"))
         .expect("text renderer should read");
     let render_start = text_renderer
-        .find("fn render(")
-        .expect("text renderer should expose render method");
+        .find("fn render_retained(")
+        .expect("text renderer should expose retained render method");
     let trim_start = text_renderer[render_start..]
-        .find("fn trim(")
+        .find("fn retained_resource_count(")
         .map(|offset| render_start + offset)
-        .expect("text renderer render method should be followed by trim");
+        .expect("retained text render should be followed by its resource census");
     let render_body = &text_renderer[render_start..trim_start];
-    let immediate_owner = text_renderer
+    let renderer_owner = text_renderer
         .split_once("pub(in crate::render) struct TextRenderer {")
         .and_then(|(_, rest)| rest.split_once("}\n\nstruct RetainedText"))
         .map(|(owner, _)| owner)
@@ -3621,24 +3638,17 @@ fn glyphon_viewports_are_owned_per_prepared_text_resource() {
         .expect("retained text ownership block should be bounded");
 
     assert!(
-        immediate_owner.contains("viewports: Vec<glyphon::Viewport>"),
-        "glyphon viewport state must be parallel to per-batch text renderers"
-    );
-    assert!(
-        !immediate_owner.contains("viewport: glyphon::Viewport"),
-        "text renderer must not keep one shared glyphon viewport uniform"
+        !renderer_owner.contains("viewports: Vec<glyphon::Viewport>")
+            && !renderer_owner.contains("renderers: Vec<glyphon::TextRenderer>"),
+        "the deleted immediate text-batch owner must not survive beside retained resources"
     );
     assert!(
         retained_owner.contains("viewport: glyphon::Viewport"),
         "each retained text resource must own the viewport prepared for its target space"
     );
     assert!(
-        text_renderer.contains("self.update_viewport(render_context, renderer_index, viewport)"),
-        "viewport writes should happen while preparing the owning text batch"
-    );
-    assert!(
-        !render_body.contains("update_viewport"),
-        "render must consume the prepared batch viewport, not write shared viewport state"
+        !render_body.contains("update_render_offset") && !render_body.contains("write_buffer"),
+        "retained draw must consume its prepared viewport without writing shared viewport state"
     );
 }
 
@@ -3804,7 +3814,9 @@ fn per_window_state_owns_departed_cleanup() {
     for cleanup in [
         "self.active_presentations.remove(&window)",
         "self.pending_presentations.remove(&window)",
-        "renderer.cancel_commit_synchronization(pending.preparing.commit())",
+        "renderer.cancel_stack_synchronization(",
+        "pending.preparing.stack()",
+        "active.as_ref().map(shell::Presentation::stack)",
     ] {
         assert!(
             native_adapter.contains(cleanup),
@@ -3945,18 +3957,17 @@ fn scene_no_longer_exposes_generic_filter_primitives() {
 }
 
 #[test]
-fn paint_display_list_no_longer_routes_generic_filter_items() {
+fn retained_plan_no_longer_routes_generic_filter_items() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let paint = std::fs::read_to_string(root.join("paint").join("mod.rs"))
         .expect("paint source should read");
-    let batch = std::fs::read_to_string(root.join("render").join("batch.rs"))
-        .expect("render batch source should read");
+    let batch = root.join("render").join("batch.rs");
     let renderer = std::fs::read_to_string(root.join("render").join("renderer.rs"))
         .expect("renderer source should read");
 
     assert!(
-        !paint.contains("Item::Filter"),
-        "paint display list should not route generic filters after Pane"
+        !paint.contains("Item::Filter") && !paint.contains("pub enum Item"),
+        "paint must not restore a private display-list item species after Pane"
     );
     assert!(
         !paint.contains("filter_op_outset"),
@@ -3967,12 +3978,12 @@ fn paint_display_list_no_longer_routes_generic_filter_items() {
         "old generic liquid filter op should not return after Pane"
     );
     assert!(
-        !batch.contains("ItemBatch::Filter"),
-        "render batching should not carry generic filter batches after Pane"
+        !batch.exists(),
+        "the displaced descriptive render batch module must stay deleted"
     );
     assert!(
-        !renderer.contains("RenderBatch::Filter"),
-        "renderer should not dispatch generic filter batches after Pane"
+        !renderer.contains("PlanStep::Filter") && !renderer.contains("RenderBatch"),
+        "the retained plan must not dispatch generic filter batches after Pane"
     );
     assert!(
         !renderer.contains("fn encode_filter"),
@@ -5188,6 +5199,10 @@ fn renderer_alpha_conventions_have_one_blend_owner() {
         .expect("alpha convention owner should read");
     let quad =
         std::fs::read_to_string(render.join("quad.rs")).expect("quad renderer source should read");
+    let retained = std::fs::read_to_string(render.join("retained.rs"))
+        .expect("retained renderer source should read");
+    let debug = std::fs::read_to_string(root.join("tools/renderer_debug/src/lib.rs"))
+        .expect("renderer debug witnesses should read");
     let filter_setup = std::fs::read_to_string(render.join("filter").join("setup.rs"))
         .expect("filter setup source should read");
     let filter_shader =
@@ -5200,7 +5215,7 @@ fn renderer_alpha_conventions_have_one_blend_owner() {
     assert!(alpha.contains("FragmentOutput::Straight => Some(wgpu::BlendState::ALPHA_BLENDING)"));
     assert!(alpha.contains("wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING"));
     assert!(alpha.contains("FragmentOutput::Replace => None"));
-    assert!(quad.contains("render::alpha::FragmentOutput::Straight"));
+    assert!(retained.contains("render::alpha::FragmentOutput::Straight"));
     assert_eq!(
         filter_setup
             .matches("render::alpha::FragmentOutput::Replace")
@@ -5223,11 +5238,9 @@ fn renderer_alpha_conventions_have_one_blend_owner() {
         "popup pack pipelines must be initialized and consumed through one cache entry"
     );
     assert!(filter_shader.contains("return vec4<f32>(color.rgb * coverage, color.a * coverage);"));
-    let renderer =
-        std::fs::read_to_string(render.join("renderer.rs")).expect("renderer source should read");
-    assert!(renderer.contains("premultiplied_group_witness_applies_opacity_once"));
-    assert!(renderer.contains("(sample[3] - 0.25).abs()"));
-    assert!(renderer.contains("(sample[0] - 0.25).abs()"));
+    assert!(debug.contains("retained_group_alpha_and_popup_pack_are_associated"));
+    assert!(debug.contains("expected_group_alpha"));
+    assert!(debug.contains("expected_popup_rgb"));
     assert!(master.contains("The alpha pipeline has one convention at each stage:"));
     assert!(master.contains("readiness is not implementation"));
 
@@ -5297,20 +5310,21 @@ fn native_renderer_cache_is_keyed_by_render_target_format() {
 #[test]
 fn native_alpha_readback_uses_clean_premultiplied_primitive_witness() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let renderer = std::fs::read_to_string(root.join("src").join("render").join("renderer.rs"))
-        .expect("renderer source should read");
+    let debug = std::fs::read_to_string(root.join("tools/renderer_debug/src/lib.rs"))
+        .expect("renderer debug witnesses should read");
 
     for phrase in [
-        "direct_premultiplied_alpha_witness_preserves_alpha_and_rgb",
-        "scene.clear(paint::Color::rgba(0.0, 0.0, 0.0, 0.0))",
-        "paint::Color::rgba(\n                    1.0, 0.0, 0.0, 0.5,",
-        "copy_texture_to_buffer",
-        "(sample[3] - 0.5).abs()",
-        "(sample[0] - 0.5).abs()",
+        "retained_group_alpha_and_popup_pack_are_associated",
+        "Case::GroupOpacity",
+        "Case::TransparentPopup",
+        "expected_group_alpha",
+        "expected_group_red",
+        "expected_popup_alpha",
+        "expected_popup_rgb",
     ] {
         assert!(
-            renderer.contains(phrase),
-            "native alpha readback diagnostic must include {phrase}"
+            debug.contains(phrase),
+            "direct retained alpha readback must include {phrase}"
         );
     }
 }
@@ -5737,12 +5751,16 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         .expect("render surface source should read");
     let scene =
         std::fs::read_to_string(root.join("src/scene/mod.rs")).expect("scene module should read");
+    let stack = std::fs::read_to_string(root.join("src/scene/stack.rs"))
+        .expect("scene stack source should read");
     let commit = std::fs::read_to_string(root.join("src/scene/commit.rs"))
         .expect("scene commit source should read");
     let composition = std::fs::read_to_string(root.join("src/composition/tree.rs"))
         .expect("composition tree source should read");
     let presentation = std::fs::read_to_string(root.join("src/runtime/presentation.rs"))
         .expect("runtime presentation source should read");
+    let scene_presentation = std::fs::read_to_string(root.join("src/scene/presentation.rs"))
+        .expect("scene presentation source should read");
     let overlay =
         std::fs::read_to_string(root.join("src/overlay.rs")).expect("overlay source should read");
 
@@ -5776,11 +5794,13 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
     assert!(
         scene.contains("mod commit;")
             && !scene.contains("#[cfg(feature = \"renderer-debug\")]\nmod commit;")
-            && presentation.contains("commit: Arc<scene::Commit>")
+            && scene_presentation.contains("stack: Arc<Stack>")
             && presentation.contains(".compatibility_scene(&self.properties)")
+            && stack.contains("commit: Arc<Commit>")
+            && stack.contains("properties: Arc<Properties>")
             && overlay.contains("commit: Arc<scene::Commit>")
             && overlay.contains("properties: Arc<scene::Properties>"),
-        "the retained contract must be production-owned before the legacy adapter and survive overlay lifecycles"
+        "the retained contract must be production-owned, retain its public compatibility facade once per commit, and survive overlay lifecycles"
     );
     let content = commit
         .split("pub(crate) enum Content {")
@@ -5868,16 +5888,16 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         .find("let presented = report.present_timing.is_some();")
         .expect("native presentation should derive successful surface truth");
     let candidate_realization = native_surface
-        .find("renderer.advance_candidate_after_present(")
-        .expect("candidate realization should have a post-present owner");
+        .find("renderer.advance_stack_after_present(")
+        .expect("candidate stack realization should have a post-present owner");
     assert!(
         active_present_receipt < candidate_realization
-            && renderer.contains("ready_candidates: Vec<ReadyCandidate>")
-            && renderer.contains(".prepare_candidate(")
+            && renderer.contains("ready_stacks: Vec<ReadyStack>")
+            && renderer.contains(".prepare_candidate_layer(")
             && renderer.contains("&mut self.text_renderer,")
             && retained.contains("prepare_text_transforms(")
-            && renderer
-                .contains(".record_candidate_slice(viewport, commit, started.elapsed(), deadline)")
+            && renderer.contains("self.retained.record_candidate_layer_slice(")
+            && renderer.contains("stack.base(),")
             && renderer.contains("self.encode_batches(&scroll.render_batches);")
             && renderer.contains("canvas.draw(render_context")
             && canvas.contains("self.surface.render(render_context, encode)")
@@ -5892,21 +5912,49 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && !renderer.contains("prepare_one_scroll_layer")
             && !renderer.contains("Pending Retained Scroll Layer")
             && !renderer.contains("CommitReadiness::Prepared"),
-        "candidate readiness must prepare exact commit-owned properties after an active receipt while scroll remains a direct property transform with no cache texture, candidate queue, or lower-surface fork"
+        "candidate stack readiness must prepare exact layer properties after an active receipt while scroll remains a direct property transform with no cache texture, candidate queue, or lower-surface fork"
     );
     assert!(
-        native_surface.contains("renderer.draw_commit(")
+        native_surface.contains("renderer.draw_stack(")
+            && native_surface.contains("renderer.synchronize_stack(")
+            && native_surface.contains("actual.stack()")
             && !native_surface.contains("to_paint_scene_at_scale")
-            && renderer.contains("self.retained.prepare(")
+            && renderer.contains("self.retained.prepare_layer(")
             && renderer.contains("self.draw_prepared("),
-        "ordinary native windows must cross the retained commit seam and preserve the proven shared surface/present path"
+        "ordinary native windows must cross the retained stack seam and preserve the proven shared surface/present path"
     );
     assert!(
-        !std::fs::read_to_string(root.join("src/render/scene.rs"))
-            .expect("render scene source should read")
-            .contains("to_paint_commit_at_scale"),
-        "the displaced flattened candidate adapter must stay deleted"
+        !root.join("src/render/batch.rs").exists()
+            && !root.join("src/render/primitive.rs").exists()
+            && !root.join("src/render/quad.wgsl").exists(),
+        "the legacy batch compiler, immediate primitive stream, and shader must stay deleted"
     );
+
+    let production_sources = [
+        root.join("src/paint/mod.rs"),
+        root.join("src/render/scene.rs"),
+        root.join("src/render/renderer.rs"),
+        root.join("src/render/debug.rs"),
+        root.join("src/platform/native/surface.rs"),
+        root.join("src/platform/native/popup.rs"),
+    ]
+    .into_iter()
+    .map(|path| std::fs::read_to_string(path).expect("renderer production source should read"))
+    .collect::<String>();
+    for displaced in [
+        "pub struct Scene {",
+        "pub enum Item {",
+        "to_paint_scene_at_scale",
+        "RenderBatch",
+        "PreparedScene",
+        "SceneEncoder",
+        "LegacyRenderer",
+    ] {
+        assert!(
+            !production_sources.contains(displaced),
+            "the displaced renderer species must stay absent: {displaced}"
+        );
+    }
 
     for selector in [
         "WGPU_L3_RENDERER_DEBUG",

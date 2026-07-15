@@ -79,6 +79,15 @@ mod tests {
         Image::new(2, 1, pixels).expect("test image dimensions should match")
     }
 
+    fn srgb_byte_to_linear(value: u8) -> f32 {
+        let value = f32::from(value) / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
     #[test]
     fn exact_comparison_accepts_identical_pixels() {
         let image = image(vec![[0.0; 4], [1.0; 4]]);
@@ -150,18 +159,59 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
-    fn ordered_production_commit_is_pixel_exact() {
+    fn ordered_production_commit_has_stable_retained_pixels() {
         let mut harness = pollster::block_on(Harness::new(1.25)).expect("GPU harness should open");
-        let (legacy, retained, _) = harness
-            .render_pair(Case::OrderedGroup)
-            .expect("ordered commit should render through both paths");
+        let (first, _) = harness
+            .render(Case::OrderedGroup)
+            .expect("ordered commit should render");
+        let (unchanged, _) = harness
+            .render(Case::OrderedGroup)
+            .expect("unchanged ordered commit should render");
 
         assert_eq!(
-            compare(&legacy, &retained, Tolerance::Exact),
+            compare(&first, &unchanged, Tolerance::Exact),
             Ok(Difference {
                 differing_pixels: 0,
                 maximum_channel_delta: 0.0,
             })
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn retained_group_alpha_and_popup_pack_are_associated() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let (group, _) = harness
+            .render(Case::GroupOpacity)
+            .expect("retained group opacity should render");
+        let group_sample = group.pixels()[32 * group.width() as usize + 32];
+        let tolerance = 2.0 / 255.0;
+        let expected_group_alpha = (204.0 / 255.0) * 0.55;
+        let expected_group_red = srgb_byte_to_linear(230) * expected_group_alpha;
+        assert!((group_sample[3] - expected_group_alpha).abs() <= tolerance);
+        assert!((group_sample[0] - expected_group_red).abs() <= tolerance);
+        assert!(
+            group_sample[0..3]
+                .iter()
+                .all(|channel| *channel <= group_sample[3] + tolerance)
+        );
+
+        let (popup, _) = harness
+            .render(Case::TransparentPopup)
+            .expect("transparent popup should render and pack");
+        let popup_sample = popup.pixels()[32 * popup.width() as usize + 32];
+        let expected_popup_alpha = 128.0 / 255.0;
+        let expected_popup_rgb = 64.0 / 255.0;
+        assert!((popup_sample[3] - expected_popup_alpha).abs() <= tolerance);
+        assert!(
+            popup_sample[0..3]
+                .iter()
+                .all(|channel| (*channel - expected_popup_rgb).abs() <= tolerance)
+        );
+        assert!(
+            popup_sample[0..3]
+                .iter()
+                .all(|channel| *channel <= popup_sample[3] + tolerance)
         );
     }
 
@@ -402,7 +452,7 @@ mod tests {
             ))
             .unwrap_or_else(|error| {
                 panic!(
-                    "the production gallery property tick must match its compatibility oracle at {scale_factor}x: {error}"
+                    "the production gallery property tick must match its independent retained realization at {scale_factor}x: {error}"
                 )
             });
         }

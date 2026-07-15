@@ -181,12 +181,6 @@ impl Sample {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PairSample {
-    legacy: Sample,
-    candidate: Sample,
-}
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Work {
     scene_node_realization_rebuilds: usize,
@@ -608,21 +602,10 @@ impl RetentionReceipt {
     }
 }
 
-impl PairSample {
-    pub fn legacy(self) -> Sample {
-        self.legacy
-    }
-
-    pub fn candidate(self) -> Sample {
-        self.candidate
-    }
-}
-
 pub struct Harness {
     context: render::Context,
-    legacy: render::Renderer,
+    witness: render::Renderer,
     candidate: render::Renderer,
-    popup_legacy: render::Renderer,
     popup_candidate: render::Renderer,
     scale_factor: f32,
 }
@@ -642,16 +625,14 @@ impl Harness {
             .await
             .map_err(|error| error.to_string())?;
         let format = render::surface::Format::from_wgpu(wgpu::TextureFormat::Rgba8Unorm);
-        let legacy = render::Renderer::new(&context, format);
+        let witness = render::Renderer::new(&context, format);
         let candidate = render::Renderer::new(&context, format);
         let popup_format = render::surface::Format::from_wgpu(wgpu::TextureFormat::Rgba8UnormSrgb);
-        let popup_legacy = render::Renderer::new(&context, popup_format);
         let popup_candidate = render::Renderer::new(&context, popup_format);
         Ok(Self {
             context,
-            legacy,
+            witness,
             candidate,
-            popup_legacy,
             popup_candidate,
             scale_factor,
         })
@@ -672,36 +653,7 @@ impl Harness {
         self.scale_factor
     }
 
-    pub fn render_legacy(&mut self, case: Case) -> Result<(Image, Sample), String> {
-        let (commit, properties) =
-            scene::renderer_fixture(case.fixture()).map_err(|error| error.to_string())?;
-        let source = commit
-            .compatibility_scene(&properties)
-            .map_err(|error| error.to_string())?;
-        let paint = render::scene::to_paint_scene_at_scale(&source, self.scale_factor);
-        let (width, height) = self.physical_extent(commit.size());
-        if case.uses_popup_pack() {
-            render_popup_image(
-                &self.context,
-                &mut self.popup_legacy,
-                &paint,
-                width,
-                height,
-                self.scale_factor,
-            )
-        } else {
-            render_image(
-                &self.context,
-                &mut self.legacy,
-                &paint,
-                width,
-                height,
-                self.scale_factor,
-            )
-        }
-    }
-
-    pub fn render_candidate(&mut self, case: Case) -> Result<(Image, Sample), String> {
+    pub fn render(&mut self, case: Case) -> Result<(Image, Sample), String> {
         let (commit, properties) =
             scene::renderer_fixture(case.fixture()).map_err(|error| error.to_string())?;
         let commit = std::sync::Arc::new(commit);
@@ -747,68 +699,6 @@ impl Harness {
             .saturating_mul(u64::from(height))
             .saturating_mul(4);
         Ok(work)
-    }
-
-    pub fn render_pair(&mut self, case: Case) -> Result<(Image, Image, PairSample), String> {
-        let (commit, properties) =
-            scene::renderer_fixture(case.fixture()).map_err(|error| error.to_string())?;
-        let source = commit
-            .compatibility_scene(&properties)
-            .map_err(|error| error.to_string())?;
-        let legacy_paint = render::scene::to_paint_scene_at_scale(&source, self.scale_factor);
-        let commit = std::sync::Arc::new(commit);
-        let (width, height) = self.physical_extent(commit.size());
-        let ((legacy, legacy_sample), (candidate, candidate_sample)) = if case.uses_popup_pack() {
-            (
-                render_popup_image(
-                    &self.context,
-                    &mut self.popup_legacy,
-                    &legacy_paint,
-                    width,
-                    height,
-                    self.scale_factor,
-                )?,
-                render_commit_image(
-                    &self.context,
-                    &mut self.popup_candidate,
-                    &commit,
-                    &properties,
-                    width,
-                    height,
-                    self.scale_factor,
-                    true,
-                )?,
-            )
-        } else {
-            (
-                render_image(
-                    &self.context,
-                    &mut self.legacy,
-                    &legacy_paint,
-                    width,
-                    height,
-                    self.scale_factor,
-                )?,
-                render_commit_image(
-                    &self.context,
-                    &mut self.candidate,
-                    &commit,
-                    &properties,
-                    width,
-                    height,
-                    self.scale_factor,
-                    false,
-                )?,
-            )
-        };
-        Ok((
-            legacy,
-            candidate,
-            PairSample {
-                legacy: legacy_sample,
-                candidate: candidate_sample,
-            },
-        ))
     }
 
     pub fn retention_receipt(&mut self, case: Case) -> Result<RetentionReceipt, String> {
@@ -893,10 +783,6 @@ impl Harness {
             .map_err(|error| error.to_string())?;
         let tick_properties =
             scene::renderer_scroll_properties(&commit, 24, 2).map_err(|error| error.to_string())?;
-        let expected_scene = commit
-            .compatibility_scene(&tick_properties)
-            .map_err(|error| error.to_string())?;
-        let expected = render::scene::to_paint_scene_at_scale(&expected_scene, self.scale_factor);
         let commit = std::sync::Arc::new(commit);
         let (width, height) = self.physical_extent(commit.size());
 
@@ -927,13 +813,15 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
-        let (expected_pixels, _) = render_image(
+        let (expected_pixels, _) = render_commit_image(
             &self.context,
-            &mut self.legacy,
-            &expected,
+            &mut self.witness,
+            &commit,
+            &tick_properties,
             width,
             height,
             self.scale_factor,
+            false,
         )?;
         if tick_pixels.as_slice() != expected_pixels.pixels() {
             let differing = tick_pixels
@@ -947,7 +835,7 @@ impl Harness {
             let first = differing.first().copied();
             let last = differing.last().copied();
             return Err(format!(
-                "retained scroll property tick differs from compatibility oracle: pixels={} first={first:?} last={last:?}",
+                "retained scroll property tick differs from an independent retained realization: pixels={} first={first:?} last={last:?}",
                 differing.len()
             ));
         }
@@ -1276,7 +1164,7 @@ impl Harness {
             return Err("ready resized realization did not retire pending state".to_owned());
         }
 
-        let (expected, _) = self.legacy.draw_commit_offscreen_debug(
+        let (expected, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             &commit,
             &properties,
@@ -1326,7 +1214,7 @@ impl Harness {
         properties: &scene::Properties,
     ) -> Result<IncrementalActivationReceipt, String> {
         let (width, height) = self.physical_extent(commit.size());
-        let (expected, _) = self.legacy.draw_commit_offscreen_debug(
+        let (expected, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             commit,
             properties,
@@ -1421,7 +1309,7 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
-        let (expected_candidate, _) = self.legacy.draw_commit_offscreen_debug(
+        let (expected_candidate, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             candidate_commit,
             candidate_properties,
@@ -1534,7 +1422,7 @@ impl Harness {
                 "semantic scroll candidate changed no declared scroll value".to_owned()
             })?;
         let (width, height) = self.physical_extent(active_commit.size());
-        let (active, _) = self.legacy.draw_commit_offscreen_debug(
+        let (active, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             active_commit,
             active_properties,
@@ -1543,7 +1431,7 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
-        let (candidate, _) = self.legacy.draw_commit_offscreen_debug(
+        let (candidate, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             candidate_commit,
             candidate_properties,
@@ -1606,7 +1494,7 @@ impl Harness {
                 "pending candidate carried no property change shared with active".to_owned(),
             );
         }
-        let (expected, _) = self.legacy.draw_commit_offscreen_debug(
+        let (expected, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             active_commit,
             &projected,
@@ -1651,7 +1539,7 @@ impl Harness {
         context: &str,
     ) -> Result<(), String> {
         let (width, height) = self.physical_extent(commit.size());
-        let (pixels, _) = self.legacy.draw_commit_offscreen_debug(
+        let (pixels, _) = self.witness.draw_commit_offscreen_debug(
             &self.context,
             commit,
             properties,
@@ -1688,10 +1576,6 @@ impl Harness {
         initial: &scene::Properties,
         tick: &scene::Properties,
     ) -> Result<(), String> {
-        let expected_scene = commit
-            .compatibility_scene(tick)
-            .map_err(|error| error.to_string())?;
-        let expected = render::scene::to_paint_scene_at_scale(&expected_scene, self.scale_factor);
         let (width, height) = self.physical_extent(commit.size());
 
         let (initial_candidate, _) = self.candidate.draw_commit_offscreen_debug(
@@ -1703,18 +1587,15 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
-        let initial_expected_scene = commit
-            .compatibility_scene(initial)
-            .map_err(|error| error.to_string())?;
-        let initial_expected =
-            render::scene::to_paint_scene_at_scale(&initial_expected_scene, self.scale_factor);
-        let (initial_expected, _) = render_image(
+        let (initial_expected, _) = render_commit_image(
             &self.context,
-            &mut self.legacy,
-            &initial_expected,
+            &mut self.witness,
+            commit,
+            initial,
             width,
             height,
             self.scale_factor,
+            false,
         )?;
         let (candidate, _) = self.candidate.draw_commit_offscreen_debug(
             &self.context,
@@ -1725,13 +1606,15 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
-        let (expected, _) = render_image(
+        let (expected, _) = render_commit_image(
             &self.context,
-            &mut self.legacy,
-            &expected,
+            &mut self.witness,
+            commit,
+            tick,
             width,
             height,
             self.scale_factor,
+            false,
         )?;
 
         if candidate.as_slice() == expected.pixels()
@@ -1966,43 +1849,6 @@ impl Harness {
             (size.height() as f32 * self.scale_factor).round() as u32,
         )
     }
-}
-
-fn render_image(
-    context: &render::Context,
-    renderer: &mut render::Renderer,
-    scene: &crate::paint::Scene,
-    width: u32,
-    height: u32,
-    scale_factor: f32,
-) -> Result<(Image, Sample), String> {
-    let started = Instant::now();
-    let pixels = renderer.draw_offscreen_debug(context, scene, width, height, scale_factor)?;
-    Ok((
-        Image::new(width, height, pixels)?,
-        Sample {
-            elapsed: started.elapsed(),
-        },
-    ))
-}
-
-fn render_popup_image(
-    context: &render::Context,
-    renderer: &mut render::Renderer,
-    scene: &crate::paint::Scene,
-    width: u32,
-    height: u32,
-    scale_factor: f32,
-) -> Result<(Image, Sample), String> {
-    let started = Instant::now();
-    let pixels =
-        renderer.draw_offscreen_popup_debug(context, scene, width, height, scale_factor)?;
-    Ok((
-        Image::new(width, height, pixels)?,
-        Sample {
-            elapsed: started.elapsed(),
-        },
-    ))
 }
 
 fn render_commit_image(

@@ -12,11 +12,8 @@ use wgpu::util::DeviceExt;
 use crate::{composition, scene};
 
 use super::{
-    self as render, batch,
-    renderer::{
-        PreparedClip, PreparedGroup, PreparedPane, PreparedScroll, RenderBatch,
-        ShapeBatch as EncodedShapeBatch, TextBatch,
-    },
+    self as render, content,
+    renderer::{PlanStep, PreparedClip, PreparedGroup, PreparedPane, PreparedScroll},
 };
 
 const RETAINED_QUAD_WGSL: &str = include_str!("retained_quad.wgsl");
@@ -223,6 +220,7 @@ pub(in crate::render) struct ResourceKey {
     topology_revision: scene::TopologyRevision,
     content_index: usize,
     part: u16,
+    realization: u8,
     scale_bits: u32,
     target_bits: [u32; 4],
 }
@@ -241,6 +239,7 @@ impl ResourceKey {
             topology_revision: node.topology_revision(),
             content_index,
             part,
+            realization: 0,
             scale_bits: scale_factor.to_bits(),
             target_bits: [0; 4],
         }
@@ -262,6 +261,11 @@ impl ResourceKey {
             target_size[1].to_bits(),
         ];
         key
+    }
+
+    fn with_realization(mut self, realization: u8) -> Self {
+        self.realization = realization;
+        self
     }
 }
 
@@ -310,7 +314,7 @@ pub(in crate::render) struct SyncStats {
 }
 
 pub(in crate::render) struct Plan {
-    batches: Vec<RenderBatch>,
+    batches: Vec<PlanStep>,
     property_bindings: Vec<PropertyBinding>,
     requires_surface_sampling: bool,
     facts: PlanFacts,
@@ -330,7 +334,7 @@ struct PlanFacts {
 }
 
 impl Plan {
-    pub(in crate::render) fn batches(&self) -> &[RenderBatch] {
+    pub(in crate::render) fn batches(&self) -> &[PlanStep] {
         &self.batches
     }
 
@@ -370,7 +374,31 @@ impl PlanFacts {
 struct PlanEntry {
     commit: Weak<scene::Commit>,
     viewport: render::Viewport,
+    projection: Projection,
     plan: Arc<Plan>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Projection {
+    origin: [f32; 2],
+    material: scene::MaterialProjection,
+}
+
+impl Projection {
+    #[cfg(feature = "renderer-debug")]
+    fn source() -> Self {
+        Self {
+            origin: [0.0, 0.0],
+            material: scene::MaterialProjection::Source,
+        }
+    }
+
+    fn from_layer(layer: &scene::Layer) -> Self {
+        Self {
+            origin: [layer.origin().x() as f32, layer.origin().y() as f32],
+            material: layer.material().clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -456,12 +484,14 @@ pub(in crate::render) struct Realizer {
 struct PreparedStats {
     commit: Weak<scene::Commit>,
     viewport: render::Viewport,
+    projection: Projection,
     stats: render::DrawStats,
 }
 
 struct PendingPlan {
     commit: Arc<scene::Commit>,
     viewport: render::Viewport,
+    projection: Projection,
     nodes: HashMap<composition::tree::NodeId, Arc<scene::Node>>,
     order: Option<Arc<[scene::Draw]>>,
     order_index: usize,
@@ -474,7 +504,7 @@ struct PendingPlan {
 struct PendingFrame {
     kind: PendingFrameKind,
     space: TargetSpace,
-    batches: Vec<RenderBatch>,
+    batches: Vec<PlanStep>,
 }
 
 enum PendingFrameKind {
@@ -506,6 +536,7 @@ impl Realizer {
         }
     }
 
+    #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn synchronize_bounded(
         &mut self,
         render_context: &render::Context,
@@ -515,18 +546,61 @@ impl Realizer {
         budget: std::time::Duration,
         deadline: std::time::Duration,
     ) -> render::Result<Synchronize> {
+        self.synchronize_projected(
+            render_context,
+            viewport,
+            commit,
+            Projection::source(),
+            text_renderer,
+            budget,
+            deadline,
+        )
+    }
+
+    pub(in crate::render) fn synchronize_layer(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        layer: &scene::Layer,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+        budget: std::time::Duration,
+        deadline: std::time::Duration,
+    ) -> render::Result<Synchronize> {
+        self.synchronize_projected(
+            render_context,
+            viewport,
+            layer.commit(),
+            Projection::from_layer(layer),
+            text_renderer,
+            budget,
+            deadline,
+        )
+    }
+
+    fn synchronize_projected(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        projection: Projection,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+        budget: std::time::Duration,
+        deadline: std::time::Duration,
+    ) -> render::Result<Synchronize> {
         self.collect_pending();
-        self.retain_commit_viewport(commit, viewport);
-        if self.find_plan(commit, viewport).is_some() {
+        self.retain_commit_projection(commit, viewport, &projection);
+        if self.find_plan(commit, viewport, &projection).is_some() {
             return Ok(Synchronize::Ready);
         }
 
         let started_at = std::time::Instant::now();
         let pending_index = self.pending.iter().position(|pending| {
-            pending.viewport == viewport && Arc::ptr_eq(&pending.commit, commit)
+            pending.viewport == viewport
+                && pending.projection == projection
+                && Arc::ptr_eq(&pending.commit, commit)
         });
         let mut pending = pending_index.map_or_else(
-            || PendingPlan::new(Arc::clone(commit), viewport),
+            || PendingPlan::new(Arc::clone(commit), viewport, projection.clone()),
             |index| self.pending.swap_remove(index),
         );
         let mut builder = PlanBuilder {
@@ -534,6 +608,7 @@ impl Realizer {
             viewport,
             shapes: &mut self.shapes,
             text_renderer,
+            projection: &projection,
             rebuilt_nodes: std::mem::take(&mut pending.rebuilt_nodes),
             property_bindings: std::mem::take(&mut pending.property_bindings),
             stats: std::mem::take(&mut pending.stats),
@@ -582,22 +657,37 @@ impl Realizer {
         self.plans.push(PlanEntry {
             commit: Arc::downgrade(commit),
             viewport,
+            projection: projection.clone(),
             plan,
         });
         self.prepared_stats.push(PreparedStats {
             commit: Arc::downgrade(commit),
             viewport,
+            projection,
             stats: pending.stats,
         });
         Ok(Synchronize::Prepared)
     }
 
+    #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn cancel_synchronization(&mut self, commit: &Arc<scene::Commit>) {
         self.pending
             .retain(|pending| !Arc::ptr_eq(&pending.commit, commit));
         self.shapes.cancel_property_state(commit);
     }
 
+    pub(in crate::render) fn cancel_layer_synchronization(&mut self, layer: &scene::Layer) {
+        let projection = Projection::from_layer(layer);
+        self.pending.retain(|pending| {
+            !Arc::ptr_eq(&pending.commit, layer.commit()) || pending.projection != projection
+        });
+    }
+
+    pub(in crate::render) fn cancel_property_state(&mut self, commit: &Arc<scene::Commit>) {
+        self.shapes.cancel_property_state(commit);
+    }
+
+    #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn prepare(
         &mut self,
         render_context: &render::Context,
@@ -606,20 +696,56 @@ impl Realizer {
         properties: &scene::Properties,
         text_renderer: &mut render::text_renderer::TextRenderer,
     ) -> render::Result<Prepared> {
+        self.prepare_projected(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            Projection::source(),
+            text_renderer,
+        )
+    }
+
+    pub(in crate::render) fn prepare_layer(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        layer: &scene::Layer,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+    ) -> render::Result<Prepared> {
+        self.prepare_projected(
+            render_context,
+            viewport,
+            layer.commit(),
+            layer.properties(),
+            Projection::from_layer(layer),
+            text_renderer,
+        )
+    }
+
+    fn prepare_projected(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        properties: &scene::Properties,
+        projection: Projection,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+    ) -> render::Result<Prepared> {
         properties
             .require_compatible(commit)
             .map_err(|_| render::Error::RetainedSceneContract)?;
 
         let mut stats = render::DrawStats::default();
         let _expired_plans = self.collect_plans();
-        self.retain_commit_viewport(commit, viewport);
+        self.retain_commit_projection(commit, viewport, &projection);
         stats.retained_gpu_resource_removals += self.shapes.collect().resource_removals;
         stats.retained_gpu_resource_removals += text_renderer.collect_retained();
 
-        let plan = self.find_plan(commit, viewport);
+        let plan = self.find_plan(commit, viewport, &projection);
 
         let plan = if let Some(plan) = plan {
-            if let Some(prepared) = self.take_prepared_stats(commit, viewport) {
+            if let Some(prepared) = self.take_prepared_stats(commit, viewport, &projection) {
                 stats.add(prepared);
             } else {
                 stats.render_plan_reuses = 1;
@@ -631,6 +757,7 @@ impl Realizer {
                 viewport,
                 shapes: &mut self.shapes,
                 text_renderer,
+                projection: &projection,
                 rebuilt_nodes: HashSet::new(),
                 property_bindings: Vec::new(),
                 stats: render::DrawStats::default(),
@@ -643,6 +770,7 @@ impl Realizer {
             self.plans.push(PlanEntry {
                 commit: Arc::downgrade(commit),
                 viewport,
+                projection,
                 plan: Arc::clone(&plan),
             });
             plan
@@ -687,6 +815,7 @@ impl Realizer {
         })
     }
 
+    #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn prepare_candidate(
         &mut self,
         render_context: &render::Context,
@@ -695,10 +824,46 @@ impl Realizer {
         properties: &scene::Properties,
         text_renderer: &mut render::text_renderer::TextRenderer,
     ) -> render::Result<Option<Prepared>> {
+        self.prepare_candidate_projected(
+            render_context,
+            viewport,
+            commit,
+            properties,
+            &Projection::source(),
+            text_renderer,
+        )
+    }
+
+    pub(in crate::render) fn prepare_candidate_layer(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        layer: &scene::Layer,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+    ) -> render::Result<Option<Prepared>> {
+        self.prepare_candidate_projected(
+            render_context,
+            viewport,
+            layer.commit(),
+            layer.properties(),
+            &Projection::from_layer(layer),
+            text_renderer,
+        )
+    }
+
+    fn prepare_candidate_projected(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        properties: &scene::Properties,
+        projection: &Projection,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+    ) -> render::Result<Option<Prepared>> {
         properties
             .require_compatible(commit)
             .map_err(|_| render::Error::RetainedSceneContract)?;
-        let Some(plan) = self.find_plan(commit, viewport) else {
+        let Some(plan) = self.find_plan(commit, viewport, projection) else {
             return Ok(None);
         };
         let (property_bindings, property_stats) = self.shapes.prepare_properties(
@@ -723,6 +888,7 @@ impl Realizer {
         );
         if let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
             entry.viewport == viewport
+                && entry.projection == *projection
                 && entry
                     .commit
                     .upgrade()
@@ -738,6 +904,7 @@ impl Realizer {
         }))
     }
 
+    #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn record_candidate_slice(
         &mut self,
         viewport: render::Viewport,
@@ -745,8 +912,10 @@ impl Realizer {
         elapsed: std::time::Duration,
         deadline: std::time::Duration,
     ) {
+        let projection = Projection::source();
         let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
             entry.viewport == viewport
+                && entry.projection == projection
                 && entry
                     .commit
                     .upgrade()
@@ -754,21 +923,28 @@ impl Realizer {
         }) else {
             return;
         };
-        let elapsed_nanos = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
-        prepared.stats.commit_preparation_slices =
-            prepared.stats.commit_preparation_slices.saturating_add(1);
-        prepared.stats.commit_preparation_total_nanos = prepared
-            .stats
-            .commit_preparation_total_nanos
-            .saturating_add(elapsed_nanos);
-        prepared.stats.commit_preparation_max_nanos = prepared
-            .stats
-            .commit_preparation_max_nanos
-            .max(elapsed_nanos);
-        prepared.stats.commit_preparation_deadline_misses = prepared
-            .stats
-            .commit_preparation_deadline_misses
-            .saturating_add(usize::from(elapsed >= deadline));
+        record_candidate_timing(&mut prepared.stats, elapsed, deadline);
+    }
+
+    pub(in crate::render) fn record_candidate_layer_slice(
+        &mut self,
+        viewport: render::Viewport,
+        layer: &scene::Layer,
+        elapsed: std::time::Duration,
+        deadline: std::time::Duration,
+    ) {
+        let projection = Projection::from_layer(layer);
+        let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
+            entry.viewport == viewport
+                && entry.projection == projection
+                && entry
+                    .commit
+                    .upgrade()
+                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, layer.commit()))
+        }) else {
+            return;
+        };
+        record_candidate_timing(&mut prepared.stats, elapsed, deadline);
     }
 
     pub(in crate::render) fn shapes(&self) -> &Shapes {
@@ -798,19 +974,27 @@ impl Realizer {
             .retain(|pending| Arc::strong_count(&pending.commit) > 1);
     }
 
-    fn retain_commit_viewport(&mut self, commit: &Arc<scene::Commit>, viewport: render::Viewport) {
+    fn retain_commit_projection(
+        &mut self,
+        commit: &Arc<scene::Commit>,
+        viewport: render::Viewport,
+        projection: &Projection,
+    ) {
         self.shapes.retain_property_viewport(commit, viewport);
         self.pending.retain(|pending| {
-            !Arc::ptr_eq(&pending.commit, commit) || pending.viewport == viewport
+            !Arc::ptr_eq(&pending.commit, commit)
+                || (pending.viewport == viewport && pending.projection == *projection)
         });
         self.plans.retain(|entry| {
             entry.commit.upgrade().is_none_or(|candidate| {
-                !Arc::ptr_eq(&candidate, commit) || entry.viewport == viewport
+                !Arc::ptr_eq(&candidate, commit)
+                    || (entry.viewport == viewport && entry.projection == *projection)
             })
         });
         self.prepared_stats.retain(|entry| {
             entry.commit.upgrade().is_none_or(|candidate| {
-                !Arc::ptr_eq(&candidate, commit) || entry.viewport == viewport
+                !Arc::ptr_eq(&candidate, commit)
+                    || (entry.viewport == viewport && entry.projection == *projection)
             })
         });
     }
@@ -819,9 +1003,10 @@ impl Realizer {
         &self,
         commit: &Arc<scene::Commit>,
         viewport: render::Viewport,
+        projection: &Projection,
     ) -> Option<Arc<Plan>> {
         self.plans.iter().find_map(|entry| {
-            (entry.viewport == viewport)
+            (entry.viewport == viewport && entry.projection == *projection)
                 .then(|| entry.commit.upgrade())
                 .flatten()
                 .filter(|candidate| Arc::ptr_eq(candidate, commit))
@@ -833,9 +1018,11 @@ impl Realizer {
         &mut self,
         commit: &Arc<scene::Commit>,
         viewport: render::Viewport,
+        projection: &Projection,
     ) -> Option<render::DrawStats> {
         let index = self.prepared_stats.iter().position(|entry| {
             entry.viewport == viewport
+                && entry.projection == *projection
                 && entry
                     .commit
                     .upgrade()
@@ -845,12 +1032,28 @@ impl Realizer {
     }
 }
 
+fn record_candidate_timing(
+    stats: &mut render::DrawStats,
+    elapsed: std::time::Duration,
+    deadline: std::time::Duration,
+) {
+    let elapsed_nanos = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
+    stats.commit_preparation_slices = stats.commit_preparation_slices.saturating_add(1);
+    stats.commit_preparation_total_nanos = stats
+        .commit_preparation_total_nanos
+        .saturating_add(elapsed_nanos);
+    stats.commit_preparation_max_nanos = stats.commit_preparation_max_nanos.max(elapsed_nanos);
+    stats.commit_preparation_deadline_misses = stats
+        .commit_preparation_deadline_misses
+        .saturating_add(usize::from(elapsed >= deadline));
+}
+
 fn prepare_text_transforms(
     render_context: &render::Context,
     viewport: render::Viewport,
     commit: &Arc<scene::Commit>,
     properties: &scene::Properties,
-    batches: &[RenderBatch],
+    batches: &[PlanStep],
     text_renderer: &mut render::text_renderer::TextRenderer,
 ) -> SyncStats {
     let mut transforms = Vec::new();
@@ -866,20 +1069,23 @@ fn prepare_text_transforms(
 }
 
 fn collect_text_transforms(
-    batches: &[RenderBatch],
+    batches: &[PlanStep],
     properties: &scene::Properties,
     translation: [f32; 2],
     transforms: &mut Vec<(render::text_renderer::RetainedBatch, [f32; 2])>,
 ) {
     for batch in batches {
         match batch {
-            RenderBatch::Text(TextBatch::Retained(batch)) => {
+            PlanStep::Layer(layer) => {
+                collect_text_transforms(&layer.render_batches, properties, translation, transforms);
+            }
+            PlanStep::Text(batch) => {
                 transforms.push((*batch, translation));
             }
-            RenderBatch::Group(group) => {
+            PlanStep::Group(group) => {
                 collect_text_transforms(&group.render_batches, properties, [0.0, 0.0], transforms);
             }
-            RenderBatch::Scroll(scroll) => {
+            PlanStep::Scroll(scroll) => {
                 let current = properties
                     .scroll_offset(scroll.node)
                     .unwrap_or(scroll.baseline);
@@ -894,17 +1100,14 @@ fn collect_text_transforms(
                     transforms,
                 );
             }
-            RenderBatch::Shapes(_)
-            | RenderBatch::Pane(_)
-            | RenderBatch::Text(TextBatch::Immediate { .. })
-            | RenderBatch::PushClip(_)
-            | RenderBatch::PopClip => {}
+            PlanStep::Shapes(_) | PlanStep::Pane(_) | PlanStep::PushClip(_) | PlanStep::PopClip => {
+            }
         }
     }
 }
 
 impl PendingPlan {
-    fn new(commit: Arc<scene::Commit>, viewport: render::Viewport) -> Self {
+    fn new(commit: Arc<scene::Commit>, viewport: render::Viewport, projection: Projection) -> Self {
         let nodes = commit
             .nodes()
             .iter()
@@ -920,7 +1123,7 @@ impl PendingPlan {
             }
         }
         let main = TargetSpace {
-            origin: [0.0, 0.0],
+            origin: projection.origin,
             size: [
                 viewport.logical_area().width().max(1.0),
                 viewport.logical_area().height().max(1.0),
@@ -933,6 +1136,7 @@ impl PendingPlan {
         Self {
             commit,
             viewport,
+            projection,
             nodes,
             order,
             order_index: 0,
@@ -1006,7 +1210,7 @@ impl PendingPlan {
                         .last_mut()
                         .expect("retained preparation must keep a target frame")
                         .batches
-                        .push(RenderBatch::PushClip(PreparedClip {
+                        .push(PlanStep::PushClip(PreparedClip {
                             node: *node,
                             fallback: render::scene::to_paint_clip_value_at_scale(
                                 *clip,
@@ -1022,7 +1226,7 @@ impl PendingPlan {
                         .last_mut()
                         .expect("retained preparation must keep a target frame")
                         .batches
-                        .push(RenderBatch::PopClip);
+                        .push(PlanStep::PopClip);
                 }
                 scene::Draw::PushGroup {
                     node,
@@ -1031,8 +1235,7 @@ impl PendingPlan {
                 } => {
                     let mut projected_index = self.order_index;
                     let bounds = builder
-                        .project_order_group(order, &mut projected_index, &self.nodes, *opacity)
-                        .map(|group| group.bounds)
+                        .project_order_group_bounds(order, &mut projected_index, &self.nodes)
                         .unwrap_or_else(|| {
                             render::scene::to_paint_rect_value_at_scale(
                                 *bounds,
@@ -1110,7 +1313,7 @@ impl PendingPlan {
             .last_mut()
             .expect("retained group must return to its parent frame")
             .batches
-            .push(RenderBatch::Group(PreparedGroup {
+            .push(PlanStep::Group(PreparedGroup {
                 node: Some(node),
                 bounds: local_group_bounds(bounds, parent_origin),
                 opacity,
@@ -1137,7 +1340,7 @@ impl PendingPlan {
             .last_mut()
             .expect("retained scroll must return to its parent frame")
             .batches
-            .push(RenderBatch::Scroll(PreparedScroll {
+            .push(PlanStep::Scroll(PreparedScroll {
                 node,
                 viewport: local_rect(viewport, parent_origin),
                 baseline,
@@ -1151,6 +1354,7 @@ struct PlanBuilder<'a> {
     viewport: render::Viewport,
     shapes: &'a mut Shapes,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
+    projection: &'a Projection,
     rebuilt_nodes: HashSet<composition::tree::NodeId>,
     property_bindings: Vec<PropertyBinding>,
     stats: render::DrawStats,
@@ -1196,7 +1400,7 @@ impl PlanBuilder<'_> {
         }
         let mut batches = Vec::new();
         let main = TargetSpace {
-            origin: [0.0, 0.0],
+            origin: self.projection.origin,
             size: [
                 self.viewport.logical_area().width().max(1.0),
                 self.viewport.logical_area().height().max(1.0),
@@ -1230,7 +1434,7 @@ impl PlanBuilder<'_> {
         stop: Option<PlanStop>,
         nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
         space: TargetSpace,
-        target: &mut Vec<RenderBatch>,
+        target: &mut Vec<PlanStep>,
     ) -> render::Result<()> {
         while let Some(draw) = order.get(*index) {
             *index = index.saturating_add(1);
@@ -1249,7 +1453,7 @@ impl PlanBuilder<'_> {
                 scene::Draw::PushClip { node, clip } => {
                     self.stats.scene_items += 1;
                     self.stats.clip_batches += 1;
-                    target.push(RenderBatch::PushClip(PreparedClip {
+                    target.push(PlanStep::PushClip(PreparedClip {
                         node: *node,
                         fallback: render::scene::to_paint_clip_value_at_scale(
                             *clip,
@@ -1261,7 +1465,7 @@ impl PlanBuilder<'_> {
                 scene::Draw::PopClip => {
                     self.stats.scene_items += 1;
                     self.stats.clip_batches += 1;
-                    target.push(RenderBatch::PopClip);
+                    target.push(PlanStep::PopClip);
                 }
                 scene::Draw::PushGroup {
                     node,
@@ -1270,8 +1474,7 @@ impl PlanBuilder<'_> {
                 } => {
                     let mut paint_index = *index;
                     let bounds = self
-                        .project_order_group(order, &mut paint_index, nodes, *opacity)
-                        .map(|group| group.bounds)
+                        .project_order_group_bounds(order, &mut paint_index, nodes)
                         .unwrap_or_else(|| {
                             render::scene::to_paint_rect_value_at_scale(
                                 *bounds,
@@ -1297,7 +1500,7 @@ impl PlanBuilder<'_> {
                     self.stats.scene_items += 1;
                     self.stats.group_composites += 1;
                     self.stats.effect_island_nodes += 1;
-                    target.push(RenderBatch::Group(PreparedGroup {
+                    target.push(PlanStep::Group(PreparedGroup {
                         node: Some(*node),
                         bounds: local_group_bounds(bounds, space.origin),
                         opacity: *opacity,
@@ -1326,7 +1529,7 @@ impl PlanBuilder<'_> {
                         &mut members,
                     )?;
                     self.stats.scene_items += 1;
-                    target.push(RenderBatch::Scroll(PreparedScroll {
+                    target.push(PlanStep::Scroll(PreparedScroll {
                         node: *node,
                         viewport: local_rect(viewport, space.origin),
                         baseline: declaration.baseline(),
@@ -1342,47 +1545,45 @@ impl PlanBuilder<'_> {
         Ok(())
     }
 
-    fn project_order_group(
+    fn project_order_group_bounds(
         &self,
         order: &[scene::Draw],
         index: &mut usize,
         nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
-        opacity: f32,
-    ) -> Option<crate::paint::Group> {
-        let mut items = Vec::new();
+    ) -> Option<crate::paint::Rect> {
+        let mut bounds = None;
         while let Some(draw) = order.get(*index) {
             *index = index.saturating_add(1);
             match draw {
                 scene::Draw::Content { node, index, .. } => {
                     let content = nodes.get(node)?.content().get(*index)?;
-                    items.push(render::scene::to_paint_content_at_scale(
-                        content,
-                        self.viewport.scale_factor(),
+                    let content =
+                        render::scene::prepare_content(content, self.viewport.scale_factor());
+                    bounds = Some(bounds.map_or_else(
+                        || content.bounds(self.viewport.scale_factor()),
+                        |bounds| {
+                            crate::paint::union_visual_bounds(
+                                bounds,
+                                content.bounds(self.viewport.scale_factor()),
+                            )
+                        },
                     ));
                 }
-                scene::Draw::PushClip { clip, .. } => {
-                    items.push(crate::paint::Item::Clip(
-                        render::scene::to_paint_clip_value_at_scale(
-                            *clip,
-                            self.viewport.scale_factor(),
-                        ),
-                    ));
-                }
-                scene::Draw::PopClip => items.push(crate::paint::Item::PopClip),
-                scene::Draw::PushGroup { opacity, .. } => {
-                    if let Some(group) = self.project_order_group(order, index, nodes, *opacity) {
-                        items.push(crate::paint::Item::Group(group));
+                scene::Draw::PushGroup { .. } => {
+                    if let Some(group) = self.project_order_group_bounds(order, index, nodes) {
+                        bounds = Some(bounds.map_or(group, |bounds| {
+                            crate::paint::union_visual_bounds(bounds, group)
+                        }));
                     }
                 }
                 scene::Draw::PopGroup => break,
-                scene::Draw::PushScroll { .. } | scene::Draw::PopScroll => {}
+                scene::Draw::PushClip { .. }
+                | scene::Draw::PopClip
+                | scene::Draw::PushScroll { .. }
+                | scene::Draw::PopScroll => {}
             }
         }
-        crate::paint::group_from_items(
-            &items,
-            opacity,
-            crate::paint::Grid::new(self.viewport.scale_factor()),
-        )
+        bounds.map(|bounds| crate::paint::Grid::new(self.viewport.scale_factor()).snap_rect(bounds))
     }
 
     fn build_node(
@@ -1390,12 +1591,12 @@ impl PlanBuilder<'_> {
         commit: &scene::Commit,
         node: &Arc<scene::Node>,
         parent_space: TargetSpace,
-        target: &mut Vec<RenderBatch>,
+        target: &mut Vec<PlanStep>,
     ) -> render::Result<()> {
         if let Some(clip) = node.clip() {
             self.stats.scene_items += 1;
             self.stats.clip_batches += 1;
-            target.push(RenderBatch::PushClip(PreparedClip {
+            target.push(PlanStep::PushClip(PreparedClip {
                 node: Some(node.id()),
                 fallback: render::scene::to_paint_clip_value_at_scale(
                     clip,
@@ -1442,7 +1643,7 @@ impl PlanBuilder<'_> {
                 self.stats.scene_items += 1;
                 self.stats.group_composites += 1;
                 self.stats.effect_island_nodes += 1;
-                target.push(RenderBatch::Group(PreparedGroup {
+                target.push(PlanStep::Group(PreparedGroup {
                     node: Some(node.id()),
                     bounds: local_group_bounds(
                         own_group_bounds.unwrap_or_else(|| {
@@ -1469,7 +1670,7 @@ impl PlanBuilder<'_> {
         if node.clip().is_some() {
             self.stats.scene_items += 1;
             self.stats.clip_batches += 1;
-            target.push(RenderBatch::PopClip);
+            target.push(PlanStep::PopClip);
         }
         Ok(())
     }
@@ -1485,15 +1686,9 @@ impl PlanBuilder<'_> {
         if self.subtree_has_dynamic_geometry(commit, node) {
             return fallback;
         }
-        let mut items = Vec::new();
-        self.collect_group_items(commit, node, &mut items);
-        crate::paint::group_from_items(
-            &items,
-            1.0,
-            crate::paint::Grid::new(self.viewport.scale_factor()),
-        )
-        .map(|group| group.bounds)
-        .unwrap_or(fallback)
+        self.group_content_bounds(commit, node)
+            .map(|bounds| crate::paint::Grid::new(self.viewport.scale_factor()).snap_rect(bounds))
+            .unwrap_or(fallback)
     }
 
     fn subtree_has_dynamic_geometry(&self, commit: &scene::Commit, node: &scene::Node) -> bool {
@@ -1506,22 +1701,31 @@ impl PlanBuilder<'_> {
                 .any(|child| self.subtree_has_dynamic_geometry(commit, child))
     }
 
-    fn collect_group_items(
+    fn group_content_bounds(
         &self,
         commit: &scene::Commit,
         node: &scene::Node,
-        target: &mut Vec<crate::paint::Item>,
-    ) {
-        target.extend(node.content().iter().map(|content| {
-            render::scene::to_paint_content_at_scale(content, self.viewport.scale_factor())
-        }));
+    ) -> Option<crate::paint::Rect> {
+        let mut bounds = node
+            .content()
+            .iter()
+            .map(|content| {
+                render::scene::prepare_content(content, self.viewport.scale_factor())
+                    .bounds(self.viewport.scale_factor())
+            })
+            .reduce(crate::paint::union_visual_bounds);
         for child in commit
             .nodes()
             .iter()
             .filter(|child| child.parent() == Some(node.id()))
         {
-            self.collect_group_items(commit, child, target);
+            if let Some(child) = self.group_content_bounds(commit, child) {
+                bounds = Some(bounds.map_or(child, |bounds| {
+                    crate::paint::union_visual_bounds(bounds, child)
+                }));
+            }
         }
+        bounds
     }
 
     fn build_content(
@@ -1531,13 +1735,17 @@ impl PlanBuilder<'_> {
         content: &scene::Content,
         projection: scene::ContentProjection,
         space: TargetSpace,
-        target: &mut Vec<RenderBatch>,
+        target: &mut Vec<PlanStep>,
     ) -> render::Result<()> {
         self.stats.scene_items += 1;
-        let item = render::scene::to_paint_content_at_scale(content, self.viewport.scale_factor());
+        let Some((content, realization)) = self.projection.material.projected_content(content)
+        else {
+            return Ok(());
+        };
+        let item = render::scene::prepare_content(&content, self.viewport.scale_factor());
         match &item {
-            crate::paint::Item::Quad(value) => {
-                let source_rect = match content {
+            render::scene::PreparedContent::Quad(value) => {
+                let source_rect = match &content {
                     scene::Content::Quad(quad) => Some([
                         quad.rect().x() as f32,
                         quad.rect().y() as f32,
@@ -1550,73 +1758,74 @@ impl PlanBuilder<'_> {
                     node,
                     content_index,
                     0,
-                    batch::Shape::Quad(value),
+                    realization,
+                    content::Shape::Quad(value),
                     source_rect,
                     projection,
                     space,
                     target,
                 )
             }
-            crate::paint::Item::Rule(value) => self.push_shape(
+            render::scene::PreparedContent::Rule(value) => self.push_shape(
                 node,
                 content_index,
                 0,
-                batch::Shape::Rule(value),
+                realization,
+                content::Shape::Rule(value),
                 None,
                 scene::ContentProjection::Normal,
                 space,
                 target,
             ),
-            crate::paint::Item::Shadow(value) => self.push_shape(
+            render::scene::PreparedContent::Shadow(value) => self.push_shape(
                 node,
                 content_index,
                 0,
-                batch::Shape::Shadow(value),
+                realization,
+                content::Shape::Shadow(value),
                 None,
                 scene::ContentProjection::Normal,
                 space,
                 target,
             ),
-            crate::paint::Item::Outline(value) => self.push_shape(
+            render::scene::PreparedContent::Outline(value) => self.push_shape(
                 node,
                 content_index,
                 0,
-                batch::Shape::Outline(value),
+                realization,
+                content::Shape::Outline(value),
                 None,
                 scene::ContentProjection::Normal,
                 space,
                 target,
             ),
-            crate::paint::Item::Text(value) => self.push_glyph(
+            render::scene::PreparedContent::Text(value) => self.push_glyph(
                 node,
                 content_index,
-                batch::Glyph::Text(value),
+                content::Glyph::Text(value),
                 space,
                 target,
             )?,
-            crate::paint::Item::TextViewport(value) => {
+            render::scene::PreparedContent::TextViewport(value) => {
                 self.stats.text_surfaces += value.surfaces.len();
                 self.push_glyph(
                     node,
                     content_index,
-                    batch::Glyph::TextViewport(value),
+                    content::Glyph::TextViewport(value),
                     space,
                     target,
                 )?;
             }
-            crate::paint::Item::Icon(value) => self.push_glyph(
+            render::scene::PreparedContent::Icon(value) => self.push_glyph(
                 node,
                 content_index,
-                batch::Glyph::Icon(value),
+                content::Glyph::Icon(value),
                 space,
                 target,
             )?,
-            crate::paint::Item::Pane(value) => {
-                self.push_pane(node, content_index, value, space, target);
+            render::scene::PreparedContent::Pane(value) => {
+                self.push_pane(node, content_index, realization, value, space, target);
             }
-            crate::paint::Item::Clip(_)
-            | crate::paint::Item::PopClip
-            | crate::paint::Item::Group(_) => unreachable!("scene content is never structural"),
         }
         Ok(())
     }
@@ -1626,11 +1835,12 @@ impl PlanBuilder<'_> {
         node: &Arc<scene::Node>,
         content_index: usize,
         part: u16,
-        shape: batch::Shape<'_>,
+        realization: u8,
+        shape: content::Shape<'_>,
         source_rect: Option<[f32; 4]>,
         projection: scene::ContentProjection,
         space: TargetSpace,
-        target: &mut Vec<RenderBatch>,
+        target: &mut Vec<PlanStep>,
     ) {
         let binding = self.property_binding(node.id(), space, projection);
         let (prepared, sync) = self.shapes.prepare(
@@ -1639,6 +1849,7 @@ impl PlanBuilder<'_> {
             node,
             content_index,
             part,
+            realization,
             &[shape],
             source_rect,
             binding,
@@ -1649,7 +1860,7 @@ impl PlanBuilder<'_> {
         apply_sync_stats(&mut self.stats, sync);
         if let Some(prepared) = prepared {
             self.stats.quad_instances += prepared.instance_count();
-            target.push(RenderBatch::Shapes(EncodedShapeBatch::Retained(prepared)));
+            target.push(PlanStep::Shapes(prepared));
         }
     }
 
@@ -1657,9 +1868,9 @@ impl PlanBuilder<'_> {
         &mut self,
         node: &Arc<scene::Node>,
         content_index: usize,
-        glyph: batch::Glyph<'_>,
+        glyph: content::Glyph<'_>,
         space: TargetSpace,
-        target: &mut Vec<RenderBatch>,
+        target: &mut Vec<PlanStep>,
     ) -> render::Result<()> {
         self.stats.glyph_batches += 1;
         let report = self.text_renderer.prepare_retained(
@@ -1686,7 +1897,7 @@ impl PlanBuilder<'_> {
         self.stats.retained_gpu_resource_creations += report.resource_creations;
         self.stats.retained_gpu_resource_removals += report.resource_removals;
         if let Some(batch) = report.batch {
-            target.push(RenderBatch::Text(TextBatch::Retained(batch)));
+            target.push(PlanStep::Text(batch));
         }
         Ok(())
     }
@@ -1695,9 +1906,10 @@ impl PlanBuilder<'_> {
         &mut self,
         node: &Arc<scene::Node>,
         content_index: usize,
+        realization: u8,
         pane: &crate::paint::Pane,
         space: TargetSpace,
-        target: &mut Vec<RenderBatch>,
+        target: &mut Vec<PlanStep>,
     ) {
         let base_brush = match &pane.material {
             crate::paint::Material::Solid(brush) => Some(*brush),
@@ -1721,8 +1933,9 @@ impl PlanBuilder<'_> {
                 })
                 .collect::<Vec<_>>(),
         };
-        let base = base_brush
-            .and_then(|brush| self.prepare_brush(node, content_index, 0, pane.rect, brush, space));
+        let base = base_brush.and_then(|brush| {
+            self.prepare_brush(node, content_index, 0, realization, pane.rect, brush, space)
+        });
         let surface_layers = surface_brushes
             .into_iter()
             .enumerate()
@@ -1732,6 +1945,7 @@ impl PlanBuilder<'_> {
                         node,
                         content_index,
                         u16::try_from(index.saturating_add(1)).unwrap_or(u16::MAX),
+                        realization,
                         pane.rect,
                         brush,
                         space,
@@ -1751,11 +1965,11 @@ impl PlanBuilder<'_> {
         };
         if matches!(pane.material, crate::paint::Material::Solid(_)) {
             if let Some(base) = prepared.base {
-                target.push(RenderBatch::Shapes(base));
+                target.push(PlanStep::Shapes(base));
             }
         } else {
             self.stats.effect_island_nodes += 1;
-            target.push(RenderBatch::Pane(prepared));
+            target.push(PlanStep::Pane(prepared));
         }
     }
 
@@ -1764,10 +1978,11 @@ impl PlanBuilder<'_> {
         node: &Arc<scene::Node>,
         content_index: usize,
         part: u16,
+        realization: u8,
         rect: crate::paint::Rect,
         brush: crate::paint::Brush,
         space: TargetSpace,
-    ) -> Option<EncodedShapeBatch> {
+    ) -> Option<ShapeBatch> {
         if !brush.is_visible() {
             return None;
         }
@@ -1789,7 +2004,8 @@ impl PlanBuilder<'_> {
             node,
             content_index,
             part,
-            &[batch::Shape::Quad(&quad)],
+            realization,
+            &[content::Shape::Quad(&quad)],
             None,
             binding,
         );
@@ -1800,7 +2016,7 @@ impl PlanBuilder<'_> {
         if let Some(prepared) = &prepared {
             self.stats.quad_instances += prepared.instance_count();
         }
-        prepared.map(EncodedShapeBatch::Retained)
+        prepared
     }
 }
 
@@ -1813,30 +2029,29 @@ fn apply_sync_stats(stats: &mut render::DrawStats, sync: SyncStats) {
     stats.retained_gpu_resource_removals += sync.resource_removals;
 }
 
-fn count_batches(batches: &[RenderBatch]) -> usize {
+fn count_batches(batches: &[PlanStep]) -> usize {
     batches
         .iter()
         .map(|batch| match batch {
-            RenderBatch::Group(group) => 1 + count_batches(&group.render_batches),
-            RenderBatch::Scroll(scroll) => 1 + count_batches(&scroll.render_batches),
+            PlanStep::Group(group) => 1 + count_batches(&group.render_batches),
+            PlanStep::Scroll(scroll) => 1 + count_batches(&scroll.render_batches),
             _ => 1,
         })
         .sum()
 }
 
-fn coalesce_shape_batches(batches: &mut Vec<RenderBatch>) {
+fn coalesce_shape_batches(batches: &mut Vec<PlanStep>) {
     let mut coalesced = Vec::with_capacity(batches.len());
     for mut batch in batches.drain(..) {
-        if let RenderBatch::Group(group) = &mut batch {
+        if let PlanStep::Group(group) = &mut batch {
             coalesce_shape_batches(&mut group.render_batches);
-        } else if let RenderBatch::Scroll(scroll) = &mut batch {
+        } else if let PlanStep::Scroll(scroll) = &mut batch {
             coalesce_shape_batches(&mut scroll.render_batches);
         }
         let merged = match (coalesced.last_mut(), &batch) {
-            (
-                Some(RenderBatch::Shapes(EncodedShapeBatch::Retained(previous))),
-                RenderBatch::Shapes(EncodedShapeBatch::Retained(next)),
-            ) => previous.merge_adjacent(next),
+            (Some(PlanStep::Shapes(previous)), PlanStep::Shapes(next)) => {
+                previous.merge_adjacent(next)
+            }
             _ => false,
         };
         if !merged {
@@ -2066,12 +2281,14 @@ impl Shapes {
         node: &Arc<scene::Node>,
         content_index: usize,
         part: u16,
-        shapes: &[batch::Shape<'_>],
+        realization: u8,
+        shapes: &[content::Shape<'_>],
         source_rect: Option<[f32; 4]>,
         binding: PropertyBinding,
     ) -> (Option<ShapeBatch>, SyncStats) {
         let mut stats = self.prune();
-        let key = ResourceKey::new(node, content_index, part, viewport.scale_factor());
+        let key = ResourceKey::new(node, content_index, part, viewport.scale_factor())
+            .with_realization(realization);
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.owners.retain(|owner| owner.strong_count() > 0);
             if !entry
@@ -2835,8 +3052,8 @@ mod tests {
         }
     }
 
-    fn shapes(range: Range<u32>, binding: PropertyBinding) -> RenderBatch {
-        RenderBatch::Shapes(EncodedShapeBatch::Retained(ShapeBatch { range, binding }))
+    fn shapes(range: Range<u32>, binding: PropertyBinding) -> PlanStep {
+        PlanStep::Shapes(ShapeBatch { range, binding })
     }
 
     #[test]
@@ -2853,7 +3070,7 @@ mod tests {
         coalesce_shape_batches(&mut batches);
 
         assert_eq!(batches.len(), 3);
-        let RenderBatch::Shapes(EncodedShapeBatch::Retained(merged)) = &batches[0] else {
+        let PlanStep::Shapes(merged) = &batches[0] else {
             panic!("first batch should remain retained shapes");
         };
         assert_eq!(merged.range(), 0..5);
@@ -2865,7 +3082,7 @@ mod tests {
         let binding = binding(1);
         let mut batches = vec![
             shapes(0..2, binding),
-            RenderBatch::Text(TextBatch::Immediate { renderer_index: 0 }),
+            PlanStep::PopClip,
             shapes(2..4, binding),
         ];
 

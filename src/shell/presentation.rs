@@ -9,9 +9,7 @@ pub struct Presentation {
     invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     scene: scene::Scene,
-    commit: Arc<scene::Commit>,
-    properties: scene::Properties,
-    overlays: scene::Scene,
+    stack: Arc<scene::Stack>,
     property_only: bool,
 }
 
@@ -24,9 +22,7 @@ impl Presentation {
             invalidation: presentation.invalidation(),
             layout: presentation.layout().clone(),
             scene: presentation.scene().clone(),
-            commit: Arc::clone(presentation.commit()),
-            properties: presentation.properties().clone(),
-            overlays: presentation.overlays().clone(),
+            stack: Arc::clone(presentation.stack()),
             property_only: presentation.property_only(),
         }
     }
@@ -60,24 +56,24 @@ impl Presentation {
     }
 
     pub(crate) fn commit(&self) -> &Arc<scene::Commit> {
-        &self.commit
+        self.stack.base().commit()
     }
 
     pub(crate) fn properties(&self) -> &scene::Properties {
-        &self.properties
+        self.stack.base().properties()
     }
 
     pub(crate) fn property_only(&self) -> bool {
         self.property_only
     }
 
-    pub(crate) fn overlays(&self) -> &scene::Scene {
-        &self.overlays
+    pub(crate) fn stack(&self) -> &Arc<scene::Stack> {
+        &self.stack
     }
 
     pub(crate) fn with_active_properties(&self, properties: scene::Properties) -> Self {
         let mut presentation = self.clone();
-        presentation.properties = properties;
+        presentation.stack = Arc::new(self.stack.with_base_properties(properties));
         presentation.property_only = true;
         presentation
     }

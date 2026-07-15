@@ -397,8 +397,11 @@ mod tests {
     }
 
     #[test]
-    fn quad_and_filter_shader_sources_define_silhouette_once() {
-        for source in [quad::shader_source(), filter::shader_source()] {
+    fn retained_quad_and_filter_shader_sources_define_silhouette_once() {
+        for source in [
+            wgsl_module_source(include_str!("retained_quad.wgsl")),
+            filter::shader_source(),
+        ] {
             assert_eq!(source.matches("fn rounded_rect_sdf(").count(), 1);
             assert_eq!(source.matches("fn rounded_rect_coverage(").count(), 1);
             assert_eq!(source.matches("fn rounded_rect_hard_coverage(").count(), 1);
@@ -415,17 +418,13 @@ mod tests {
     }
 
     #[test]
-    fn immediate_and_retained_quads_use_target_invariant_coverage() {
-        for source in [
-            include_str!("quad.wgsl"),
-            include_str!("retained_quad.wgsl"),
-        ] {
-            assert_eq!(
-                source.matches("rounded_rect_stable_coverage(").count(),
-                3,
-                "fill, outline, and shadow coverage must not depend on target-local quad parity"
-            );
-        }
+    fn retained_quads_use_target_invariant_coverage() {
+        let source = include_str!("retained_quad.wgsl");
+        assert_eq!(
+            source.matches("rounded_rect_stable_coverage(").count(),
+            3,
+            "fill, outline, and shadow coverage must not depend on target-local quad parity"
+        );
     }
 
     #[test]

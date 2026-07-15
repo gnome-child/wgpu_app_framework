@@ -4,6 +4,7 @@ mod paint;
 mod presentation;
 mod primitive;
 mod region;
+mod stack;
 mod store;
 mod visual;
 
@@ -34,6 +35,7 @@ pub(crate) use region::{
     MaterialCapabilities, MaterialFidelity, MaterialRealizationReport, MaterialRegion,
     MaterialRenderer, RealizedMaterialParts,
 };
+pub(crate) use stack::{Layer, MaterialProjection, Stack};
 pub(crate) use store::{PaintStats, Store};
 pub(crate) use visual::Visuals;
 
@@ -141,7 +143,7 @@ impl Scene {
         &self.material_regions
     }
 
-    pub(crate) fn legacy_full_window_material_region(&self) -> Option<&MaterialRegion> {
+    pub(crate) fn full_window_material_region(&self) -> Option<&MaterialRegion> {
         let [region] = self.material_regions.as_slice() else {
             return None;
         };

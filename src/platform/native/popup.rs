@@ -1,5 +1,6 @@
 use crate::geometry::area;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::{geometry, overlay, pointer, render, window as app_window};
@@ -218,7 +219,7 @@ impl Native {
             }
             popup.material_realization = Some(realization);
         }
-        let material_region = presentation.scene().legacy_full_window_material_region();
+        let material_region = presentation.scene().full_window_material_region();
         #[cfg(target_os = "windows")]
         let (mut reports, material_readiness) = popup
             .host
@@ -320,6 +321,7 @@ impl Native {
             },
             &reports,
         );
+        let opaque = reports.is_empty();
         #[cfg(target_os = "windows")]
         if let Some(composition) = popup.host.composition.as_mut() {
             let fade_result = if !popup.exposed && !popup.reconfiguring {
@@ -365,13 +367,32 @@ impl Native {
             material_resolution.fidelity(),
             material_resolution.region_fidelity()
         );
-        let scene = render::scene::translate_popup_scene(
-            render::scene::to_paint_scene_at_scale(
-                source_scene,
-                popup.host.window.canvas().scale_factor(),
+        let visual_offset = popup_realization.visual_offset();
+        let local_bounds = popup_realization.local_bounds();
+        let visual_bounds = popup_realization.visual_bounds();
+        let layer = crate::scene::Layer::projected(
+            Arc::clone(presentation.commit()),
+            Arc::clone(presentation.properties()),
+            crate::geometry::Point::new(
+                local_bounds.x().saturating_sub(visual_offset.x()),
+                local_bounds.y().saturating_sub(visual_offset.y()),
             ),
-            popup_realization,
+            crate::geometry::Rect::new(0, 0, visual_bounds.width(), visual_bounds.height()),
+            if uses_composition {
+                1.0
+            } else {
+                presentation.opacity()
+            },
+            false,
+            crate::scene::MaterialProjection::NativePopup {
+                opaque,
+                reports: Arc::from(reports),
+            },
         );
+        let stack = Arc::new(crate::scene::Stack::from_layer(
+            material_resolution.scene().clear(),
+            layer,
+        ));
         let canvas = popup.host.window.canvas();
         let observed_area = popup.host.window.inner_area();
         log::debug!(
@@ -407,11 +428,11 @@ impl Native {
         }
 
         if uses_composition
-            && !popup_scene_needs_submission(
+            && !popup_submission_needed(
                 popup.exposed,
                 popup.first_present.needs_redraw(),
-                popup.last_presented_scene.as_ref(),
-                &scene,
+                popup.last_presented_stack.as_deref(),
+                stack.as_ref(),
             )
         {
             log::debug!(
@@ -424,14 +445,14 @@ impl Native {
         }
 
         let draw_started = Instant::now();
-        let report = renderer.draw(render_context, popup.host.window.canvas_mut(), &scene)?;
+        let report = renderer.draw_stack(render_context, popup.host.window.canvas_mut(), &stack)?;
         let draw = draw_started.elapsed();
         let generation = popup.generation;
         popup
             .first_present
             .record_acquire(key, generation, report.acquire_outcome);
         let action = if let Some(timing) = report.present_timing {
-            popup.last_presented_scene = Some(scene.clone());
+            popup.last_presented_stack = Some(Arc::clone(&stack));
             if popup.exposed && popup.reconfiguring {
                 commit_pending_popup_geometry(popup, key);
             }
@@ -1688,7 +1709,7 @@ fn abandon_material_prewarm(popup: &mut PopupWindow, key: PopupKey) -> Result<bo
         composition.abandon_material();
     }
     popup.material_readiness = PopupMaterialReadiness::NotRequired;
-    popup.last_presented_scene = None;
+    popup.last_presented_stack = None;
     log::debug!(
         target: "wgpu_l3::native_popup",
         "popup material realization abandoned before exposure popup={:?} parent={:?}",
@@ -1882,11 +1903,11 @@ fn queue_popup_parent_redraw(redraw_parents: &mut HashSet<app_window::Id>, paren
     redraw_parents.insert(parent);
 }
 
-fn popup_scene_needs_submission(
+fn popup_submission_needed<T: PartialEq>(
     exposed: bool,
     freshness_pending: bool,
-    last_presented: Option<&render::Scene>,
-    requested: &render::Scene,
+    last_presented: Option<&T>,
+    requested: &T,
 ) -> bool {
     if !exposed || freshness_pending {
         return true;
@@ -1934,37 +1955,21 @@ mod tests {
         PopupGenerationTransition, PopupKey, PopupMaterialReadiness, first_present_follow_up,
         popup_generation_transition, popup_geometry_changed, popup_geometry_needs_generation,
         popup_hit_rect_for_realization, popup_is_stale, popup_needs_concealment,
-        popup_reveal_gate_open, popup_scene_needs_submission, queue_popup_parent_redraw,
+        popup_reveal_gate_open, popup_submission_needed, queue_popup_parent_redraw,
     };
     use crate::platform::native::PopupGeometry;
-    use crate::{interaction, overlay, paint, render, window};
+    use crate::{interaction, overlay, window};
 
     #[test]
-    fn unchanged_composition_scene_does_not_submit_after_fresh_exposure() {
-        let scene = render::Scene::new();
-        assert!(popup_scene_needs_submission(false, false, None, &scene));
-        assert!(popup_scene_needs_submission(
-            true,
-            true,
-            Some(&scene),
-            &scene
-        ));
-        assert!(!popup_scene_needs_submission(
-            true,
-            false,
-            Some(&scene),
-            &scene
-        ));
+    fn unchanged_composition_state_does_not_submit_after_fresh_exposure() {
+        let state = 1_u8;
+        assert!(popup_submission_needed(false, false, None, &state));
+        assert!(popup_submission_needed(true, true, Some(&state), &state));
+        assert!(!popup_submission_needed(true, false, Some(&state), &state));
 
-        let mut changed = render::Scene::new();
-        changed.clear(paint::Color::BLACK);
-        assert!(popup_scene_needs_submission(
-            true,
-            false,
-            Some(&scene),
-            &changed
-        ));
-        assert!(!popup_scene_needs_submission(
+        let changed = 2_u8;
+        assert!(popup_submission_needed(true, false, Some(&state), &changed));
+        assert!(!popup_submission_needed(
             true,
             false,
             Some(&changed),

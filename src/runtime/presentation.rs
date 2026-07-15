@@ -70,7 +70,7 @@ impl PreparedFrame {
             .commit
             .compatibility_scene(&self.properties)
             .expect("prepared properties must remain compatible with their immutable commit");
-        let mut overlay_scene = scene::Scene::new(self.commit.size());
+        let mut stack = scene::Stack::new(Arc::clone(&self.commit), self.properties.clone());
         let ime_target = ime_target_for_layers(self.layout.text_caret_rect(), &self.layers);
         let mut popup_presentations = Vec::new();
 
@@ -89,12 +89,18 @@ impl PreparedFrame {
                         self.invalidation == response::effect::Invalidation::Paint,
                     );
                     if in_frame {
-                        append_overlay_layer(&mut overlay_scene, layer);
+                        stack.push(retained_overlay_layer(
+                            layer,
+                            scene::MaterialProjection::Source,
+                        ));
                     }
                 }
                 crate::overlay::LayerKind::Ghost => {
                     scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
-                    overlay_scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
+                    stack.push(retained_overlay_layer(
+                        layer,
+                        scene::MaterialProjection::WithoutBackdropSampling,
+                    ));
                 }
             }
         }
@@ -107,15 +113,28 @@ impl PreparedFrame {
                 self.invalidation,
                 self.layout,
                 scene,
-                self.commit,
-                self.properties,
-                overlay_scene,
+                stack,
                 self.property_only,
             ),
             popup_presentations,
             ime_update: ime::Update::new(self.window, ime_target),
         }
     }
+}
+
+fn retained_overlay_layer(
+    layer: &crate::overlay::Layer,
+    material: scene::MaterialProjection,
+) -> scene::Layer {
+    scene::Layer::projected(
+        Arc::clone(layer.commit()),
+        Arc::clone(layer.properties()),
+        geometry::Point::new(0, 0),
+        layer.bounds(),
+        layer.opacity(),
+        layer.force_group_at_full_opacity(),
+        material,
+    )
 }
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
@@ -1385,6 +1404,8 @@ fn append_or_present_overlay_layer(
                 layer.id(),
                 layer.bounds(),
                 layer.placement(),
+                Arc::clone(layer.commit()),
+                Arc::clone(layer.properties()),
                 popup_scene,
                 layer.opacity(),
                 layer.fade(),

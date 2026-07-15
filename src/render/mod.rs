@@ -1,20 +1,18 @@
 use crate::geometry::area;
 use thiserror::Error;
 
-pub(crate) use crate::paint::Scene;
 pub(crate) use canvas::Canvas;
 pub(crate) use context::Context;
 pub(crate) use frame::Frame;
-pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::{CommitReadiness, Renderer};
 pub(crate) use report::DrawStats;
 pub use report::{RenderReport, RendererEnvironment};
 pub(crate) use surface::Surface;
 
 mod alpha;
-mod batch;
 pub(crate) mod canvas;
 mod color;
+mod content;
 pub(crate) mod context;
 #[cfg(feature = "renderer-debug")]
 pub mod debug;
@@ -22,7 +20,6 @@ mod filter;
 mod frame;
 mod material;
 mod popup_pack;
-mod primitive;
 mod quad;
 mod renderer;
 mod report;

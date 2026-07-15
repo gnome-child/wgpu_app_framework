@@ -96,7 +96,7 @@ impl<T> PendingPresentation<T> {
 impl PendingPresentation<crate::shell::Presentation> {
     fn enqueue(&mut self, presentation: crate::shell::Presentation) {
         self.enqueue_by(presentation, |left, right| {
-            Arc::ptr_eq(left.commit(), right.commit())
+            left.stack().same_structure(right.stack())
         });
     }
 }
@@ -121,7 +121,7 @@ struct PopupWindow {
     border: PopupBorderState,
     presentation_prepared: bool,
     exposed: bool,
-    last_presented_scene: Option<render::Scene>,
+    last_presented_stack: Option<Arc<scene::Stack>>,
     first_present: PopupFirstPresentTrace,
     material_readiness: PopupMaterialReadiness,
     material: Option<overlay::PopupMaterial>,
@@ -301,7 +301,7 @@ impl PopupWindow {
             border: PopupBorderState::default(),
             presentation_prepared: false,
             exposed: false,
-            last_presented_scene: None,
+            last_presented_stack: None,
             first_present: PopupFirstPresentTrace::new(lifecycle_epoch, generation),
             material_readiness,
             material: None,

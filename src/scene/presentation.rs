@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use super::super::{geometry, layout, response, state, window};
-use super::{Commit, Properties, Scene};
+#[cfg(any(test, feature = "renderer-debug"))]
+use super::{Commit, Properties};
+use super::{Scene, Stack};
 
 #[derive(Clone)]
 pub struct Presentation {
@@ -11,9 +13,7 @@ pub struct Presentation {
     invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     scene: Scene,
-    commit: Arc<Commit>,
-    properties: Properties,
-    overlays: Scene,
+    stack: Arc<Stack>,
     property_only: bool,
 }
 
@@ -25,9 +25,7 @@ impl Presentation {
         invalidation: response::effect::Invalidation,
         layout: layout::Layout,
         scene: Scene,
-        commit: Arc<Commit>,
-        properties: Properties,
-        overlays: Scene,
+        stack: Stack,
         property_only: bool,
     ) -> Self {
         Self {
@@ -37,9 +35,7 @@ impl Presentation {
             invalidation,
             layout,
             scene,
-            commit,
-            properties,
-            overlays,
+            stack: Arc::new(stack),
             property_only,
         }
     }
@@ -51,9 +47,7 @@ impl Presentation {
         invalidation: response::effect::Invalidation,
         layout: layout::Layout,
         scene: Scene,
-        commit: Arc<Commit>,
-        properties: Properties,
-        overlays: Scene,
+        stack: Stack,
         property_only: bool,
     ) -> Self {
         Self::new(
@@ -63,9 +57,7 @@ impl Presentation {
             invalidation,
             layout,
             scene,
-            commit,
-            properties,
-            overlays,
+            stack,
             property_only,
         )
     }
@@ -102,19 +94,21 @@ impl Presentation {
         self.scene
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn commit(&self) -> &Arc<Commit> {
-        &self.commit
+        self.stack.base().commit()
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn properties(&self) -> &Properties {
-        &self.properties
+        self.stack.base().properties()
     }
 
     pub(crate) fn property_only(&self) -> bool {
         self.property_only
     }
 
-    pub(crate) fn overlays(&self) -> &Scene {
-        &self.overlays
+    pub(crate) fn stack(&self) -> &Arc<Stack> {
+        &self.stack
     }
 }

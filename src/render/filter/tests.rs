@@ -237,11 +237,8 @@ fn group_intermediate_params_use_target_local_texture_extent() {
 #[test]
 fn promoted_blur_first_pass_samples_global_and_writes_local() {
     let pane = high_sigma_blur_pane();
-    let group = paint::group_from_items(&[paint::Item::Pane(pane)], 0.5, paint::Grid::new(1.5))
-        .expect("pane should produce group");
-    let [paint::Item::Pane(local)] = group.items.as_slice() else {
-        panic!("expected translated pane");
-    };
+    let group_bounds = paint::pane_effect_bounds(&pane, paint::Grid::new(1.5));
+    let local = pane.translated_for_group(group_bounds.origin);
     let prepared = prepare_filter(local.rect, 1.5)
         .expect("filter should prepare")
         .with_blur_sigma(44.55, 1.5);
@@ -261,7 +258,7 @@ fn promoted_blur_first_pass_samples_global_and_writes_local() {
 
     assert_eq!(params.source_rect, [30.0, 45.0, 75.0, 60.0]);
     assert_eq!(params.target_rect, [201.0, 201.0, 75.0, 60.0]);
-    assert!(rect_fits_in_area(prepared.raster_rect, group.bounds.area));
+    assert!(rect_fits_in_area(prepared.raster_rect, group_bounds.area));
 }
 
 #[test]
@@ -269,21 +266,14 @@ fn high_sigma_blur_write_rect_fits_in_inflated_group_target() {
     let pane = high_sigma_blur_pane();
 
     for scale in [1.0, 1.5] {
-        let group = paint::group_from_items(
-            &[paint::Item::Pane(pane.clone())],
-            0.5,
-            paint::Grid::new(scale),
-        )
-        .expect("pane should produce group");
-        let [paint::Item::Pane(local)] = group.items.as_slice() else {
-            panic!("expected translated pane");
-        };
+        let group_bounds = paint::pane_effect_bounds(&pane, paint::Grid::new(scale));
+        let local = pane.clone().translated_for_group(group_bounds.origin);
         let prepared = prepare_filter(local.rect, scale)
             .expect("filter should prepare")
             .with_blur_sigma(44.55, scale);
 
         assert!(
-            rect_fits_in_area(prepared.raster_rect, group.bounds.area),
+            rect_fits_in_area(prepared.raster_rect, group_bounds.area),
             "scale {scale} should keep the blur write rect inside target-local scratch"
         );
     }

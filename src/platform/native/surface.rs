@@ -157,7 +157,7 @@ impl Native {
         let active = self.active_presentations.get(&window).cloned();
         let active_matches = active
             .as_ref()
-            .is_some_and(|active| Arc::ptr_eq(active.commit(), presentation.commit()));
+            .is_some_and(|active| active.stack().same_structure(presentation.stack()));
         let mut refreshes_active = false;
         let mut activation_from_pending = false;
         let actual = if active.is_none() || active_matches {
@@ -202,11 +202,10 @@ impl Native {
                         &newest,
                     );
                 }
-                let readiness = renderer.synchronize_commit(
+                let readiness = renderer.synchronize_stack(
                     context,
                     canvas.canvas(),
-                    preparing.commit(),
-                    preparing.properties().serial(),
+                    preparing.stack(),
                     remaining,
                     preparation.deadline,
                 )?;
@@ -256,13 +255,7 @@ impl Native {
             native_window.display_refresh_millihertz(),
         );
         let draw_started = Instant::now();
-        let report = renderer.draw_commit(
-            context,
-            native_window.canvas_mut(),
-            actual.commit(),
-            actual.properties(),
-            actual.overlays(),
-        );
+        let report = renderer.draw_stack(context, native_window.canvas_mut(), actual.stack());
         let report = match report {
             Ok(report) => report,
             Err(error) => {
@@ -295,17 +288,19 @@ impl Native {
         let presented = report.present_timing.is_some();
         if presented && let Some(candidate) = candidate_after_present {
             let preparation = preparation_window(native_window.display_refresh_millihertz());
-            if let Err(error) = renderer.advance_candidate_after_present(
+            if let Err(error) = renderer.advance_stack_after_present(
                 context,
                 native_window.canvas(),
-                candidate.commit(),
-                candidate.properties(),
+                candidate.stack(),
                 preparation.deadline,
             ) {
                 log::warn!(
                     "candidate realization failed after a successful active present; retaining active state: {error}"
                 );
-                renderer.cancel_commit_synchronization(candidate.commit());
+                renderer.cancel_stack_synchronization(
+                    candidate.stack(),
+                    active.as_ref().map(shell::Presentation::stack),
+                );
             }
         }
         if presented

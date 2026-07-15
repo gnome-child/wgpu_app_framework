@@ -11,110 +11,6 @@ pub(crate) use rect::{Radius, Rect, Rounding};
 
 pub(crate) const MAX_FILTER_BLUR_RADIUS_PX: f32 = 256.0;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Scene {
-    clear_color: Option<Color>,
-    items: Vec<Item>,
-}
-
-impl Scene {
-    pub fn new() -> Self {
-        Self {
-            clear_color: None,
-            items: Vec::new(),
-        }
-    }
-
-    pub fn clear(&mut self, color: Color) {
-        self.clear_color = Some(color);
-    }
-
-    pub fn clear_color(&self) -> Option<Color> {
-        self.clear_color
-    }
-
-    pub fn push_quad(&mut self, quad: Quad) {
-        self.items.push(Item::Quad(quad));
-    }
-
-    pub fn push_rule(&mut self, rule: Rule) {
-        self.items.push(Item::Rule(rule));
-    }
-
-    pub fn push_text(&mut self, text: Text) {
-        if !text.document.is_empty() {
-            self.items.push(Item::Text(text));
-        }
-    }
-
-    pub fn push_text_viewport(&mut self, text: TextViewport) {
-        if !text.surfaces.is_empty() {
-            self.items.push(Item::TextViewport(text));
-        }
-    }
-
-    pub fn push_icon(&mut self, icon: Icon) {
-        self.items.push(Item::Icon(icon));
-    }
-
-    pub fn push_shadow(&mut self, shadow: Shadow) {
-        self.items.push(Item::Shadow(shadow));
-    }
-
-    pub fn push_pane(&mut self, pane: Pane) {
-        if pane.rect.area.width() > 0.0 && pane.rect.area.height() > 0.0 {
-            self.items.push(Item::Pane(pane));
-        }
-    }
-
-    pub fn push_outline(&mut self, outline: Outline) {
-        self.items.push(Item::Outline(outline));
-    }
-
-    pub fn push_group(&mut self, group: Group) {
-        if group.opacity > 0.0
-            && group.bounds.area.width() > 0.0
-            && group.bounds.area.height() > 0.0
-            && !group.items.is_empty()
-        {
-            self.items.push(Item::Group(group));
-        }
-    }
-
-    pub fn push_clip(&mut self, clip: Clip) {
-        self.items.push(Item::Clip(clip));
-    }
-
-    pub fn pop_clip(&mut self) {
-        self.items.push(Item::PopClip);
-    }
-
-    pub fn items(&self) -> &[Item] {
-        &self.items
-    }
-}
-
-impl Default for Scene {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Item {
-    Quad(Quad),
-    Rule(Rule),
-    Text(Text),
-    TextViewport(TextViewport),
-    Icon(Icon),
-    Shadow(Shadow),
-    Pane(Pane),
-    Outline(Outline),
-    Clip(Clip),
-    PopClip,
-    Group(Group),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Quad {
     rect: Rect,
@@ -295,13 +191,6 @@ pub struct Clip {
     pub rect: Rect,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Group {
-    pub bounds: Rect,
-    pub opacity: f32,
-    pub items: Vec<Item>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum FilterOp {
     Blur { amount: f32 },
@@ -425,20 +314,6 @@ impl Quad {
 
     pub(crate) fn transform(&self) -> Transform {
         self.transform
-    }
-
-    fn bounds(self) -> Rect {
-        self.transform.transformed_rect(self.rect)
-    }
-
-    fn translated_for_group(self, origin: point::Logical, grid: Grid) -> Self {
-        let dx = -origin.x();
-        let dy = -origin.y();
-        let rect = translate_rect(self.rect, dx, dy);
-        let mut transform = self.transform;
-        transform.origin = point::logical(transform.origin.x() + dx, transform.origin.y() + dy);
-
-        Self::resolved_for_grid(rect, self.style, self.rasterization, transform, grid)
     }
 
     #[cfg(test)]
@@ -940,25 +815,6 @@ impl Color {
     }
 }
 
-pub(crate) fn group_from_items(items: &[Item], opacity: f32, grid: Grid) -> Option<Group> {
-    let opacity = opacity.clamp(0.0, 1.0);
-    if opacity <= 0.0 {
-        return None;
-    }
-
-    let bounds = group_bounds(items, grid)?;
-    let items = translate_items_for_group(items, bounds.origin, grid);
-    if items.is_empty() {
-        return None;
-    }
-
-    Some(Group {
-        bounds,
-        opacity,
-        items,
-    })
-}
-
 pub(crate) fn shadow_visual_bounds(shadow: Shadow, grid: Grid) -> Rect {
     let spread = shadow.spread.max(0.0);
     let blur = shadow.blur.max(0.0) + grid.logical_pixel();
@@ -970,39 +826,6 @@ pub(crate) fn shadow_visual_bounds(shadow: Shadow, grid: Grid) -> Rect {
 
 pub(crate) fn union_visual_bounds(a: Rect, b: Rect) -> Rect {
     union_rect(a, b)
-}
-
-impl Scene {
-    pub(crate) fn translated_from_origin(mut self, origin: point::Logical, grid: Grid) -> Self {
-        self.items = translate_items_for_group(&self.items, origin, grid);
-        self
-    }
-}
-
-fn group_bounds(items: &[Item], grid: Grid) -> Option<Rect> {
-    items
-        .iter()
-        .filter_map(|item| item_bounds(item, grid))
-        .reduce(union_rect)
-        .map(|rect| grid.snap_rect(rect))
-}
-
-fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
-    match item {
-        Item::Quad(quad) => Some(quad.bounds()),
-        Item::Rule(rule) => Some(rule.rect),
-        Item::Text(text) => Some(text.rect),
-        Item::TextViewport(text) => Some(text.rect),
-        Item::Icon(icon) => Some(icon.rect),
-        Item::Shadow(shadow) => Some(shadow_visual_bounds(*shadow, grid)),
-        Item::Outline(outline) => Some(expand_rect(
-            outline.rect,
-            outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
-        )),
-        Item::Pane(pane) => Some(pane_effect_bounds(pane, grid)),
-        Item::Clip(_) | Item::PopClip => None,
-        Item::Group(group) => Some(group.bounds),
-    }
 }
 
 pub(crate) fn pane_effect_bounds(pane: &Pane, grid: Grid) -> Rect {
@@ -1033,87 +856,6 @@ fn backdrop_layer_outset(layer: BackdropLayer, grid: Grid) -> f32 {
     }
 }
 
-fn translate_items_for_group(items: &[Item], origin: point::Logical, grid: Grid) -> Vec<Item> {
-    items
-        .iter()
-        .map(|item| translate_item_for_group(item, origin, grid))
-        .collect()
-}
-
-pub(crate) fn translate_item_for_group(item: &Item, origin: point::Logical, grid: Grid) -> Item {
-    let dx = -origin.x();
-    let dy = -origin.y();
-
-    match item {
-        Item::Quad(quad) => Item::Quad(quad.translated_for_group(origin, grid)),
-        Item::Rule(rule) => {
-            let mut rule = *rule;
-            rule.rect = translate_rect(rule.rect, dx, dy);
-            Item::Rule(rule)
-        }
-        Item::Text(text) => {
-            let mut text = text.clone();
-            text.rect = translate_raster_rect_for_group(text.rect, origin, grid);
-            Item::Text(text)
-        }
-        Item::TextViewport(text) => {
-            let mut text = text.clone();
-            text.rect = translate_raster_rect_for_group(text.rect, origin, grid);
-            text.surfaces = text
-                .surfaces
-                .into_iter()
-                .map(|mut surface| {
-                    surface.rect = translate_raster_rect_for_group(surface.rect, origin, grid);
-                    surface
-                })
-                .collect();
-            Item::TextViewport(text)
-        }
-        Item::Icon(icon) => {
-            let mut icon = *icon;
-            icon.rect = translate_raster_rect_for_group(icon.rect, origin, grid);
-            Item::Icon(icon)
-        }
-        Item::Shadow(shadow) => {
-            let mut shadow = *shadow;
-            shadow.rect = translate_rect(shadow.rect, dx, dy);
-            Item::Shadow(shadow)
-        }
-        Item::Outline(outline) => {
-            let mut outline = *outline;
-            outline.rect = translate_rect(outline.rect, dx, dy);
-            Item::Outline(outline)
-        }
-        Item::Pane(pane) => Item::Pane(pane.clone().translated_for_group(origin)),
-        Item::Clip(clip) => {
-            let mut clip = *clip;
-            clip.rect = translate_rect(clip.rect, dx, dy);
-            Item::Clip(clip)
-        }
-        Item::PopClip => Item::PopClip,
-        Item::Group(group) => {
-            let mut group = group.clone();
-            group.bounds = translate_rect(group.bounds, dx, dy);
-            Item::Group(group)
-        }
-    }
-}
-
-fn translate_raster_rect_for_group(rect: Rect, origin: point::Logical, grid: Grid) -> Rect {
-    let scale_factor = grid.scale_factor();
-    let target_x = grid.snap_text_origin(origin.x());
-    let target_y = grid.snap_text_origin(origin.y());
-
-    Rect::rounded(
-        point::logical(
-            (rect.origin.x() * scale_factor - target_x) / scale_factor,
-            (rect.origin.y() * scale_factor - target_y) / scale_factor,
-        ),
-        rect.area,
-        rect.rounding,
-    )
-}
-
 fn union_rect(a: Rect, b: Rect) -> Rect {
     let left = a.origin.x().min(b.origin.x());
     let top = a.origin.y().min(b.origin.y());
@@ -1126,7 +868,7 @@ fn union_rect(a: Rect, b: Rect) -> Rect {
     )
 }
 
-fn expand_rect(rect: Rect, amount: f32) -> Rect {
+pub(crate) fn expand_rect(rect: Rect, amount: f32) -> Rect {
     let amount = amount.max(0.0);
     Rect::rounded(
         point::logical(rect.origin.x() - amount, rect.origin.y() - amount),
@@ -1160,127 +902,7 @@ fn rect_bottom(rect: Rect) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::icon;
-    use crate::paint;
-
     use super::*;
-
-    fn solid_quad(x: f32) -> Quad {
-        Quad {
-            rect: Rect::new(point::logical(x, 0.0), area::logical(10.0, 10.0)),
-            rasterization: Rasterization::default(),
-            transform: Transform::identity(),
-            style: Style {
-                fill: Some(Fill::Brush(Brush::solid(Color::RED))),
-                stroke: None,
-                tint: None,
-            },
-        }
-    }
-
-    #[test]
-    fn new_scene_is_empty() {
-        let scene = Scene::new();
-
-        assert_eq!(scene.clear_color(), None);
-        assert!(scene.items().is_empty());
-    }
-
-    #[test]
-    fn clear_color_is_stored() {
-        let mut scene = Scene::new();
-
-        scene.clear(Color::BLACK);
-
-        assert_eq!(scene.clear_color(), Some(Color::BLACK));
-        assert!(scene.items().is_empty());
-    }
-
-    #[test]
-    fn pushed_items_preserve_order() {
-        let mut scene = Scene::new();
-        let first = solid_quad(1.0);
-        let text = Text {
-            rect: Rect::new(point::logical(1.5, 0.0), area::logical(10.0, 10.0)),
-            document: text::document::Document::plain("Label"),
-            wrap: TextWrap::WordOrGlyph,
-            vertical_align: TextVerticalAlign::Center,
-            overflow: text::Overflow::Clip,
-        };
-        let icon = Icon {
-            rect: Rect::new(point::logical(1.6, 0.0), area::logical(10.0, 10.0)),
-            icon: icon::Icon::phosphor(icon::Id::new("check")),
-            color: Color::BLACK,
-            size: 16.0,
-        };
-        let shadow = Shadow {
-            rect: Rect::new(point::logical(1.7, 0.0), area::logical(10.0, 10.0)),
-            brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.35)),
-            blur: 16.0,
-            spread: 1.0,
-            offset: point::logical(0.0, 4.0),
-        };
-        let clip = Clip {
-            rect: Rect::new(point::logical(1.73, 0.0), area::logical(10.0, 10.0)),
-        };
-        let outline = Outline {
-            rect: Rect::new(point::logical(1.75, 0.0), area::logical(10.0, 10.0)),
-            brush: Brush::solid(Color::BLACK),
-            width: 2.0,
-            offset: 1.0,
-        };
-        let second = Quad {
-            rect: Rect::rounded(
-                point::logical(2.0, 0.0),
-                area::logical(10.0, 10.0),
-                paint::Rounding::none(),
-            ),
-            ..solid_quad(2.0)
-        };
-
-        scene.push_quad(first);
-        scene.push_icon(icon);
-        scene.push_text(text.clone());
-        scene.push_shadow(shadow);
-        scene.push_clip(clip);
-        scene.push_outline(outline);
-        scene.pop_clip();
-        scene.push_quad(second);
-
-        assert_eq!(
-            scene.items(),
-            &[
-                Item::Quad(first),
-                Item::Icon(icon),
-                Item::Text(text),
-                Item::Shadow(shadow),
-                Item::Clip(clip),
-                Item::Outline(outline),
-                Item::PopClip,
-                Item::Quad(second)
-            ]
-        );
-    }
-
-    #[test]
-    fn shadow_item_preserves_shape_and_cutout_data() {
-        let mut scene = Scene::new();
-        let shadow = Shadow {
-            rect: Rect::rounded(
-                point::logical(0.0, 0.0),
-                area::logical(20.0, 10.0),
-                paint::Rounding::relative(1.0),
-            ),
-            brush: Brush::solid(Color::rgba(0.0, 0.0, 0.0, 0.3)),
-            blur: 18.0,
-            spread: 1.0,
-            offset: point::logical(0.0, 6.0),
-        };
-
-        scene.push_shadow(shadow);
-
-        assert_eq!(scene.items(), &[Item::Shadow(shadow)]);
-    }
 
     #[test]
     fn filter_ops_clamp_parameters() {
@@ -1334,172 +956,7 @@ mod tests {
     }
 
     #[test]
-    fn clip_commands_preserve_order_and_shape() {
-        let mut scene = Scene::new();
-        let clip = Clip {
-            rect: Rect::rounded(
-                point::logical(0.0, 0.0),
-                area::logical(20.0, 10.0),
-                paint::Rounding::relative(0.5),
-            ),
-        };
-        let quad = solid_quad(1.0);
-
-        scene.push_clip(clip);
-        scene.push_quad(quad);
-        scene.pop_clip();
-
-        assert_eq!(
-            scene.items(),
-            &[Item::Clip(clip), Item::Quad(quad), Item::PopClip]
-        );
-    }
-
-    #[test]
-    fn group_bounds_include_shadow_blur_and_spread() {
-        let shadow = Shadow {
-            rect: Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 30.0)),
-            brush: Brush::solid(Color::BLACK),
-            blur: 8.0,
-            spread: 2.0,
-            offset: point::logical(0.0, 4.0),
-        };
-        let group = group_from_items(&[Item::Shadow(shadow)], 0.5, Grid::new(1.0))
-            .expect("shadow should produce group bounds");
-
-        assert_eq!(
-            group.bounds,
-            Rect::new(point::logical(-1.0, 13.0), area::logical(62.0, 52.0))
-        );
-        assert_eq!(shadow_visual_bounds(shadow, Grid::new(1.0)), group.bounds);
-    }
-
-    #[test]
-    fn group_raster_localization_preserves_fractional_global_grid_phase() {
-        let grid = Grid::new(1.5);
-        let origin = point::logical(24.666_666, 16.666_666);
-        let global = Rect::new(point::logical(27.0, 20.0), area::logical(22.0, 22.0));
-        let local = translate_raster_rect_for_group(global, origin, grid);
-        let centered_inset = 1.0;
-
-        assert_eq!(
-            grid.snap_text_origin(local.origin.x()) + grid.snap_text_origin(origin.x()),
-            grid.snap_text_origin(global.origin.x())
-        );
-        assert_eq!(
-            grid.snap_text_origin(local.origin.y() + centered_inset)
-                + grid.snap_text_origin(origin.y()),
-            grid.snap_text_origin(global.origin.y() + centered_inset)
-        );
-    }
-
-    #[test]
-    fn group_translation_preserves_pane_source_rect() {
-        let pane = Pane::new(
-            Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
-            Material::Glass(Glass {
-                fallback: Brush::solid(Color::BLACK),
-                base: GlassBase::FrameworkBackdrop,
-                backdrop_layers: vec![BackdropLayer::Blur(BackdropBlur {
-                    sigma: 10.0,
-                    edge_mode: BackdropEdgeMode::Mirror,
-                })],
-                surface_layers: vec![SurfaceLayer::Noise(Noise { opacity: 0.1 })],
-            }),
-        );
-        let group = group_from_items(&[Item::Pane(pane.clone())], 0.5, Grid::new(1.0))
-            .expect("pane should produce group");
-        let [Item::Pane(local)] = group.items.as_slice() else {
-            panic!("expected translated pane");
-        };
-
-        assert_eq!(
-            local.rect,
-            Rect::new(point::logical(30.0, 30.0), area::logical(50.0, 40.0))
-        );
-        assert_eq!(local.source_rect, Some(pane.rect));
-    }
-
-    #[test]
-    fn outer_group_translation_keeps_inner_group_contents_local() {
-        let grid = Grid::new(1.0);
-        let quad = |rect| {
-            Quad::resolved_for_grid(
-                rect,
-                Style {
-                    fill: Some(Fill::Brush(Brush::solid(Color::RED))),
-                    stroke: None,
-                    tint: None,
-                },
-                Rasterization::default(),
-                Transform::identity(),
-                grid,
-            )
-        };
-        let inner = group_from_items(
-            &[Item::Quad(quad(Rect::new(
-                point::logical(25.0, 17.0),
-                area::logical(26.0, 30.0),
-            )))],
-            0.65,
-            grid,
-        )
-        .expect("inner group should be visible");
-        let outer = group_from_items(
-            &[
-                Item::Quad(quad(Rect::new(
-                    point::logical(11.0, 13.0),
-                    area::logical(40.0, 36.0),
-                ))),
-                Item::Group(inner),
-            ],
-            0.8,
-            grid,
-        )
-        .expect("outer group should be visible");
-        let [_, Item::Group(inner)] = outer.items.as_slice() else {
-            panic!("expected retained nested group");
-        };
-        let [Item::Quad(inner_quad)] = inner.items.as_slice() else {
-            panic!("expected retained inner quad");
-        };
-
-        assert_eq!(inner.bounds.origin, point::logical(14.0, 4.0));
-        assert_eq!(inner_quad.rect().origin, point::logical(0.0, 0.0));
-    }
-
-    #[test]
-    fn group_translation_preserves_moving_quad_motion_at_fractional_scale() {
-        let grid = Grid::new(1.25);
-        let rect = Rect::new(point::logical(10.0, 20.0), area::logical(40.0, 4.0));
-        let transform = Transform::scale_y_about(point::logical(30.0, 22.0), 1.5)
-            .with_motion(Motion::Moving)
-            .with_scale_motion(1.0, 1.0, 1.0, 1.5, 0.5);
-        let quad = Quad::resolved_for_grid(
-            rect,
-            Style {
-                fill: Some(Fill::Brush(Brush::solid(Color::RED))),
-                stroke: None,
-                tint: None,
-            },
-            Rasterization::default(),
-            transform,
-            grid,
-        );
-
-        let group = group_from_items(&[Item::Quad(quad)], 0.5, grid)
-            .expect("moving quad should produce a group");
-        let [Item::Quad(local)] = group.items.as_slice() else {
-            panic!("expected translated quad");
-        };
-
-        assert_eq!(local.transform().motion, Motion::Moving);
-        assert_eq!(local.transform().scale_motion, None);
-        assert!(!grid.rect_is_aligned(local.rect()));
-    }
-
-    #[test]
-    fn group_bounds_include_pane_backdrop_blur_kernel_spread() {
+    fn pane_effect_bounds_include_backdrop_blur_kernel_spread() {
         let pane = Pane::new(
             Rect::new(point::logical(20.0, 30.0), area::logical(50.0, 40.0)),
             Material::Glass(Glass {
@@ -1514,11 +971,8 @@ mod tests {
         );
 
         for scale in [1.0, 1.5] {
-            let group = group_from_items(&[Item::Pane(pane.clone())], 0.5, Grid::new(scale))
-                .expect("pane should produce group bounds");
-
             assert_eq!(
-                group.bounds,
+                pane_effect_bounds(&pane, Grid::new(scale)),
                 Rect::new(point::logical(-114.0, -104.0), area::logical(318.0, 308.0)),
                 "scale {scale} should reserve the pane blur kernel"
             );
@@ -1567,20 +1021,5 @@ mod tests {
 
         assert_eq!(gradient.from(), Color::rgba(0.5, 0.25, 0.125, 0.4));
         assert_eq!(gradient.to(), Color::rgba(0.25, 0.125, 0.0625, 0.8));
-    }
-
-    #[test]
-    fn empty_text_is_not_pushed() {
-        let mut scene = Scene::new();
-
-        scene.push_text(Text {
-            rect: Rect::new(point::logical(0.0, 0.0), area::logical(10.0, 10.0)),
-            document: text::document::Document::plain(""),
-            wrap: TextWrap::WordOrGlyph,
-            vertical_align: TextVerticalAlign::Center,
-            overflow: text::Overflow::Clip,
-        });
-
-        assert!(scene.items().is_empty());
     }
 }

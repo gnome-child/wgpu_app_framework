@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–8 complete, Checkpoint 9 in progress**. One-Way
+Status: **in flight; Checkpoints 0–9 complete, Checkpoint 10 pending**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -601,7 +601,7 @@ At each checkpoint boundary:
 | 6. Make scroll a property tick | Complete | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
 | 7. Prove Qt class and decide the ceiling | Complete | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
 | 8. Optional Chromium-class upgrade | Complete; admitted by Checkpoint 7 | Active remains drawable while pending prepares; atomic activation and deadline independence proved |
-| 9. Burn down the old species | In progress | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
+| 9. Burn down the old species | Complete | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
 | 10. Close out and teach master design | Pending | Full matrix green, instrumented acceptance, One-Way fixed point, roadmap/design synchronized, sole renderer proved |
 
 ## Checkpoint 0 — claim territory and bracket the defect
@@ -2395,6 +2395,90 @@ Run the One-Way census over every claimed and touched module. Record deletion
 counts, visibility deltas, dependency/gauge changes, retained resource counts,
 and the complete orphan sweep. Success is one renderer standing in a clean
 territory, not one renderer standing in the other's rubble.
+
+### Checkpoint 9 evidence ledger — complete
+
+Burn-down receipt, 2026-07-15:
+
+- `scene::Stack` is the sole closed native renderer handoff. Each
+  `scene::Layer` carries the exact retained commit/property objects, origin,
+  bounds, opacity/group policy, and closed material projection. Ordinary
+  windows, in-frame overlays and ghosts, and native popup surfaces all call
+  `Renderer::draw_stack`; synchronization, cancellation, post-present
+  advancement, and unchanged-popup submission are stack-owned as well;
+- production readiness is stack-wide and borrows the exact `Arc<Stack>` as its
+  owner. The base layer and every overlay/popup layer therefore become ready
+  transactionally before activation. No presentation epoch, renderer identity,
+  or caller-authored batch entitlement entered the stack contract;
+- the immediate renderer species is deleted. `src/render/batch.rs`,
+  `src/render/primitive.rs`, and `src/render/quad.wgsl` are gone; so are
+  `Renderer::draw(paint::Scene)`, immediate shape/text preparation and encoding,
+  the per-frame quad arena, the old quad pipeline, `RenderBatch`,
+  `PreparedScene`, `SceneEncoder`, and their legacy-only tests/helpers. The
+  surviving `render::content::{Glyph, Shape}` and retained plan vocabulary are
+  closed typed realization data, not a second display list;
+- the private flattened `paint::{Scene, Item, Group}` list, group/item bounds
+  traversal, generic filter-item routing, scale-flattening renderer bridge, and
+  associated translation helpers are deleted. Retained planning now walks
+  typed content and retained order directly. The public `scene::Scene`
+  compatibility facade remains only as the ratified once-per-semantic-commit
+  authored/inspection and native-material snapshot; it is not a renderer
+  handoff and cannot authorize per-frame flattening;
+- the compatibility renderer, legacy lowering adapter, paired render call, and
+  A/B CLI commands are deleted together. `tools/renderer_debug/README.md` is
+  the instructional owner for the surviving independently runnable oracle: it
+  documents direct retained readback, semantic-work/lifecycle receipts,
+  benchmarks, exact-first comparison policy, witness admission, evidence order,
+  and the mandatory separate release-gallery smoke;
+- direct retained witnesses replace the retired adapter's pixel coverage. The
+  16-witness release debug tier covers every retained content/transition family,
+  pending/active isolation, scroll, resize, atlas pressure, lifecycle/churn,
+  grouped opacity, and popup packing. The new associated-alpha witness caught
+  and corrected its own initial expectation: ordinary `Rgba8Unorm` readback is
+  linear RGB, so the expected grouped red applies the exact piecewise sRGB
+  decode before premultiplication. Renderer output did not change;
+- architecture ratchets require the stack handoff and direct debug witnesses,
+  structurally forbid the deleted files and old species, and retain the
+  established no-renderer-identity, no-epoch-in-commit, closed-content,
+  no-callback, and no-unconditional-blit laws. The final source sweep finds no
+  production occurrence of the old renderer/display-list vocabulary outside
+  those tombstones and the oracle's retirement documentation;
+- the implementation sweep before this ledger is deletion-shaped: **3,816
+  lines removed and 1,504 added**, a net reduction of 2,312 lines. The three
+  deleted render files account for 405 removed lines. The orphan scan also
+  feature-gated two inspection helpers used only by tests/debug support, making
+  the ordinary release Control Gallery build warning-free;
+- the final One-Way gauge reports 47 top-level modules, 332 production and 112
+  test-only edges, three split responsibilities, 55 provisional slot edges,
+  **zero forbidden edges, zero external-boundary violations, and zero slot
+  cycles**, 2,037 `pub(crate)` declarations in 197 production files with a
+  1,989 cross-slot upper bound, 89 cross-slot test edges, 120 manifest-root
+  mentions, 394 filesystem reads, seven allowances, five production panics,
+  and 69 production expects. All ten census parser tests pass;
+- the real non-debug release Control Gallery smoke exercised continuous typing,
+  live text selection, slider capture, column-divider resizing, and repeated
+  800 px fast-scroll/guard bursts through record 220. Settled output remained
+  complete and the process survived until explicit closure. Transient partial
+  black regions appeared only in Windows Graphics Capture during high-rate
+  input and cleared on the settled capture, matching the Checkpoint 8
+  code-owned capture-artifact classification. No gallery process remained;
+- boundary verification passed warning-free workspace all-target compilation,
+  the complete workspace target suite (three debug-crate unit tests, 1,166
+  root tests with four intentional ignores, and both Control Gallery tests),
+  all four root doctests, the four root release deep witnesses, all 16 retained
+  release debug witnesses, all five renderer-receipt parser/admission tests,
+  formatting, diff hygiene, the tombstone sweep, and the ownership census.
+  Test-only unused-export warnings remain in the untouched `glass_tuner` and
+  `text_editor` example test harnesses; ordinary all-target compilation is
+  warning-free and no campaign ownership arrow enters those examples;
+- no external profiler, external machine, person, network service, or returned
+  artifact participated. All semantic, pixel, timing, topology, lifecycle,
+  ownership, and runtime-crash evidence was produced locally in code or by the
+  required local release smoke.
+
+Checkpoint 9 is independently green. Checkpoint 10 now owns doctrine/roadmap
+synchronization, the clean-tree closeout matrix, and the final sole-renderer
+exit-theorem audit.
 
 ## Checkpoint 10 — close out and teach master design
 

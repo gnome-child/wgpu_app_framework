@@ -1,18 +1,14 @@
+#[cfg(test)]
 use crate::geometry::area;
 use bytemuck::{Pod, Zeroable};
-use std::ops::Range;
 
 use crate::paint::{self, Grid, Rect};
 use crate::render;
-use crate::render::batch;
+use crate::render::content;
 use crate::render::silhouette::{
     self, PreparedSilhouette, clamped_width, edges, expand_rect, expand_rounding, inset_rect,
     offset_rect, rect_data, rounding_data, shrink_rounding, union_rects,
 };
-
-const QUAD_WGSL: &str = include_str!("quad.wgsl");
-
-const INITIAL_VERTEX_CAPACITY: usize = 8_192;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -56,172 +52,9 @@ impl Instance {
     }
 }
 
-#[derive(Clone)]
-pub(in crate::render) struct Batch {
-    vertex_range: Range<u32>,
-}
-
-impl Batch {
-    #[cfg(test)]
-    pub(in crate::render) fn from_vertex_range(vertex_range: Range<u32>) -> Self {
-        Self { vertex_range }
-    }
-
-    pub(in crate::render) fn vertex_range(&self) -> Range<u32> {
-        self.vertex_range.clone()
-    }
-
-    pub(in crate::render) fn vertex_count(&self) -> u32 {
-        self.vertex_range.end - self.vertex_range.start
-    }
-}
-
-pub(in crate::render) struct Arena {
-    buffer: wgpu::Buffer,
-    capacity: usize,
-    vertices: Vec<render::Vertex>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::render) struct Upload {
-    pub(in crate::render) vertex_count: usize,
-    pub(in crate::render) bytes: usize,
-    pub(in crate::render) buffer_created: bool,
-}
-
-impl Arena {
-    pub(in crate::render) fn new(render_context: &render::Context) -> Self {
-        Self {
-            buffer: create_vertex_buffer(render_context.device(), INITIAL_VERTEX_CAPACITY),
-            capacity: INITIAL_VERTEX_CAPACITY,
-            vertices: Vec::with_capacity(INITIAL_VERTEX_CAPACITY),
-        }
-    }
-
-    pub(in crate::render) fn begin_frame(&mut self) {
-        self.vertices.clear();
-    }
-
-    pub(in crate::render) fn upload(&mut self, render_context: &render::Context) -> Upload {
-        let required = self.vertices.len();
-        let mut buffer_created = false;
-        if let Some(capacity) = required_capacity(self.capacity, required) {
-            self.capacity = capacity;
-            self.buffer = create_vertex_buffer(render_context.device(), self.capacity);
-            buffer_created = true;
-        }
-
-        let bytes = bytemuck::cast_slice(&self.vertices);
-        if !bytes.is_empty() {
-            render_context.queue().write_buffer(&self.buffer, 0, bytes);
-        }
-
-        Upload {
-            vertex_count: required,
-            bytes: bytes.len(),
-            buffer_created,
-        }
-    }
-
-    pub(in crate::render) fn buffer(&self) -> &wgpu::Buffer {
-        &self.buffer
-    }
-}
-
-fn create_vertex_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Quad Geometry Arena"),
-        size: (capacity.max(1) * std::mem::size_of::<render::Vertex>()) as u64,
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-fn required_capacity(current: usize, required: usize) -> Option<usize> {
-    if required <= current {
-        return None;
-    }
-    let doubled = current.saturating_mul(2).max(INITIAL_VERTEX_CAPACITY);
-    Some(doubled.max(required.next_power_of_two()))
-}
-
-pub(in crate::render) fn pipeline(
-    render_context: &render::Context,
-    format: wgpu::TextureFormat,
-) -> wgpu::RenderPipeline {
-    let shader_source = shader_source();
-    let shader = render_context
-        .device()
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("quad.wgsl"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-
-    let pipeline_layout =
-        render_context
-            .device()
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Quad Pipeline Layout"),
-                bind_group_layouts: &[],
-                immediate_size: 0,
-            });
-
-    render_context
-        .device()
-        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Quad Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[render::Vertex::layout()],
-                compilation_options: Default::default(),
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(render::alpha::color_target(
-                    format,
-                    render::alpha::FragmentOutput::Straight,
-                ))],
-                compilation_options: Default::default(),
-            }),
-            multiview_mask: None,
-            cache: None,
-        })
-}
-
-pub(in crate::render) fn shader_source() -> String {
-    silhouette::wgsl_module_source(QUAD_WGSL)
-}
-
-pub(in crate::render) fn prepare_batch(
-    arena: &mut Arena,
-    viewport: render::Viewport,
-    shapes: &[batch::Shape<'_>],
-) -> Option<Batch> {
-    let start = arena.vertices.len();
-    for shape in shapes {
-        push_shape_vertices(&mut arena.vertices, viewport, shape);
-    }
-
-    let end = arena.vertices.len();
-    let vertex_count = end - start;
-    if vertex_count == 0 {
-        return None;
-    }
-
-    Some(Batch {
-        vertex_range: start as u32..end as u32,
-    })
-}
-
 pub(in crate::render) fn prepare_instances(
     viewport: render::Viewport,
-    shapes: &[batch::Shape<'_>],
+    shapes: &[content::Shape<'_>],
 ) -> Vec<Instance> {
     let grid = Grid::new(viewport.scale_factor());
     shapes
@@ -285,30 +118,12 @@ struct PreparedBrush {
     kind: f32,
 }
 
-fn push_shape_vertices(
-    buffer: &mut Vec<render::Vertex>,
-    viewport: render::Viewport,
-    shape: &batch::Shape<'_>,
-) {
-    let canvas_area = viewport.logical_area();
-    let grid = Grid::new(viewport.scale_factor());
-
-    if canvas_area.width() <= 0.0 || canvas_area.height() <= 0.0 {
-        log::debug!("skipping shape draw for zero-size canvas");
-        return;
-    }
-
-    for shape in analytic_shapes_for_shape(shape, viewport.scale_factor()) {
-        push_analytic_shape_vertices(buffer, canvas_area, grid, shape);
-    }
-}
-
-fn analytic_shapes_for_shape(shape: &batch::Shape<'_>, scale_factor: f32) -> Vec<AnalyticShape> {
+fn analytic_shapes_for_shape(shape: &content::Shape<'_>, scale_factor: f32) -> Vec<AnalyticShape> {
     match shape {
-        batch::Shape::Quad(quad) => analytic_shapes_for_quad_at_scale(quad, scale_factor),
-        batch::Shape::Rule(rule) => analytic_shapes_for_rule_at_scale(rule, scale_factor),
-        batch::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
-        batch::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
+        content::Shape::Quad(quad) => analytic_shapes_for_quad_at_scale(quad, scale_factor),
+        content::Shape::Rule(rule) => analytic_shapes_for_rule_at_scale(rule, scale_factor),
+        content::Shape::Shadow(shadow) => analytic_shapes_for_shadow(shadow),
+        content::Shape::Outline(outline) => analytic_shapes_for_outline(outline),
     }
 }
 
@@ -405,56 +220,6 @@ fn analytic_shapes_for_outline(outline: &paint::Outline) -> Vec<AnalyticShape> {
     external_outline_shape(outline.rect, outline.width, outline.offset, outline.brush)
         .into_iter()
         .collect()
-}
-
-fn push_analytic_shape_vertices(
-    buffer: &mut Vec<render::Vertex>,
-    canvas_area: area::Logical,
-    grid: Grid,
-    shape: AnalyticShape,
-) {
-    let to_clip = |x: f32, y: f32| -> [f32; 2] {
-        [
-            (x / canvas_area.width()) * 2.0 - 1.0,
-            1.0 - (y / canvas_area.height()) * 2.0,
-        ]
-    };
-
-    if shape.outer_rect.area.width() <= 0.0 || shape.outer_rect.area.height() <= 0.0 {
-        return;
-    }
-
-    let Some(instance) = prepare_instance(shape, grid) else {
-        return;
-    };
-
-    let [x, y, width, height] = instance.raster_rect;
-    let x0 = x;
-    let y0 = y;
-    let x1 = x + width;
-    let y1 = y + height;
-
-    let mut push = |x: f32, y: f32| {
-        buffer.push(render::Vertex {
-            position: to_clip(x, y),
-            local_position: [x, y],
-            outer_rect: instance.outer_rect,
-            outer_rounding: instance.outer_rounding,
-            inner_rect: instance.inner_rect,
-            inner_rounding: instance.inner_rounding,
-            color: instance.color,
-            color_to: instance.color_to,
-            brush_points: instance.brush_points,
-            params: instance.params,
-        });
-    };
-
-    push(x0, y0);
-    push(x0, y1);
-    push(x1, y1);
-    push(x0, y0);
-    push(x1, y1);
-    push(x1, y0);
 }
 
 fn prepare_instance(shape: AnalyticShape, grid: Grid) -> Option<Instance> {
@@ -813,21 +578,12 @@ mod tests {
         }
     }
 
-    fn vertex_count_for_shape(shape: AnalyticShape) -> usize {
-        vertices_for_shape(shape).len()
+    fn instance_count_for_shape(shape: AnalyticShape) -> usize {
+        usize::from(prepare_instance(shape, Grid::new(1.0)).is_some())
     }
 
-    fn vertices_for_shape(shape: AnalyticShape) -> Vec<render::Vertex> {
-        let mut vertices = Vec::new();
-
-        push_analytic_shape_vertices(
-            &mut vertices,
-            area::logical(100.0, 100.0),
-            Grid::new(1.0),
-            shape,
-        );
-
-        vertices
+    fn instance_for_shape(shape: AnalyticShape) -> Instance {
+        prepare_instance(shape, Grid::new(1.0)).expect("shape should produce one instance")
     }
 
     fn prepared_shape(shape: AnalyticShape, scale_factor: f32) -> PreparedShape {
@@ -884,15 +640,14 @@ mod tests {
     }
 
     #[test]
-    fn gradient_shape_vertices_preserve_brush_payload() {
+    fn gradient_shape_instance_preserves_brush_payload() {
         let brush = gradient_brush();
-        let vertices = vertices_for_shape(fill_shape(rect(), brush));
+        let instance = instance_for_shape(fill_shape(rect(), brush));
 
-        assert_eq!(vertices.len(), 6);
-        assert_eq!(vertices[0].color, [1.0, 0.0, 0.0, 0.25]);
-        assert_eq!(vertices[0].color_to, [0.0, 0.0, 1.0, 0.75]);
-        assert_eq!(vertices[0].brush_points, [0.0, 1.0, 1.0, 0.0]);
-        assert_eq!(vertices[0].params, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(instance.color, [1.0, 0.0, 0.0, 0.25]);
+        assert_eq!(instance.color_to, [0.0, 0.0, 1.0, 0.75]);
+        assert_eq!(instance.brush_points, [0.0, 1.0, 1.0, 0.0]);
+        assert_eq!(instance.params, [0.0, 0.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -937,7 +692,7 @@ mod tests {
         );
         assert_eq!(shapes[0].inner, None);
         assert_eq!(shapes[0].brush, paint::Brush::solid(paint::Color::RED));
-        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+        assert_eq!(instance_count_for_shape(shapes[0]), 1);
     }
 
     #[test]
@@ -1288,7 +1043,7 @@ mod tests {
             inner.rect,
             Rect::new(point::logical(12.0, 22.0), area::logical(36.0, 26.0))
         );
-        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+        assert_eq!(instance_count_for_shape(shapes[0]), 1);
     }
 
     #[test]
@@ -1369,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn shadow_vertices_use_shadow_shader_mode() {
+    fn shadow_instance_uses_shadow_shader_mode() {
         let shadow = paint::Shadow {
             rect: rect(),
             brush: paint::Brush::solid(paint::Color::rgba(0.0, 0.0, 0.0, 0.35)),
@@ -1377,10 +1132,9 @@ mod tests {
             spread: 2.0,
             offset: point::logical(0.0, 6.0),
         };
-        let vertices = vertices_for_shape(analytic_shapes_for_shadow(&shadow)[0]);
+        let instance = instance_for_shape(analytic_shapes_for_shadow(&shadow)[0]);
 
-        assert_eq!(vertices.len(), 6);
-        assert_eq!(vertices[0].params, [2.0, 10.0, 0.0, 0.0]);
+        assert_eq!(instance.params, [2.0, 10.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -1452,7 +1206,7 @@ mod tests {
         let inner = shapes[0].inner.expect("outline should be a ring");
 
         assert_eq!(shapes.len(), 1);
-        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+        assert_eq!(instance_count_for_shape(shapes[0]), 1);
         assert_eq!(bounds(&shapes), (4.0, 14.0, 96.0, 56.0));
         assert_eq!(shapes[0].outer_rounding[0], 21.0);
         assert_eq!(inner.rounding[0], 17.0);
@@ -1583,7 +1337,7 @@ mod tests {
         let shapes = analytic_shapes_for_quad(&quad);
 
         assert_eq!(shapes.len(), 1);
-        assert_eq!(vertex_count_for_shape(shapes[0]), 6);
+        assert_eq!(instance_count_for_shape(shapes[0]), 1);
         assert_eq!(bounds(&shapes), edges(quad.rect()));
         assert_eq!(shapes[0].outer_rounding[0], 20.0);
     }
@@ -1637,24 +1391,5 @@ mod tests {
         );
         assert_eq!(shapes[0].outer_rounding[0], 15.0);
         assert_eq!(inner.rounding[0], 11.0);
-    }
-
-    #[test]
-    fn geometry_capacity_is_reused_until_a_frame_outgrows_it() {
-        assert_eq!(required_capacity(INITIAL_VERTEX_CAPACITY, 1), None);
-        assert_eq!(
-            required_capacity(INITIAL_VERTEX_CAPACITY, INITIAL_VERTEX_CAPACITY),
-            None
-        );
-        assert_eq!(
-            required_capacity(INITIAL_VERTEX_CAPACITY, INITIAL_VERTEX_CAPACITY + 1),
-            Some(INITIAL_VERTEX_CAPACITY * 2)
-        );
-    }
-
-    #[test]
-    fn geometry_capacity_growth_is_geometric_and_covers_sudden_frames() {
-        assert_eq!(required_capacity(16_384, 20_000), Some(32_768));
-        assert_eq!(required_capacity(16_384, 70_000), Some(131_072));
     }
 }

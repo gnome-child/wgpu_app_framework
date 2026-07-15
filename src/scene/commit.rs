@@ -531,7 +531,7 @@ impl Commit {
     }
 
     #[cfg(test)]
-    pub(crate) fn legacy_test_pair(scene: &Scene) -> (Arc<Self>, Properties) {
+    pub(crate) fn test_pair(scene: &Scene) -> (Arc<Self>, Properties) {
         let mut next = 1;
         let owner = composition::tree::NodeId::layout(&mut next);
         let mut builder = Builder::new(scene.size(), scene.clear());
@@ -2376,13 +2376,13 @@ mod tests {
             .finish(None, &mut HashMap::new())
             .expect("material commit should be valid");
         let properties = Properties::empty(&commit).expect("material commit has no properties");
-        let compatibility = commit
+        let public_scene = commit
             .compatibility_scene(&properties)
-            .expect("material commit should lower through the legacy adapter");
+            .expect("material commit should project its public scene snapshot");
 
-        assert_eq!(compatibility.material_regions().len(), 1);
-        assert_eq!(compatibility.material_regions()[0].id(), owner);
-        assert_eq!(compatibility.panes()[0].region_id(), Some(owner));
+        assert_eq!(public_scene.material_regions().len(), 1);
+        assert_eq!(public_scene.material_regions()[0].id(), owner);
+        assert_eq!(public_scene.panes()[0].region_id(), Some(owner));
     }
 
     #[test]
