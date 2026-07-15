@@ -29,9 +29,11 @@ pub(super) struct FilterSample<'a> {
 }
 
 pub(super) struct FilterChainContext<'a> {
-    target: Target,
+    output_target: Target,
+    scratch_target: Target,
     output: &'a wgpu::TextureView,
-    prepared: PreparedFilter,
+    output_prepared: PreparedFilter,
+    scratch_prepared: PreparedFilter,
     current_source: TextureSource<'a>,
     current_rect: Rect,
     current_space: FilterSourceSpace,
@@ -62,33 +64,45 @@ impl<'a> FilterSource<'a> {
 
 impl<'a> FilterChainContext<'a> {
     pub(super) fn new(
-        target: Target,
+        output_target: Target,
+        scratch_target: Target,
         output: &'a wgpu::TextureView,
-        prepared: PreparedFilter,
+        output_prepared: PreparedFilter,
+        scratch_prepared: PreparedFilter,
         source: FilterSource<'a>,
     ) -> Self {
         let sample = source.initial_sample();
 
         Self {
-            target,
+            output_target,
+            scratch_target,
             output,
-            prepared,
+            output_prepared,
+            scratch_prepared,
             current_source: sample.texture,
             current_rect: sample.rect,
             current_space: sample.space,
         }
     }
 
-    pub(super) fn target(&self) -> Target {
-        self.target
+    pub(super) fn output_target(&self) -> Target {
+        self.output_target
+    }
+
+    pub(super) fn scratch_target(&self) -> Target {
+        self.scratch_target
     }
 
     pub(super) fn output(&self) -> &'a wgpu::TextureView {
         self.output
     }
 
-    pub(super) fn base_prepared(&self) -> PreparedFilter {
-        self.prepared
+    pub(super) fn output_prepared(&self) -> PreparedFilter {
+        self.output_prepared
+    }
+
+    pub(super) fn scratch_prepared(&self) -> PreparedFilter {
+        self.scratch_prepared
     }
 
     pub(super) fn current_sample(&self) -> FilterSample<'a> {
@@ -100,7 +114,7 @@ impl<'a> FilterChainContext<'a> {
     }
 
     fn local_rect(&self) -> Rect {
-        self.prepared.shape_rect
+        self.scratch_prepared.shape_rect
     }
 
     pub(super) fn local_intermediate<'b>(&self, texture: TextureSource<'b>) -> FilterSample<'b> {
@@ -114,10 +128,10 @@ impl<'a> FilterChainContext<'a> {
     pub(super) fn mark_output_as_current(&mut self) {
         self.current_source = TextureSource::for_target_view(
             self.output,
-            self.target,
+            self.output_target,
             paint::LayerSampling::PixelAligned,
         );
-        self.current_rect = self.local_rect();
+        self.current_rect = self.output_prepared.shape_rect;
         self.current_space = FilterSourceSpace::Local;
     }
 }

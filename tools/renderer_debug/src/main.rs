@@ -141,6 +141,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
             );
             Ok(())
         }
+        [command, case] if command == "work" => {
+            let case = parse_case(case)?;
+            let mut harness = harness(1.0)?;
+            print_work(case.name(), harness.work_receipt(case)?);
+            Ok(())
+        }
         [command, case] if command == "retention" => {
             let case = parse_case(case)?;
             let mut harness = harness(1.0)?;
@@ -210,7 +216,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: renderer_debug list | reference <case> | reference-all | oracle <case> <scale> | oracle-all | retention <case> | partial-update | churn <iterations> | bench <case> <iterations>"
+            "usage: renderer_debug list | reference <case> | reference-all | oracle <case> <scale> | oracle-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations>"
                 .to_owned(),
         ),
     }
@@ -218,7 +224,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
 
 fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
     println!(
-        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={}",
+        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
         work.scene_node_realization_rebuilds(),
         work.primitive_prepare_calls(),
         work.text_prepare_calls(),
@@ -232,6 +238,21 @@ fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
         work.gpu_resource_removals(),
         work.render_plan_rebuilds(),
         work.render_plan_reuses(),
+        work.direct_surface_plans(),
+        work.surface_sampling_plans(),
+        work.draw_calls(),
+        work.draw_passes(),
+        work.explicit_copy_commands(),
+        work.resource_transition_boundaries(),
+        work.opaque_nodes(),
+        work.blended_nodes(),
+        work.opacity_unclassified_nodes(),
+        work.effect_intermediate_clears(),
+        work.effect_intermediate_clear_bytes(),
+        work.effect_intermediate_composites(),
+        work.effect_intermediate_composite_bytes(),
+        work.largest_effect_intermediate_bytes(),
+        work.target_bytes(),
     );
 }
 

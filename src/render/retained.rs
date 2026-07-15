@@ -150,6 +150,14 @@ impl ShapeBatch {
     pub(in crate::render) fn instance_count(&self) -> usize {
         (self.range.end - self.range.start) as usize
     }
+
+    fn merge_adjacent(&mut self, next: &Self) -> bool {
+        if self.binding != next.binding || self.range.end != next.range.start {
+            return false;
+        }
+        self.range.end = next.range.end;
+        true
+    }
 }
 
 struct Entry {
@@ -171,11 +179,58 @@ pub(in crate::render) struct SyncStats {
 pub(in crate::render) struct Plan {
     batches: Vec<RenderBatch>,
     property_bindings: Vec<PropertyBinding>,
+    requires_surface_sampling: bool,
+    facts: PlanFacts,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PlanFacts {
+    scene_items: usize,
+    glyph_batches: usize,
+    text_surfaces: usize,
+    quad_instances: usize,
+    clip_batches: usize,
+    opaque_nodes: usize,
+    blended_nodes: usize,
+    effect_island_nodes: usize,
+    group_composites: usize,
 }
 
 impl Plan {
     pub(in crate::render) fn batches(&self) -> &[RenderBatch] {
         &self.batches
+    }
+
+    pub(in crate::render) fn requires_surface_sampling(&self) -> bool {
+        self.requires_surface_sampling
+    }
+}
+
+impl PlanFacts {
+    fn from_stats(stats: &render::DrawStats) -> Self {
+        Self {
+            scene_items: stats.scene_items,
+            glyph_batches: stats.glyph_batches,
+            text_surfaces: stats.text_surfaces,
+            quad_instances: stats.quad_instances,
+            clip_batches: stats.clip_batches,
+            opaque_nodes: stats.opaque_nodes,
+            blended_nodes: stats.blended_nodes,
+            effect_island_nodes: stats.effect_island_nodes,
+            group_composites: stats.group_composites,
+        }
+    }
+
+    fn apply(self, stats: &mut render::DrawStats) {
+        stats.scene_items = self.scene_items;
+        stats.glyph_batches = self.glyph_batches;
+        stats.text_surfaces = self.text_surfaces;
+        stats.quad_instances = self.quad_instances;
+        stats.clip_batches = self.clip_batches;
+        stats.opaque_nodes = self.opaque_nodes;
+        stats.blended_nodes = self.blended_nodes;
+        stats.effect_island_nodes = self.effect_island_nodes;
+        stats.group_composites = self.group_composites;
     }
 }
 
@@ -295,7 +350,10 @@ impl Realizer {
             &plan.property_bindings,
         );
         apply_sync_stats(&mut stats, property_stats);
+        plan.facts.apply(&mut stats);
         stats.render_batches = count_batches(plan.batches());
+        stats.direct_surface_plans = usize::from(!plan.requires_surface_sampling());
+        stats.surface_sampling_plans = usize::from(plan.requires_surface_sampling());
         stats.retained_gpu_resource_count = self
             .shapes
             .resource_count()
@@ -352,6 +410,14 @@ impl PlanBuilder<'_> {
             .iter()
             .map(|node| (node.id(), Arc::clone(node)))
             .collect::<HashMap<_, _>>();
+        for node in commit.nodes() {
+            match node.opacity() {
+                scene::OpacityDeclaration::Opaque => self.stats.opaque_nodes += 1,
+                scene::OpacityDeclaration::Blended | scene::OpacityDeclaration::Variable => {
+                    self.stats.blended_nodes += 1;
+                }
+            }
+        }
         let mut batches = Vec::new();
         let main = TargetSpace {
             origin: [0.0, 0.0],
@@ -368,9 +434,13 @@ impl PlanBuilder<'_> {
                 self.build_node(commit, node, main, &mut batches)?;
             }
         }
+        coalesce_shape_batches(&mut batches);
+        let requires_surface_sampling = render::renderer::requires_surface_sampling(&batches);
         Ok(Plan {
             batches,
             property_bindings: std::mem::take(&mut self.property_bindings),
+            requires_surface_sampling,
+            facts: PlanFacts::from_stats(&self.stats),
         })
     }
 
@@ -926,6 +996,26 @@ fn count_batches(batches: &[RenderBatch]) -> usize {
         .sum()
 }
 
+fn coalesce_shape_batches(batches: &mut Vec<RenderBatch>) {
+    let mut coalesced = Vec::with_capacity(batches.len());
+    for mut batch in batches.drain(..) {
+        if let RenderBatch::Group(group) = &mut batch {
+            coalesce_shape_batches(&mut group.render_batches);
+        }
+        let merged = match (coalesced.last_mut(), &batch) {
+            (
+                Some(RenderBatch::Shapes(EncodedShapeBatch::Retained(previous))),
+                RenderBatch::Shapes(EncodedShapeBatch::Retained(next)),
+            ) => previous.merge_adjacent(next),
+            _ => false,
+        };
+        if !merged {
+            coalesced.push(batch);
+        }
+    }
+    *batches = coalesced;
+}
+
 fn local_group_bounds(
     mut bounds: crate::paint::Rect,
     parent_origin: [f32; 2],
@@ -1449,4 +1539,59 @@ fn create_bind_group(
 fn align_up(value: usize, alignment: usize) -> usize {
     let alignment = alignment.max(1);
     value.div_ceil(alignment).saturating_mul(alignment)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn binding(value: u64) -> PropertyBinding {
+        let mut value = value;
+        PropertyBinding {
+            node: composition::tree::NodeId::layout(&mut value),
+            space: TargetSpace {
+                origin: [0.0, 0.0],
+                size: [100.0, 80.0],
+            },
+        }
+    }
+
+    fn shapes(range: Range<u32>, binding: PropertyBinding) -> RenderBatch {
+        RenderBatch::Shapes(EncodedShapeBatch::Retained(ShapeBatch { range, binding }))
+    }
+
+    #[test]
+    fn coalescing_merges_only_adjacent_instances_with_the_same_property_binding() {
+        let first = binding(1);
+        let second = binding(2);
+        let mut batches = vec![
+            shapes(0..2, first),
+            shapes(2..5, first),
+            shapes(5..6, second),
+            shapes(8..9, second),
+        ];
+
+        coalesce_shape_batches(&mut batches);
+
+        assert_eq!(batches.len(), 3);
+        let RenderBatch::Shapes(EncodedShapeBatch::Retained(merged)) = &batches[0] else {
+            panic!("first batch should remain retained shapes");
+        };
+        assert_eq!(merged.range(), 0..5);
+        assert_eq!(merged.instance_count(), 5);
+    }
+
+    #[test]
+    fn semantic_boundaries_prevent_shape_coalescing() {
+        let binding = binding(1);
+        let mut batches = vec![
+            shapes(0..2, binding),
+            RenderBatch::Text(TextBatch::Immediate { renderer_index: 0 }),
+            shapes(2..4, binding),
+        ];
+
+        coalesce_shape_batches(&mut batches);
+
+        assert_eq!(batches.len(), 3);
+    }
 }

@@ -16,7 +16,7 @@ mod storage;
 mod target;
 
 pub(super) use chain::FilterSource;
-pub(super) use draw::FilterDraw;
+pub(super) use draw::{FilterDraw, FilterOwner, FilterScratch, FilterWork};
 #[cfg(test)]
 pub(super) use encode::shader_source;
 #[cfg(test)]

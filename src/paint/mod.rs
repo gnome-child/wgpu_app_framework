@@ -999,13 +999,17 @@ fn item_bounds(item: &Item, grid: Grid) -> Option<Rect> {
             outline.rect,
             outline.offset.max(0.0) + outline.width.max(0.0) + grid.logical_pixel(),
         )),
-        Item::Pane(pane) => Some(expand_rect(pane.rect, pane_outset(pane, grid))),
+        Item::Pane(pane) => Some(pane_effect_bounds(pane, grid)),
         Item::Clip(_) | Item::PopClip => None,
         Item::Group(group) => Some(group.bounds),
     }
 }
 
-fn pane_outset(pane: &Pane, grid: Grid) -> f32 {
+pub(crate) fn pane_effect_bounds(pane: &Pane, grid: Grid) -> Rect {
+    expand_rect(pane.rect, pane_effect_outset(pane, grid))
+}
+
+fn pane_effect_outset(pane: &Pane, grid: Grid) -> f32 {
     match &pane.material {
         Material::Solid(_) => 0.0,
         Material::Glass(glass) => glass

@@ -21,12 +21,20 @@ impl Renderer {
         canvas: &render::Canvas,
     ) -> Target {
         let target = Target::new(canvas);
+        self.prepare_target(render_context, target);
+        target
+    }
+
+    pub(in crate::render) fn prepare_target(
+        &mut self,
+        render_context: &render::Context,
+        target: Target,
+    ) {
         self.ensure_textures(
             render_context,
             target.physical_area.clamp_min(1),
             target.logical_area,
         );
-        target
     }
 
     pub(in crate::render) fn composition_view(&self) -> Option<&wgpu::TextureView> {

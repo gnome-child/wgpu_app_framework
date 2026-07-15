@@ -175,6 +175,11 @@ mod tests {
             assert_zero_content_work(receipt.unchanged());
             assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
             assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
+            assert_eq!(
+                receipt.unchanged().opaque_nodes() + receipt.unchanged().blended_nodes(),
+                receipt.first().opaque_nodes() + receipt.first().blended_nodes()
+            );
+            assert_eq!(receipt.unchanged().opacity_unclassified_nodes(), 0);
             assert!(receipt.recreated().scene_node_realization_rebuilds() > 0);
             assert_eq!(receipt.retired().gpu_resource_count(), 4);
             assert!(receipt.retired().gpu_resource_removals() > 0);
@@ -215,5 +220,45 @@ mod tests {
         assert!(receipt.settled().gpu_resource_removals() > 0);
         assert!(receipt.peak_resources() > receipt.settled().gpu_resource_count());
         assert!(receipt.peak_bytes() >= receipt.settled().gpu_resource_bytes());
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn semantic_work_routes_ordinary_content_direct_and_bounds_effect_scratch() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+
+        let ordinary = harness
+            .work_receipt(Case::Rule)
+            .expect("ordinary work receipt should render");
+        assert_eq!(ordinary.direct_surface_plans(), 1);
+        assert_eq!(ordinary.surface_sampling_plans(), 0);
+        assert_eq!(ordinary.opacity_unclassified_nodes(), 0);
+        assert_eq!(ordinary.opaque_nodes(), 1);
+        assert_eq!(ordinary.blended_nodes(), 0);
+        assert_eq!(ordinary.effect_intermediate_clears(), 0);
+        assert_eq!(ordinary.effect_intermediate_composites(), 0);
+        assert_eq!(ordinary.explicit_copy_commands(), 0);
+        assert_eq!(
+            ordinary.resource_transition_boundaries(),
+            ordinary.draw_passes().saturating_sub(1)
+        );
+
+        let glass = harness
+            .work_receipt(Case::GlassPane)
+            .expect("glass work receipt should render");
+        assert_eq!(glass.direct_surface_plans(), 0);
+        assert_eq!(glass.surface_sampling_plans(), 1);
+        assert_eq!(glass.opacity_unclassified_nodes(), 0);
+        assert!(glass.effect_intermediate_clears() > 0);
+        assert!(glass.effect_intermediate_clear_bytes() > 0);
+        assert!(glass.effect_intermediate_composites() > 0);
+        assert!(glass.effect_intermediate_composite_bytes() > 0);
+        assert!(glass.largest_effect_intermediate_bytes() < glass.target_bytes());
+        assert!(glass.draw_passes() > ordinary.draw_passes());
+        assert_eq!(glass.explicit_copy_commands(), 0);
+        assert_eq!(
+            glass.resource_transition_boundaries(),
+            glass.draw_passes().saturating_sub(1)
+        );
     }
 }

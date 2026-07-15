@@ -10,8 +10,8 @@ mod visual;
 pub use crate::color::Color;
 pub(crate) use commit::{Builder as CommitBuilder, Commit, Node, Properties};
 pub(crate) use commit::{
-    Content, Draw, EffectDeclaration, GeometryRevision, PropertyKind, PropertyRef, PropertySerial,
-    PropertyValue, TopologyRevision,
+    Content, Draw, EffectDeclaration, GeometryRevision, OpacityDeclaration, PropertyKind,
+    PropertyRef, PropertySerial, PropertyValue, TopologyRevision,
 };
 #[cfg(feature = "renderer-debug")]
 pub(crate) use commit::{FixtureCase, renderer_fixture, renderer_partial_update_fixture};

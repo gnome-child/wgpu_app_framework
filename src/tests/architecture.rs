@@ -795,6 +795,13 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
         "content_upload_bytes_total=",
         "retained_gpu_resource_count_high_water=",
         "opacity_unclassified_nodes_latest=",
+        "direct_surface_plans_total=",
+        "surface_sampling_plans_total=",
+        "effect_intermediate_clear_bytes_total=",
+        "effect_intermediate_composite_bytes_total=",
+        "largest_effect_intermediate_bytes_high_water=",
+        "explicit_copy_commands_total=",
+        "resource_transition_boundaries_total=",
         "command_preparation_us",
         "replenishment_commit_us",
         "candidate_property_serial=",
@@ -5121,9 +5128,17 @@ fn premultiplied_popup_surfaces_pack_without_legacy_final_blit() {
         "premultiplied non-sRGB popup surfaces should render through the Windows pack pass"
     );
     assert!(
-        renderer.contains("filter_renderer.blit_to_view")
-            && renderer.contains("} else {\n            canvas.draw"),
-        "opaque/default surfaces should keep the composition texture plus final blit path"
+        renderer.contains("direct_surface_eligible")
+            && renderer.contains("prepared.plan.requires_surface_sampling()")
+            && renderer.contains("} else if direct_surface {")
+            && renderer.contains("stats.ordinary_surface_clears = 1"),
+        "ordinary retained surfaces must render directly without an intermediate blit"
+    );
+    assert!(
+        renderer.contains("filter_renderer.clear_composition")
+            && renderer.contains("filter_renderer.blit_to_view")
+            && renderer.contains("stats.full_surface_blits = 1"),
+        "named sampling dependencies must retain the composition route and report its blit"
     );
 }
 

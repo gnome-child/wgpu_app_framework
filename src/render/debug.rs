@@ -198,6 +198,21 @@ pub struct Work {
     gpu_resource_removals: usize,
     render_plan_rebuilds: usize,
     render_plan_reuses: usize,
+    direct_surface_plans: usize,
+    surface_sampling_plans: usize,
+    draw_calls: usize,
+    draw_passes: usize,
+    explicit_copy_commands: usize,
+    resource_transition_boundaries: usize,
+    opaque_nodes: usize,
+    blended_nodes: usize,
+    opacity_unclassified_nodes: usize,
+    effect_intermediate_clears: usize,
+    effect_intermediate_clear_bytes: u64,
+    effect_intermediate_composites: usize,
+    effect_intermediate_composite_bytes: u64,
+    largest_effect_intermediate_bytes: u64,
+    target_bytes: u64,
 }
 
 impl Work {
@@ -252,6 +267,66 @@ impl Work {
     pub fn render_plan_reuses(self) -> usize {
         self.render_plan_reuses
     }
+
+    pub fn direct_surface_plans(self) -> usize {
+        self.direct_surface_plans
+    }
+
+    pub fn surface_sampling_plans(self) -> usize {
+        self.surface_sampling_plans
+    }
+
+    pub fn draw_calls(self) -> usize {
+        self.draw_calls
+    }
+
+    pub fn draw_passes(self) -> usize {
+        self.draw_passes
+    }
+
+    pub fn explicit_copy_commands(self) -> usize {
+        self.explicit_copy_commands
+    }
+
+    pub fn resource_transition_boundaries(self) -> usize {
+        self.resource_transition_boundaries
+    }
+
+    pub fn opaque_nodes(self) -> usize {
+        self.opaque_nodes
+    }
+
+    pub fn blended_nodes(self) -> usize {
+        self.blended_nodes
+    }
+
+    pub fn opacity_unclassified_nodes(self) -> usize {
+        self.opacity_unclassified_nodes
+    }
+
+    pub fn effect_intermediate_clears(self) -> usize {
+        self.effect_intermediate_clears
+    }
+
+    pub fn effect_intermediate_clear_bytes(self) -> u64 {
+        self.effect_intermediate_clear_bytes
+    }
+
+    pub fn effect_intermediate_composites(self) -> usize {
+        self.effect_intermediate_composites
+    }
+
+    pub fn effect_intermediate_composite_bytes(self) -> u64 {
+        self.effect_intermediate_composite_bytes
+    }
+
+    pub fn largest_effect_intermediate_bytes(self) -> u64 {
+        self.largest_effect_intermediate_bytes
+    }
+
+    pub fn target_bytes(self) -> u64 {
+        self.target_bytes
+    }
 }
 
 impl From<render::DrawStats> for Work {
@@ -270,6 +345,21 @@ impl From<render::DrawStats> for Work {
             gpu_resource_removals: stats.retained_gpu_resource_removals,
             render_plan_rebuilds: stats.render_plan_rebuilds,
             render_plan_reuses: stats.render_plan_reuses,
+            direct_surface_plans: stats.direct_surface_plans,
+            surface_sampling_plans: stats.surface_sampling_plans,
+            draw_calls: stats.draw_calls,
+            draw_passes: stats.draw_passes,
+            explicit_copy_commands: stats.explicit_copy_commands,
+            resource_transition_boundaries: stats.resource_transition_boundaries,
+            opaque_nodes: stats.opaque_nodes,
+            blended_nodes: stats.blended_nodes,
+            opacity_unclassified_nodes: stats.opacity_unclassified_nodes,
+            effect_intermediate_clears: stats.effect_intermediate_clears,
+            effect_intermediate_clear_bytes: stats.effect_intermediate_clear_bytes,
+            effect_intermediate_composites: stats.effect_intermediate_composites,
+            effect_intermediate_composite_bytes: stats.effect_intermediate_composite_bytes,
+            largest_effect_intermediate_bytes: stats.largest_effect_intermediate_bytes,
+            target_bytes: 0,
         }
     }
 }
@@ -477,6 +567,32 @@ impl Harness {
             self.scale_factor,
             case.uses_popup_pack(),
         )
+    }
+
+    pub fn work_receipt(&mut self, case: Case) -> Result<Work, String> {
+        let (commit, properties) =
+            scene::renderer_fixture(case.fixture()).map_err(|error| error.to_string())?;
+        let commit = std::sync::Arc::new(commit);
+        let (width, height) = self.physical_extent(commit.size());
+        let renderer = if case.uses_popup_pack() {
+            &mut self.popup_candidate
+        } else {
+            &mut self.candidate
+        };
+        let (_, stats) = renderer.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            width,
+            height,
+            self.scale_factor,
+            case.uses_popup_pack(),
+        )?;
+        let mut work = Work::from(stats);
+        work.target_bytes = u64::from(width)
+            .saturating_mul(u64::from(height))
+            .saturating_mul(4);
+        Ok(work)
     }
 
     pub fn render_pair(&mut self, case: Case) -> Result<(Image, Image, PairSample), String> {

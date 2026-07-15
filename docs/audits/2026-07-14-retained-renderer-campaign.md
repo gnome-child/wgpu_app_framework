@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–4 complete, Checkpoint 5 in progress**. One-Way
+Status: **in flight; Checkpoints 0–5 complete, Checkpoint 6 in progress**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -597,8 +597,8 @@ At each checkpoint boundary:
 | 2. Build the equivalence oracle | Complete | Same commit through legacy and new adapters with deep-tier readback comparison and a mandatory retirement plan |
 | 3. Retain scene identity and revisions | Complete | NodeId survives painting; unchanged substructure reused; window-wide invalidation begins retirement |
 | 4. Retain GPU realization | Complete | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
-| 5. Make render work semantic | In progress | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
-| 6. Make scroll a property tick | Pending | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
+| 5. Make render work semantic | Complete | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
+| 6. Make scroll a property tick | In progress | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
 | 7. Prove Qt class and decide the ceiling | Pending | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
 | 8. Optional Chromium-class upgrade | Gated by Checkpoint 7 | If admitted: active remains drawable while pending prepares; atomic activation and deadline independence proved |
 | 9. Burn down the old species | Pending | Legacy renderer/oracle adapter/flattening/orphans deleted; tombstones and new topology witnesses planted |
@@ -827,6 +827,19 @@ PIX receipt, 2026-07-14:
 
 The bracket identifies the causal species: even the no-boundary scroll
 rebuilds, reshapes, prepares, uploads, and full-blits every attempted frame.
+Interactive baseline addendum, 2026-07-14: live Control Gallery use reports
+that drag-selection highlighting becomes visible only after the drag and typed
+text becomes visible only once typing pauses. This is recorded as a pre-existing
+frame-scheduling/invalidation defect, not renderer-throughput evidence.
+The same session reports table clicks passing through the vertical scrollbar
+while the horizontal scrollbar owns its clicks correctly. This is a
+source-of-truth deviation: both orientations must derive visible geometry,
+hit-testing, capture, and scroll mutation through the same path.
+Checkpoint 6 must retest continuous selection and editing presentation so the
+campaign neither claims an accidental fix nor carries the idle-flush behavior
+through its presentation witnesses; its scrollbar witnesses must also require
+horizontal/vertical hit-test and capture parity with zero click-through.
+
 The code-owned baseline pins renderer draw p95 at 2.675 ms for in-window scroll
 and 2.852 ms for the witnessed guard stream on the 240 Hz DX12 rail, with guard
 replenishment p95 at 4.692 ms. Those values are comparison baselines, not proof
@@ -1674,6 +1687,123 @@ benchmarks and counters show that saved GPU/fill work exceeds its traversal and
 plan-churn cost. An external profiler may resolve an otherwise unowned GPU-fill
 question; an available weak-GPU receipt strengthens the verdict but is not
 required. Opaque classification does not depend on it.
+
+### Checkpoint 5 evidence ledger — complete
+
+Implementation receipt, 2026-07-14:
+
+- the retained plan now owns semantic facts and the surface-sampling verdict.
+  Plan reuse preserves scene/item, instance, text, clip, opacity, effect, and
+  group counts without rebuilding or rescanning the commit. Adjacent analytic
+  ranges merge only when their retained instance ranges are contiguous and
+  their borrowed node/property binding is identical; text, clip, pane, group,
+  and noncontiguous ranges remain hard order boundaries. Focused tests prove
+  both the admitted merge and the boundary refusal;
+- `SurfacePath` is a closed renderer decision with three realizations:
+  `Direct`, `SampledComposition`, and `PackedPremultiplied`. Ordinary retained
+  commits select `Direct`; a named backdrop/noise sampling dependency selects
+  `SampledComposition`; Windows popup packing retains its exact dedicated
+  path. The direct traffic witness asserts one acquired-surface clear and
+  literal zero extra full-surface intermediate clears, intermediate bytes,
+  full-surface blits, blit bytes, and popup packs;
+- opacity declaration is consumed from the commit and retained as a plan fact.
+  Production overlays are conservatively blended rather than unclassified.
+  The opaque rule work receipt reports `opaque_nodes=1`,
+  `blended_nodes=0`, and `opacity_unclassified_nodes=0`; the classification
+  survives plan reuse in the lifecycle witness;
+- the rule work receipt reports one direct plan, zero sampling plans, one draw,
+  two render-target passes, zero explicit copy commands, one resource-transition
+  boundary, and zero effect clears/composites/bytes. The ordered mixed
+  shape/text/group witness remains at five target passes, below the prior 6–7
+  pass ordinary-table family, so semantic planning did not purchase the blit
+  removal by multiplying pass boundaries;
+- filter output and scratch space are now distinct. The final composite writes
+  directly to the original parent target with the original prepared geometry;
+  ping/pong targets are sized only to `paint::pane_effect_bounds`, and filter
+  geometry is translated into that local envelope. The glass receipt reports
+  seven draws, eight target passes, zero explicit copy commands, seven
+  resource-transition boundaries, three scratch clears/41,760 bytes, two
+  bounded composites/16,192 bytes, and a largest intermediate of 13,920 bytes
+  against the 16,384-byte full target;
+- every filter invocation carries the closed owner (`PaneBackdrop` or
+  `PaneSurfaceNoise`). Code-owned debug logging emits owner, output bounds,
+  scratch bounds, clear/composite counts, and bytes; renderer receipts retain
+  current/total work and the intermediate-byte high-water mark. Actual WGPU
+  barrier insertion remains backend-owned, so the in-code account reports
+  render passes and resource-transition boundaries rather than inventing
+  driver barrier counts. No mismatch required an external profiler;
+- the static unit-quad instance upload remains 160 bytes for the one-instance
+  fixture, materially below the displaced six-vertex stream, while unchanged
+  retained work still reports zero primitive/text preparation and zero content
+  upload. CPU occlusion was not admitted: semantic coalescing and target
+  isolation delivered the checkpoint without a second traversal or churn cost.
+
+Oracle correction and exactness receipt:
+
+- the new work counters exposed that the offscreen oracle had not initialized
+  filter scratch textures, so its glass case had exercised tint geometry but
+  not the filter chain. `filter::Renderer::prepare_target` now gives both legacy
+  and retained offscreen adapters the same complete filter resources. This is
+  a harness correction, not a production accommodation;
+- after that correction, all 17 cases at 1.0/1.25/1.5/2.0 scale remain exact:
+  **68 of 68 comparisons report zero differing pixels and zero channel delta**.
+  The glass cells now execute blur/refraction/noise work, and transparent popup
+  packing remains exact;
+- a pane-sized offscreen experiment was rejected before admission. Its variants
+  introduced 453, then 416, then 1,824 differing pixels through duplicate edge
+  coverage or an extra color quantization. The experiment and its copy helpers
+  were deleted completely. Bounding only scratch storage retained the original
+  final write and restored literal pixel identity.
+
+Touched-module cleanup cells:
+
+- `OW-RR-5A` — complete trace:
+  `scene::Commit -> retained Plan -> SurfacePath -> SceneEncoder -> Surface`.
+  Challenge found the unconditional ordinary composition clear plus final blit
+  and a stale popup ratchet that could have let an empty operation list become
+  material truth. Admission placed the sampling verdict in the retained plan,
+  consumed resolved material filters at the renderer owner, and kept popup
+  packing separate. Reduce removed the ordinary blit route; Rewire sends only
+  named sampling plans through composition. Fixed point: one plan verdict, one
+  closed surface-path decision, and no selector or renderer fact exported
+  upward;
+- `OW-RR-5B` — complete trace:
+  `scene Pane/effect declaration -> paint effect envelope -> FilterScratch ->
+  ping/pong passes -> parent-target composite`. Challenge rejected the
+  pane-island copy/composite species on exactness evidence. Admission split
+  output and scratch target/prepared geometry at the filter boundary. Reduce
+  deleted the island texture/copy family. Rewire made the declared paint
+  envelope the one scratch-sizing derivation. Owner/bounds/bytes logging and
+  the exact glass oracle are the ratchets;
+- `OW-RR-5C` — the instrumentation trace found two reporting defects and
+  corrected them at their owners: plan facts previously disappeared on plan
+  reuse, and draw-pass counts omitted filter, layer-clear, layer-composite, and
+  final presentation passes. Plan-owned facts and pass-boundary accounting now
+  survive reuse and report actual encoded structure. The oracle initialization
+  omission was likewise corrected at `filter::Renderer`, not papered over in
+  the harness;
+- the touched-module gauge reports 47 top-level modules, 329 production and
+  112 test-only module edges, three split responsibilities, 55 provisional slot
+  edges, **zero forbidden edges, zero external-boundary violations, and zero
+  slot SCCs**, 1,949 `pub(crate)` declarations in 194 production files,
+  cross-slot upper bound 1,899, 90 cross-slot test edges, 120 source-root
+  mentions, 383 filesystem reads, seven allowances, five production panics,
+  and 53 production expects. The added visibility is renderer/debug receipt
+  currency; no external WGPU ownership or dependency arrow moved.
+
+Verification freeze, 2026-07-14: formatting and workspace checks passed; the
+complete workspace target tier passed three debug-crate comparison tests,
+1,174 root tests (1,163 passed, 11 intentional ignores), and both Control
+Gallery tests. All four doctests passed. The release deep tier passed all 11
+existing WARP/shader/alpha/glyph/popup/material/text witnesses and all four
+specialized retained/oracle/lifecycle/semantic-work witnesses. All 15
+renderer-receipt and One-Way parser/admission tests, the full ownership census,
+the exact 68-cell oracle, and diff hygiene passed. No external profiler,
+external machine, network service, or returned artifact was required.
+
+Checkpoint 5 is independently green. Checkpoint 6 now moves scroll onto the
+property clock and owns the two interactive baseline defects recorded under
+Checkpoint 0.
 
 ## Checkpoint 6 — make scroll a property tick
 

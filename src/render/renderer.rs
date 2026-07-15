@@ -13,6 +13,13 @@ pub(crate) struct DrawReport {
     pub(crate) present_timing: Option<render::surface::PresentTiming>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SurfacePath {
+    PackedPremultiplied,
+    Direct,
+    SampledComposition,
+}
+
 pub struct Renderer {
     format: wgpu::TextureFormat,
     quad_pipeline: wgpu::RenderPipeline,
@@ -77,6 +84,11 @@ struct CommandStats {
     draw_calls: usize,
     pipeline_changes: usize,
     bind_group_changes: usize,
+    effect_intermediate_clears: usize,
+    effect_intermediate_clear_bytes: u64,
+    effect_intermediate_composites: usize,
+    effect_intermediate_composite_bytes: u64,
+    largest_effect_intermediate_bytes: u64,
 }
 
 impl CommandStats {
@@ -86,6 +98,20 @@ impl CommandStats {
         if binds_resources {
             self.bind_group_changes += count;
         }
+    }
+
+    fn record_filter_work(&mut self, work: render::filter::FilterWork) {
+        self.effect_intermediate_clears += work.intermediate_clears;
+        self.effect_intermediate_clear_bytes = self
+            .effect_intermediate_clear_bytes
+            .saturating_add(work.intermediate_clear_bytes);
+        self.effect_intermediate_composites += work.intermediate_composites;
+        self.effect_intermediate_composite_bytes = self
+            .effect_intermediate_composite_bytes
+            .saturating_add(work.intermediate_composite_bytes);
+        self.largest_effect_intermediate_bytes = self
+            .largest_effect_intermediate_bytes
+            .max(work.largest_intermediate_bytes);
     }
 }
 
@@ -258,6 +284,7 @@ impl Renderer {
             &prepared_scene.render_batches,
             None,
             None,
+            false,
             stats,
             batch_prepare,
         )
@@ -280,6 +307,7 @@ impl Renderer {
             properties,
             &mut self.text_renderer,
         )?;
+        let mut direct_surface_eligible = !prepared.plan.requires_surface_sampling();
         let mut batches = prepared.plan.batches().to_vec();
         let mut stats = prepared.stats;
 
@@ -307,10 +335,13 @@ impl Renderer {
             stats.content_upload_bytes += geometry_upload.bytes;
             stats.geometry_buffer_creations += usize::from(geometry_upload.buffer_created);
             stats.scene_items += overlay.items().len();
-            stats.opacity_unclassified_nodes += overlay.items().len();
+            stats.blended_nodes += overlay.items().len();
+            direct_surface_eligible &= !requires_surface_sampling(&prepared_overlay.render_batches);
             batches.extend(prepared_overlay.render_batches);
         }
         stats.clipped_nodes = stats.clip_batches;
+        stats.direct_surface_plans = usize::from(direct_surface_eligible);
+        stats.surface_sampling_plans = usize::from(!direct_surface_eligible);
 
         self.draw_prepared(
             render_context,
@@ -320,6 +351,7 @@ impl Renderer {
             &batches,
             Some(&prepared.properties),
             Some(properties),
+            direct_surface_eligible,
             stats,
             batch_prepare_started.elapsed(),
         )
@@ -334,13 +366,20 @@ impl Renderer {
         batches: &[RenderBatch],
         retained_properties: Option<&render::retained::PropertyBindings>,
         scene_properties: Option<&crate::scene::Properties>,
+        direct_surface_eligible: bool,
         mut stats: DrawStats,
         batch_prepare: std::time::Duration,
     ) -> render::Result<DrawReport> {
         let preserve_surface_alpha =
             canvas.composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
         let surface_format = canvas.surface().format();
-        let pack_premultiplied_surface = canvas.surface().windows_popup_support().is_available();
+        let surface_path = surface_path(
+            canvas.surface().windows_popup_support().is_available(),
+            preserve_surface_alpha,
+            direct_surface_eligible,
+        );
+        let pack_premultiplied_surface = surface_path == SurfacePath::PackedPremultiplied;
+        let direct_surface = surface_path == SurfacePath::Direct;
         if pack_premultiplied_surface {
             debug_assert_eq!(
                 self.format,
@@ -355,7 +394,7 @@ impl Renderer {
                 canvas.composite_alpha_mode()
             );
         }
-        let filter_target = if preserve_surface_alpha && !pack_premultiplied_surface {
+        let filter_target = if direct_surface {
             render::filter::Target::from_viewport(main_viewport)
         } else {
             self.filter_renderer.prepare(render_context, canvas)
@@ -372,6 +411,7 @@ impl Renderer {
 
         let surface_report = if pack_premultiplied_surface {
             canvas.draw(render_context, |encoder, frame| {
+                draw_passes += 1;
                 let view = frame.create_view();
                 filter_renderer.clear_composition(encoder, clear_color);
                 let Some(composition_view) = filter_renderer.composition_view() else {
@@ -411,9 +451,11 @@ impl Renderer {
                     surface_format.into_wgpu(),
                 );
                 command_stats.record_draws(1, true);
+                draw_passes += 1;
             })?
-        } else if preserve_surface_alpha {
+        } else if direct_surface {
             canvas.draw(render_context, |encoder, frame| {
+                draw_passes += 1;
                 let view = frame.create_view();
                 {
                     let _clear = begin_main_pass(encoder, &view, clear_color, true);
@@ -443,6 +485,7 @@ impl Renderer {
             })?
         } else {
             canvas.draw(render_context, |encoder, frame| {
+                draw_passes += 1;
                 let view = frame.create_view();
                 filter_renderer.clear_composition(encoder, clear_color);
                 let Some(composition_view) = filter_renderer.composition_view() else {
@@ -476,6 +519,7 @@ impl Renderer {
 
                 filter_renderer.blit_to_view(render_context, encoder, &view, filter_target);
                 command_stats.record_draws(1, true);
+                draw_passes += 1;
             })?
         };
 
@@ -486,28 +530,22 @@ impl Renderer {
         self.text_renderer.trim();
         stats.draw_calls = command_stats.draw_calls;
         stats.draw_passes = draw_passes;
+        stats.resource_transition_boundaries = draw_passes.saturating_sub(1);
         stats.pipeline_changes = command_stats.pipeline_changes;
         stats.bind_group_changes = command_stats.bind_group_changes;
+        stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
+        stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
+        stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
+        stats.effect_intermediate_composite_bytes =
+            command_stats.effect_intermediate_composite_bytes;
+        stats.largest_effect_intermediate_bytes = command_stats.largest_effect_intermediate_bytes;
         stats.filter_layer_pool_entries = self.filter_renderer.layer_pool_entries();
         stats.filter_scratch_pool_entries = self.filter_renderer.scratch_pool_entries();
         if surface_report.present_timing().is_some() {
             let surface_bytes = u64::from(canvas.physical_area().width())
                 .saturating_mul(u64::from(canvas.physical_area().height()))
                 .saturating_mul(4);
-            if pack_premultiplied_surface {
-                stats.extra_full_surface_intermediate_clears = 1;
-                stats.extra_full_surface_intermediate_clear_bytes = surface_bytes;
-                stats.popup_surface_packs = 1;
-                stats.popup_surface_pack_bytes = surface_bytes.saturating_mul(2);
-            } else if preserve_surface_alpha {
-                stats.ordinary_surface_clears = 1;
-                stats.ordinary_surface_clear_bytes = surface_bytes;
-            } else {
-                stats.extra_full_surface_intermediate_clears = 1;
-                stats.extra_full_surface_intermediate_clear_bytes = surface_bytes;
-                stats.full_surface_blits = 1;
-                stats.full_surface_blit_bytes = surface_bytes.saturating_mul(2);
-            }
+            record_surface_traffic(&mut stats, surface_path, surface_bytes);
         }
 
         Ok(DrawReport {
@@ -601,6 +639,10 @@ impl Renderer {
             area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
             scale_factor,
         );
+        self.filter_renderer.prepare_target(
+            render_context,
+            render::filter::Target::from_viewport(viewport),
+        );
         let prepared = self
             .retained
             .prepare(
@@ -613,7 +655,7 @@ impl Renderer {
             .map_err(|error| error.to_string())?;
         let clear_color = render::surface_color(commit.clear());
         let mut text_render_error = None;
-        let mut draw_passes = 0;
+        let mut draw_passes = 1;
         let mut command_stats = CommandStats::default();
         let mut encoder =
             render_context
@@ -659,6 +701,7 @@ impl Renderer {
                 packed_view,
                 wgpu::TextureFormat::Rgba8Unorm,
             );
+            draw_passes += 1;
         }
 
         let readback_texture = packed_texture.as_ref().unwrap_or(&texture);
@@ -673,8 +716,15 @@ impl Renderer {
         let mut stats = prepared.stats;
         stats.draw_calls = command_stats.draw_calls + usize::from(pack_popup);
         stats.draw_passes = draw_passes;
+        stats.resource_transition_boundaries = draw_passes.saturating_sub(1);
         stats.pipeline_changes = command_stats.pipeline_changes + usize::from(pack_popup);
         stats.bind_group_changes = command_stats.bind_group_changes + usize::from(pack_popup);
+        stats.effect_intermediate_clears = command_stats.effect_intermediate_clears;
+        stats.effect_intermediate_clear_bytes = command_stats.effect_intermediate_clear_bytes;
+        stats.effect_intermediate_composites = command_stats.effect_intermediate_composites;
+        stats.effect_intermediate_composite_bytes =
+            command_stats.effect_intermediate_composite_bytes;
+        stats.largest_effect_intermediate_bytes = command_stats.largest_effect_intermediate_bytes;
         Ok((pixels, stats))
     }
 
@@ -736,6 +786,10 @@ impl Renderer {
             area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
             scale_factor,
         );
+        self.filter_renderer.prepare_target(
+            render_context,
+            render::filter::Target::from_viewport(viewport),
+        );
         let item_batch_list = item_batches(scene.items());
         let text_batch_count = glyph_batch_count(&item_batch_list);
         if text_batch_count > 0 {
@@ -759,7 +813,7 @@ impl Renderer {
             .map(render::color_to_wgpu)
             .unwrap_or(wgpu::Color::TRANSPARENT);
         let mut text_render_error = None;
-        let mut draw_passes = 0;
+        let mut draw_passes = 1;
         let mut command_stats = CommandStats::default();
         let mut encoder =
             render_context
@@ -1125,8 +1179,12 @@ impl DrawStats {
         self.retained_gpu_resource_removals += other.retained_gpu_resource_removals;
         self.render_plan_rebuilds += other.render_plan_rebuilds;
         self.render_plan_reuses += other.render_plan_reuses;
+        self.direct_surface_plans += other.direct_surface_plans;
+        self.surface_sampling_plans += other.surface_sampling_plans;
         self.draw_calls += other.draw_calls;
         self.draw_passes += other.draw_passes;
+        self.explicit_copy_commands += other.explicit_copy_commands;
+        self.resource_transition_boundaries += other.resource_transition_boundaries;
         self.pipeline_changes += other.pipeline_changes;
         self.bind_group_changes += other.bind_group_changes;
         self.clip_batches += other.clip_batches;
@@ -1135,6 +1193,13 @@ impl DrawStats {
         self.opacity_unclassified_nodes += other.opacity_unclassified_nodes;
         self.clipped_nodes += other.clipped_nodes;
         self.effect_island_nodes += other.effect_island_nodes;
+        self.effect_intermediate_clears += other.effect_intermediate_clears;
+        self.effect_intermediate_clear_bytes += other.effect_intermediate_clear_bytes;
+        self.effect_intermediate_composites += other.effect_intermediate_composites;
+        self.effect_intermediate_composite_bytes += other.effect_intermediate_composite_bytes;
+        self.largest_effect_intermediate_bytes = self
+            .largest_effect_intermediate_bytes
+            .max(other.largest_effect_intermediate_bytes);
         self.culled_nodes += other.culled_nodes;
         self.group_composites += other.group_composites;
         self.filter_layer_pool_entries += other.filter_layer_pool_entries;
@@ -1298,6 +1363,66 @@ fn read_texture(
 
 fn is_draw_batch(batch: &RenderBatch) -> bool {
     matches!(batch, RenderBatch::Shapes(_) | RenderBatch::Text(_))
+}
+
+fn surface_path(
+    pack_premultiplied_surface: bool,
+    preserve_surface_alpha: bool,
+    direct_surface_eligible: bool,
+) -> SurfacePath {
+    if pack_premultiplied_surface {
+        SurfacePath::PackedPremultiplied
+    } else if preserve_surface_alpha || direct_surface_eligible {
+        SurfacePath::Direct
+    } else {
+        SurfacePath::SampledComposition
+    }
+}
+
+fn record_surface_traffic(stats: &mut DrawStats, path: SurfacePath, surface_bytes: u64) {
+    match path {
+        SurfacePath::PackedPremultiplied => {
+            stats.extra_full_surface_intermediate_clears = 1;
+            stats.extra_full_surface_intermediate_clear_bytes = surface_bytes;
+            stats.popup_surface_packs = 1;
+            stats.popup_surface_pack_bytes = surface_bytes.saturating_mul(2);
+        }
+        SurfacePath::Direct => {
+            stats.ordinary_surface_clears = 1;
+            stats.ordinary_surface_clear_bytes = surface_bytes;
+        }
+        SurfacePath::SampledComposition => {
+            stats.extra_full_surface_intermediate_clears = 1;
+            stats.extra_full_surface_intermediate_clear_bytes = surface_bytes;
+            stats.full_surface_blits = 1;
+            stats.full_surface_blit_bytes = surface_bytes.saturating_mul(2);
+        }
+    }
+}
+
+pub(in crate::render) fn requires_surface_sampling(batches: &[RenderBatch]) -> bool {
+    batches.iter().any(|batch| match batch {
+        RenderBatch::Pane(prepared) => match &prepared.pane.material {
+            paint::Material::Solid(_) => false,
+            paint::Material::Glass(glass) => {
+                (glass.base == paint::GlassBase::FrameworkBackdrop
+                    && !render::material::backdrop_filter(&prepared.pane, glass)
+                        .ops
+                        .is_empty())
+                    || glass.surface_layers.iter().any(|layer| {
+                        matches!(
+                            layer,
+                            paint::SurfaceLayer::Noise(noise) if noise.opacity > 0.0
+                        )
+                    })
+            }
+        },
+        RenderBatch::Group(group) => requires_surface_sampling(&group.render_batches),
+        RenderBatch::Shapes(_)
+        | RenderBatch::Text(_)
+        | RenderBatch::PushClip(_)
+        | RenderBatch::PopClip => false,
+    })
 }
 
 fn draw_run_end(render_batches: &[RenderBatch], start: usize) -> usize {
@@ -1518,16 +1643,22 @@ impl<'a> SceneEncoder<'a> {
                                 self.backdrop_view,
                                 self.backdrop_target,
                             );
+                            let scratch = pane_filter_scratch(pane, self.viewport);
                             let filter_draws = filter_draw_calls(&filter);
-                            self.filter_renderer.draw(render::filter::FilterDraw {
+                            let work = self.filter_renderer.draw(render::filter::FilterDraw {
                                 render_context: self.render_context,
                                 encoder: self.encoder,
                                 target: self.output_target,
+                                scratch,
+                                owner: render::filter::FilterOwner::PaneBackdrop,
                                 source,
                                 output,
                                 filter,
                                 scissor: Some(scissor),
                             });
+                            self.command_stats.record_filter_work(work);
+                            *self.draw_passes +=
+                                work.intermediate_clears + work.intermediate_composites;
                             self.command_stats.record_draws(filter_draws, true);
                             self.mark_current_dirty();
                         }
@@ -1555,11 +1686,14 @@ impl<'a> SceneEncoder<'a> {
                             };
                             let filter =
                                 paint::Filter::stack(pane.rect, [paint::FilterOp::noise(noise)]);
+                            let scratch = pane_filter_scratch(pane, self.viewport);
                             let filter_draws = filter_draw_calls(&filter);
-                            self.filter_renderer.draw(render::filter::FilterDraw {
+                            let work = self.filter_renderer.draw(render::filter::FilterDraw {
                                 render_context: self.render_context,
                                 encoder: self.encoder,
                                 target: self.output_target,
+                                scratch,
+                                owner: render::filter::FilterOwner::PaneSurfaceNoise,
                                 source: render::filter::FilterSource::Local {
                                     texture: render::filter::TextureSource::new(
                                         output,
@@ -1573,6 +1707,9 @@ impl<'a> SceneEncoder<'a> {
                                 filter,
                                 scissor: Some(scissor),
                             });
+                            self.command_stats.record_filter_work(work);
+                            *self.draw_passes +=
+                                work.intermediate_clears + work.intermediate_composites;
                             self.command_stats.record_draws(filter_draws, true);
                             self.mark_current_dirty();
                         }
@@ -1603,6 +1740,7 @@ impl<'a> SceneEncoder<'a> {
             "Group Layer Texture",
         );
         self.filter_renderer.clear_layer(self.encoder, &group_layer);
+        *self.draw_passes += 1;
 
         {
             let group_view = group_layer.view();
@@ -1651,6 +1789,7 @@ impl<'a> SceneEncoder<'a> {
                     opacity,
                 });
             self.command_stats.record_draws(1, true);
+            *self.draw_passes += 1;
             self.mark_current_dirty();
         }
         self.filter_renderer.recycle_layer(group_layer);
@@ -1681,6 +1820,7 @@ impl<'a> SceneEncoder<'a> {
         let layer_index = self.layers.len() - 1;
         self.filter_renderer
             .clear_layer(self.encoder, &self.layers[layer_index]);
+        *self.draw_passes += 1;
         self.clip_stack.push(ClipFrame::Layer {
             clip,
             layer_index,
@@ -1769,6 +1909,7 @@ impl<'a> SceneEncoder<'a> {
                 opacity: 1.0,
             });
         self.command_stats.record_draws(1, true);
+        *self.draw_passes += 1;
         self.mark_current_dirty();
     }
 
@@ -1807,6 +1948,17 @@ fn filter_draw_calls(filter: &paint::Filter) -> usize {
             _ => 0,
         })
         .sum()
+}
+
+fn pane_filter_scratch(
+    pane: &paint::Pane,
+    viewport: render::Viewport,
+) -> render::filter::FilterScratch {
+    render::filter::FilterScratch::bounded(
+        pane.rect,
+        paint::pane_effect_bounds(pane, paint::Grid::new(viewport.scale_factor())),
+        viewport.scale_factor(),
+    )
 }
 
 fn group_layer_source_rect(bounds: Rect) -> Rect {
@@ -1920,6 +2072,35 @@ mod tests {
     use crate::text;
 
     use super::*;
+
+    #[test]
+    fn semantic_surface_path_keeps_ordinary_work_direct_and_sampling_work_isolated() {
+        assert_eq!(surface_path(false, false, true), SurfacePath::Direct);
+        assert_eq!(
+            surface_path(false, false, false),
+            SurfacePath::SampledComposition
+        );
+        assert_eq!(
+            surface_path(true, false, true),
+            SurfacePath::PackedPremultiplied
+        );
+        assert_eq!(surface_path(false, true, false), SurfacePath::Direct);
+    }
+
+    #[test]
+    fn direct_surface_traffic_has_one_clear_and_literal_zero_intermediate_work() {
+        let mut stats = DrawStats::default();
+
+        record_surface_traffic(&mut stats, SurfacePath::Direct, 8_000_000);
+
+        assert_eq!(stats.ordinary_surface_clears, 1);
+        assert_eq!(stats.ordinary_surface_clear_bytes, 8_000_000);
+        assert_eq!(stats.extra_full_surface_intermediate_clears, 0);
+        assert_eq!(stats.extra_full_surface_intermediate_clear_bytes, 0);
+        assert_eq!(stats.full_surface_blits, 0);
+        assert_eq!(stats.full_surface_blit_bytes, 0);
+        assert_eq!(stats.popup_surface_packs, 0);
+    }
 
     #[test]
     fn draw_runs_cross_shape_text_pipeline_changes_but_stop_at_semantic_boundaries() {

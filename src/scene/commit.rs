@@ -749,6 +749,10 @@ impl Node {
         self.clip
     }
 
+    pub(crate) fn opacity(&self) -> OpacityDeclaration {
+        self.opacity
+    }
+
     pub(crate) fn effect(&self) -> EffectDeclaration {
         self.effect
     }

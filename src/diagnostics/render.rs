@@ -72,10 +72,18 @@ pub struct Render {
     pub render_plan_rebuilds_total: usize,
     pub render_plan_reuses: usize,
     pub render_plan_reuses_total: usize,
+    pub direct_surface_plans: usize,
+    pub direct_surface_plans_total: usize,
+    pub surface_sampling_plans: usize,
+    pub surface_sampling_plans_total: usize,
     pub draw_calls: usize,
     pub draw_calls_total: usize,
     pub draw_passes: usize,
     pub draw_passes_total: usize,
+    pub explicit_copy_commands: usize,
+    pub explicit_copy_commands_total: usize,
+    pub resource_transition_boundaries: usize,
+    pub resource_transition_boundaries_total: usize,
     pub pipeline_changes: usize,
     pub pipeline_changes_total: usize,
     pub bind_group_changes: usize,
@@ -86,6 +94,13 @@ pub struct Render {
     pub opacity_unclassified_nodes: usize,
     pub clipped_nodes: usize,
     pub effect_island_nodes: usize,
+    pub effect_intermediate_clears: usize,
+    pub effect_intermediate_clears_total: usize,
+    pub effect_intermediate_clear_bytes_total: u64,
+    pub effect_intermediate_composites: usize,
+    pub effect_intermediate_composites_total: usize,
+    pub effect_intermediate_composite_bytes_total: u64,
+    pub largest_effect_intermediate_bytes_high_water: u64,
     pub culled_nodes: usize,
     pub group_composites: usize,
     pub filter_layer_pool_entries: usize,
@@ -215,10 +230,19 @@ impl Render {
         self.render_plan_rebuilds_total += report.draw_stats.render_plan_rebuilds;
         self.render_plan_reuses = report.draw_stats.render_plan_reuses;
         self.render_plan_reuses_total += report.draw_stats.render_plan_reuses;
+        self.direct_surface_plans = report.draw_stats.direct_surface_plans;
+        self.direct_surface_plans_total += report.draw_stats.direct_surface_plans;
+        self.surface_sampling_plans = report.draw_stats.surface_sampling_plans;
+        self.surface_sampling_plans_total += report.draw_stats.surface_sampling_plans;
         self.draw_calls = report.draw_stats.draw_calls;
         self.draw_calls_total += report.draw_stats.draw_calls;
         self.draw_passes = report.draw_stats.draw_passes;
         self.draw_passes_total += report.draw_stats.draw_passes;
+        self.explicit_copy_commands = report.draw_stats.explicit_copy_commands;
+        self.explicit_copy_commands_total += report.draw_stats.explicit_copy_commands;
+        self.resource_transition_boundaries = report.draw_stats.resource_transition_boundaries;
+        self.resource_transition_boundaries_total +=
+            report.draw_stats.resource_transition_boundaries;
         self.pipeline_changes = report.draw_stats.pipeline_changes;
         self.pipeline_changes_total += report.draw_stats.pipeline_changes;
         self.bind_group_changes = report.draw_stats.bind_group_changes;
@@ -229,6 +253,18 @@ impl Render {
         self.opacity_unclassified_nodes = report.draw_stats.opacity_unclassified_nodes;
         self.clipped_nodes = report.draw_stats.clipped_nodes;
         self.effect_island_nodes = report.draw_stats.effect_island_nodes;
+        self.effect_intermediate_clears = report.draw_stats.effect_intermediate_clears;
+        self.effect_intermediate_clears_total += report.draw_stats.effect_intermediate_clears;
+        self.effect_intermediate_clear_bytes_total +=
+            report.draw_stats.effect_intermediate_clear_bytes;
+        self.effect_intermediate_composites = report.draw_stats.effect_intermediate_composites;
+        self.effect_intermediate_composites_total +=
+            report.draw_stats.effect_intermediate_composites;
+        self.effect_intermediate_composite_bytes_total +=
+            report.draw_stats.effect_intermediate_composite_bytes;
+        self.largest_effect_intermediate_bytes_high_water = self
+            .largest_effect_intermediate_bytes_high_water
+            .max(report.draw_stats.largest_effect_intermediate_bytes);
         self.culled_nodes = report.draw_stats.culled_nodes;
         self.group_composites = report
             .group_composites
@@ -693,6 +729,16 @@ impl Render {
         let _ = writeln!(receipt, "draw_passes_total={}", self.draw_passes_total);
         let _ = writeln!(receipt, "draw_calls_latest={}", self.draw_calls);
         let _ = writeln!(receipt, "draw_calls_total={}", self.draw_calls_total);
+        let _ = writeln!(
+            receipt,
+            "explicit_copy_commands_total={}",
+            self.explicit_copy_commands_total
+        );
+        let _ = writeln!(
+            receipt,
+            "resource_transition_boundaries_total={}",
+            self.resource_transition_boundaries_total
+        );
         let _ = writeln!(receipt, "pipeline_changes_latest={}", self.pipeline_changes);
         let _ = writeln!(
             receipt,
@@ -719,6 +765,16 @@ impl Render {
             "render_plan_reuses_total={}",
             self.render_plan_reuses_total
         );
+        let _ = writeln!(
+            receipt,
+            "direct_surface_plans_total={}",
+            self.direct_surface_plans_total
+        );
+        let _ = writeln!(
+            receipt,
+            "surface_sampling_plans_total={}",
+            self.surface_sampling_plans_total
+        );
         let _ = writeln!(receipt, "clip_batches_latest={}", self.clip_batches);
         let _ = writeln!(receipt, "opaque_nodes_latest={}", self.opaque_nodes);
         let _ = writeln!(receipt, "blended_nodes_latest={}", self.blended_nodes);
@@ -732,6 +788,31 @@ impl Render {
             receipt,
             "effect_island_nodes_latest={}",
             self.effect_island_nodes
+        );
+        let _ = writeln!(
+            receipt,
+            "effect_intermediate_clears_total={}",
+            self.effect_intermediate_clears_total
+        );
+        let _ = writeln!(
+            receipt,
+            "effect_intermediate_clear_bytes_total={}",
+            self.effect_intermediate_clear_bytes_total
+        );
+        let _ = writeln!(
+            receipt,
+            "effect_intermediate_composites_total={}",
+            self.effect_intermediate_composites_total
+        );
+        let _ = writeln!(
+            receipt,
+            "effect_intermediate_composite_bytes_total={}",
+            self.effect_intermediate_composite_bytes_total
+        );
+        let _ = writeln!(
+            receipt,
+            "largest_effect_intermediate_bytes_high_water={}",
+            self.largest_effect_intermediate_bytes_high_water
         );
         let _ = writeln!(receipt, "culled_nodes_latest={}", self.culled_nodes);
         let _ = writeln!(receipt, "group_composites_latest={}", self.group_composites);
@@ -890,10 +971,18 @@ impl Default for Render {
             render_plan_rebuilds_total: 0,
             render_plan_reuses: 0,
             render_plan_reuses_total: 0,
+            direct_surface_plans: 0,
+            direct_surface_plans_total: 0,
+            surface_sampling_plans: 0,
+            surface_sampling_plans_total: 0,
             draw_calls: 0,
             draw_calls_total: 0,
             draw_passes: 0,
             draw_passes_total: 0,
+            explicit_copy_commands: 0,
+            explicit_copy_commands_total: 0,
+            resource_transition_boundaries: 0,
+            resource_transition_boundaries_total: 0,
             pipeline_changes: 0,
             pipeline_changes_total: 0,
             bind_group_changes: 0,
@@ -904,6 +993,13 @@ impl Default for Render {
             opacity_unclassified_nodes: 0,
             clipped_nodes: 0,
             effect_island_nodes: 0,
+            effect_intermediate_clears: 0,
+            effect_intermediate_clears_total: 0,
+            effect_intermediate_clear_bytes_total: 0,
+            effect_intermediate_composites: 0,
+            effect_intermediate_composites_total: 0,
+            effect_intermediate_composite_bytes_total: 0,
+            largest_effect_intermediate_bytes_high_water: 0,
             culled_nodes: 0,
             group_composites: 0,
             filter_layer_pool_entries: 0,
