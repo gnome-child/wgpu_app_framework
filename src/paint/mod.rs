@@ -461,7 +461,7 @@ impl Pane {
         }
     }
 
-    fn translated_for_group(mut self, origin: point::Logical) -> Self {
+    pub(crate) fn translated_for_group(mut self, origin: point::Logical) -> Self {
         let source_rect = self.source_rect.unwrap_or(self.rect);
         self.rect = translate_rect(self.rect, -origin.x(), -origin.y());
         self.source_rect = Some(source_rect);
@@ -1036,7 +1036,7 @@ fn translate_items_for_group(items: &[Item], origin: point::Logical, grid: Grid)
         .collect()
 }
 
-fn translate_item_for_group(item: &Item, origin: point::Logical, grid: Grid) -> Item {
+pub(crate) fn translate_item_for_group(item: &Item, origin: point::Logical, grid: Grid) -> Item {
     let dx = -origin.x();
     let dy = -origin.y();
 
@@ -1090,7 +1090,6 @@ fn translate_item_for_group(item: &Item, origin: point::Logical, grid: Grid) -> 
         Item::Group(group) => {
             let mut group = group.clone();
             group.bounds = translate_rect(group.bounds, dx, dy);
-            group.items = translate_items_for_group(&group.items, origin, grid);
             Item::Group(group)
         }
     }
@@ -1381,6 +1380,54 @@ mod tests {
             Rect::new(point::logical(30.0, 30.0), area::logical(50.0, 40.0))
         );
         assert_eq!(local.source_rect, Some(pane.rect));
+    }
+
+    #[test]
+    fn outer_group_translation_keeps_inner_group_contents_local() {
+        let grid = Grid::new(1.0);
+        let quad = |rect| {
+            Quad::resolved_for_grid(
+                rect,
+                Style {
+                    fill: Some(Fill::Brush(Brush::solid(Color::RED))),
+                    stroke: None,
+                    tint: None,
+                },
+                Rasterization::default(),
+                Transform::identity(),
+                grid,
+            )
+        };
+        let inner = group_from_items(
+            &[Item::Quad(quad(Rect::new(
+                point::logical(25.0, 17.0),
+                area::logical(26.0, 30.0),
+            )))],
+            0.65,
+            grid,
+        )
+        .expect("inner group should be visible");
+        let outer = group_from_items(
+            &[
+                Item::Quad(quad(Rect::new(
+                    point::logical(11.0, 13.0),
+                    area::logical(40.0, 36.0),
+                ))),
+                Item::Group(inner),
+            ],
+            0.8,
+            grid,
+        )
+        .expect("outer group should be visible");
+        let [_, Item::Group(inner)] = outer.items.as_slice() else {
+            panic!("expected retained nested group");
+        };
+        let [Item::Quad(inner_quad)] = inner.items.as_slice() else {
+            panic!("expected retained inner quad");
+        };
+
+        assert_eq!(inner.bounds.origin, point::logical(14.0, 4.0));
+        assert_eq!(inner_quad.rect().origin, point::logical(0.0, 0.0));
     }
 
     #[test]

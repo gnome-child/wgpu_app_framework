@@ -1,4 +1,5 @@
 use crate::{geometry, layout, response, scene, state, window};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Presentation {
@@ -8,6 +9,9 @@ pub struct Presentation {
     invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     scene: scene::Scene,
+    commit: Arc<scene::Commit>,
+    properties: scene::Properties,
+    overlays: scene::Scene,
 }
 
 impl Presentation {
@@ -19,6 +23,9 @@ impl Presentation {
             invalidation: presentation.invalidation(),
             layout: presentation.layout().clone(),
             scene: presentation.scene().clone(),
+            commit: Arc::clone(presentation.commit()),
+            properties: presentation.properties().clone(),
+            overlays: presentation.overlays().clone(),
         }
     }
 
@@ -48,5 +55,17 @@ impl Presentation {
 
     pub fn scene(&self) -> &scene::Scene {
         &self.scene
+    }
+
+    pub(crate) fn commit(&self) -> &Arc<scene::Commit> {
+        &self.commit
+    }
+
+    pub(crate) fn properties(&self) -> &scene::Properties {
+        &self.properties
+    }
+
+    pub(crate) fn overlays(&self) -> &scene::Scene {
+        &self.overlays
     }
 }

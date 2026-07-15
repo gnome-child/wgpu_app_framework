@@ -47,10 +47,13 @@ pub struct Render {
     pub inline_icon_cache_hits: usize,
     pub inline_icon_cache_misses: usize,
     pub inline_icon_shape_calls: usize,
+    pub scene_node_realization_rebuilds: usize,
+    pub scene_node_realization_rebuilds_total: usize,
     pub quad_prepare_calls: usize,
     pub quad_prepare_calls_total: usize,
     pub text_prepare_calls: usize,
     pub text_prepare_calls_total: usize,
+    pub quad_instances: usize,
     pub quad_vertices: usize,
     pub geometry_upload_bytes: usize,
     pub geometry_upload_bytes_total: usize,
@@ -180,10 +183,14 @@ impl Render {
         self.inline_icon_cache_hits = report.draw_stats.inline_icon_cache_hits;
         self.inline_icon_cache_misses = report.draw_stats.inline_icon_cache_misses;
         self.inline_icon_shape_calls = report.draw_stats.inline_icon_shape_calls;
+        self.scene_node_realization_rebuilds = report.draw_stats.scene_node_realization_rebuilds;
+        self.scene_node_realization_rebuilds_total +=
+            report.draw_stats.scene_node_realization_rebuilds;
         self.quad_prepare_calls = report.draw_stats.quad_prepare_calls;
         self.quad_prepare_calls_total += report.draw_stats.quad_prepare_calls;
         self.text_prepare_calls = report.draw_stats.text_prepare_calls;
         self.text_prepare_calls_total += report.draw_stats.text_prepare_calls;
+        self.quad_instances = report.draw_stats.quad_instances;
         self.quad_vertices = report.draw_stats.quad_vertices;
         self.geometry_upload_bytes = report.draw_stats.geometry_upload_bytes;
         self.geometry_upload_bytes_total += report.draw_stats.geometry_upload_bytes;
@@ -588,6 +595,17 @@ impl Render {
         let _ = writeln!(receipt, "quad_vertices_latest={}", self.quad_vertices);
         let _ = writeln!(
             receipt,
+            "scene_node_realization_rebuilds_latest={}",
+            self.scene_node_realization_rebuilds
+        );
+        let _ = writeln!(
+            receipt,
+            "scene_node_realization_rebuilds_total={}",
+            self.scene_node_realization_rebuilds_total
+        );
+        let _ = writeln!(receipt, "quad_instances_latest={}", self.quad_instances);
+        let _ = writeln!(
+            receipt,
             "quad_prepare_calls_latest={}",
             self.quad_prepare_calls
         );
@@ -847,10 +865,13 @@ impl Default for Render {
             inline_icon_cache_hits: 0,
             inline_icon_cache_misses: 0,
             inline_icon_shape_calls: 0,
+            scene_node_realization_rebuilds: 0,
+            scene_node_realization_rebuilds_total: 0,
             quad_prepare_calls: 0,
             quad_prepare_calls_total: 0,
             text_prepare_calls: 0,
             text_prepare_calls_total: 0,
+            quad_instances: 0,
             quad_vertices: 0,
             geometry_upload_bytes: 0,
             geometry_upload_bytes_total: 0,

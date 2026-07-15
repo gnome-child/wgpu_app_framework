@@ -9,13 +9,12 @@ mod visual;
 
 pub use crate::color::Color;
 pub(crate) use commit::{Builder as CommitBuilder, Commit, Node, Properties};
-#[cfg(feature = "renderer-debug")]
 pub(crate) use commit::{
-    Content, ContractError, EffectDeclaration, OpacityDeclaration, PropertyKind, PropertyRef,
-    PropertyValue,
+    Content, Draw, EffectDeclaration, GeometryRevision, PropertyKind, PropertyRef, PropertySerial,
+    PropertyValue, TopologyRevision,
 };
 #[cfg(feature = "renderer-debug")]
-pub(crate) use commit::{FixtureCase, renderer_fixture};
+pub(crate) use commit::{FixtureCase, renderer_fixture, renderer_partial_update_fixture};
 pub(crate) use material::GlassBase;
 pub use material::{
     BackdropBlur, BackdropEdgeMode, BackdropLayer, Glass, Luminosity, Material, Noise, Refraction,

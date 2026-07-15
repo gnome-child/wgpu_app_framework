@@ -1,6 +1,6 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
-Status: **in flight; Checkpoints 0–3 complete, Checkpoint 4 in progress**. One-Way
+Status: **in flight; Checkpoints 0–4 complete, Checkpoint 5 in progress**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,
 PIX, code-owned instrumentation, admission, and verification bracket is green.
@@ -596,8 +596,8 @@ At each checkpoint boundary:
 | 1. Ratify the retained-scene contract | Complete | Requirements-first API, ownership, revision, property, clock, cleanup, and gap ledgers approved |
 | 2. Build the equivalence oracle | Complete | Same commit through legacy and new adapters with deep-tier readback comparison and a mandatory retirement plan |
 | 3. Retain scene identity and revisions | Complete | NodeId survives painting; unchanged substructure reused; window-wide invalidation begins retirement |
-| 4. Retain GPU realization | In progress | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
-| 5. Make render work semantic | Pending | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
+| 4. Retain GPU realization | Complete | Identity/revision-keyed resources, instanced primitives, retained text prep, bounded cleanup and loss recovery |
+| 5. Make render work semantic | In progress | Global planning, direct ordinary-window path, bounded effect islands, explicit opacity classes, no accidental full blit |
 | 6. Make scroll a property tick | Pending | Literal zero work counters in-window; receipted property-aware hit testing; bounded-cheap synchronous replenishment |
 | 7. Prove Qt class and decide the ceiling | Pending | Instrumented Qt-class verdict; evidence-based accept/reject decisions for pending/active, render thread, damage, and partial present |
 | 8. Optional Chromium-class upgrade | Gated by Checkpoint 7 | If admitted: active remains drawable while pending prepares; atomic activation and deadline independence proved |
@@ -1482,6 +1482,157 @@ commit without mutating semantic identity or content revisions. Window close,
 popup host return/drop, node removal, and commit retirement each have named
 resource-count witnesses. Retained bytes and pool high-water marks must settle
 after churn.
+
+### Checkpoint 4 evidence ledger — complete
+
+Retained realization cell, 2026-07-14:
+
+- `render::retained::Realizer` synchronizes the immutable commit into retained
+  shape, text, property, and plan state. `ResourceKey` borrows
+  `composition::tree::NodeId` plus content, geometry, and topology revisions;
+  content index/part, scale, and target-space facts distinguish truthful
+  realizations. It contains no property serial, presentation epoch, hashed
+  primitive identity, or renderer-minted identifier. Weak commit/node owners
+  let overlapping commits share the same semantic resource and make retirement
+  collectable without a parallel invalidation authority;
+- analytic shapes use one static six-corner unit quad and a 160-byte instance
+  record. Retained instances live in a geometrically grown suballocated buffer
+  with coalesced free ranges. A changed node writes only its new range; unchanged
+  siblings retain theirs. The former six-vertex immediate arena remains solely
+  for the oracle, native-popup, and overlay compatibility suffix until the
+  semantic-plan and burn-down checkpoints;
+- property state lives in a separate dynamically offset uniform buffer. Its
+  bindings are keyed by `(NodeId, TargetSpace)`, so the same semantic node may
+  be realized correctly inside distinct nested targets without contaminating
+  content identity. The cache samples one compatible `PropertySerial`, binding
+  list, viewport, and commit pointer; an unchanged second draw uploads zero
+  property bytes as well as zero content bytes;
+- retained text is keyed by the same semantic resource family. Each retained
+  text target owns its prepared glyphon renderer/viewport while every target
+  shares the renderer-global font system, swash cache, inline cache, GPU cache,
+  and atlas. Text and icon glyphs therefore shape/prepare once per content
+  revision without creating private atlases. The closed scene contract has no
+  image content species yet, so no speculative image-texture owner was added;
+- commit order, clips, nested groups, panes/effects, opacity, and target-space
+  bounds are retained in reusable plans. Existing bounded filter-layer and
+  scratch pools remain the only intermediate owners; Checkpoint 5 now makes
+  their allocation and ordinary-surface topology semantic rather than
+  one-frame descriptive;
+- the production runtime/native ordinary-window path now hands the exact
+  `Commit`, `Properties`, and in-frame compatibility overlay suffix to
+  `Renderer::draw_commit`. Retained and temporary batches converge at the
+  existing post-preparation encoder and the proven
+  `Context -> Canvas -> Surface -> present` seam is unchanged. The control
+  gallery therefore uses the retained base renderer in ordinary execution as
+  of this checkpoint; Checkpoints 5 and 6 remove the remaining whole-frame
+  topology and scroll-content work that determine its visible performance;
+- the specialized debug crate owns exact readback, retention, partial-update,
+  recreation, retirement, and churn receipts. The default application API
+  exposes no GPU resource type, renderer identity, retained cache handle, or
+  selector between production renderers.
+
+Exactness and reuse receipts on the local NVIDIA GeForce RTX 4070 Ti SUPER DX12
+rail:
+
+- the expanded 17-case matrix covers empty, shape, gradient, transformed,
+  rule, text, clipped text viewport, icon, shadow, outline, pane, rounded and
+  nested clips, grouped opacity, production-shaped ordered nested groups,
+  glass, and transparent-popup packing. At 1.0/1.25/1.5/2.0 scale, all **68 of
+  68** legacy/retained pairs returned `differing_pixels=0` and
+  `maximum_channel_delta=0`. The ordered case uses the real `scene::Builder`
+  order carrier, a nonzero frame origin, internal clipping, nested opacity
+  groups, and text rather than a flattened fixture shortcut;
+- solid-quad, text, ordered-group, and transparent-popup retention receipts all
+  report the same unchanged-draw law: `node_rebuilds=0`,
+  `primitive_prepare_calls=0`, `text_prepare_calls=0`, `text_shape_calls=0`,
+  `content_upload_bytes=0`, `property_upload_bytes=0`, `gpu_creations=0`, and
+  `plan_reuses=1`. Ordered-group first realization created three resources,
+  prepared two analytic instances and one text target, and uploaded 320 content
+  plus 528 property bytes; its unchanged draw performed none of that work;
+- the partial-update receipt starts with two nodes/two instances/320 content
+  bytes. Changing one identity reports exactly one node rebuild, one primitive
+  preparation, one 160-byte content write, and one resource creation. The next
+  unchanged draw keeps the surviving sibling and reports every content/property
+  work currency at zero while collecting the displaced resource;
+- a fresh `Renderer` rebuilt the same commit to byte-identical pixels with the
+  same semantic `NodeId` and revisions. This is the device/renderer recreation
+  witness: semantic state is sufficient to reconstruct GPU state and no GPU
+  generation is written upstream;
+- dropping the ordinary solid/text/ordered commits and drawing an empty commit
+  returns retained counts to the four renderer-global shape-buffer resources,
+  with one, one, and three removals respectively. The transparent-popup
+  host-lifecycle fixture returns its popup-format renderer to the same
+  four-resource baseline. These are the named window/commit, text,
+  ordered-node, and popup host return/drop resource witnesses; renderer drop
+  itself remains the final RAII owner of the four global WGPU handles;
+- 64 alternating partial-update commits reached a post-warm retained-resource
+  range of exactly `(7, 7)` and byte range `(49216, 49216)`. After the active
+  commit retired, the receipt settled at four resources/49,216 owned buffer
+  bytes with zero preparation/upload work and three resource removals. Shared
+  glyph-atlas storage remains one existing global cache and is deliberately not
+  double-counted as per-node retained bytes.
+
+Upstream correction and cleanup cells:
+
+- `OW-RR-4A` — complete trace:
+  `scene::Commit -> retained plan/resources -> shared encoder -> Canvas/Surface`,
+  with the legacy `paint::Scene` route beside it only for the oracle and the
+  explicitly temporary popup/overlay suffix. Challenge found that the prior
+  candidate path flattened a commit in `render::scene` and therefore erased
+  identity a second time before GPU preparation. Admission kept one production
+  `draw_commit` handoff and the common post-preparation encoder; Reduce deleted
+  the displaced 165-line candidate flattening adapter and its helper family.
+  Rewire moved native ordinary surfaces onto the retained handoff. Ratchets
+  require native `draw_commit`, borrowed composition identity/revisions, static
+  unit-quad instancing, separated property storage, weak semantic ownership,
+  and structural absence of the deleted adapter. Fixed point: one retained
+  production base path, one protected legacy oracle/popup suffix with a named
+  terminal checkpoint, and no selector exposed upward;
+- `OW-RR-4B` — the exact ordered-group witness found an upstream projection
+  defect: translating an outer group moved the inner group's declared bounds
+  and also translated items already local to that inner group. The renderer did
+  not accommodate the bad shape. `paint`, the translation owner, now moves the
+  nested group envelope once and leaves its local contents local. A focused
+  owner test and all four exact scale witnesses ratchet the correction. Retained
+  text preparation likewise localizes glyph items at the target boundary rather
+  than baking target position into semantic content;
+- the touched-module re-scan corrected two stale architecture tests: ordinary
+  native realization is now required to consume retained commits while popup
+  lowering remains renderer-owned, and glyphon viewport ownership now covers
+  both immediate per-batch and retained per-resource cases. Obsolete
+  `Content::translated`, unused node accessors, and the flattened candidate
+  helpers were deleted. The one retained `Properties::changed` helper is marked
+  with an explicit Checkpoint 6 sparse-property-upload reason rather than an
+  unowned allowance;
+- the final gauge reports 47 top-level modules, 329 production and 112 test-only
+  module edges, three split responsibilities, 55 provisional slot edges,
+  **zero forbidden edges, zero external-boundary violations, and zero slot
+  SCCs**, 1,938 `pub(crate)` declarations in 194 production files, cross-slot
+  upper bound 1,889, 90 cross-slot test edges, 120 source-root mentions, 383
+  filesystem reads, seven allowances, five production panics, and 53 production
+  expects. All external WGPU/glyphon/bytemuck use remains in `render`; no
+  dependency arrow was concealed by the retained contract.
+
+Boundary verification after the restart passed:
+
+- `cargo fmt --check` and `cargo check --workspace --all-targets` without
+  warnings; the complete workspace target suite passed with three debug-crate
+  unit tests, 1,157 root tests, and both control-gallery example tests, with 14
+  intentional GPU/acceptance ignores across the root and debug packages;
+- all four root doctests passed. The release deep tier passed all 11 existing
+  WARP, shader, alpha, glyph, popup packing, glass/material, and text witnesses;
+  the specialized release tier passed all three new exact ordered-commit,
+  retained lifecycle/partial-update, and high-water churn witnesses;
+- all 15 renderer-receipt and One-Way parser/admission tests, the full ownership
+  census above, exact 68-cell oracle, formatting, and diff hygiene passed;
+- no external profiler, out-of-process measurement program, external machine,
+  person, network service, or returned artifact participated. All measurements
+  and readbacks were produced locally in code by the specialized debug crate.
+
+Checkpoint 4 is independently green. Checkpoint 5 now removes accidental
+whole-window work by making plan roots, opacity, order, target changes, and
+effect islands the sole owners of render scope while preserving the retained
+resource and exactness laws above.
 
 ## Checkpoint 5 — make render work semantic
 

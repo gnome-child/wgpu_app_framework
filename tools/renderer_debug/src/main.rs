@@ -97,6 +97,86 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
+        [command, case, scale] if command == "oracle" => {
+            let case = parse_case(case)?;
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            let mut harness = harness(scale)?;
+            let (legacy, candidate, sample) = harness.render_pair(case)?;
+            let difference = compare(&legacy, &candidate, Tolerance::Exact);
+            let mut changed = Vec::new();
+            for (index, (left, right)) in legacy
+                .pixels()
+                .iter()
+                .zip(candidate.pixels())
+                .enumerate()
+            {
+                if left != right {
+                    changed.push((
+                        index % legacy.width() as usize,
+                        index / legacy.width() as usize,
+                        *left,
+                        *right,
+                    ));
+                }
+            }
+            println!(
+                "case={} scale={} legacy_us={} candidate_us={} difference={difference:?} changed_bounds={:?} first={:?} maximum={:?}",
+                case.name(),
+                scale,
+                sample.legacy().elapsed().as_micros(),
+                sample.candidate().elapsed().as_micros(),
+                changed.iter().fold(None::<(usize, usize, usize, usize)>, |bounds, (x, y, _, _)| {
+                    Some(bounds.map_or((*x, *y, *x, *y), |(x0, y0, x1, y1)| {
+                        (x0.min(*x), y0.min(*y), x1.max(*x), y1.max(*y))
+                    }))
+                }),
+                &changed[..changed.len().min(8)],
+                changed.iter().max_by(|(_, _, left_a, right_a), (_, _, left_b, right_b)| {
+                    let delta_a = left_a.iter().zip(right_a).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
+                    let delta_b = left_b.iter().zip(right_b).map(|(a, b)| (a - b).abs()).fold(0.0_f32, f32::max);
+                    delta_a.total_cmp(&delta_b)
+                }),
+            );
+            Ok(())
+        }
+        [command, case] if command == "retention" => {
+            let case = parse_case(case)?;
+            let mut harness = harness(1.0)?;
+            let receipt = harness.retention_receipt(case)?;
+            print_work("first", receipt.first());
+            print_work("unchanged", receipt.unchanged());
+            print_work("recreated", receipt.recreated());
+            print_work("retired", receipt.retired());
+            Ok(())
+        }
+        [command] if command == "partial-update" => {
+            let mut harness = harness(1.0)?;
+            let receipt = harness.partial_update_receipt()?;
+            print_work("first", receipt.first());
+            print_work("changed", receipt.changed());
+            print_work("surviving", receipt.surviving());
+            print_work("retired", receipt.retired());
+            Ok(())
+        }
+        [command, iterations] if command == "churn" => {
+            let iterations = iterations
+                .parse::<usize>()
+                .map_err(|_| "iterations must be an integer of at least three".to_owned())?;
+            let mut harness = harness(1.0)?;
+            let receipt = harness.churn_receipt(iterations)?;
+            println!(
+                "iterations={} peak_resources={} peak_bytes={} post_warm_resource_range={:?} post_warm_byte_range={:?}",
+                receipt.iterations(),
+                receipt.peak_resources(),
+                receipt.peak_bytes(),
+                receipt.post_warm_resource_range(),
+                receipt.post_warm_byte_range(),
+            );
+            print_work("settled", receipt.settled());
+            Ok(())
+        }
         [command, case, iterations] if command == "bench" => {
             let case = parse_case(case)?;
             let iterations = iterations
@@ -130,10 +210,29 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: renderer_debug list | reference <case> | reference-all | oracle-all | bench <case> <iterations>"
+            "usage: renderer_debug list | reference <case> | reference-all | oracle <case> <scale> | oracle-all | retention <case> | partial-update | churn <iterations> | bench <case> <iterations>"
                 .to_owned(),
         ),
     }
+}
+
+fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
+    println!(
+        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={}",
+        work.scene_node_realization_rebuilds(),
+        work.primitive_prepare_calls(),
+        work.text_prepare_calls(),
+        work.text_shape_calls(),
+        work.content_upload_bytes(),
+        work.property_upload_bytes(),
+        work.gpu_resource_count(),
+        work.gpu_resource_bytes(),
+        work.gpu_resource_creations(),
+        work.gpu_resource_replacements(),
+        work.gpu_resource_removals(),
+        work.render_plan_rebuilds(),
+        work.render_plan_reuses(),
+    );
 }
 
 fn harness(scale_factor: f32) -> Result<Harness, String> {

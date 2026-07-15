@@ -1,4 +1,5 @@
 use crate::geometry::area;
+use bytemuck::{Pod, Zeroable};
 use std::ops::Range;
 
 use crate::paint::{self, Grid, Rect};
@@ -13,6 +14,49 @@ const QUAD_WGSL: &str = include_str!("quad.wgsl");
 
 const INITIAL_VERTEX_CAPACITY: usize = 8_192;
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+pub(in crate::render) struct Instance {
+    raster_rect: [f32; 4],
+    outer_rect: [f32; 4],
+    outer_rounding: [f32; 4],
+    inner_rect: [f32; 4],
+    inner_rounding: [f32; 4],
+    color: [f32; 4],
+    color_to: [f32; 4],
+    brush_points: [f32; 4],
+    params: [f32; 4],
+    source_rect: [f32; 4],
+}
+
+impl Instance {
+    pub(in crate::render) fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRIBUTES: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
+            1 => Float32x4,
+            2 => Float32x4,
+            3 => Float32x4,
+            4 => Float32x4,
+            5 => Float32x4,
+            6 => Float32x4,
+            7 => Float32x4,
+            8 => Float32x4,
+            9 => Float32x4,
+            10 => Float32x4
+        ];
+
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &ATTRIBUTES,
+        }
+    }
+
+    pub(in crate::render) fn set_source_rect(&mut self, rect: [f32; 4]) {
+        self.source_rect = rect;
+    }
+}
+
+#[derive(Clone)]
 pub(in crate::render) struct Batch {
     vertex_range: Range<u32>,
 }
@@ -173,6 +217,18 @@ pub(in crate::render) fn prepare_batch(
     Some(Batch {
         vertex_range: start as u32..end as u32,
     })
+}
+
+pub(in crate::render) fn prepare_instances(
+    viewport: render::Viewport,
+    shapes: &[batch::Shape<'_>],
+) -> Vec<Instance> {
+    let grid = Grid::new(viewport.scale_factor());
+    shapes
+        .iter()
+        .flat_map(|shape| analytic_shapes_for_shape(shape, viewport.scale_factor()))
+        .filter_map(|shape| prepare_instance(shape, grid))
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -368,13 +424,42 @@ fn push_analytic_shape_vertices(
         return;
     }
 
-    let Some(shape) = prepare_shape(shape, grid) else {
+    let Some(instance) = prepare_instance(shape, grid) else {
         return;
     };
 
+    let [x, y, width, height] = instance.raster_rect;
+    let x0 = x;
+    let y0 = y;
+    let x1 = x + width;
+    let y1 = y + height;
+
+    let mut push = |x: f32, y: f32| {
+        buffer.push(render::Vertex {
+            position: to_clip(x, y),
+            local_position: [x, y],
+            outer_rect: instance.outer_rect,
+            outer_rounding: instance.outer_rounding,
+            inner_rect: instance.inner_rect,
+            inner_rounding: instance.inner_rounding,
+            color: instance.color,
+            color_to: instance.color_to,
+            brush_points: instance.brush_points,
+            params: instance.params,
+        });
+    };
+
+    push(x0, y0);
+    push(x0, y1);
+    push(x1, y1);
+    push(x0, y0);
+    push(x1, y1);
+    push(x1, y0);
+}
+
+fn prepare_instance(shape: AnalyticShape, grid: Grid) -> Option<Instance> {
+    let shape = prepare_shape(shape, grid)?;
     let (x0, y0, x1, y1) = edges(shape.raster_rect);
-    let outer_rect = rect_data(shape.outer_rect);
-    let outer_rounding = rounding_data(shape.outer_rounding);
     let (inner_rect, inner_rounding, mode) = match shape.inner {
         Some(inner) => (rect_data(inner.rect), rounding_data(inner.rounding), 1.0),
         None => ([0.0, 0.0, -1.0, -1.0], [0.0; 4], 0.0),
@@ -390,27 +475,18 @@ fn push_analytic_shape_vertices(
         ],
     };
 
-    let mut push = |x: f32, y: f32| {
-        buffer.push(render::Vertex {
-            position: to_clip(x, y),
-            local_position: [x, y],
-            outer_rect,
-            outer_rounding,
-            inner_rect,
-            inner_rounding,
-            color: brush.from.to_array(),
-            color_to: brush.to.to_array(),
-            brush_points: brush.points,
-            params,
-        });
-    };
-
-    push(x0, y0);
-    push(x0, y1);
-    push(x1, y1);
-    push(x0, y0);
-    push(x1, y1);
-    push(x1, y0);
+    Some(Instance {
+        raster_rect: [x0, y0, x1 - x0, y1 - y0],
+        outer_rect: rect_data(shape.outer_rect),
+        outer_rounding: rounding_data(shape.outer_rounding),
+        inner_rect,
+        inner_rounding,
+        color: brush.from.to_array(),
+        color_to: brush.to.to_array(),
+        brush_points: brush.points,
+        params,
+        source_rect: rect_data(shape.outer_rect),
+    })
 }
 
 fn prepare_shape(shape: AnalyticShape, grid: Grid) -> Option<PreparedShape> {

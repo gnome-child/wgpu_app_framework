@@ -63,6 +63,7 @@ impl PreparedFrame {
             .commit
             .compatibility_scene(&self.properties)
             .expect("prepared properties must remain compatible with their immutable commit");
+        let mut overlay_scene = scene::Scene::new(self.commit.size());
         let ime_target = ime_target_for_layers(self.layout.text_caret_rect(), &self.layers);
         let mut popup_presentations = Vec::new();
 
@@ -70,6 +71,7 @@ impl PreparedFrame {
             log_overlay_layer_application(layer, self.overlay_schedule);
             match layer.kind() {
                 crate::overlay::LayerKind::Live | crate::overlay::LayerKind::RetiringPopup => {
+                    let in_frame = layer.backend() == crate::overlay::Backend::InFrame;
                     append_or_present_overlay_layer(
                         self.window,
                         &mut scene,
@@ -79,9 +81,13 @@ impl PreparedFrame {
                         &mut popup_presentations,
                         self.invalidation == response::effect::Invalidation::Paint,
                     );
+                    if in_frame {
+                        append_overlay_layer(&mut overlay_scene, layer);
+                    }
                 }
                 crate::overlay::LayerKind::Ghost => {
                     scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
+                    overlay_scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
                 }
             }
         }
@@ -94,6 +100,9 @@ impl PreparedFrame {
                 self.invalidation,
                 self.layout,
                 scene,
+                self.commit,
+                self.properties,
+                overlay_scene,
             ),
             popup_presentations,
             ime_update: ime::Update::new(self.window, ime_target),

@@ -6,7 +6,9 @@ use crate::text::layout as text_layout;
 use crate::text::layout::{InlineCache, InlineStats};
 
 use std::cell::{Ref, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::{Arc, Weak};
 
 use thiserror::Error;
 
@@ -28,6 +30,28 @@ pub(in crate::render) struct TextRenderer {
     viewports: Vec<glyphon::Viewport>,
     swash_cache: glyphon::SwashCache,
     inline_cache: InlineCache,
+    retained: HashMap<render::retained::ResourceKey, RetainedText>,
+}
+
+struct RetainedText {
+    owners: Vec<Weak<crate::scene::Node>>,
+    renderer: glyphon::TextRenderer,
+    viewport: glyphon::Viewport,
+    has_text: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(in crate::render) struct RetainedBatch {
+    key: render::retained::ResourceKey,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::render) struct RetainedTextReport {
+    pub(in crate::render) batch: Option<RetainedBatch>,
+    pub(in crate::render) stats: InlineStats,
+    pub(in crate::render) prepare_calls: usize,
+    pub(in crate::render) resource_creations: usize,
+    pub(in crate::render) resource_removals: usize,
 }
 
 struct PreparedText<'a> {
@@ -70,6 +94,7 @@ impl TextRenderer {
             viewports: Vec::new(),
             swash_cache: glyphon::SwashCache::new(),
             inline_cache: InlineCache::new(),
+            retained: HashMap::new(),
         }
     }
 
@@ -93,82 +118,101 @@ impl TextRenderer {
         }
 
         self.update_viewport(render_context, renderer_index, viewport);
-        let scale_factor = viewport.scale_factor();
-        let mut prepared = Vec::with_capacity(glyphs.len());
-        let mut stats = InlineStats::default();
+        let Self {
+            atlas,
+            renderers,
+            viewports,
+            swash_cache,
+            inline_cache,
+            ..
+        } = self;
+        prepare_glyphs(
+            render_context,
+            viewport.scale_factor(),
+            inline_cache,
+            atlas,
+            swash_cache,
+            &mut renderers[renderer_index],
+            &viewports[renderer_index],
+            glyphs,
+        )
+    }
 
-        for glyph in glyphs {
-            match glyph {
-                batch::Glyph::Text(text) => {
-                    if let Some(glyph) = prepare_text(&mut self.inline_cache, text, scale_factor) {
-                        stats.add(glyph.stats);
-                        prepared.push(glyph);
-                    }
-                }
-                batch::Glyph::TextViewport(text) => {
-                    prepared.extend(prepare_text_viewport(text, scale_factor));
-                }
-                batch::Glyph::Icon(icon) => {
-                    if let Some(glyph) = prepare_icon(&mut self.inline_cache, icon, scale_factor) {
-                        stats.add(glyph.stats);
-                        prepared.push(glyph);
-                    }
-                }
+    pub(in crate::render) fn prepare_retained(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        node: &Arc<crate::scene::Node>,
+        content_index: usize,
+        glyphs: &[batch::Glyph<'_>],
+        target_origin: [f32; 2],
+        target_size: [f32; 2],
+    ) -> Result<RetainedTextReport> {
+        let resource_removals = self.prune_retained();
+        let key = render::retained::ResourceKey::for_target(
+            node,
+            content_index,
+            0,
+            viewport.scale_factor(),
+            target_origin,
+            target_size,
+        );
+        if let Some(entry) = self.retained.get_mut(&key) {
+            entry.owners.retain(|owner| owner.strong_count() > 0);
+            if !entry
+                .owners
+                .iter()
+                .filter_map(Weak::upgrade)
+                .any(|owner| Arc::ptr_eq(&owner, node))
+            {
+                entry.owners.push(Arc::downgrade(node));
             }
-        }
-
-        if prepared.is_empty() {
-            return Ok(TextBatchReport {
-                has_text: false,
-                stats,
+            return Ok(RetainedTextReport {
+                batch: entry.has_text.then_some(RetainedBatch { key }),
+                resource_removals,
+                ..RetainedTextReport::default()
             });
         }
 
-        let borrowed = prepared
-            .iter()
-            .filter_map(|text| match &text.buffer {
-                PreparedTextBuffer::Shared(buffer) => Some(buffer.borrow()),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let mut borrowed_index = 0_usize;
-        let text_areas = prepared
-            .iter()
-            .map(|text| {
-                let buffer = match &text.buffer {
-                    PreparedTextBuffer::Borrowed(buffer) => buffer,
-                    PreparedTextBuffer::Shared(_) => {
-                        let buffer = &*borrowed[borrowed_index];
-                        borrowed_index += 1;
-                        buffer
-                    }
-                };
-
-                glyphon::TextArea {
-                    buffer,
-                    left: text.left,
-                    top: text.top,
-                    scale: scale_factor,
-                    bounds: text.bounds,
-                    default_color: text.default_color,
-                    custom_glyphs: &[],
-                }
-            })
-            .collect::<Vec<_>>();
-
-        self.renderers[renderer_index].prepare(
-            render_context.device(),
-            render_context.queue(),
-            self.inline_cache.font_system_mut(),
+        let mut renderer = glyphon::TextRenderer::new(
             &mut self.atlas,
-            &self.viewports[renderer_index],
-            text_areas,
+            render_context.device(),
+            wgpu::MultisampleState::default(),
+            None,
+        );
+        let mut glyph_viewport = glyphon::Viewport::new(render_context.device(), &self.cache);
+        let target_viewport = render::Viewport::from_logical_area(
+            crate::geometry::area::logical(target_size[0], target_size[1]),
+            viewport.scale_factor(),
+        );
+        update_glyphon_viewport(render_context, &mut glyph_viewport, target_viewport);
+        let report = prepare_glyphs(
+            render_context,
+            viewport.scale_factor(),
+            &mut self.inline_cache,
+            &mut self.atlas,
             &mut self.swash_cache,
+            &mut renderer,
+            &glyph_viewport,
+            glyphs,
         )?;
+        let has_text = report.has_text;
+        self.retained.insert(
+            key,
+            RetainedText {
+                owners: vec![Arc::downgrade(node)],
+                renderer,
+                viewport: glyph_viewport,
+                has_text,
+            },
+        );
 
-        Ok(TextBatchReport {
-            has_text: true,
-            stats,
+        Ok(RetainedTextReport {
+            batch: has_text.then_some(RetainedBatch { key }),
+            stats: report.stats,
+            prepare_calls: 1,
+            resource_creations: 1,
+            resource_removals,
         })
     }
 
@@ -182,6 +226,37 @@ impl TextRenderer {
             .map_err(Error::from)
     }
 
+    pub(in crate::render) fn render_retained(
+        &mut self,
+        batch: RetainedBatch,
+        pass: &mut wgpu::RenderPass<'_>,
+    ) -> Result<()> {
+        let Self {
+            atlas, retained, ..
+        } = self;
+        let Some(entry) = retained.get_mut(&batch.key) else {
+            return Ok(());
+        };
+        entry
+            .renderer
+            .render(atlas, &entry.viewport, pass)
+            .map_err(Error::from)
+    }
+
+    pub(in crate::render) fn retained_resource_count(&self) -> usize {
+        self.retained.len()
+    }
+
+    pub(in crate::render) fn retained_resource_bytes(&self) -> usize {
+        self.retained
+            .len()
+            .saturating_mul(std::mem::size_of::<RetainedText>())
+    }
+
+    pub(in crate::render) fn collect_retained(&mut self) -> usize {
+        self.prune_retained()
+    }
+
     pub(in crate::render) fn trim(&mut self) {
         self.atlas.trim();
     }
@@ -192,13 +267,10 @@ impl TextRenderer {
         renderer_index: usize,
         viewport: render::Viewport,
     ) {
-        let physical_area = viewport.physical_area();
-        self.viewports[renderer_index].update(
-            render_context.queue(),
-            glyphon::Resolution {
-                width: physical_area.width(),
-                height: physical_area.height(),
-            },
+        update_glyphon_viewport(
+            render_context,
+            &mut self.viewports[renderer_index],
+            viewport,
         );
     }
 
@@ -214,6 +286,116 @@ impl TextRenderer {
                 .push(glyphon::Viewport::new(render_context.device(), &self.cache));
         }
     }
+
+    fn prune_retained(&mut self) -> usize {
+        let before = self.retained.len();
+        self.retained
+            .retain(|_, entry| entry.owners.iter().any(|owner| owner.strong_count() > 0));
+        before.saturating_sub(self.retained.len())
+    }
+}
+
+fn prepare_glyphs(
+    render_context: &render::Context,
+    scale_factor: f32,
+    inline_cache: &mut InlineCache,
+    atlas: &mut glyphon::TextAtlas,
+    swash_cache: &mut glyphon::SwashCache,
+    renderer: &mut glyphon::TextRenderer,
+    viewport: &glyphon::Viewport,
+    glyphs: &[batch::Glyph<'_>],
+) -> Result<TextBatchReport> {
+    let mut prepared = Vec::with_capacity(glyphs.len());
+    let mut stats = InlineStats::default();
+
+    for glyph in glyphs {
+        match glyph {
+            batch::Glyph::Text(text) => {
+                if let Some(glyph) = prepare_text(inline_cache, text, scale_factor) {
+                    stats.add(glyph.stats);
+                    prepared.push(glyph);
+                }
+            }
+            batch::Glyph::TextViewport(text) => {
+                prepared.extend(prepare_text_viewport(text, scale_factor));
+            }
+            batch::Glyph::Icon(icon) => {
+                if let Some(glyph) = prepare_icon(inline_cache, icon, scale_factor) {
+                    stats.add(glyph.stats);
+                    prepared.push(glyph);
+                }
+            }
+        }
+    }
+
+    if prepared.is_empty() {
+        return Ok(TextBatchReport {
+            has_text: false,
+            stats,
+        });
+    }
+
+    let borrowed = prepared
+        .iter()
+        .filter_map(|text| match &text.buffer {
+            PreparedTextBuffer::Shared(buffer) => Some(buffer.borrow()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut borrowed_index = 0_usize;
+    let text_areas = prepared
+        .iter()
+        .map(|text| {
+            let buffer = match &text.buffer {
+                PreparedTextBuffer::Borrowed(buffer) => buffer,
+                PreparedTextBuffer::Shared(_) => {
+                    let buffer = &*borrowed[borrowed_index];
+                    borrowed_index += 1;
+                    buffer
+                }
+            };
+
+            glyphon::TextArea {
+                buffer,
+                left: text.left,
+                top: text.top,
+                scale: scale_factor,
+                bounds: text.bounds,
+                default_color: text.default_color,
+                custom_glyphs: &[],
+            }
+        })
+        .collect::<Vec<_>>();
+
+    renderer.prepare(
+        render_context.device(),
+        render_context.queue(),
+        inline_cache.font_system_mut(),
+        atlas,
+        viewport,
+        text_areas,
+        swash_cache,
+    )?;
+
+    Ok(TextBatchReport {
+        has_text: true,
+        stats,
+    })
+}
+
+fn update_glyphon_viewport(
+    render_context: &render::Context,
+    viewport: &mut glyphon::Viewport,
+    target: render::Viewport,
+) {
+    let physical_area = target.physical_area();
+    viewport.update(
+        render_context.queue(),
+        glyphon::Resolution {
+            width: physical_area.width(),
+            height: physical_area.height(),
+        },
+    );
 }
 
 fn prepare_text(

@@ -151,13 +151,14 @@ impl Native {
             native_window.display_name(),
             native_window.display_refresh_millihertz(),
         );
-        let scene = render::scene::to_paint_scene_at_scale(
-            presentation.scene(),
-            native_window.canvas().scale_factor(),
-        );
-
         let draw_started = Instant::now();
-        let report = renderer.draw(context, native_window.canvas_mut(), &scene)?;
+        let report = renderer.draw_commit(
+            context,
+            native_window.canvas_mut(),
+            presentation.commit(),
+            presentation.properties(),
+            presentation.overlays(),
+        )?;
         let draw = draw_started.elapsed();
         let acquire_wait = report
             .present_timing

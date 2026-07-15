@@ -70,6 +70,7 @@ pub fn compare(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wgpu_l3::renderer_debug::{Case, Harness, Work};
 
     fn image(pixels: Vec<[f32; 4]>) -> Image {
         Image::new(2, 1, pixels).expect("test image dimensions should match")
@@ -127,5 +128,92 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn assert_zero_content_work(work: Work) {
+        assert_eq!(work.scene_node_realization_rebuilds(), 0);
+        assert_eq!(work.primitive_prepare_calls(), 0);
+        assert_eq!(work.text_prepare_calls(), 0);
+        assert_eq!(work.text_shape_calls(), 0);
+        assert_eq!(work.content_upload_bytes(), 0);
+        assert_eq!(work.gpu_resource_creations(), 0);
+        assert_eq!(work.gpu_resource_replacements(), 0);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn ordered_production_commit_is_pixel_exact() {
+        let mut harness = pollster::block_on(Harness::new(1.25)).expect("GPU harness should open");
+        let (legacy, retained, _) = harness
+            .render_pair(Case::OrderedGroup)
+            .expect("ordered commit should render through both paths");
+
+        assert_eq!(
+            compare(&legacy, &retained, Tolerance::Exact),
+            Ok(Difference {
+                differing_pixels: 0,
+                maximum_channel_delta: 0.0,
+            })
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn retained_gpu_lifecycle_and_partial_update_receipts_are_bounded() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        for case in [
+            Case::SolidQuad,
+            Case::Text,
+            Case::OrderedGroup,
+            Case::TransparentPopup,
+        ] {
+            let receipt = harness
+                .retention_receipt(case)
+                .expect("retention receipt should render");
+            assert!(receipt.first().scene_node_realization_rebuilds() > 0);
+            assert!(receipt.first().gpu_resource_creations() > 0);
+            assert_zero_content_work(receipt.unchanged());
+            assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
+            assert_eq!(receipt.unchanged().property_upload_bytes(), 0);
+            assert!(receipt.recreated().scene_node_realization_rebuilds() > 0);
+            assert_eq!(receipt.retired().gpu_resource_count(), 4);
+            assert!(receipt.retired().gpu_resource_removals() > 0);
+        }
+
+        let partial = harness
+            .partial_update_receipt()
+            .expect("partial update receipt should render");
+        assert_eq!(partial.changed().scene_node_realization_rebuilds(), 1);
+        assert_eq!(partial.changed().primitive_prepare_calls(), 1);
+        assert!(partial.changed().content_upload_bytes() > 0);
+        assert_eq!(partial.changed().gpu_resource_creations(), 1);
+        assert_zero_content_work(partial.surviving());
+        assert_eq!(partial.surviving().render_plan_reuses(), 1);
+        assert!(partial.surviving().gpu_resource_removals() > 0);
+        assert_eq!(partial.retired().gpu_resource_count(), 4);
+        assert!(partial.retired().gpu_resource_removals() > 0);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn retained_gpu_high_water_settles_after_commit_churn() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let receipt = harness
+            .churn_receipt(64)
+            .expect("churn receipt should render");
+
+        assert_eq!(receipt.iterations(), 64);
+        assert_eq!(
+            receipt.post_warm_resource_range().0,
+            receipt.post_warm_resource_range().1
+        );
+        assert_eq!(
+            receipt.post_warm_byte_range().0,
+            receipt.post_warm_byte_range().1
+        );
+        assert_eq!(receipt.settled().gpu_resource_count(), 4);
+        assert!(receipt.settled().gpu_resource_removals() > 0);
+        assert!(receipt.peak_resources() > receipt.settled().gpu_resource_count());
+        assert!(receipt.peak_bytes() >= receipt.settled().gpu_resource_bytes());
     }
 }

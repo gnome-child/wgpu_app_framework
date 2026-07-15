@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use super::super::{geometry, layout, response, state, window};
-use super::Scene;
+use super::{Commit, Properties, Scene};
 
 #[derive(Clone)]
 pub struct Presentation {
@@ -9,6 +11,9 @@ pub struct Presentation {
     invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     scene: Scene,
+    commit: Arc<Commit>,
+    properties: Properties,
+    overlays: Scene,
 }
 
 impl Presentation {
@@ -19,6 +24,9 @@ impl Presentation {
         invalidation: response::effect::Invalidation,
         layout: layout::Layout,
         scene: Scene,
+        commit: Arc<Commit>,
+        properties: Properties,
+        overlays: Scene,
     ) -> Self {
         Self {
             window,
@@ -27,6 +35,9 @@ impl Presentation {
             invalidation,
             layout,
             scene,
+            commit,
+            properties,
+            overlays,
         }
     }
 
@@ -37,8 +48,21 @@ impl Presentation {
         invalidation: response::effect::Invalidation,
         layout: layout::Layout,
         scene: Scene,
+        commit: Arc<Commit>,
+        properties: Properties,
+        overlays: Scene,
     ) -> Self {
-        Self::new(window, revision, epoch, invalidation, layout, scene)
+        Self::new(
+            window,
+            revision,
+            epoch,
+            invalidation,
+            layout,
+            scene,
+            commit,
+            properties,
+            overlays,
+        )
     }
 
     pub fn window(&self) -> window::Id {
@@ -71,5 +95,17 @@ impl Presentation {
 
     pub fn into_scene(self) -> Scene {
         self.scene
+    }
+
+    pub(crate) fn commit(&self) -> &Arc<Commit> {
+        &self.commit
+    }
+
+    pub(crate) fn properties(&self) -> &Properties {
+        &self.properties
+    }
+
+    pub(crate) fn overlays(&self) -> &Scene {
+        &self.overlays
     }
 }

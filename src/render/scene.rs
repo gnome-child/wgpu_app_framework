@@ -169,164 +169,31 @@ pub(crate) fn to_paint_scene_at_scale(source: &scene::Scene, scale_factor: f32) 
     scene
 }
 
-#[cfg(feature = "renderer-debug")]
-pub(crate) fn to_paint_commit_at_scale(
-    commit: &scene::Commit,
-    properties: &scene::Properties,
-    scale_factor: f32,
-) -> Result<paint::Scene, scene::ContractError> {
-    properties.require_compatible(commit)?;
-    let grid = paint::Grid::new(scale_factor);
-    let mut target = paint::Scene::new();
-    target.clear(super::color::paint_color(commit.clear()));
-    for node in commit.nodes().iter().filter(|node| node.parent().is_none()) {
-        push_commit_node(commit, node, properties, &mut target, grid, (0, 0));
-    }
-    Ok(target)
-}
-
-#[cfg(feature = "renderer-debug")]
-fn push_commit_node(
-    commit: &scene::Commit,
-    node: &scene::Node,
-    properties: &scene::Properties,
-    target: &mut paint::Scene,
-    grid: paint::Grid,
-    inherited_offset: (i32, i32),
-) {
-    debug_assert!(
-        !matches!(node.opacity(), scene::OpacityDeclaration::Variable)
-            || node.declares(scene::PropertyKind::Opacity),
-        "variable opacity must have a node-derived property declaration"
-    );
-    let local_offset = match properties.value(scene::PropertyRef::new(
-        node.id(),
-        scene::PropertyKind::ScrollOffset,
-    )) {
-        Some(scene::PropertyValue::ScrollOffset { x, y, .. }) => {
-            (-x.round() as i32, -y.round() as i32)
-        }
-        _ => (0, 0),
-    };
-    let content_offset = (
-        inherited_offset.0.saturating_add(local_offset.0),
-        inherited_offset.1.saturating_add(local_offset.1),
-    );
-    let clip = match properties.value(scene::PropertyRef::new(
-        node.id(),
-        scene::PropertyKind::Clip,
-    )) {
-        Some(scene::PropertyValue::Clip { rect, .. }) => Some(paint::Clip {
-            rect: into_paint_rounded_rect_at_scale(
-                translated_rect(rect, inherited_offset),
-                node.clip().map(scene::Clip::rounding).unwrap_or_default(),
-                grid,
-            ),
-        }),
-        _ => node.clip().map(|clip| {
-            let clip = scene::Clip::new(translated_rect(clip.rect(), inherited_offset))
-                .with_rounding(clip.rounding());
-            to_paint_clip_at_scale(&clip, grid)
-        }),
-    };
-    if let Some(clip) = clip {
-        target.push_clip(clip);
-    }
-
-    let mut body = paint::Scene::new();
-    for content in node.content() {
-        push_commit_content(content, node, properties, &mut body, grid, content_offset);
-    }
-    for child in commit
-        .nodes()
-        .iter()
-        .filter(|child| child.parent() == Some(node.id()))
-    {
-        push_commit_node(commit, child, properties, &mut body, grid, content_offset);
-    }
-
-    if matches!(node.effect(), scene::EffectDeclaration::GroupOpacity(_)) {
-        let opacity = match properties.value(scene::PropertyRef::new(
-            node.id(),
-            scene::PropertyKind::Opacity,
-        )) {
-            Some(scene::PropertyValue::Opacity { value, .. }) => value,
-            _ => 1.0,
-        };
-        if let Some(group) = paint::group_from_items(body.items(), opacity, grid) {
-            target.push_group(group);
-        }
-    } else {
-        append_paint_items(&body, target);
-    }
-
-    if clip.is_some() {
-        target.pop_clip();
-    }
-}
-
-#[cfg(feature = "renderer-debug")]
-fn push_commit_content(
+pub(crate) fn to_paint_content_at_scale(
     content: &scene::Content,
-    node: &scene::Node,
-    properties: &scene::Properties,
-    target: &mut paint::Scene,
-    grid: paint::Grid,
-    offset: (i32, i32),
-) {
-    let content = content.translated(offset.0, offset.1);
-    match &content {
-        scene::Content::Quad(quad) => {
-            let transform = match properties.value(scene::PropertyRef::new(
-                node.id(),
-                scene::PropertyKind::Transform,
-            )) {
-                Some(scene::PropertyValue::Transform { value, .. }) => {
-                    value.translated(offset.0, offset.1)
-                }
-                _ => quad.transform(),
-            };
-            target.push_quad(to_paint_quad_with_transform(quad, transform, grid));
-        }
-        scene::Content::Rule(rule) => target.push_rule(to_paint_rule(rule, grid)),
-        scene::Content::Text(text) => target.push_text(to_paint_text(text, grid)),
+    scale_factor: f32,
+) -> paint::Item {
+    let grid = paint::Grid::new(scale_factor);
+    match content {
+        scene::Content::Quad(quad) => paint::Item::Quad(to_paint_quad(quad, grid)),
+        scene::Content::Rule(rule) => paint::Item::Rule(to_paint_rule(rule, grid)),
+        scene::Content::Text(text) => paint::Item::Text(to_paint_text(text, grid)),
         scene::Content::TextViewport(text) => {
-            target.push_text_viewport(to_paint_text_viewport(text, grid));
+            paint::Item::TextViewport(to_paint_text_viewport(text, grid))
         }
-        scene::Content::Icon(icon) => target.push_icon(to_paint_icon(icon, grid)),
-        scene::Content::Shadow(shadow) => target.push_shadow(to_paint_shadow(shadow, grid)),
-        scene::Content::Pane(pane) => target.push_pane(to_paint_pane(pane, grid)),
-        scene::Content::Outline(outline) => target.push_outline(to_paint_outline(outline, grid)),
+        scene::Content::Icon(icon) => paint::Item::Icon(to_paint_icon(icon, grid)),
+        scene::Content::Shadow(shadow) => paint::Item::Shadow(to_paint_shadow(shadow, grid)),
+        scene::Content::Pane(pane) => paint::Item::Pane(to_paint_pane(pane, grid)),
+        scene::Content::Outline(outline) => paint::Item::Outline(to_paint_outline(outline, grid)),
     }
 }
 
-#[cfg(feature = "renderer-debug")]
-fn translated_rect(rect: geometry::Rect, offset: (i32, i32)) -> geometry::Rect {
-    geometry::Rect::new(
-        rect.x().saturating_add(offset.0),
-        rect.y().saturating_add(offset.1),
-        rect.width(),
-        rect.height(),
-    )
+pub(crate) fn to_paint_clip_value_at_scale(clip: scene::Clip, scale_factor: f32) -> paint::Clip {
+    to_paint_clip_at_scale(&clip, paint::Grid::new(scale_factor))
 }
 
-#[cfg(feature = "renderer-debug")]
-fn append_paint_items(source: &paint::Scene, target: &mut paint::Scene) {
-    for item in source.items() {
-        match item {
-            paint::Item::Quad(quad) => target.push_quad(*quad),
-            paint::Item::Rule(rule) => target.push_rule(*rule),
-            paint::Item::Text(text) => target.push_text(text.clone()),
-            paint::Item::TextViewport(text) => target.push_text_viewport(text.clone()),
-            paint::Item::Icon(icon) => target.push_icon(*icon),
-            paint::Item::Shadow(shadow) => target.push_shadow(*shadow),
-            paint::Item::Pane(pane) => target.push_pane(pane.clone()),
-            paint::Item::Outline(outline) => target.push_outline(*outline),
-            paint::Item::Clip(clip) => target.push_clip(*clip),
-            paint::Item::PopClip => target.pop_clip(),
-            paint::Item::Group(group) => target.push_group(group.clone()),
-        }
-    }
+pub(crate) fn to_paint_rect_value_at_scale(rect: geometry::Rect, scale_factor: f32) -> paint::Rect {
+    into_paint_rect_at_scale(rect, paint::Grid::new(scale_factor))
 }
 
 pub(crate) fn translate_popup_scene(

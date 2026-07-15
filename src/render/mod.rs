@@ -26,6 +26,7 @@ mod primitive;
 mod quad;
 mod renderer;
 mod report;
+mod retained;
 pub(crate) mod scene;
 mod silhouette;
 pub(crate) mod surface;
@@ -133,6 +134,9 @@ pub enum Error {
 
     #[error(transparent)]
     Text(#[from] text_renderer::Error),
+
+    #[error("retained scene properties do not belong to the supplied commit")]
+    RetainedSceneContract,
 }
 
 #[cfg(test)]

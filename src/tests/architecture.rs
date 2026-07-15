@@ -909,13 +909,16 @@ fn semantic_scene_lowering_belongs_to_renderer() {
     assert!(
         render_scene.contains("fn to_paint_scene_at_scale(")
             && render_scene.contains("struct PopupProjection"),
-        "renderer must own semantic scene lowering and its scale-resolved popup projection"
+        "renderer must own the compatibility scene lowering still used by popup realization"
     );
     assert!(
-        surface.contains("render::scene::to_paint_scene_at_scale")
+        surface.contains("renderer.draw_commit(")
+            && surface.contains("presentation.commit()")
+            && surface.contains("presentation.properties()")
+            && !surface.contains("render::scene::to_paint_scene_at_scale")
             && popup.contains("render::scene::to_paint_scene_at_scale")
             && popup.contains("render::scene::PopupProjection::resolve"),
-        "native realization must consume the renderer scene contract"
+        "ordinary native surfaces must consume retained commits while popup compatibility lowering remains renderer-owned"
     );
     assert!(
         !native.join("paint.rs").exists() && !native.join("color.rs").exists(),
@@ -3586,7 +3589,7 @@ fn text_origin_snapping_belongs_to_paint_grid() {
 }
 
 #[test]
-fn glyphon_viewports_are_owned_per_text_batch() {
+fn glyphon_viewports_are_owned_per_prepared_text_resource() {
     let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let text_renderer = std::fs::read_to_string(src_dir.join("render").join("text_renderer.rs"))
         .expect("text renderer should read");
@@ -3598,14 +3601,28 @@ fn glyphon_viewports_are_owned_per_text_batch() {
         .map(|offset| render_start + offset)
         .expect("text renderer render method should be followed by trim");
     let render_body = &text_renderer[render_start..trim_start];
+    let immediate_owner = text_renderer
+        .split_once("pub(in crate::render) struct TextRenderer {")
+        .and_then(|(_, rest)| rest.split_once("}\n\nstruct RetainedText"))
+        .map(|(owner, _)| owner)
+        .expect("text renderer ownership block should be bounded");
+    let retained_owner = text_renderer
+        .split_once("struct RetainedText {")
+        .and_then(|(_, rest)| rest.split_once("}\n\nimpl TextRenderer"))
+        .map(|(owner, _)| owner)
+        .expect("retained text ownership block should be bounded");
 
     assert!(
-        text_renderer.contains("viewports: Vec<glyphon::Viewport>"),
+        immediate_owner.contains("viewports: Vec<glyphon::Viewport>"),
         "glyphon viewport state must be parallel to per-batch text renderers"
     );
     assert!(
-        !text_renderer.contains("viewport: glyphon::Viewport"),
+        !immediate_owner.contains("viewport: glyphon::Viewport"),
         "text renderer must not keep one shared glyphon viewport uniform"
+    );
+    assert!(
+        retained_owner.contains("viewport: glyphon::Viewport"),
+        "each retained text resource must own the viewport prepared for its target space"
     );
     assert!(
         text_renderer.contains("self.update_viewport(render_context, renderer_index, viewport)"),
@@ -5665,6 +5682,16 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         std::fs::read_to_string(root.join("src/lib.rs")).expect("library source should read");
     let render =
         std::fs::read_to_string(root.join("src/render/mod.rs")).expect("render module should read");
+    let retained = std::fs::read_to_string(root.join("src/render/retained.rs"))
+        .expect("retained realization source should read");
+    let renderer = std::fs::read_to_string(root.join("src/render/renderer.rs"))
+        .expect("renderer source should read");
+    let quad =
+        std::fs::read_to_string(root.join("src/render/quad.rs")).expect("quad source should read");
+    let text_renderer = std::fs::read_to_string(root.join("src/render/text_renderer.rs"))
+        .expect("text renderer source should read");
+    let native_surface = std::fs::read_to_string(root.join("src/platform/native/surface.rs"))
+        .expect("native surface source should read");
     let scene =
         std::fs::read_to_string(root.join("src/scene/mod.rs")).expect("scene module should read");
     let commit = std::fs::read_to_string(root.join("src/scene/commit.rs"))
@@ -5728,6 +5755,52 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             "#[cfg(feature = \"renderer-debug\")]\n    pub(crate) fn renderer_fixture(value: u64) -> Self"
         ),
         "synthetic composition identity must remain confined to renderer fixtures"
+    );
+    let resource_key = retained
+        .split("pub(in crate::render) struct ResourceKey")
+        .nth(1)
+        .and_then(|source| source.split("impl ResourceKey").next())
+        .expect("retained resource key should exist");
+    assert!(
+        resource_key.contains("node: composition::tree::NodeId")
+            && resource_key.contains("content_revision:")
+            && resource_key.contains("geometry_revision:")
+            && resource_key.contains("topology_revision:")
+            && !resource_key.contains("PropertySerial")
+            && !retained.contains("RenderNodeId")
+            && !retained.contains("RenderResourceId"),
+        "GPU realization must borrow scene identity/revisions without minting renderer identity or keying content by the property clock"
+    );
+    assert!(
+        retained.contains("const UNIT_QUAD: [UnitVertex; 6]")
+            && retained.contains("render::quad::Instance::layout()")
+            && quad.contains("step_mode: wgpu::VertexStepMode::Instance")
+            && retained.contains("instance_buffer")
+            && retained.contains("property_buffer")
+            && retained.contains("owners: Vec<Weak<scene::Node>>")
+            && retained.contains("commit: Weak<scene::Commit>"),
+        "retained shapes must use one static unit mesh, separate instance/property state, and weak semantic ownership"
+    );
+    assert!(
+        text_renderer.contains("atlas: glyphon::TextAtlas")
+            && text_renderer.contains("swash_cache: glyphon::SwashCache")
+            && text_renderer
+                .contains("retained: HashMap<render::retained::ResourceKey, RetainedText>")
+            && text_renderer.matches("glyphon::TextAtlas").count() < 4,
+        "retained text resources must share the renderer-global glyphon atlas and caches"
+    );
+    assert!(
+        native_surface.contains("renderer.draw_commit(")
+            && !native_surface.contains("to_paint_scene_at_scale")
+            && renderer.contains("self.retained.prepare(")
+            && renderer.contains("self.draw_prepared("),
+        "ordinary native windows must cross the retained commit seam and preserve the proven shared surface/present path"
+    );
+    assert!(
+        !std::fs::read_to_string(root.join("src/render/scene.rs"))
+            .expect("render scene source should read")
+            .contains("to_paint_commit_at_scale"),
+        "the displaced flattened candidate adapter must stay deleted"
     );
 
     for selector in [

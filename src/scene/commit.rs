@@ -33,6 +33,11 @@ impl Revision {
     fn next(self) -> Self {
         Self(self.0.saturating_add(1))
     }
+
+    #[cfg(feature = "renderer-debug")]
+    const fn renderer_fixture(value: u64) -> Self {
+        Self(if value == 0 { 1 } else { value })
+    }
 }
 
 impl GeometryRevision {
@@ -74,14 +79,21 @@ pub(crate) struct Node {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum Draw {
+pub(crate) enum Draw {
     Content {
         node: composition::tree::NodeId,
         index: usize,
     },
-    PushClip(Clip),
+    PushClip {
+        node: Option<composition::tree::NodeId>,
+        clip: Clip,
+    },
     PopClip,
-    PushGroup(f32),
+    PushGroup {
+        node: composition::tree::NodeId,
+        bounds: geometry::Rect,
+        opacity: f32,
+    },
     PopGroup,
 }
 
@@ -243,6 +255,7 @@ pub(crate) enum FixtureCase {
     RoundedClip,
     NestedClip,
     GroupOpacity,
+    OrderedGroup,
     GlassPane,
     TransparentPopup,
 }
@@ -312,17 +325,14 @@ impl Commit {
         })
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn size(&self) -> geometry::Size {
         self.size
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn clear(&self) -> Color {
         self.clear
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn nodes(&self) -> &[Arc<Node>] {
         &self.nodes
     }
@@ -330,6 +340,10 @@ impl Commit {
     #[cfg(feature = "renderer-debug")]
     pub(crate) fn property_topology(&self) -> &[PropertyRef] {
         &self.property_topology
+    }
+
+    pub(crate) fn order(&self) -> Option<&[Draw]> {
+        self.order.as_deref()
     }
 
     pub(crate) fn compatibility_scene(
@@ -385,9 +399,9 @@ impl Commit {
                     };
                     target.push(content.as_primitive(None));
                 }
-                Draw::PushClip(clip) => target.push(Primitive::Clip(*clip)),
+                Draw::PushClip { clip, .. } => target.push(Primitive::Clip(*clip)),
                 Draw::PopClip => target.push(Primitive::PopClip),
-                Draw::PushGroup(opacity) => {
+                Draw::PushGroup { opacity, .. } => {
                     let mut members = Vec::new();
                     self.compatibility_order_until(order, index, true, &mut members);
                     if let Some(group) = Group::new(members, *opacity) {
@@ -498,20 +512,6 @@ impl Content {
             Self::Outline(outline) => Primitive::Outline(*outline),
         }
     }
-
-    #[cfg(feature = "renderer-debug")]
-    pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
-        match self {
-            Self::Quad(quad) => Self::Quad(quad.translated(dx, dy)),
-            Self::Rule(rule) => Self::Rule(rule.translated(dx, dy)),
-            Self::Text(text) => Self::Text(text.translated(dx, dy)),
-            Self::TextViewport(text) => Self::TextViewport(text.translated(dx, dy)),
-            Self::Icon(icon) => Self::Icon(icon.translated(dx, dy)),
-            Self::Shadow(shadow) => Self::Shadow(shadow.translated(dx, dy)),
-            Self::Pane(pane) => Self::Pane(pane.translated(dx, dy)),
-            Self::Outline(outline) => Self::Outline(outline.translated(dx, dy)),
-        }
-    }
 }
 
 impl Builder {
@@ -548,7 +548,7 @@ impl Builder {
     }
 
     pub(crate) fn push_clip(&mut self, clip: Clip) {
-        self.order.push(Draw::PushClip(clip));
+        self.order.push(Draw::PushClip { node: None, clip });
     }
 
     pub(crate) fn pop_clip(&mut self) {
@@ -568,10 +568,17 @@ impl Builder {
 
     fn append_primitive(&mut self, owner: composition::tree::NodeId, primitive: &Primitive) {
         match primitive {
-            Primitive::Clip(clip) => self.order.push(Draw::PushClip(*clip)),
+            Primitive::Clip(clip) => self.order.push(Draw::PushClip {
+                node: Some(owner),
+                clip: *clip,
+            }),
             Primitive::PopClip => self.order.push(Draw::PopClip),
             Primitive::Group(group) => {
-                self.order.push(Draw::PushGroup(group.opacity()));
+                self.order.push(Draw::PushGroup {
+                    node: owner,
+                    bounds: self.nodes[self.node_indices[&owner]].bounds,
+                    opacity: group.opacity(),
+                });
                 for primitive in group.primitives() {
                     self.append_primitive(owner, primitive);
                 }
@@ -699,6 +706,12 @@ impl Node {
     }
 
     #[cfg(feature = "renderer-debug")]
+    pub(crate) fn with_content_revision(mut self, revision: u64) -> Self {
+        self.content_revision = composition::tree::ContentRevision::renderer_fixture(revision);
+        self
+    }
+
+    #[cfg(feature = "renderer-debug")]
     pub(crate) fn with_clip(mut self, clip: Clip) -> Self {
         self.clip = Some(clip);
         self
@@ -716,39 +729,40 @@ impl Node {
         self
     }
 
-    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn id(&self) -> composition::tree::NodeId {
         self.id
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn parent(&self) -> Option<composition::tree::NodeId> {
         self.parent
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn content(&self) -> &[Content] {
         &self.content
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn declares(&self, kind: PropertyKind) -> bool {
         self.properties.contains(&kind)
     }
 
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn clip(&self) -> Option<Clip> {
         self.clip
     }
 
-    #[cfg(feature = "renderer-debug")]
-    pub(crate) fn opacity(&self) -> OpacityDeclaration {
-        self.opacity
-    }
-
-    #[cfg(feature = "renderer-debug")]
     pub(crate) fn effect(&self) -> EffectDeclaration {
         self.effect
+    }
+
+    pub(crate) fn content_revision(&self) -> composition::tree::ContentRevision {
+        self.content_revision
+    }
+
+    pub(crate) fn geometry_revision(&self) -> GeometryRevision {
+        self.geometry_revision
+    }
+
+    pub(crate) fn topology_revision(&self) -> TopologyRevision {
+        self.topology_revision
     }
 }
 
@@ -824,6 +838,18 @@ impl Properties {
             .copied()
             .find(|value| value.property_ref() == property)
     }
+
+    pub(crate) fn serial(&self) -> PropertySerial {
+        self.serial
+    }
+
+    #[expect(
+        dead_code,
+        reason = "Checkpoint 6 consumes the admitted changed-property set for sparse uploads"
+    )]
+    pub(crate) fn changed(&self) -> &[PropertyRef] {
+        &self.changed
+    }
 }
 
 impl PropertyValue {
@@ -882,11 +908,23 @@ impl EffectEnvelope {
             maximum_sampling_reach,
         })
     }
+
+    pub(crate) fn bounds(self) -> geometry::Rect {
+        self.bounds
+    }
+
+    pub(crate) fn maximum_sampling_reach(self) -> f32 {
+        self.maximum_sampling_reach
+    }
 }
 
 #[cfg(feature = "renderer-debug")]
 pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties), ContractError> {
     use crate::icon as icons;
+
+    if matches!(case, FixtureCase::OrderedGroup) {
+        return renderer_ordered_group_fixture();
+    }
 
     let root_id = composition::tree::NodeId::renderer_fixture(1);
     let child_id = composition::tree::NodeId::renderer_fixture(2);
@@ -1107,6 +1145,9 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
                     .expect("zero-reach group envelope is valid"),
             ))
         }
+        FixtureCase::OrderedGroup => {
+            unreachable!("ordered fixture returned before node projection")
+        }
         FixtureCase::GlassPane => Node::new(
             root_id,
             None,
@@ -1165,6 +1206,93 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
         values,
         commit.property_topology().to_vec(),
     )?;
+    Ok((commit, properties))
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_ordered_group_fixture() -> Result<(Commit, Properties), ContractError> {
+    let owner = composition::tree::NodeId::renderer_fixture(31);
+    let size = geometry::Size::new(64, 64);
+    let mut builder = Builder::new(size, Color::rgba(0, 0, 0, 0));
+    builder.register(
+        owner,
+        None,
+        composition::tree::ContentRevision::INITIAL,
+        geometry::Rect::new(7, 9, 50, 48),
+    );
+
+    let mut nested = Scene::new(size);
+    nested.push_quad(Quad::new(
+        geometry::Rect::new(25, 17, 26, 30),
+        Color::rgba(38, 153, 230, 191),
+    ));
+    nested.push_text(Text::new(
+        geometry::Rect::new(27, 20, 22, 22),
+        "G",
+        Color::rgba(242, 242, 247, 255),
+        TextWrap::None,
+    ));
+    let mut members = Scene::new(size);
+    members.push_quad(Quad::new(
+        geometry::Rect::new(11, 13, 40, 36),
+        Color::rgba(230, 51, 77, 204),
+    ));
+    members.push_clip(Clip::new(geometry::Rect::new(17, 15, 32, 32)));
+    members.append_scene_with_opacity(&nested, 0.65);
+    members.pop_clip();
+    let mut fragment = Scene::new(size);
+    fragment.append_scene_with_opacity(&members, 0.8);
+    builder.append_fragment(owner, &fragment);
+
+    let mut retained = HashMap::new();
+    let commit = builder.finish(None, &mut retained)?;
+    let properties = Properties::empty(&commit)?;
+    drop(retained);
+    Ok((Arc::unwrap_or_clone(commit), properties))
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_partial_update_fixture(
+    version: u64,
+) -> Result<(Commit, Properties), ContractError> {
+    let first_id = composition::tree::NodeId::renderer_fixture(101);
+    let second_id = composition::tree::NodeId::renderer_fixture(102);
+    let bounds = geometry::Rect::new(0, 0, 64, 64);
+    let first = Node::new(
+        first_id,
+        None,
+        bounds,
+        vec![Content::Quad(Quad::new(
+            geometry::Rect::new(4, 8, 24, 20),
+            Color::rgba(51, 102, 204, 255),
+        ))],
+    );
+    let changed = version > 1;
+    let second = Node::new(
+        second_id,
+        None,
+        bounds,
+        vec![Content::Quad(Quad::new(
+            if changed {
+                geometry::Rect::new(34, 30, 24, 22)
+            } else {
+                geometry::Rect::new(34, 8, 24, 20)
+            },
+            if changed {
+                Color::rgba(230, 77, 51, 230)
+            } else {
+                Color::rgba(51, 204, 102, 230)
+            },
+        ))],
+    )
+    .with_content_revision(version);
+    let commit = Commit::new(
+        Revision::renderer_fixture(version),
+        geometry::Size::new(64, 64),
+        Color::rgba(0, 0, 0, 0),
+        vec![first, second],
+    )?;
+    let properties = Properties::empty(&commit)?;
     Ok((commit, properties))
 }
 

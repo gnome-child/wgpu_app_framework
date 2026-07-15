@@ -20,21 +20,36 @@ pub struct Renderer {
     filter_renderer: render::filter::Renderer,
     popup_packer: render::popup_pack::Packer,
     text_renderer: render::text_renderer::TextRenderer,
+    retained: render::retained::Realizer,
 }
 
-enum RenderBatch {
-    Shapes(render::quad::Batch),
+#[derive(Clone)]
+pub(in crate::render) enum ShapeBatch {
+    Immediate(render::quad::Batch),
+    Retained(render::retained::ShapeBatch),
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::render) enum TextBatch {
+    Immediate { renderer_index: usize },
+    Retained(render::text_renderer::RetainedBatch),
+}
+
+#[derive(Clone)]
+pub(in crate::render) enum RenderBatch {
+    Shapes(ShapeBatch),
     Pane(PreparedPane),
-    Text { renderer_index: usize },
-    PushClip(paint::Clip),
+    Text(TextBatch),
+    PushClip(PreparedClip),
     PopClip,
     Group(PreparedGroup),
 }
 
-struct PreparedPane {
-    pane: paint::Pane,
-    base: Option<render::quad::Batch>,
-    surface_layers: Vec<Option<render::quad::Batch>>,
+#[derive(Clone)]
+pub(in crate::render) struct PreparedPane {
+    pub(in crate::render) pane: paint::Pane,
+    pub(in crate::render) base: Option<ShapeBatch>,
+    pub(in crate::render) surface_layers: Vec<Option<ShapeBatch>>,
 }
 
 struct PreparedScene {
@@ -42,10 +57,19 @@ struct PreparedScene {
     stats: DrawStats,
 }
 
-struct PreparedGroup {
-    bounds: Rect,
-    opacity: f32,
-    render_batches: Vec<RenderBatch>,
+#[derive(Clone, Copy)]
+pub(in crate::render) struct PreparedClip {
+    pub(in crate::render) node: Option<crate::composition::tree::NodeId>,
+    pub(in crate::render) fallback: paint::Clip,
+    pub(in crate::render) scene_origin: [f32; 2],
+}
+
+#[derive(Clone)]
+pub(in crate::render) struct PreparedGroup {
+    pub(in crate::render) node: Option<crate::composition::tree::NodeId>,
+    pub(in crate::render) bounds: Rect,
+    pub(in crate::render) opacity: f32,
+    pub(in crate::render) render_batches: Vec<RenderBatch>,
 }
 
 #[derive(Default)]
@@ -98,6 +122,9 @@ struct SceneEncoder<'a> {
     quad_vertex_buffer: &'a wgpu::Buffer,
     filter_renderer: &'a render::filter::Renderer,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
+    retained_shapes: Option<&'a render::retained::Shapes>,
+    retained_properties: Option<&'a render::retained::PropertyBindings>,
+    scene_properties: Option<&'a crate::scene::Properties>,
     output_target: render::filter::Target,
     encoder: &'a mut wgpu::CommandEncoder,
     base_view: &'a wgpu::TextureView,
@@ -120,6 +147,9 @@ struct SceneEncoderInput<'a> {
     quad_vertex_buffer: &'a wgpu::Buffer,
     filter_renderer: &'a render::filter::Renderer,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
+    retained_shapes: Option<&'a render::retained::Shapes>,
+    retained_properties: Option<&'a render::retained::PropertyBindings>,
+    scene_properties: Option<&'a crate::scene::Properties>,
     encoder: &'a mut wgpu::CommandEncoder,
     base_view: &'a wgpu::TextureView,
     backdrop_view: &'a wgpu::TextureView,
@@ -143,6 +173,7 @@ impl Renderer {
             filter_renderer: render::filter::Renderer::new(render_context, format),
             popup_packer: render::popup_pack::Packer::new(render_context),
             text_renderer: render::text_renderer::TextRenderer::new(render_context, format),
+            retained: render::retained::Realizer::new(render_context, format),
         }
     }
 
@@ -219,6 +250,93 @@ impl Renderer {
         stats.render_plan_rebuilds = 1;
         let batch_prepare = batch_prepare_started.elapsed();
 
+        self.draw_prepared(
+            render_context,
+            canvas,
+            clear_color,
+            main_viewport,
+            &prepared_scene.render_batches,
+            None,
+            None,
+            stats,
+            batch_prepare,
+        )
+    }
+
+    pub fn draw_commit(
+        &mut self,
+        render_context: &render::Context,
+        canvas: &mut render::Canvas,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        overlays: &crate::scene::Scene,
+    ) -> render::Result<DrawReport> {
+        let batch_prepare_started = std::time::Instant::now();
+        let main_viewport = render::Viewport::from_canvas(canvas);
+        let prepared = self.retained.prepare(
+            render_context,
+            main_viewport,
+            commit,
+            properties,
+            &mut self.text_renderer,
+        )?;
+        let mut batches = prepared.plan.batches().to_vec();
+        let mut stats = prepared.stats;
+
+        if !overlays.primitives().is_empty() {
+            let overlay =
+                render::scene::to_paint_scene_at_scale(overlays, main_viewport.scale_factor());
+            let overlay_batches = item_batches(overlay.items());
+            let text_batch_count = glyph_batch_count(&overlay_batches);
+            if text_batch_count > 0 {
+                self.text_renderer
+                    .prepare_frame(render_context, text_batch_count);
+            }
+            let mut text_renderer_index = 0;
+            self.quad_arena.begin_frame();
+            let prepared_overlay = self.prepare_scene_batches(
+                render_context,
+                main_viewport,
+                &overlay_batches,
+                &mut text_renderer_index,
+            )?;
+            let geometry_upload = self.quad_arena.upload(render_context);
+            stats.add(prepared_overlay.stats);
+            stats.quad_vertices += geometry_upload.vertex_count;
+            stats.geometry_upload_bytes += geometry_upload.bytes;
+            stats.content_upload_bytes += geometry_upload.bytes;
+            stats.geometry_buffer_creations += usize::from(geometry_upload.buffer_created);
+            stats.scene_items += overlay.items().len();
+            stats.opacity_unclassified_nodes += overlay.items().len();
+            batches.extend(prepared_overlay.render_batches);
+        }
+        stats.clipped_nodes = stats.clip_batches;
+
+        self.draw_prepared(
+            render_context,
+            canvas,
+            render::surface_color(commit.clear()),
+            main_viewport,
+            &batches,
+            Some(&prepared.properties),
+            Some(properties),
+            stats,
+            batch_prepare_started.elapsed(),
+        )
+    }
+
+    fn draw_prepared(
+        &mut self,
+        render_context: &render::Context,
+        canvas: &mut render::Canvas,
+        clear_color: wgpu::Color,
+        main_viewport: render::Viewport,
+        batches: &[RenderBatch],
+        retained_properties: Option<&render::retained::PropertyBindings>,
+        scene_properties: Option<&crate::scene::Properties>,
+        mut stats: DrawStats,
+        batch_prepare: std::time::Duration,
+    ) -> render::Result<DrawReport> {
         let preserve_surface_alpha =
             canvas.composite_alpha_mode() == wgpu::CompositeAlphaMode::PreMultiplied;
         let surface_format = canvas.surface().format();
@@ -246,6 +364,7 @@ impl Renderer {
         let quad_vertex_buffer = self.quad_arena.buffer();
         let filter_renderer = &self.filter_renderer;
         let popup_packer = &self.popup_packer;
+        let retained_shapes = retained_properties.map(|_| self.retained.shapes());
         let text_renderer = &mut self.text_renderer;
         let mut text_render_error = None;
         let mut draw_passes = 0;
@@ -264,6 +383,9 @@ impl Renderer {
                     quad_vertex_buffer,
                     filter_renderer,
                     text_renderer,
+                    retained_shapes,
+                    retained_properties,
+                    scene_properties,
                     encoder,
                     base_view: composition_view,
                     backdrop_view: composition_view,
@@ -276,7 +398,7 @@ impl Renderer {
                     draw_passes: &mut draw_passes,
                     command_stats: &mut command_stats,
                 });
-                scene_encoder.encode(&prepared_scene.render_batches);
+                scene_encoder.encode(batches);
                 if text_render_error.is_some() {
                     return;
                 }
@@ -302,6 +424,9 @@ impl Renderer {
                     quad_vertex_buffer,
                     filter_renderer,
                     text_renderer,
+                    retained_shapes,
+                    retained_properties,
+                    scene_properties,
                     encoder,
                     base_view: &view,
                     backdrop_view: &view,
@@ -314,7 +439,7 @@ impl Renderer {
                     draw_passes: &mut draw_passes,
                     command_stats: &mut command_stats,
                 });
-                scene_encoder.encode(&prepared_scene.render_batches);
+                scene_encoder.encode(batches);
             })?
         } else {
             canvas.draw(render_context, |encoder, frame| {
@@ -329,6 +454,9 @@ impl Renderer {
                     quad_vertex_buffer,
                     filter_renderer,
                     text_renderer,
+                    retained_shapes,
+                    retained_properties,
+                    scene_properties,
                     encoder,
                     base_view: composition_view,
                     backdrop_view: composition_view,
@@ -341,7 +469,7 @@ impl Renderer {
                     draw_passes: &mut draw_passes,
                     command_stats: &mut command_stats,
                 });
-                scene_encoder.encode(&prepared_scene.render_batches);
+                scene_encoder.encode(batches);
                 if text_render_error.is_some() {
                     return;
                 }
@@ -412,6 +540,142 @@ impl Renderer {
         scale_factor: f32,
     ) -> Result<Vec<[f32; 4]>, String> {
         self.draw_offscreen_debug_mode(render_context, scene, width, height, scale_factor, true)
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn draw_commit_offscreen_debug(
+        &mut self,
+        render_context: &render::Context,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        properties: &crate::scene::Properties,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+        pack_popup: bool,
+    ) -> Result<(Vec<[f32; 4]>, DrawStats), String> {
+        let format = self.format;
+        if pack_popup && format != wgpu::TextureFormat::Rgba8UnormSrgb {
+            return Err("popup debug packing requires an sRGB renderer".to_owned());
+        }
+        let texture = render_context
+            .device()
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Retained Renderer Debug Target"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let packed_texture = pack_popup.then(|| {
+            render_context
+                .device()
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Retained Renderer Debug Packed Popup Target"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                })
+        });
+        let packed_view = packed_texture
+            .as_ref()
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let viewport = render::Viewport::from_logical_area(
+            area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
+            scale_factor,
+        );
+        let prepared = self
+            .retained
+            .prepare(
+                render_context,
+                viewport,
+                commit,
+                properties,
+                &mut self.text_renderer,
+            )
+            .map_err(|error| error.to_string())?;
+        let clear_color = render::surface_color(commit.clear());
+        let mut text_render_error = None;
+        let mut draw_passes = 0;
+        let mut command_stats = CommandStats::default();
+        let mut encoder =
+            render_context
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Retained Renderer Debug Encoder"),
+                });
+        {
+            let _clear = begin_main_pass(&mut encoder, &view, clear_color, true);
+        }
+        {
+            let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+                render_context,
+                quad_pipeline: &self.quad_pipeline,
+                quad_vertex_buffer: self.quad_arena.buffer(),
+                filter_renderer: &self.filter_renderer,
+                text_renderer: &mut self.text_renderer,
+                retained_shapes: Some(self.retained.shapes()),
+                retained_properties: Some(&prepared.properties),
+                scene_properties: Some(properties),
+                encoder: &mut encoder,
+                base_view: &view,
+                backdrop_view: &view,
+                backdrop_target: render::filter::Target::from_viewport(viewport),
+                clear_color,
+                viewport,
+                base_dirty: true,
+                inside_group: false,
+                text_render_error: &mut text_render_error,
+                draw_passes: &mut draw_passes,
+                command_stats: &mut command_stats,
+            });
+            scene_encoder.encode(prepared.plan.batches());
+        }
+        if let Some(error) = text_render_error {
+            return Err(error.to_string());
+        }
+        if let Some(packed_view) = &packed_view {
+            self.popup_packer.pack_to_view(
+                render_context,
+                &mut encoder,
+                &view,
+                packed_view,
+                wgpu::TextureFormat::Rgba8Unorm,
+            );
+        }
+
+        let readback_texture = packed_texture.as_ref().unwrap_or(&texture);
+        let pixels = read_texture(
+            render_context,
+            encoder,
+            readback_texture,
+            width,
+            height,
+            "Retained Renderer Debug Readback",
+        )?;
+        let mut stats = prepared.stats;
+        stats.draw_calls = command_stats.draw_calls + usize::from(pack_popup);
+        stats.draw_passes = draw_passes;
+        stats.pipeline_changes = command_stats.pipeline_changes + usize::from(pack_popup);
+        stats.bind_group_changes = command_stats.bind_group_changes + usize::from(pack_popup);
+        Ok((pixels, stats))
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -512,6 +776,9 @@ impl Renderer {
             quad_vertex_buffer: self.quad_arena.buffer(),
             filter_renderer: &self.filter_renderer,
             text_renderer: &mut self.text_renderer,
+            retained_shapes: None,
+            retained_properties: None,
+            scene_properties: None,
             encoder: &mut encoder,
             base_view: &view,
             backdrop_view: &view,
@@ -658,7 +925,7 @@ impl Renderer {
                         render::quad::prepare_batch(&mut self.quad_arena, viewport, shapes)
                     {
                         stats.quad_vertices += batch.vertex_count() as usize;
-                        render_batches.push(RenderBatch::Shapes(batch));
+                        render_batches.push(RenderBatch::Shapes(ShapeBatch::Immediate(batch)));
                     }
                 }
                 ItemBatch::Pane(pane) => {
@@ -673,7 +940,11 @@ impl Renderer {
                     }
                 }
                 ItemBatch::PushClip(clip) => {
-                    render_batches.push(RenderBatch::PushClip(**clip));
+                    render_batches.push(RenderBatch::PushClip(PreparedClip {
+                        node: None,
+                        fallback: **clip,
+                        scene_origin: [0.0, 0.0],
+                    }));
                 }
                 ItemBatch::PopClip => {
                     render_batches.push(RenderBatch::PopClip);
@@ -692,6 +963,7 @@ impl Renderer {
                     )?;
                     stats.add(prepared.stats);
                     render_batches.push(RenderBatch::Group(PreparedGroup {
+                        node: None,
                         bounds: group.bounds,
                         opacity: group.opacity,
                         render_batches: prepared.render_batches,
@@ -712,9 +984,9 @@ impl Renderer {
                     stats.inline_icon_cache_misses += report.stats.icon_cache_misses;
                     stats.inline_icon_shape_calls += report.stats.icon_shape_calls;
                     if report.has_text {
-                        render_batches.push(RenderBatch::Text {
+                        render_batches.push(RenderBatch::Text(TextBatch::Immediate {
                             renderer_index: *text_renderer_index,
-                        });
+                        }));
                     }
 
                     *text_renderer_index += 1;
@@ -764,12 +1036,14 @@ impl Renderer {
             pane: pane.clone(),
             base: base_brush.and_then(|brush| {
                 prepare_brush_batch(&mut self.quad_arena, viewport, pane.rect, brush)
+                    .map(ShapeBatch::Immediate)
             }),
             surface_layers: surface_brushes
                 .into_iter()
                 .map(|brush| {
                     brush.and_then(|brush| {
                         prepare_brush_batch(&mut self.quad_arena, viewport, pane.rect, brush)
+                            .map(ShapeBatch::Immediate)
                     })
                 })
                 .collect(),
@@ -824,7 +1098,7 @@ impl DrawStats {
         }
     }
 
-    fn add(&mut self, other: Self) {
+    pub(in crate::render) fn add(&mut self, other: Self) {
         self.scene_items += other.scene_items;
         self.render_batches += other.render_batches;
         self.glyph_batches += other.glyph_batches;
@@ -835,7 +1109,9 @@ impl DrawStats {
         self.inline_icon_cache_hits += other.inline_icon_cache_hits;
         self.inline_icon_cache_misses += other.inline_icon_cache_misses;
         self.inline_icon_shape_calls += other.inline_icon_shape_calls;
+        self.scene_node_realization_rebuilds += other.scene_node_realization_rebuilds;
         self.quad_prepare_calls += other.quad_prepare_calls;
+        self.quad_instances += other.quad_instances;
         self.text_prepare_calls += other.text_prepare_calls;
         self.quad_vertices += other.quad_vertices;
         self.geometry_upload_bytes += other.geometry_upload_bytes;
@@ -941,8 +1217,87 @@ fn begin_main_pass<'a>(
     })
 }
 
+#[cfg(feature = "renderer-debug")]
+fn read_texture(
+    render_context: &render::Context,
+    mut encoder: wgpu::CommandEncoder,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+    label: &'static str,
+) -> Result<Vec<[f32; 4]>, String> {
+    let bytes_per_pixel = 4u32;
+    let unpadded_bytes_per_row = width * bytes_per_pixel;
+    let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(alignment) * alignment;
+    let output = render_context
+        .device()
+        .create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: padded_bytes_per_row as u64 * height as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &output,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    render_context.queue().submit(Some(encoder.finish()));
+
+    let slice = output.slice(..);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = sender.send(result);
+    });
+    render_context
+        .device()
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .map_err(|error| error.to_string())?;
+    receiver
+        .recv()
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())?;
+
+    let data = slice.get_mapped_range();
+    let mut pixels = Vec::with_capacity((width * height) as usize);
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let offset = y * padded_bytes_per_row as usize + x * bytes_per_pixel as usize;
+            pixels.push([
+                data[offset] as f32 / 255.0,
+                data[offset + 1] as f32 / 255.0,
+                data[offset + 2] as f32 / 255.0,
+                data[offset + 3] as f32 / 255.0,
+            ]);
+        }
+    }
+    drop(data);
+    output.unmap();
+    Ok(pixels)
+}
+
 fn is_draw_batch(batch: &RenderBatch) -> bool {
-    matches!(batch, RenderBatch::Shapes(_) | RenderBatch::Text { .. })
+    matches!(batch, RenderBatch::Shapes(_) | RenderBatch::Text(_))
 }
 
 fn draw_run_end(render_batches: &[RenderBatch], start: usize) -> usize {
@@ -960,6 +1315,9 @@ impl<'a> SceneEncoder<'a> {
             quad_vertex_buffer: input.quad_vertex_buffer,
             filter_renderer: input.filter_renderer,
             text_renderer: input.text_renderer,
+            retained_shapes: input.retained_shapes,
+            retained_properties: input.retained_properties,
+            scene_properties: input.scene_properties,
             output_target: render::filter::Target::from_viewport(input.viewport),
             encoder: input.encoder,
             base_view: input.base_view,
@@ -1000,9 +1358,9 @@ impl<'a> SceneEncoder<'a> {
             }
 
             match &render_batches[index] {
-                RenderBatch::Shapes(_) | RenderBatch::Text { .. } => unreachable!(),
+                RenderBatch::Shapes(_) | RenderBatch::Text(_) => unreachable!(),
                 RenderBatch::Pane(pane) => self.encode_pane(pane),
-                RenderBatch::PushClip(clip) => self.push_clip(*clip),
+                RenderBatch::PushClip(clip) => self.push_clip(self.resolve_clip(*clip)),
                 RenderBatch::PopClip => self.composite_clip_layer(),
                 RenderBatch::Group(group) => self.encode_group(group),
             }
@@ -1029,7 +1387,7 @@ impl<'a> SceneEncoder<'a> {
 
             for batch in batches {
                 match batch {
-                    RenderBatch::Shapes(batch) => {
+                    RenderBatch::Shapes(ShapeBatch::Immediate(batch)) => {
                         pass.set_pipeline(self.quad_pipeline);
                         pass.set_scissor_rect(
                             scissor.x(),
@@ -1041,8 +1399,23 @@ impl<'a> SceneEncoder<'a> {
                         pass.draw(batch.vertex_range(), 0..1);
                         self.command_stats.record_draws(1, false);
                     }
-                    RenderBatch::Text { renderer_index } => {
+                    RenderBatch::Shapes(ShapeBatch::Retained(batch)) => {
+                        if let (Some(shapes), Some(properties)) =
+                            (self.retained_shapes, self.retained_properties)
+                        {
+                            shapes.draw(&mut pass, batch, properties);
+                            self.command_stats.record_draws(1, true);
+                        }
+                    }
+                    RenderBatch::Text(TextBatch::Immediate { renderer_index }) => {
                         if let Err(error) = self.text_renderer.render(*renderer_index, &mut pass) {
+                            *self.text_render_error = Some(error);
+                            break;
+                        }
+                        self.command_stats.record_draws(1, true);
+                    }
+                    RenderBatch::Text(TextBatch::Retained(batch)) => {
+                        if let Err(error) = self.text_renderer.render_retained(*batch, &mut pass) {
                             *self.text_render_error = Some(error);
                             break;
                         }
@@ -1058,7 +1431,7 @@ impl<'a> SceneEncoder<'a> {
         self.mark_current_dirty();
     }
 
-    fn encode_shapes(&mut self, batch: &render::quad::Batch) {
+    fn encode_shapes(&mut self, batch: &ShapeBatch) {
         let Some(scissor) = current_scissor(
             &self.clip_stack,
             self.viewport.physical_area(),
@@ -1074,10 +1447,22 @@ impl<'a> SceneEncoder<'a> {
         {
             let mut pass = begin_main_pass(self.encoder, target_view, self.clear_color, false);
             pass.set_scissor_rect(scissor.x(), scissor.y(), scissor.width(), scissor.height());
-            pass.set_pipeline(self.quad_pipeline);
-            pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-            pass.draw(batch.vertex_range(), 0..1);
-            self.command_stats.record_draws(1, false);
+            match batch {
+                ShapeBatch::Immediate(batch) => {
+                    pass.set_pipeline(self.quad_pipeline);
+                    pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                    pass.draw(batch.vertex_range(), 0..1);
+                    self.command_stats.record_draws(1, false);
+                }
+                ShapeBatch::Retained(batch) => {
+                    if let (Some(shapes), Some(properties)) =
+                        (self.retained_shapes, self.retained_properties)
+                    {
+                        shapes.draw(&mut pass, batch, properties);
+                        self.command_stats.record_draws(1, true);
+                    }
+                }
+            }
         }
         self.mark_current_dirty();
     }
@@ -1198,7 +1583,8 @@ impl<'a> SceneEncoder<'a> {
     }
 
     fn encode_group(&mut self, group: &PreparedGroup) {
-        if group.opacity <= 0.0 {
+        let opacity = self.resolve_opacity(group);
+        if opacity <= 0.0 {
             return;
         }
 
@@ -1226,6 +1612,9 @@ impl<'a> SceneEncoder<'a> {
                 quad_vertex_buffer: self.quad_vertex_buffer,
                 filter_renderer: self.filter_renderer,
                 text_renderer: self.text_renderer,
+                retained_shapes: self.retained_shapes,
+                retained_properties: self.retained_properties,
+                scene_properties: self.scene_properties,
                 encoder: self.encoder,
                 base_view: group_view,
                 backdrop_view: self.base_view,
@@ -1259,7 +1648,7 @@ impl<'a> SceneEncoder<'a> {
                         self.viewport.physical_area(),
                         self.viewport.scale_factor(),
                     ),
-                    opacity: group.opacity,
+                    opacity,
                 });
             self.command_stats.record_draws(1, true);
             self.mark_current_dirty();
@@ -1297,6 +1686,52 @@ impl<'a> SceneEncoder<'a> {
             layer_index,
             dirty: false,
         });
+    }
+
+    fn resolve_clip(&self, clip: PreparedClip) -> paint::Clip {
+        let mut resolved = clip
+            .node
+            .and_then(|node| {
+                let crate::scene::PropertyValue::Clip { rect, .. } =
+                    self.scene_properties?
+                        .value(crate::scene::PropertyRef::new(
+                            node,
+                            crate::scene::PropertyKind::Clip,
+                        ))?
+                else {
+                    return None;
+                };
+                let resolved =
+                    render::scene::to_paint_rect_value_at_scale(rect, self.viewport.scale_factor());
+                Some(paint::Clip {
+                    rect: paint::Rect {
+                        origin: resolved.origin,
+                        area: resolved.area,
+                        rounding: clip.fallback.rect.rounding,
+                    },
+                })
+            })
+            .unwrap_or(clip.fallback);
+        resolved.rect.origin = crate::geometry::point::logical(
+            resolved.rect.origin.x() - clip.scene_origin[0],
+            resolved.rect.origin.y() - clip.scene_origin[1],
+        );
+        resolved
+    }
+
+    fn resolve_opacity(&self, group: &PreparedGroup) -> f32 {
+        let Some(node) = group.node else {
+            return group.opacity;
+        };
+        match self.scene_properties.and_then(|properties| {
+            properties.value(crate::scene::PropertyRef::new(
+                node,
+                crate::scene::PropertyKind::Opacity,
+            ))
+        }) {
+            Some(crate::scene::PropertyValue::Opacity { value, .. }) => value,
+            _ => group.opacity,
+        }
     }
 
     fn composite_clip_layer(&mut self) {
@@ -1489,10 +1924,12 @@ mod tests {
     #[test]
     fn draw_runs_cross_shape_text_pipeline_changes_but_stop_at_semantic_boundaries() {
         let batches = [
-            RenderBatch::Shapes(render::quad::Batch::from_vertex_range(0..6)),
-            RenderBatch::Text { renderer_index: 1 },
+            RenderBatch::Shapes(ShapeBatch::Immediate(
+                render::quad::Batch::from_vertex_range(0..6),
+            )),
+            RenderBatch::Text(TextBatch::Immediate { renderer_index: 1 }),
             RenderBatch::PopClip,
-            RenderBatch::Text { renderer_index: 2 },
+            RenderBatch::Text(TextBatch::Immediate { renderer_index: 2 }),
         ];
 
         assert_eq!(draw_run_end(&batches, 0), 2);
@@ -1983,6 +2420,9 @@ mod tests {
             quad_vertex_buffer: renderer.quad_arena.buffer(),
             filter_renderer: &renderer.filter_renderer,
             text_renderer: &mut renderer.text_renderer,
+            retained_shapes: None,
+            retained_properties: None,
+            scene_properties: None,
             encoder: &mut encoder,
             base_view: &view,
             backdrop_view: &view,
@@ -2162,6 +2602,9 @@ mod tests {
             quad_vertex_buffer: renderer.quad_arena.buffer(),
             filter_renderer: &renderer.filter_renderer,
             text_renderer: &mut renderer.text_renderer,
+            retained_shapes: None,
+            retained_properties: None,
+            scene_properties: None,
             encoder: &mut encoder,
             base_view: &scene_view,
             backdrop_view: &scene_view,
@@ -2333,6 +2776,9 @@ mod tests {
             quad_vertex_buffer: renderer.quad_arena.buffer(),
             filter_renderer: &renderer.filter_renderer,
             text_renderer: &mut renderer.text_renderer,
+            retained_shapes: None,
+            retained_properties: None,
+            scene_properties: None,
             encoder: &mut encoder,
             base_view: &view,
             backdrop_view: &view,

@@ -124,6 +124,11 @@ impl NodeId {
 impl ContentRevision {
     pub(crate) const INITIAL: Self = Self(1);
 
+    #[cfg(feature = "renderer-debug")]
+    pub(crate) const fn renderer_fixture(value: u64) -> Self {
+        Self(if value == 0 { 1 } else { value })
+    }
+
     fn next(self) -> Self {
         Self(self.0.saturating_add(1))
     }
