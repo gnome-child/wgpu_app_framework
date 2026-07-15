@@ -6,7 +6,7 @@ use super::{
     view,
 };
 use crate::animation;
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 mod algorithm;
 mod chrome;
@@ -62,7 +62,13 @@ pub(crate) struct ScrollProjection {
     target: interaction::Target,
     viewport: Viewport,
     layer_bounds: Rect,
-    resident_bounds: Rect,
+    residency: ScrollResidency,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrollResidency {
+    Complete(Rect),
+    Incomplete,
 }
 
 impl ScrollProjection {
@@ -83,8 +89,11 @@ impl ScrollProjection {
         self.layer_bounds
     }
 
-    pub(crate) fn resident_bounds(&self) -> Rect {
-        self.resident_bounds
+    pub(crate) fn resident_bounds(&self) -> Option<Rect> {
+        match self.residency {
+            ScrollResidency::Complete(bounds) => Some(bounds),
+            ScrollResidency::Incomplete => None,
+        }
     }
 }
 
@@ -275,6 +284,12 @@ impl Layout {
         &self.scroll_projections
     }
 
+    pub(crate) fn scene_residency_is_complete(&self) -> bool {
+        self.scroll_projections
+            .iter()
+            .all(|projection| matches!(projection.residency, ScrollResidency::Complete(_)))
+    }
+
     pub(crate) fn scroll_ancestry(
         &self,
         node: composition::tree::NodeId,
@@ -304,7 +319,10 @@ impl Layout {
         let baseline = projection.viewport.resolved_scroll();
         let dx = baseline.x().saturating_sub(resolved.x());
         let dy = baseline.y().saturating_sub(resolved.y());
-        let bounds = translate_rect(projection.layer_bounds, dx, dy);
+        let Some(resident_bounds) = projection.resident_bounds() else {
+            return false;
+        };
+        let bounds = translate_rect(resident_bounds, dx, dy);
         contains_rect(bounds, projection.viewport.visible_content())
     }
 
@@ -686,14 +704,14 @@ fn project_scroll_projections(
             let viewport = frame.property_scroll_viewport()?;
             let target = frame.target()?.clone();
             let node = frame.node_id();
-            let (layer_bounds, resident_bounds) =
+            let (layer_bounds, residency) =
                 scroll_layer_geometry(frames, table_tracks, scroll_ancestries, node, viewport);
             Some(ScrollProjection {
                 node,
                 target,
                 viewport,
                 layer_bounds,
-                resident_bounds,
+                residency,
             })
         })
         .collect()
@@ -705,7 +723,7 @@ fn scroll_layer_geometry(
     scroll_ancestries: &HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
     owner: composition::tree::NodeId,
     viewport: Viewport,
-) -> (Rect, Rect) {
+) -> (Rect, ScrollResidency) {
     let nearest_scroll = |node| {
         scroll_ancestries
             .get(&node)
@@ -752,20 +770,58 @@ fn scroll_layer_geometry(
         .iter()
         .find(|frame| frame.node_id() == owner)
         .and_then(Frame::virtual_list_request);
-    let resident_bounds = match virtual_request {
-        Some(request) if !request.range().is_empty() => frames
-            .iter()
-            .filter(|frame| {
-                frame.provided_row().is_some() && nearest_scroll(frame.node_id()) == Some(owner)
-            })
-            .map(Frame::rect)
-            .reduce(union_rect)
-            .and_then(|resident| intersect_rect(resident, layer_bounds))
-            .unwrap_or_else(|| Rect::new(visible.x(), visible.y(), 0, 0)),
-        _ => layer_bounds,
+    let residency = match virtual_request {
+        Some(request) if !request.range().is_empty() => {
+            let requested = request.range();
+            let rows = frames
+                .iter()
+                .filter_map(|frame| {
+                    let row = frame.provided_row()?;
+                    (row.list() == request.id()
+                        && requested.contains(&row.index())
+                        && nearest_scroll(frame.node_id()) == Some(owner))
+                    .then_some((row.index(), frame.rect()))
+                })
+                .collect::<Vec<_>>();
+            exact_virtual_residency(requested, &rows, visible, layer_bounds)
+                .map_or(ScrollResidency::Incomplete, ScrollResidency::Complete)
+        }
+        _ => ScrollResidency::Complete(layer_bounds),
     };
 
-    (layer_bounds, resident_bounds)
+    (layer_bounds, residency)
+}
+
+fn exact_virtual_residency(
+    requested: Range<usize>,
+    rows: &[(usize, Rect)],
+    visible: Rect,
+    layer_bounds: Rect,
+) -> Option<Rect> {
+    let mut expected = requested.start;
+    let mut previous = None::<Rect>;
+    let mut bounds = None::<Rect>;
+
+    for (index, rect) in rows.iter().copied() {
+        if index != expected
+            || rect.width() <= 0
+            || rect.height() <= 0
+            || rect.x() > visible.x()
+            || rect.right() < visible.right()
+            || previous.is_some_and(|previous| previous.bottom() != rect.y())
+        {
+            return None;
+        }
+        expected = expected.saturating_add(1);
+        previous = Some(rect);
+        bounds = Some(bounds.map_or(rect, |bounds| union_rect(bounds, rect)));
+    }
+
+    if expected != requested.end {
+        return None;
+    }
+    let resident = intersect_rect(bounds?, layer_bounds)?;
+    contains_rect(resident, visible).then_some(resident)
 }
 
 fn root_floating_panels(frames: &[Frame]) -> impl Iterator<Item = &Frame> {
@@ -841,5 +897,52 @@ mod placement_tests {
         assert!(panel.rect().y() >= available.y());
         assert!(panel.rect().right() <= available.right());
         assert!(panel.rect().bottom() <= available.bottom());
+    }
+
+    #[test]
+    fn virtual_residency_requires_exact_indices_and_gap_free_pixels() {
+        let visible = Rect::new(0, 0, 100, 100);
+        let layer = Rect::new(0, 0, 100, 100);
+        let complete = [
+            (10, Rect::new(0, -20, 100, 30)),
+            (11, Rect::new(0, 10, 100, 30)),
+            (12, Rect::new(0, 40, 100, 30)),
+            (13, Rect::new(0, 70, 100, 30)),
+        ];
+
+        assert_eq!(
+            exact_virtual_residency(10..14, &complete, visible, layer),
+            Some(layer)
+        );
+
+        for incomplete in [
+            vec![complete[0], complete[2], complete[3]],
+            vec![
+                complete[0],
+                complete[1],
+                complete[1],
+                complete[2],
+                complete[3],
+            ],
+            vec![complete[0], complete[2], complete[1], complete[3]],
+            vec![
+                complete[0],
+                complete[1],
+                (12, Rect::new(0, 41, 100, 29)),
+                complete[3],
+            ],
+            vec![
+                complete[0],
+                complete[1],
+                (12, Rect::new(1, 40, 99, 30)),
+                complete[3],
+            ],
+        ] {
+            assert_eq!(
+                exact_virtual_residency(10..14, &incomplete, visible, layer),
+                None,
+                "holes, duplicates, reordering, and pixel gaps are not drawable residency"
+            );
+        }
     }
 }

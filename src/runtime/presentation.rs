@@ -506,6 +506,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             );
         }
 
+        if !layout.scene_residency_is_complete() {
+            log::warn!(
+                "rejecting scene preparation because virtual residency is incomplete after refinement"
+            );
+            self.session
+                .request_invalidation(window, response::effect::Invalidation::Layout);
+            return None;
+        }
+
         Some(layout)
     }
 

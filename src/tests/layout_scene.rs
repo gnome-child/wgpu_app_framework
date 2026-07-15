@@ -1004,6 +1004,99 @@ fn million_row_virtual_list_jump_scroll_and_resize_stay_bounded() {
 }
 
 #[test]
+fn virtual_scroll_residency_does_not_bridge_a_distant_focus_pin() {
+    let keys = Rc::new(RefCell::new((0..1_000).collect::<Vec<_>>()));
+    let provider = PinnedRowProvider {
+        keys,
+        kind: PinnedRowKind::Text,
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Virtual resident window"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("resident.rows", 24, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(500)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(260, 500);
+    let initial = app
+        .show_scene(window, size)
+        .expect("resident-window list should render");
+    let list_rect = initial.layout().find_role(view::Role::VirtualList)[0].rect();
+    assert!(app.focus_virtual_row(
+        window,
+        interaction::Id::new("resident.rows"),
+        crate::virtual_list::Key::new(0),
+        session::Focus::text("virtual.text.0"),
+    ));
+    app.scroll_at(
+        window,
+        size,
+        frame_point_at(list_rect),
+        interaction::ScrollDelta::vertical(2_400),
+    )
+    .expect("resident-window list should scroll away from its focus pin");
+    let scrolled = app
+        .show_scene(window, size)
+        .expect("scrolled resident-window list should render");
+    let list = &scrolled.layout().find_role(view::Role::VirtualList)[0];
+    let requested = list
+        .virtual_list_request()
+        .expect("virtual list should declare its contiguous requested range")
+        .range();
+    assert!(!requested.contains(&0));
+    assert!(
+        scrolled
+            .layout()
+            .frames()
+            .iter()
+            .any(|frame| { frame.provided_row().is_some_and(|row| row.index() == 0) })
+    );
+
+    let projection = scrolled
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.node() == list.node_id())
+        .expect("virtual list should retain one scroll projection");
+    let visible = projection.viewport().visible_content();
+    let resident = projection
+        .resident_bounds()
+        .expect("requested virtual rows should prove contiguous residency");
+    let layer = projection.layer_bounds();
+    let resident_behind = visible.y().saturating_sub(resident.y());
+    let layer_behind = visible.y().saturating_sub(layer.y());
+    assert!(
+        layer_behind > resident_behind,
+        "the distant pin may extend layer geometry but cannot manufacture resident rows: visible={visible:?} resident={resident:?} layer={layer:?} requested={requested:?}"
+    );
+
+    let baseline = projection.viewport().resolved_scroll();
+    let beyond_resident = interaction::ScrollOffset::new(
+        baseline.x(),
+        baseline
+            .y()
+            .saturating_sub(resident_behind)
+            .saturating_sub(1),
+    );
+    assert_eq!(
+        projection.viewport().resolve(beyond_resident),
+        beyond_resident
+    );
+    assert!(
+        !scrolled
+            .layout()
+            .scroll_property_accepts(projection.target(), beyond_resident),
+        "property scrolling must replenish before exposing a hole beyond the requested row window"
+    );
+}
+
+#[test]
 fn variable_virtual_list_measures_mixed_rows_with_bounded_runtime_work() {
     let row_calls = Rc::new(Cell::new(0));
     let provider = VariableRowProvider {
@@ -6720,7 +6813,9 @@ fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
         let viewport = projection.viewport();
         let visible = viewport.visible_content();
         let bounds = projection.layer_bounds();
-        let resident = projection.resident_bounds();
+        let resident = projection
+            .resident_bounds()
+            .expect("rendered scroll projection must have complete residency");
         let max = viewport.max_scroll();
         let width_limit = if max.x() > 0 {
             visible.width().saturating_mul(2)

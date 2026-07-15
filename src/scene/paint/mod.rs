@@ -536,13 +536,15 @@ fn commit_builder(
         );
     }
     for projection in layout.scroll_projections() {
-        let Some(declaration) = super::ScrollDeclaration::new(
+        let resident_bounds = projection
+            .resident_bounds()
+            .expect("scene painting requires a complete scroll residency proof");
+        let declaration = super::ScrollDeclaration::new(
             projection.viewport().visible_content(),
-            projection.resident_bounds(),
+            resident_bounds,
             projection.viewport().resolved_scroll(),
-        ) else {
-            continue;
-        };
+        )
+        .expect("complete scroll residency must cover its commit baseline");
         builder.declare_scroll(projection.node(), declaration);
     }
     builder
