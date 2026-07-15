@@ -1,11 +1,14 @@
 use super::super::{Clip, Outline, Quad, Scene};
+use crate::composition;
 
 #[derive(Clone)]
 pub(super) struct Scope {
     clips: Vec<Clip>,
 }
 
+#[derive(Clone)]
 pub(super) struct Projection {
+    owner: composition::tree::NodeId,
     scope: Scope,
     layer: Layer,
     paint: Vec<Paint>,
@@ -17,6 +20,7 @@ enum Layer {
     Focus,
 }
 
+#[derive(Clone)]
 enum Paint {
     Outline(Outline),
     Quad(Quad),
@@ -35,16 +39,29 @@ impl Scope {
 }
 
 impl Projection {
-    pub(super) fn outline(scope: Scope, outline: Outline) -> Self {
+    pub(super) fn layer_order(&self) -> u8 {
+        match self.layer {
+            Layer::Scrollbar => 0,
+            Layer::Focus => 1,
+        }
+    }
+
+    pub(super) fn outline(
+        owner: composition::tree::NodeId,
+        scope: Scope,
+        outline: Outline,
+    ) -> Self {
         Self {
+            owner,
             scope,
             layer: Layer::Focus,
             paint: vec![Paint::Outline(outline)],
         }
     }
 
-    pub(super) fn scrollbar(scope: Scope) -> Self {
+    pub(super) fn scrollbar(owner: composition::tree::NodeId, scope: Scope) -> Self {
         Self {
+            owner,
             scope,
             layer: Layer::Scrollbar,
             paint: Vec::new(),
@@ -58,16 +75,17 @@ impl Projection {
     pub(super) fn is_empty(&self) -> bool {
         self.paint.is_empty()
     }
-}
 
-pub(super) fn paint(scene: &mut Scene, mut projections: Vec<Projection>) {
-    projections.sort_by_key(|projection| projection.layer);
-    for projection in projections {
-        let clip_count = projection.scope.clips.len();
-        for clip in projection.scope.clips {
+    pub(super) fn owner(&self) -> composition::tree::NodeId {
+        self.owner
+    }
+
+    pub(super) fn paint_into(self, scene: &mut Scene) {
+        let clip_count = self.scope.clips.len();
+        for clip in self.scope.clips {
             scene.push_clip(clip);
         }
-        for paint in projection.paint {
+        for paint in self.paint {
             match paint {
                 Paint::Outline(outline) => scene.push_outline(outline),
                 Paint::Quad(quad) => scene.push_quad(quad),
@@ -76,5 +94,13 @@ pub(super) fn paint(scene: &mut Scene, mut projections: Vec<Projection>) {
         for _ in 0..clip_count {
             scene.pop_clip();
         }
+    }
+}
+
+#[cfg(test)]
+pub(super) fn paint(scene: &mut Scene, mut projections: Vec<Projection>) {
+    projections.sort_by_key(|projection| projection.layer);
+    for projection in projections {
+        projection.paint_into(scene);
     }
 }

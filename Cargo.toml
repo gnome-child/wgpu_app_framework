@@ -5,6 +5,15 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 description = "A wgpu/winit desktop UI framework: value-semantics runtime, typed command system, native popup materials, and provided-container virtualization"
 
+[workspace]
+members = ["tools/renderer_debug"]
+default-members = ["."]
+resolver = "3"
+
+[features]
+default = []
+renderer-debug = []
+
 [[example]]
 name = "text_editor"
 path = "examples/text_editor/main.rs"

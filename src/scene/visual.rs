@@ -11,6 +11,13 @@ pub(crate) struct Visuals {
     carets: HashMap<interaction::Target, bool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct NodeState {
+    target: Target,
+    slider_track_scale_y: Scalar,
+    caret_visible: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct Target {
     hovered: bool,
@@ -42,6 +49,14 @@ pub(super) struct Scrollbar {
 }
 
 impl Visuals {
+    pub(super) fn node_state(&self, target: Option<&interaction::Target>) -> NodeState {
+        NodeState {
+            target: target.map_or_else(Target::default, |target| self.target(target)),
+            slider_track_scale_y: self.slider_track_scale_y(target),
+            caret_visible: target.is_none_or(|target| self.caret_visible(target)),
+        }
+    }
+
     pub(crate) fn set_target(
         &mut self,
         target: interaction::Target,

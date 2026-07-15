@@ -76,7 +76,7 @@ impl<'a> LayoutContext<'a> {
     fn frame(
         &mut self,
         node: &view::Node,
-        node_id: composition::tree::NodeId,
+        retained: &composition::tree::Node,
         path: path::Path,
         rect: Rect,
         floating_layer: bool,
@@ -85,7 +85,9 @@ impl<'a> LayoutContext<'a> {
         Frame::new(
             FrameInput {
                 node,
-                node_id,
+                node_id: retained.node_id(),
+                parent: retained.parent(),
+                content_revision: retained.content_revision(),
                 path,
                 rect,
                 floating_layer,
@@ -131,14 +133,7 @@ fn layout_node(
         _ => {}
     }
 
-    let frame = ctx.frame(
-        node,
-        retained.node_id(),
-        path.clone(),
-        rect,
-        floating_layer,
-        clip,
-    );
+    let frame = ctx.frame(node, retained, path.clone(), rect, floating_layer, clip);
     ctx.frames.push(frame);
 
     match content {
@@ -210,14 +205,7 @@ fn layout_scroll(
     let child_clip_rect = Clip::new(visible_content);
 
     let frame = ctx
-        .frame(
-            node,
-            retained.node_id(),
-            path.clone(),
-            rect,
-            floating_layer,
-            clip,
-        )
+        .frame(node, retained, path.clone(), rect, floating_layer, clip)
         .with_viewport(viewport);
     ctx.frames.push(frame);
 
@@ -333,14 +321,7 @@ fn layout_table_scroll(
     );
     let table_clip = Some(Clip::new(visible_content));
     let frame = ctx
-        .frame(
-            node,
-            retained.node_id(),
-            path.clone(),
-            rect,
-            floating_layer,
-            clip,
-        )
+        .frame(node, retained, path.clone(), rect, floating_layer, clip)
         .with_table_scroll(viewport, projection.clone());
     ctx.frames.push(frame);
 
@@ -409,14 +390,7 @@ fn layout_virtual_list(
     let request = crate::virtual_list::Request::new(model.id(), range);
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
-        .frame(
-            node,
-            retained.node_id(),
-            path.clone(),
-            rect,
-            floating_layer,
-            clip,
-        )
+        .frame(node, retained, path.clone(), rect, floating_layer, clip)
         .with_virtual_list(viewport, request);
     ctx.frames.push(frame);
 
@@ -522,14 +496,7 @@ fn layout_variable_virtual_list(
     );
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
-        .frame(
-            node,
-            retained.node_id(),
-            path.clone(),
-            rect,
-            floating_layer,
-            clip,
-        )
+        .frame(node, retained, path.clone(), rect, floating_layer, clip)
         .with_virtual_list(viewport, request);
     ctx.frames.push(frame);
 
@@ -1301,7 +1268,7 @@ fn layout_menu_bar(
         let child_rect = Rect::new(x, rect.y, width, height);
         let frame = ctx.frame(
             child,
-            retained_child(retained, index).node_id(),
+            retained_child(retained, index),
             path.child(index),
             child_rect,
             floating_layer,
@@ -1435,7 +1402,7 @@ fn layout_menu_row(
     ctx: &mut LayoutContext<'_>,
 ) {
     let frame = ctx
-        .frame(node, retained.node_id(), path, rect, true, clip)
+        .frame(node, retained, path, rect, true, clip)
         .with_shortcut_width(shortcut_width);
     ctx.frames.push(frame);
 }

@@ -17,6 +17,8 @@ pub struct Context {
     adapter: wgpu::Adapter,
     queue: wgpu::Queue,
     backend: Backend,
+    force_fallback_adapter: bool,
+    presentation_system: String,
     windows_popup_composition_supported: bool,
 }
 
@@ -73,7 +75,11 @@ impl Options {
             device_label: "wgpu_l3 device",
             backends: backends.0,
             power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
+            force_fallback_adapter: diagnostic_force_fallback_adapter(
+                std::env::var("WGPU_L3_FORCE_FALLBACK_ADAPTER")
+                    .ok()
+                    .as_deref(),
+            ),
             required_features: wgpu::Features::empty(),
             required_limits: wgpu::Limits::default(),
         }
@@ -92,6 +98,10 @@ impl Context {
         let backend_options = default_backend_options().with_env();
         #[cfg(target_os = "windows")]
         let dx12_presentation_system = backend_options.dx12.presentation_system;
+        #[cfg(target_os = "windows")]
+        let presentation_system = format!("{dx12_presentation_system:?}");
+        #[cfg(not(target_os = "windows"))]
+        let presentation_system = "platform-default".to_owned();
         #[cfg(target_os = "windows")]
         log::info!(
             target: "wgpu_l3::native_popup",
@@ -122,6 +132,12 @@ impl Context {
         };
         let adapter_info = adapter.get_info();
         let adapter_backend = adapter_info.backend;
+        if options.force_fallback_adapter && adapter_info.device_type != wgpu::DeviceType::Cpu {
+            log::error!(
+                target: "wgpu_l3::renderer_receipt",
+                "fallback adapter was requested but selected adapter is not CPU-class: {adapter_info:?}"
+            );
+        }
         #[cfg(target_os = "windows")]
         let windows_popup_composition_supported = adapter_backend == wgpu::Backend::Dx12
             && dx12_presentation_system == wgpu::Dx12SwapchainKind::DxgiFromVisual;
@@ -161,6 +177,8 @@ impl Context {
             device,
             queue,
             backend: Backend(adapter_backend),
+            force_fallback_adapter: options.force_fallback_adapter,
+            presentation_system,
             windows_popup_composition_supported,
         })
     }
@@ -181,6 +199,18 @@ impl Context {
         self.backend
     }
 
+    pub(crate) fn adapter_info(&self) -> wgpu::AdapterInfo {
+        self.adapter.get_info()
+    }
+
+    pub(crate) fn force_fallback_adapter(&self) -> bool {
+        self.force_fallback_adapter
+    }
+
+    pub(crate) fn presentation_system(&self) -> &str {
+        &self.presentation_system
+    }
+
     pub(crate) fn windows_popup_composition_supported(&self) -> bool {
         self.windows_popup_composition_supported
     }
@@ -194,6 +224,10 @@ fn default_backend_options() -> wgpu::BackendOptions {
     let mut options = wgpu::BackendOptions::default();
     configure_default_backend_options(&mut options);
     options
+}
+
+fn diagnostic_force_fallback_adapter(value: Option<&str>) -> bool {
+    value == Some("1")
 }
 
 #[cfg(target_os = "windows")]
@@ -215,5 +249,29 @@ mod tests {
             default_backend_options().dx12.presentation_system,
             wgpu::Dx12SwapchainKind::DxgiFromVisual
         );
+    }
+
+    #[test]
+    fn fallback_adapter_diagnostic_requires_explicit_one() {
+        assert!(diagnostic_force_fallback_adapter(Some("1")));
+        for value in [None, Some(""), Some("0"), Some("true"), Some("yes")] {
+            assert!(!diagnostic_force_fallback_adapter(value));
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    #[ignore = "requires the Windows DX12 fallback adapter"]
+    fn dx12_fallback_adapter_reports_cpu_class() {
+        let mut options = Options::native(Backends::dx12());
+        options.force_fallback_adapter = true;
+
+        let context = pollster::block_on(Context::new(options))
+            .expect("Windows should provide a DX12 fallback adapter");
+        let info = context.adapter_info();
+
+        assert_eq!(info.backend, wgpu::Backend::Dx12);
+        assert_eq!(info.device_type, wgpu::DeviceType::Cpu);
+        assert!(context.force_fallback_adapter());
     }
 }

@@ -374,6 +374,10 @@ impl HeaderCell {
 }
 
 impl Model {
+    pub(crate) fn same_scene_state(&self, other: &Self) -> bool {
+        self.table == other.table && self.column_dimensions() == other.column_dimensions()
+    }
+
     fn new(table: interaction::Id, columns: Vec<Column>) -> Self {
         Self {
             table,

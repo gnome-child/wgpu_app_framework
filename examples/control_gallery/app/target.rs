@@ -2,9 +2,10 @@ use super::{
     State,
     command::{
         ClearFeedback, EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs,
-        IncrementClicks, OpenRecord, ResetControls, SelectMode, SetLevel, SetRecordEnabled,
-        SetRecordEnabledArgs, ShowInfoFeedback, ShowWarningFeedback, SubmitQuery, ToggleAdvanced,
-        ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        IncrementClicks, OpenRecord, ResetControls, SelectMode, SelectRendererViewport, SetLevel,
+        SetRecordEnabled, SetRecordEnabledArgs, SetRendererWorkload, ShowInfoFeedback,
+        ShowWarningFeedback, SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid,
+        ToggleWrap, WriteRendererReceipt,
     },
     runtime::Event,
 };
@@ -242,6 +243,50 @@ impl Target<ClearFeedback> for State {
     fn invoke(&mut self, _: (), cx: &mut Context) -> Response<()> {
         let _ = cx.spawn(Task::ready(Event::ClearFeedback));
         Response::output(())
+    }
+}
+
+impl Target<WriteRendererReceipt> for State {
+    fn state(&self, _: &(), _: &Context) -> command::State {
+        command::State::enabled()
+    }
+
+    fn invoke(&mut self, _: (), cx: &mut Context) -> Response<()> {
+        let _ = cx.spawn(Task::ready(Event::WriteRendererReceipt(
+            self.renderer_workload.clone(),
+        )));
+        Response::output(())
+    }
+}
+
+impl Target<SelectRendererViewport> for State {
+    fn state(&self, viewport: &super::RendererViewport, _: &Context) -> command::State {
+        command::State::enabled().checked(self.renderer_viewport == *viewport)
+    }
+
+    fn invoke(&mut self, viewport: super::RendererViewport, cx: &mut Context) -> Response<()> {
+        self.renderer_viewport = viewport;
+        self.renderer_workload = format!("control-gallery-{}px-idle", viewport.logical_height());
+        self.last_status = format!("renderer viewport: {}", viewport.label());
+        let _ = cx.spawn(Task::ready(Event::BeginRendererMeasurement));
+        Response::changed(())
+    }
+}
+
+impl Target<SetRendererWorkload> for State {
+    fn state(&self, workload: &String, _: &Context) -> command::State {
+        if workload.trim().is_empty() {
+            command::State::disabled().with_hint("Workload identity must not be empty")
+        } else {
+            command::State::enabled()
+        }
+    }
+
+    fn invoke(&mut self, workload: String, cx: &mut Context) -> Response<()> {
+        self.renderer_workload = workload.trim().to_owned();
+        self.last_status = format!("renderer workload: {}", self.renderer_workload);
+        let _ = cx.spawn(Task::ready(Event::BeginRendererMeasurement));
+        Response::changed(())
     }
 }
 

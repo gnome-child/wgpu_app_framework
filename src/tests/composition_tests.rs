@@ -9,11 +9,51 @@ fn explicit_ids_preserve_node_ids_across_sibling_movement() {
     let first = store.install(window, labeled_view(["a", "b"]));
     let a = node_id(&first.tree().root().children()[0]);
     let b = node_id(&first.tree().root().children()[1]);
+    let a_revision = first.tree().root().children()[0].content_revision();
+    let b_revision = first.tree().root().children()[1].content_revision();
 
     let second = store.install(window, labeled_view(["b", "a"]));
     assert_eq!(node_id(&second.tree().root().children()[0]), b);
     assert_eq!(node_id(&second.tree().root().children()[1]), a);
+    assert_eq!(
+        second.tree().root().children()[0].content_revision(),
+        b_revision
+    );
+    assert_eq!(
+        second.tree().root().children()[1].content_revision(),
+        a_revision
+    );
     assert!(second.changes().is_empty());
+}
+
+#[test]
+fn one_sibling_content_change_mints_only_that_nodes_revision() {
+    let mut store = composition::Store::default();
+    let window = window::Id::new(1);
+
+    let first = store.install(window, labeled_content_view("Before"));
+    let root_revision = first.tree().root().content_revision();
+    let stable = node_id(&first.tree().root().children()[0]);
+    let stable_revision = first.tree().root().children()[0].content_revision();
+    let changed = node_id(&first.tree().root().children()[1]);
+    let changed_revision = first.tree().root().children()[1].content_revision();
+
+    let second = store.install(window, labeled_content_view("After"));
+
+    assert_eq!(second.changes().changed(), &[changed]);
+    assert!(second.changes().added().is_empty());
+    assert!(second.changes().removed().is_empty());
+    assert_eq!(second.tree().root().content_revision(), root_revision);
+    assert_eq!(node_id(&second.tree().root().children()[0]), stable);
+    assert_eq!(
+        second.tree().root().children()[0].content_revision(),
+        stable_revision
+    );
+    assert_eq!(node_id(&second.tree().root().children()[1]), changed);
+    assert_eq!(
+        second.tree().root().children()[1].content_revision().get(),
+        changed_revision.get() + 1
+    );
 }
 
 #[test]
@@ -281,6 +321,14 @@ fn labeled_view<const N: usize>(ids: [&'static str; N]) -> View {
         root = root.child(view::Node::label(id).with_interaction_id(id));
     }
     View::new(root)
+}
+
+fn labeled_content_view(changing: &'static str) -> View {
+    View::new(
+        view::Node::root()
+            .child(view::Node::label("Stable").with_interaction_id("stable"))
+            .child(view::Node::label(changing).with_interaction_id("changing")),
+    )
 }
 
 fn node_id(node: &tree::Node) -> tree::NodeId {

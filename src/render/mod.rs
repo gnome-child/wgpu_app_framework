@@ -8,7 +8,7 @@ pub(crate) use frame::Frame;
 pub(in crate::render) use primitive::Vertex;
 pub(crate) use renderer::Renderer;
 pub(crate) use report::DrawStats;
-pub use report::RenderReport;
+pub use report::{RenderReport, RendererEnvironment};
 pub(crate) use surface::Surface;
 
 mod alpha;
@@ -16,6 +16,8 @@ mod batch;
 pub(crate) mod canvas;
 mod color;
 pub(crate) mod context;
+#[cfg(feature = "renderer-debug")]
+pub mod debug;
 mod filter;
 mod frame;
 mod material;

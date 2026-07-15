@@ -49,6 +49,10 @@ mod paint;
 mod popup;
 mod render;
 
+#[cfg(feature = "renderer-debug")]
+#[doc(hidden)]
+pub use render::debug as renderer_debug;
+
 #[cfg(test)]
 #[path = "../examples/control_gallery/app/mod.rs"]
 mod control_gallery;

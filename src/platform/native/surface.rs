@@ -145,6 +145,12 @@ impl Native {
             log::error!("cannot present missing native window: {window:?}");
             NativeError::MissingWindow { window }
         })?;
+        let environment = render::RendererEnvironment::new(
+            context,
+            native_window.canvas(),
+            native_window.display_name(),
+            native_window.display_refresh_millihertz(),
+        );
         let scene = render::scene::to_paint_scene_at_scale(
             presentation.scene(),
             native_window.canvas().scale_factor(),
@@ -183,8 +189,10 @@ impl Native {
         Ok(
             diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
                 .with_presented(presented)
+                .with_acquire_outcome(report.acquire_outcome)
                 .with_pipeline_timings(report.batch_prepare, encode_submit_present)
                 .with_draw_stats(report.stats)
+                .with_environment(environment)
                 .with_group_composites(group_composites)
                 .with_filter_pool_entries(filter_layer_pool_entries, filter_scratch_pool_entries),
         )

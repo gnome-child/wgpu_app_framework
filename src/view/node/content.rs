@@ -55,7 +55,7 @@ pub(crate) enum Scroll {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Panel {
     pub(super) placement: FloatingPlacement,
     pub(super) attachment: Option<PanelAttachment>,
@@ -66,6 +66,39 @@ pub(crate) struct Panel {
 }
 
 impl Content {
+    pub(super) fn same_scene_state(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Root, Self::Root)
+            | (Self::Stack, Self::Stack)
+            | (Self::MenuBar(_), Self::MenuBar(_))
+            | (Self::Menu, Self::Menu)
+            | (Self::Binding, Self::Binding)
+            | (Self::Separator, Self::Separator)
+            | (Self::Table, Self::Table)
+            | (Self::Panel, Self::Panel)
+            | (Self::SectionHeader, Self::SectionHeader)
+            | (Self::Label, Self::Label) => true,
+            (Self::TextArea(left), Self::TextArea(right)) => left == right,
+            (Self::Button(left), Self::Button(right)) => left == right,
+            (Self::Checkbox(left), Self::Checkbox(right)) => left == right,
+            (Self::Radio(left), Self::Radio(right)) => left == right,
+            (Self::Slider(left), Self::Slider(right)) => left == right,
+            (Self::TextBox { model: left, .. }, Self::TextBox { model: right, .. }) => {
+                left == right
+            }
+            (Self::Scroll(Scroll::Ordinary { .. }), Self::Scroll(Scroll::Ordinary { .. })) => true,
+            (
+                Self::Scroll(Scroll::Table { model: left, .. }),
+                Self::Scroll(Scroll::Table { model: right, .. }),
+            ) => left.same_scene_state(right),
+            (Self::VirtualList { model: left, .. }, Self::VirtualList { model: right, .. }) => {
+                left.same_scene_state(right)
+            }
+            (Self::FloatingPanel(left), Self::FloatingPanel(right)) => left == right,
+            _ => false,
+        }
+    }
+
     pub(super) fn role(&self) -> Role {
         match self {
             Self::Root => Role::Root,
@@ -231,5 +264,22 @@ impl Panel {
             force_overlay_group: false,
             native_material: NativePopupMaterialPreference::System,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scroll_value_is_not_scene_content_state() {
+        let first = Content::Scroll(Scroll::Ordinary {
+            offset: interaction::ScrollOffset::new(0, 0),
+        });
+        let second = Content::Scroll(Scroll::Ordinary {
+            offset: interaction::ScrollOffset::new(20, 40),
+        });
+
+        assert!(first.same_scene_state(&second));
     }
 }

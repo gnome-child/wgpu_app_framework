@@ -33,6 +33,8 @@ impl ShortcutPart {
 pub(super) struct Input<'a> {
     pub(super) node: &'a Node,
     pub(super) node_id: composition::tree::NodeId,
+    pub(super) parent: Option<composition::tree::NodeId>,
+    pub(super) content_revision: composition::tree::ContentRevision,
     pub(super) path: path::Path,
     pub(super) rect: Rect,
     pub(super) floating_layer: bool,
@@ -181,6 +183,8 @@ struct SeparatorContent {
 #[derive(Clone)]
 pub(crate) struct Frame {
     node_id: composition::tree::NodeId,
+    parent: Option<composition::tree::NodeId>,
+    content_revision: composition::tree::ContentRevision,
     interaction_id: Option<interaction::Id>,
     path: path::Path,
     content: FrameContent,
@@ -204,11 +208,33 @@ pub(crate) struct Frame {
     action: Option<view::Action>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SceneKey {
+    parent: Option<composition::tree::NodeId>,
+    content_revision: composition::tree::ContentRevision,
+    rect: Rect,
+    active_rect: Rect,
+    clip: Option<Clip>,
+    floating_layer: bool,
+    focus_presentation: view::focus::Presentation,
+    selected: bool,
+    active_item: bool,
+    provided_row: Option<view::ProvidedRow>,
+    table_row: Option<crate::table::Row>,
+    table_header_presentation: Option<crate::table::HeaderPresentation>,
+    label_width: i32,
+    shortcut_width: Option<i32>,
+    shortcut_content_width: i32,
+    viewport: Option<Viewport>,
+}
+
 impl Frame {
     pub(super) fn new(input: Input<'_>, engine: &mut engine::Engine, theme: &Theme) -> Self {
         let Input {
             node,
             node_id,
+            parent,
+            content_revision,
             path,
             rect,
             floating_layer,
@@ -495,6 +521,8 @@ impl Frame {
         Self {
             path,
             node_id,
+            parent,
+            content_revision,
             interaction_id: node.id(),
             content,
             rect,
@@ -596,6 +624,41 @@ impl Frame {
 
     pub(crate) fn node_id(&self) -> composition::tree::NodeId {
         self.node_id
+    }
+
+    pub(crate) fn parent(&self) -> Option<composition::tree::NodeId> {
+        self.parent
+    }
+
+    pub(crate) fn content_revision(&self) -> composition::tree::ContentRevision {
+        self.content_revision
+    }
+
+    pub(crate) fn scene_key(&self) -> SceneKey {
+        SceneKey {
+            parent: self.parent,
+            content_revision: self.content_revision,
+            rect: self.rect,
+            active_rect: self.active_rect,
+            clip: self.clip,
+            floating_layer: self.floating_layer,
+            focus_presentation: self.focus_presentation,
+            selected: self.selected,
+            active_item: self.active_item,
+            provided_row: self.provided_row,
+            table_row: self.table_row,
+            table_header_presentation: self.table_header_presentation,
+            label_width: self.label_width(),
+            shortcut_width: self
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.shortcut_width),
+            shortcut_content_width: self
+                .binding
+                .as_ref()
+                .map_or(0, |binding| binding.shortcut_content_width),
+            viewport: self.viewport(),
+        }
     }
 
     pub(crate) fn interaction_id(&self) -> Option<interaction::Id> {

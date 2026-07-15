@@ -193,6 +193,14 @@ impl Widget for VirtualList {
 }
 
 impl Model {
+    pub(crate) fn same_scene_state(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.row_height() == other.row_height()
+            && self.overscan == other.overscan
+            && self.selectable == other.selectable
+            && self.len() == other.len()
+    }
+
     fn new(id: interaction::Id, row_height: i32, provider: Rc<dyn Provider>) -> Self {
         Self {
             id,

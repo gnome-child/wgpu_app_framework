@@ -48,6 +48,23 @@ struct PreparedGroup {
     render_batches: Vec<RenderBatch>,
 }
 
+#[derive(Default)]
+struct CommandStats {
+    draw_calls: usize,
+    pipeline_changes: usize,
+    bind_group_changes: usize,
+}
+
+impl CommandStats {
+    fn record_draws(&mut self, count: usize, binds_resources: bool) {
+        self.draw_calls += count;
+        self.pipeline_changes += count;
+        if binds_resources {
+            self.bind_group_changes += count;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ClipFrame {
     PassThrough,
@@ -94,6 +111,7 @@ struct SceneEncoder<'a> {
     inside_group: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
     draw_passes: &'a mut usize,
+    command_stats: &'a mut CommandStats,
 }
 
 struct SceneEncoderInput<'a> {
@@ -112,6 +130,7 @@ struct SceneEncoderInput<'a> {
     inside_group: bool,
     text_render_error: &'a mut Option<render::text_renderer::Error>,
     draw_passes: &'a mut usize,
+    command_stats: &'a mut CommandStats,
 }
 
 impl Renderer {
@@ -192,8 +211,12 @@ impl Renderer {
         stats.add(prepared_scene.stats);
         stats.quad_vertices = geometry_upload.vertex_count;
         stats.geometry_upload_bytes = geometry_upload.bytes;
+        stats.content_upload_bytes = geometry_upload.bytes;
         stats.geometry_buffer_creations = usize::from(geometry_upload.buffer_created);
         stats.scene_items = scene.items().len();
+        stats.opacity_unclassified_nodes = scene.items().len();
+        stats.clipped_nodes = stats.clip_batches;
+        stats.render_plan_rebuilds = 1;
         let batch_prepare = batch_prepare_started.elapsed();
 
         let preserve_surface_alpha =
@@ -226,6 +249,7 @@ impl Renderer {
         let text_renderer = &mut self.text_renderer;
         let mut text_render_error = None;
         let mut draw_passes = 0;
+        let mut command_stats = CommandStats::default();
 
         let surface_report = if pack_premultiplied_surface {
             canvas.draw(render_context, |encoder, frame| {
@@ -250,6 +274,7 @@ impl Renderer {
                     inside_group: false,
                     text_render_error: &mut text_render_error,
                     draw_passes: &mut draw_passes,
+                    command_stats: &mut command_stats,
                 });
                 scene_encoder.encode(&prepared_scene.render_batches);
                 if text_render_error.is_some() {
@@ -263,6 +288,7 @@ impl Renderer {
                     &view,
                     surface_format.into_wgpu(),
                 );
+                command_stats.record_draws(1, true);
             })?
         } else if preserve_surface_alpha {
             canvas.draw(render_context, |encoder, frame| {
@@ -286,6 +312,7 @@ impl Renderer {
                     inside_group: false,
                     text_render_error: &mut text_render_error,
                     draw_passes: &mut draw_passes,
+                    command_stats: &mut command_stats,
                 });
                 scene_encoder.encode(&prepared_scene.render_batches);
             })?
@@ -312,6 +339,7 @@ impl Renderer {
                     inside_group: false,
                     text_render_error: &mut text_render_error,
                     draw_passes: &mut draw_passes,
+                    command_stats: &mut command_stats,
                 });
                 scene_encoder.encode(&prepared_scene.render_batches);
                 if text_render_error.is_some() {
@@ -319,6 +347,7 @@ impl Renderer {
                 }
 
                 filter_renderer.blit_to_view(render_context, encoder, &view, filter_target);
+                command_stats.record_draws(1, true);
             })?
         };
 
@@ -327,9 +356,31 @@ impl Renderer {
         }
 
         self.text_renderer.trim();
+        stats.draw_calls = command_stats.draw_calls;
         stats.draw_passes = draw_passes;
+        stats.pipeline_changes = command_stats.pipeline_changes;
+        stats.bind_group_changes = command_stats.bind_group_changes;
         stats.filter_layer_pool_entries = self.filter_renderer.layer_pool_entries();
         stats.filter_scratch_pool_entries = self.filter_renderer.scratch_pool_entries();
+        if surface_report.present_timing().is_some() {
+            let surface_bytes = u64::from(canvas.physical_area().width())
+                .saturating_mul(u64::from(canvas.physical_area().height()))
+                .saturating_mul(4);
+            if pack_premultiplied_surface {
+                stats.extra_full_surface_intermediate_clears = 1;
+                stats.extra_full_surface_intermediate_clear_bytes = surface_bytes;
+                stats.popup_surface_packs = 1;
+                stats.popup_surface_pack_bytes = surface_bytes.saturating_mul(2);
+            } else if preserve_surface_alpha {
+                stats.ordinary_surface_clears = 1;
+                stats.ordinary_surface_clear_bytes = surface_bytes;
+            } else {
+                stats.extra_full_surface_intermediate_clears = 1;
+                stats.extra_full_surface_intermediate_clear_bytes = surface_bytes;
+                stats.full_surface_blits = 1;
+                stats.full_surface_blit_bytes = surface_bytes.saturating_mul(2);
+            }
+        }
 
         Ok(DrawReport {
             stats,
@@ -337,6 +388,226 @@ impl Renderer {
             acquire_outcome: surface_report.acquire(),
             present_timing: surface_report.present_timing(),
         })
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn draw_offscreen_debug(
+        &mut self,
+        render_context: &render::Context,
+        scene: &paint::Scene,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> Result<Vec<[f32; 4]>, String> {
+        self.draw_offscreen_debug_mode(render_context, scene, width, height, scale_factor, false)
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn draw_offscreen_popup_debug(
+        &mut self,
+        render_context: &render::Context,
+        scene: &paint::Scene,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> Result<Vec<[f32; 4]>, String> {
+        self.draw_offscreen_debug_mode(render_context, scene, width, height, scale_factor, true)
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    fn draw_offscreen_debug_mode(
+        &mut self,
+        render_context: &render::Context,
+        scene: &paint::Scene,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+        pack_popup: bool,
+    ) -> Result<Vec<[f32; 4]>, String> {
+        let format = self.format;
+        if pack_popup && format != wgpu::TextureFormat::Rgba8UnormSrgb {
+            return Err("popup debug packing requires an sRGB renderer".to_owned());
+        }
+        let texture = render_context
+            .device()
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Renderer Debug Target"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let packed_texture = pack_popup.then(|| {
+            render_context
+                .device()
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Renderer Debug Packed Popup Target"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                })
+        });
+        let packed_view = packed_texture
+            .as_ref()
+            .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let viewport = render::Viewport::from_logical_area(
+            area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
+            scale_factor,
+        );
+        let item_batch_list = item_batches(scene.items());
+        let text_batch_count = glyph_batch_count(&item_batch_list);
+        if text_batch_count > 0 {
+            self.text_renderer
+                .prepare_frame(render_context, text_batch_count);
+        }
+        let mut text_renderer_index = 0;
+        self.quad_arena.begin_frame();
+        let prepared_scene = self
+            .prepare_scene_batches(
+                render_context,
+                viewport,
+                &item_batch_list,
+                &mut text_renderer_index,
+            )
+            .map_err(|error| error.to_string())?;
+        self.quad_arena.upload(render_context);
+
+        let clear_color = scene
+            .clear_color()
+            .map(render::color_to_wgpu)
+            .unwrap_or(wgpu::Color::TRANSPARENT);
+        let mut text_render_error = None;
+        let mut draw_passes = 0;
+        let mut command_stats = CommandStats::default();
+        let mut encoder =
+            render_context
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Renderer Debug Encoder"),
+                });
+        {
+            let _clear = begin_main_pass(&mut encoder, &view, clear_color, true);
+        }
+        let mut scene_encoder = SceneEncoder::new(SceneEncoderInput {
+            render_context,
+            quad_pipeline: &self.quad_pipeline,
+            quad_vertex_buffer: self.quad_arena.buffer(),
+            filter_renderer: &self.filter_renderer,
+            text_renderer: &mut self.text_renderer,
+            encoder: &mut encoder,
+            base_view: &view,
+            backdrop_view: &view,
+            backdrop_target: render::filter::Target::from_viewport(viewport),
+            clear_color,
+            viewport,
+            base_dirty: true,
+            inside_group: false,
+            text_render_error: &mut text_render_error,
+            draw_passes: &mut draw_passes,
+            command_stats: &mut command_stats,
+        });
+        scene_encoder.encode(&prepared_scene.render_batches);
+        if let Some(error) = text_render_error {
+            return Err(error.to_string());
+        }
+        if let Some(packed_view) = &packed_view {
+            self.popup_packer.pack_to_view(
+                render_context,
+                &mut encoder,
+                &view,
+                packed_view,
+                wgpu::TextureFormat::Rgba8Unorm,
+            );
+        }
+
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width * bytes_per_pixel;
+        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(alignment) * alignment;
+        let output = render_context
+            .device()
+            .create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Renderer Debug Readback"),
+                size: padded_bytes_per_row as u64 * height as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+        let readback_texture = packed_texture.as_ref().unwrap_or(&texture);
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: readback_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        render_context.queue().submit(Some(encoder.finish()));
+
+        let slice = output.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        render_context
+            .device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .map_err(|error| error.to_string())?;
+        receiver
+            .recv()
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+
+        let data = slice.get_mapped_range();
+        let mut pixels = Vec::with_capacity((width * height) as usize);
+        for y in 0..height as usize {
+            for x in 0..width as usize {
+                let offset = y * padded_bytes_per_row as usize + x * bytes_per_pixel as usize;
+                pixels.push([
+                    data[offset] as f32 / 255.0,
+                    data[offset + 1] as f32 / 255.0,
+                    data[offset + 2] as f32 / 255.0,
+                    data[offset + 3] as f32 / 255.0,
+                ]);
+            }
+        }
+        drop(data);
+        output.unmap();
+
+        Ok(pixels)
     }
 
     fn prepare_scene_batches(
@@ -365,12 +636,24 @@ impl Renderer {
                 .iter()
                 .filter(|batch| matches!(batch, ItemBatch::Group(_)))
                 .count(),
+            effect_island_nodes: item_batch_list
+                .iter()
+                .filter(|batch| {
+                    matches!(batch, ItemBatch::Group(_))
+                        || matches!(
+                            batch,
+                            ItemBatch::Pane(pane)
+                                if matches!(pane.material, paint::Material::Glass(_))
+                        )
+                })
+                .count(),
             ..DrawStats::default()
         };
 
         for batch in item_batch_list {
             match batch {
                 ItemBatch::Shapes(shapes) => {
+                    stats.quad_prepare_calls += 1;
                     if let Some(batch) =
                         render::quad::prepare_batch(&mut self.quad_arena, viewport, shapes)
                     {
@@ -379,7 +662,8 @@ impl Renderer {
                     }
                 }
                 ItemBatch::Pane(pane) => {
-                    let prepared = self.prepare_pane(viewport, pane);
+                    let (prepared, quad_prepare_calls) = self.prepare_pane(viewport, pane);
+                    stats.quad_prepare_calls += quad_prepare_calls;
                     if matches!(pane.material, paint::Material::Solid(_)) {
                         if let Some(batch) = prepared.base {
                             render_batches.push(RenderBatch::Shapes(batch));
@@ -414,6 +698,7 @@ impl Renderer {
                     }));
                 }
                 ItemBatch::Glyphs(glyphs) => {
+                    stats.text_prepare_calls += 1;
                     let report = self.text_renderer.prepare_batch(
                         render_context,
                         viewport,
@@ -444,7 +729,11 @@ impl Renderer {
         })
     }
 
-    fn prepare_pane(&mut self, viewport: render::Viewport, pane: &paint::Pane) -> PreparedPane {
+    fn prepare_pane(
+        &mut self,
+        viewport: render::Viewport,
+        pane: &paint::Pane,
+    ) -> (PreparedPane, usize) {
         let base_brush = match &pane.material {
             paint::Material::Solid(brush) => Some(*brush),
             paint::Material::Glass(glass) if glass.base == paint::GlassBase::Fallback => {
@@ -466,7 +755,12 @@ impl Renderer {
                 .collect::<Vec<_>>(),
         };
 
-        PreparedPane {
+        let quad_prepare_calls = base_brush
+            .iter()
+            .chain(surface_brushes.iter().flatten())
+            .filter(|brush| brush.is_visible())
+            .count();
+        let prepared = PreparedPane {
             pane: pane.clone(),
             base: base_brush.and_then(|brush| {
                 prepare_brush_batch(&mut self.quad_arena, viewport, pane.rect, brush)
@@ -479,7 +773,8 @@ impl Renderer {
                     })
                 })
                 .collect(),
-        }
+        };
+        (prepared, quad_prepare_calls)
     }
 }
 
@@ -540,13 +835,43 @@ impl DrawStats {
         self.inline_icon_cache_hits += other.inline_icon_cache_hits;
         self.inline_icon_cache_misses += other.inline_icon_cache_misses;
         self.inline_icon_shape_calls += other.inline_icon_shape_calls;
+        self.quad_prepare_calls += other.quad_prepare_calls;
+        self.text_prepare_calls += other.text_prepare_calls;
         self.quad_vertices += other.quad_vertices;
         self.geometry_upload_bytes += other.geometry_upload_bytes;
+        self.content_upload_bytes += other.content_upload_bytes;
+        self.property_upload_bytes += other.property_upload_bytes;
         self.geometry_buffer_creations += other.geometry_buffer_creations;
+        self.retained_gpu_resource_count += other.retained_gpu_resource_count;
+        self.retained_gpu_resource_bytes += other.retained_gpu_resource_bytes;
+        self.retained_gpu_resource_creations += other.retained_gpu_resource_creations;
+        self.retained_gpu_resource_replacements += other.retained_gpu_resource_replacements;
+        self.retained_gpu_resource_removals += other.retained_gpu_resource_removals;
+        self.render_plan_rebuilds += other.render_plan_rebuilds;
+        self.render_plan_reuses += other.render_plan_reuses;
+        self.draw_calls += other.draw_calls;
+        self.draw_passes += other.draw_passes;
+        self.pipeline_changes += other.pipeline_changes;
+        self.bind_group_changes += other.bind_group_changes;
         self.clip_batches += other.clip_batches;
+        self.opaque_nodes += other.opaque_nodes;
+        self.blended_nodes += other.blended_nodes;
+        self.opacity_unclassified_nodes += other.opacity_unclassified_nodes;
+        self.clipped_nodes += other.clipped_nodes;
+        self.effect_island_nodes += other.effect_island_nodes;
+        self.culled_nodes += other.culled_nodes;
         self.group_composites += other.group_composites;
         self.filter_layer_pool_entries += other.filter_layer_pool_entries;
         self.filter_scratch_pool_entries += other.filter_scratch_pool_entries;
+        self.ordinary_surface_clears += other.ordinary_surface_clears;
+        self.ordinary_surface_clear_bytes += other.ordinary_surface_clear_bytes;
+        self.extra_full_surface_intermediate_clears += other.extra_full_surface_intermediate_clears;
+        self.extra_full_surface_intermediate_clear_bytes +=
+            other.extra_full_surface_intermediate_clear_bytes;
+        self.full_surface_blits += other.full_surface_blits;
+        self.full_surface_blit_bytes += other.full_surface_blit_bytes;
+        self.popup_surface_packs += other.popup_surface_packs;
+        self.popup_surface_pack_bytes += other.popup_surface_pack_bytes;
     }
 }
 
@@ -648,6 +973,7 @@ impl<'a> SceneEncoder<'a> {
             inside_group: input.inside_group,
             text_render_error: input.text_render_error,
             draw_passes: input.draw_passes,
+            command_stats: input.command_stats,
         }
     }
 
@@ -713,12 +1039,14 @@ impl<'a> SceneEncoder<'a> {
                         );
                         pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
                         pass.draw(batch.vertex_range(), 0..1);
+                        self.command_stats.record_draws(1, false);
                     }
                     RenderBatch::Text { renderer_index } => {
                         if let Err(error) = self.text_renderer.render(*renderer_index, &mut pass) {
                             *self.text_render_error = Some(error);
                             break;
                         }
+                        self.command_stats.record_draws(1, true);
                     }
                     RenderBatch::Pane(_)
                     | RenderBatch::PushClip(_)
@@ -749,6 +1077,7 @@ impl<'a> SceneEncoder<'a> {
             pass.set_pipeline(self.quad_pipeline);
             pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
             pass.draw(batch.vertex_range(), 0..1);
+            self.command_stats.record_draws(1, false);
         }
         self.mark_current_dirty();
     }
@@ -804,6 +1133,7 @@ impl<'a> SceneEncoder<'a> {
                                 self.backdrop_view,
                                 self.backdrop_target,
                             );
+                            let filter_draws = filter_draw_calls(&filter);
                             self.filter_renderer.draw(render::filter::FilterDraw {
                                 render_context: self.render_context,
                                 encoder: self.encoder,
@@ -813,6 +1143,7 @@ impl<'a> SceneEncoder<'a> {
                                 filter,
                                 scissor: Some(scissor),
                             });
+                            self.command_stats.record_draws(filter_draws, true);
                             self.mark_current_dirty();
                         }
                     }
@@ -839,6 +1170,7 @@ impl<'a> SceneEncoder<'a> {
                             };
                             let filter =
                                 paint::Filter::stack(pane.rect, [paint::FilterOp::noise(noise)]);
+                            let filter_draws = filter_draw_calls(&filter);
                             self.filter_renderer.draw(render::filter::FilterDraw {
                                 render_context: self.render_context,
                                 encoder: self.encoder,
@@ -856,6 +1188,7 @@ impl<'a> SceneEncoder<'a> {
                                 filter,
                                 scissor: Some(scissor),
                             });
+                            self.command_stats.record_draws(filter_draws, true);
                             self.mark_current_dirty();
                         }
                     }
@@ -906,6 +1239,7 @@ impl<'a> SceneEncoder<'a> {
                 inside_group: true,
                 text_render_error: self.text_render_error,
                 draw_passes: self.draw_passes,
+                command_stats: self.command_stats,
             });
             group_encoder.encode(&group.render_batches);
         }
@@ -927,6 +1261,7 @@ impl<'a> SceneEncoder<'a> {
                     ),
                     opacity: group.opacity,
                 });
+            self.command_stats.record_draws(1, true);
             self.mark_current_dirty();
         }
         self.filter_renderer.recycle_layer(group_layer);
@@ -998,6 +1333,7 @@ impl<'a> SceneEncoder<'a> {
                 ),
                 opacity: 1.0,
             });
+        self.command_stats.record_draws(1, true);
         self.mark_current_dirty();
     }
 
@@ -1021,6 +1357,21 @@ impl<'a> SceneEncoder<'a> {
         }
         self.base_dirty = true;
     }
+}
+
+fn filter_draw_calls(filter: &paint::Filter) -> usize {
+    filter
+        .ops
+        .iter()
+        .map(|operation| match *operation {
+            paint::FilterOp::Blur { amount } if amount > 0.0 => 3,
+            paint::FilterOp::BackdropBlur(blur) if blur.sigma > 0.0 => 3,
+            paint::FilterOp::Refraction(refraction) if refraction.displacement > 0.0 => 2,
+            paint::FilterOp::Luminosity(luminosity) if luminosity.opacity > 0.0 => 2,
+            paint::FilterOp::Noise(noise) if noise.opacity > 0.0 => 2,
+            _ => 0,
+        })
+        .sum()
 }
 
 fn group_layer_source_rect(bounds: Rect) -> Rect {
@@ -1147,6 +1498,20 @@ mod tests {
         assert_eq!(draw_run_end(&batches, 0), 2);
         assert!(!is_draw_batch(&batches[2]));
         assert_eq!(draw_run_end(&batches, 3), 4);
+    }
+
+    #[test]
+    fn filter_command_counter_matches_the_passes_each_live_operation_encodes() {
+        let filter = paint::Filter::stack(
+            Rect::new(point::logical(0.0, 0.0), area::logical(40.0, 30.0)),
+            [
+                paint::FilterOp::blur(4.0),
+                paint::FilterOp::noise(paint::Noise { opacity: 0.02 }),
+                paint::FilterOp::blur(0.0),
+            ],
+        );
+
+        assert_eq!(filter_draw_calls(&filter), 5);
     }
 
     #[test]
@@ -1602,6 +1967,7 @@ mod tests {
         renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
         let mut draw_passes = 0;
+        let mut command_stats = CommandStats::default();
         let mut encoder =
             context
                 .device()
@@ -1627,6 +1993,7 @@ mod tests {
             inside_group: false,
             text_render_error: &mut text_render_error,
             draw_passes: &mut draw_passes,
+            command_stats: &mut command_stats,
         });
         scene_encoder.encode(&prepared_scene.render_batches);
 
@@ -1779,6 +2146,7 @@ mod tests {
         renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
         let mut draw_passes = 0;
+        let mut command_stats = CommandStats::default();
         let mut encoder =
             context
                 .device()
@@ -1804,6 +2172,7 @@ mod tests {
             inside_group: false,
             text_render_error: &mut text_render_error,
             draw_passes: &mut draw_passes,
+            command_stats: &mut command_stats,
         });
         scene_encoder.encode(&prepared_scene.render_batches);
         if let Some(error) = text_render_error {
@@ -1948,6 +2317,7 @@ mod tests {
         renderer.quad_arena.upload(&context);
         let mut text_render_error = None;
         let mut draw_passes = 0;
+        let mut command_stats = CommandStats::default();
         let mut encoder =
             context
                 .device()
@@ -1973,6 +2343,7 @@ mod tests {
             inside_group: false,
             text_render_error: &mut text_render_error,
             draw_passes: &mut draw_passes,
+            command_stats: &mut command_stats,
         });
         scene_encoder.encode(&prepared_scene.render_batches);
 

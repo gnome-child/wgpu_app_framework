@@ -329,7 +329,7 @@ impl Target {
 }
 
 impl Format {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(in crate::render) const fn from_wgpu(format: wgpu::TextureFormat) -> Self {
         Self(format)
     }

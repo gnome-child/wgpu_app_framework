@@ -43,6 +43,10 @@ impl Trigger {
 }
 
 impl Binding {
+    pub(in crate::view) fn same_scene_state(&self, other: &Self) -> bool {
+        self.state == other.state && self.source == other.source
+    }
+
     pub(super) fn new<C>(args: C::Args, source: Source) -> Self
     where
         C: command::Command,

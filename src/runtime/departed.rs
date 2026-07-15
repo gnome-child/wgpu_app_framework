@@ -40,8 +40,9 @@ impl<T> notification::Listener<window::Departed> for WindowMap<T> {
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(super) fn deliver_departed(&mut self) {
         for window in self.session.take_departed() {
-            let listeners: [&mut dyn notification::Listener<window::Departed>; 10] = [
+            let listeners: [&mut dyn notification::Listener<window::Departed>; 11] = [
                 &mut self.layout_cache,
+                &mut self.scene,
                 &mut self.presented_geometry,
                 &mut self.virtual_materializations,
                 &mut self.virtual_measurements,
@@ -74,6 +75,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct WindowResidues {
     pub(crate) layout_cache: usize,
+    pub(crate) scene: usize,
     pub(crate) presented_geometry: usize,
     pub(crate) virtual_materializations: usize,
     pub(crate) virtual_measurements: usize,
@@ -89,6 +91,7 @@ pub(crate) struct WindowResidues {
 impl WindowResidues {
     pub(crate) fn total(&self) -> usize {
         self.layout_cache
+            + self.scene
             + self.presented_geometry
             + self.virtual_materializations
             + self.virtual_measurements
@@ -106,6 +109,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(crate) fn window_residues(&self, window: window::Id) -> WindowResidues {
         WindowResidues {
             layout_cache: usize::from(self.layout_cache.contains_key(&window)),
+            scene: self.scene.residue_count(window),
             presented_geometry: usize::from(self.presented_geometry.contains_key(&window)),
             virtual_materializations: usize::from(
                 self.virtual_materializations.contains_key(&window),

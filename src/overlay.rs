@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -11,6 +12,8 @@ const DEFAULT_AFTERLIFE_LIMIT: usize = 8;
 pub(crate) struct Draft {
     id: interaction::Id,
     bounds: geometry::Rect,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     preference: Preference,
     popup_material_preference: PopupMaterialPreference,
@@ -27,6 +30,8 @@ struct Entry {
     id: interaction::Id,
     order: u64,
     bounds: geometry::Rect,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
@@ -49,6 +54,8 @@ struct Entry {
 struct Ghost {
     id: interaction::Id,
     original_order: u64,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     started_at: Instant,
     duration: Duration,
@@ -60,6 +67,8 @@ struct RetiringPopup {
     id: interaction::Id,
     original_order: u64,
     bounds: geometry::Rect,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
@@ -121,6 +130,8 @@ pub(crate) struct Layer {
     id: interaction::Id,
     order: u64,
     bounds: geometry::Rect,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     opacity: f32,
     fade: PopupFade,
@@ -231,6 +242,8 @@ struct Live {
     id: interaction::Id,
     order: u64,
     bounds: geometry::Rect,
+    commit: Arc<scene::Commit>,
+    properties: Arc<scene::Properties>,
     scene: scene::Scene,
     backend: Backend,
     native_animation: bool,
@@ -243,10 +256,24 @@ struct Live {
 }
 
 impl Draft {
+    #[cfg(test)]
     pub(crate) fn new(id: interaction::Id, bounds: geometry::Rect, scene: scene::Scene) -> Self {
+        let (commit, properties) = scene::Commit::legacy_test_pair(&scene);
+        Self::retained(id, bounds, commit, properties, scene)
+    }
+
+    pub(crate) fn retained(
+        id: interaction::Id,
+        bounds: geometry::Rect,
+        commit: Arc<scene::Commit>,
+        properties: scene::Properties,
+        scene: scene::Scene,
+    ) -> Self {
         Self {
             id,
             bounds,
+            commit,
+            properties: Arc::new(properties),
             scene,
             preference: Preference::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
@@ -321,6 +348,8 @@ impl Entry {
             id: self.id,
             order: self.order,
             bounds: self.bounds,
+            commit: Arc::clone(&self.commit),
+            properties: Arc::clone(&self.properties),
             scene: self.scene.clone(),
             opacity: self.opacity,
             fade: self.fade,
@@ -362,6 +391,8 @@ impl Ghost {
             id: self.id,
             order: self.original_order,
             bounds: geometry::Rect::from_size(self.scene.size()),
+            commit: Arc::clone(&self.commit),
+            properties: Arc::clone(&self.properties),
             scene: self.scene.clone(),
             opacity: self.opacity_at(now),
             fade: PopupFade::Exiting {
@@ -410,6 +441,8 @@ impl RetiringPopup {
             id: self.id,
             order: self.original_order,
             bounds: self.bounds,
+            commit: Arc::clone(&self.commit),
+            properties: Arc::clone(&self.properties),
             scene: self.scene.clone(),
             opacity: self.opacity_at(now),
             fade: PopupFade::Exiting {
@@ -445,6 +478,10 @@ impl RetiringPopup {
 
 impl Layer {
     pub(crate) fn scene(&self) -> &scene::Scene {
+        debug_assert!(
+            self.properties.require_compatible(&self.commit).is_ok(),
+            "overlay lifecycle must retain the property snapshot paired with its commit"
+        );
         &self.scene
     }
 
@@ -743,6 +780,8 @@ impl Store {
                 Backend::InFrame => state.ghosts.push(Ghost {
                     id: live.id,
                     original_order: live.order,
+                    commit: Arc::clone(&live.commit),
+                    properties: Arc::clone(&live.properties),
                     scene: live.scene.clone(),
                     started_at: now,
                     duration,
@@ -752,6 +791,8 @@ impl Store {
                     id: live.id,
                     original_order: live.order,
                     bounds: live.bounds,
+                    commit: Arc::clone(&live.commit),
+                    properties: Arc::clone(&live.properties),
                     scene: live.scene.clone(),
                     popup_material_preference: live.popup_material_preference,
                     popup_border: live.popup_border,
@@ -815,6 +856,8 @@ impl Store {
                 id: draft.id,
                 order,
                 bounds: draft.bounds,
+                commit: Arc::clone(&draft.commit),
+                properties: Arc::clone(&draft.properties),
                 scene: draft.scene.clone(),
                 backend,
                 native_animation,
@@ -830,6 +873,8 @@ impl Store {
                 id: draft.id,
                 order,
                 bounds: draft.bounds,
+                commit: draft.commit,
+                properties: draft.properties,
                 scene: draft.scene,
                 backend,
                 popup_material_preference: draft.popup_material_preference,
@@ -1314,13 +1359,15 @@ mod tests {
         let window = window::Id::new(2);
         let now = Instant::now();
 
-        update(
+        let live = update(
             &mut store,
             window,
             vec![draft("palette")],
             overlay_theme(0, 120),
             now,
         );
+        let retained_commit = Arc::clone(&live.layers[0].commit);
+        let retained_properties = Arc::clone(&live.layers[0].properties);
         let fading = update(
             &mut store,
             window,
@@ -1333,6 +1380,11 @@ mod tests {
         assert_eq!(fading.layers.len(), 1);
         assert_eq!(fading.layers[0].id(), interaction::Id::new("palette"));
         assert_eq!(fading.layers[0].kind(), LayerKind::Ghost);
+        assert!(Arc::ptr_eq(&retained_commit, &fading.layers[0].commit));
+        assert!(Arc::ptr_eq(
+            &retained_properties,
+            &fading.layers[0].properties
+        ));
         assert_eq!(fading.layers[0].opacity, 1.0);
         assert_eq!(fading.schedule, animation::Schedule::NextFrame);
 
@@ -1364,7 +1416,7 @@ mod tests {
         let now = Instant::now();
         let border = scene::Color::rgb(10, 20, 30);
 
-        store.update_window(
+        let live = store.update_window(
             window,
             vec![
                 popup_draft("menu")
@@ -1375,6 +1427,8 @@ mod tests {
             Capabilities::with_native_popups(),
             now,
         );
+        let retained_commit = Arc::clone(&live.layers[0].commit);
+        let retained_properties = Arc::clone(&live.layers[0].properties);
         let removed = store.update_window(
             window,
             Vec::new(),
@@ -1387,6 +1441,11 @@ mod tests {
         assert_eq!(store.retiring_popup_count(window), 1);
         assert_eq!(removed.layers.len(), 1);
         assert_eq!(removed.layers[0].kind(), LayerKind::RetiringPopup);
+        assert!(Arc::ptr_eq(&retained_commit, &removed.layers[0].commit));
+        assert!(Arc::ptr_eq(
+            &retained_properties,
+            &removed.layers[0].properties
+        ));
         assert_eq!(removed.layers[0].backend(), Backend::NativePopup);
         assert_eq!(
             removed.layers[0].popup_material_preference(),

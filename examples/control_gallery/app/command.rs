@@ -1,4 +1,4 @@
-use super::Mode;
+use super::{Mode, RendererViewport};
 use wgpu_l3::command::{Command, HistoryGroup};
 
 pub struct IncrementClicks;
@@ -17,6 +17,9 @@ pub struct OpenRecord;
 pub struct ShowInfoFeedback;
 pub struct ShowWarningFeedback;
 pub struct ClearFeedback;
+pub struct WriteRendererReceipt;
+pub struct SelectRendererViewport;
+pub struct SetRendererWorkload;
 
 #[derive(Clone)]
 pub struct EditRecordNoteArgs {
@@ -150,4 +153,25 @@ impl Command for ClearFeedback {
     type Output = ();
 
     const NAME: &'static str = "control_gallery.clear_feedback";
+}
+
+impl Command for WriteRendererReceipt {
+    type Args = ();
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.write_renderer_receipt";
+}
+
+impl Command for SelectRendererViewport {
+    type Args = RendererViewport;
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.select_renderer_viewport";
+}
+
+impl Command for SetRendererWorkload {
+    type Args = String;
+    type Output = ();
+
+    const NAME: &'static str = "control_gallery.set_renderer_workload";
 }

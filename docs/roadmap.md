@@ -8,6 +8,22 @@ is next.
 
 ## Specced and ready
 
+36. **Retained Renderer — The Edges Teach Inward** (IN FLIGHT; CHECKPOINT 0) — replace the
+    per-frame flattened rendering core behind the proven `Context` / `Canvas` /
+    `Surface` seam. Composition
+    identity survives into retained `scene::{Commit, Node, Content,
+    Properties}`; semantic commits, property ticks, and presentation
+    activation own disjoint fields and clocks; scroll is the first literal-zero
+    property client; unchanged content retains GPU realization; ordinary
+    opaque windows lose the unconditional full-surface intermediate/blit. The
+    campaign opens with WARP correctness, DX12 PIX, and field iGPU telemetry,
+    hosts One-Way cells in every touched module, generalizes the deep readback
+    oracle, and ends with a deletion-shaped burn-down of the legacy renderer,
+    flattening, adapter, and orphans. Qt/GTK-class synchronous activation is
+    required first; Chromium pending/active, a render thread, damage, and
+    partial present are separately measurement-gated. Formulation:
+    `docs/audits/2026-07-14-retained-renderer-campaign.md`.
+
 ## Pending manual verification
 
 5. Popup-hosted cursor icon and IME candidate placement, fractional-alpha edge

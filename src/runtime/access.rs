@@ -170,6 +170,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return false;
         }
 
+        let presented = report.presented();
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.render.record_present(epoch, report);
         if diagnostics.render.frames_presented.is_multiple_of(10) {
@@ -212,8 +213,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             );
         }
 
-        if report.presented() {
+        if presented {
             if self.session.acknowledge_presentation(window, epoch) {
+                self.diagnostics
+                    .get_mut(window)
+                    .render
+                    .record_semantic_activation();
                 self.presented_geometry.insert(
                     window,
                     super::PresentedGeometry {
@@ -273,7 +278,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         } else {
             self.session.retry_invalidation(window, invalidation);
         }
-        !report.presented()
+        !presented
     }
 
     pub(crate) fn presented_layout(

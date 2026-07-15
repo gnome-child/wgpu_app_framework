@@ -2,8 +2,9 @@ use super::{
     Mode, State,
     command::{
         EditRecordCount, EditRecordCountArgs, EditRecordNote, EditRecordNoteArgs, IncrementClicks,
-        OpenRecord, ResetControls, SelectMode, SetLevel, SetRecordEnabled, SetRecordEnabledArgs,
-        SubmitQuery, ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        OpenRecord, ResetControls, SelectMode, SelectRendererViewport, SetLevel, SetRecordEnabled,
+        SetRecordEnabledArgs, SetRendererWorkload, SubmitQuery, ToggleAdvanced, ToggleExpandedRows,
+        ToggleGrid, ToggleWrap, WriteRendererReceipt,
     },
     state::{RECORD_COUNT, RecordOrder},
 };
@@ -14,6 +15,8 @@ use wgpu_l3::{
 };
 
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
+pub(super) const RENDERER_WORKLOAD_FOCUS: interaction::Id =
+    interaction::Id::new("control_gallery.renderer_workload");
 
 pub const WINDOW_TITLE: &str = "wgpu_l3 Control Gallery";
 pub const CANVAS_COLOR: scene::Color = window::DEFAULT_CANVAS_COLOR;
@@ -77,6 +80,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         if state.show_advanced {
                             ui.add(advanced_panel(state));
                         }
+
+                        ui.add(renderer_measurement_panel(state));
 
                         ui.label("One million provided records");
                         ui.checkbox(
@@ -226,7 +231,9 @@ pub fn view(state: &State, _: ViewContext) -> View {
                             })
                             .context_rows::<OpenRecord>(|key| key)
                             .width(Dimension::grow())
-                            .height(Dimension::fixed(500)),
+                            .height(Dimension::fixed(
+                                state.renderer_viewport.logical_height(),
+                            )),
                         );
                     }),
             );
@@ -332,5 +339,55 @@ fn advanced_panel(state: &State) -> widget::Element {
                 widget::Slider::new("Level", state.level, 0.0..=100.0).on_change::<SetLevel>(),
             );
             ui.label("Drag the slider to exercise captured pointer input and coalesced history.");
+        })
+}
+
+fn renderer_measurement_panel(state: &State) -> widget::Element {
+    widget::Element::new()
+        .column()
+        .layout(|layout| {
+            layout
+                .gap(6)
+                .padding(Padding::all(8))
+                .align_items(Align::Stretch)
+        })
+        .height(Dimension::fixed(92))
+        .children(|ui| {
+            ui.add(
+                widget::Element::new()
+                    .row()
+                    .layout(|layout| layout.gap(8).align_items(Align::Center))
+                    .height(Dimension::fixed(28))
+                    .children(|ui| {
+                        ui.label("Renderer viewport");
+                        for viewport in super::RendererViewport::ALL {
+                            ui.radio(
+                                widget::Radio::new(
+                                    viewport.label(),
+                                    state.renderer_viewport == viewport,
+                                )
+                                .trigger::<SelectRendererViewport>(viewport),
+                            );
+                        }
+                    }),
+            );
+            ui.add(
+                widget::Element::new()
+                    .row()
+                    .layout(|layout| layout.gap(8).align_items(Align::Center))
+                    .height(Dimension::fixed(36))
+                    .children(|ui| {
+                        ui.label("Receipt workload");
+                        ui.text_box(
+                            widget::TextBox::new(state.renderer_workload.clone())
+                                .focus(wgpu_l3::session::Focus::text(RENDERER_WORKLOAD_FOCUS))
+                                .on_commit::<SetRendererWorkload>(),
+                        );
+                        ui.button(
+                            widget::Button::new("Write receipt")
+                                .trigger::<WriteRendererReceipt>(()),
+                        );
+                    }),
+            );
         })
 }

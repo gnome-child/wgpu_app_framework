@@ -757,6 +757,67 @@ fn renderer_publishes_render_facts_without_importing_diagnostics() {
 }
 
 #[test]
+fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let context = std::fs::read_to_string(root.join("src/render/context.rs"))
+        .expect("renderer context source should read");
+    let diagnostics = std::fs::read_to_string(root.join("src/diagnostics/render.rs"))
+        .expect("renderer diagnostics source should read");
+    let gallery_runtime =
+        std::fs::read_to_string(root.join("examples/control_gallery/app/runtime.rs"))
+            .expect("control gallery runtime source should read");
+    let gallery_state = std::fs::read_to_string(root.join("examples/control_gallery/app/state.rs"))
+        .expect("control gallery state source should read");
+
+    assert!(
+        context.contains("WGPU_L3_FORCE_FALLBACK_ADAPTER")
+            && context.contains("force_fallback_adapter")
+            && context.contains("wgpu::DeviceType::Cpu"),
+        "the DX12 fallback rail must be explicit and verify CPU-class selection"
+    );
+
+    for field in [
+        "schema=wgpu_l3.renderer_receipt.v1",
+        "frames_attempted=",
+        "frames_presented=",
+        "renderer_deadline_misses=",
+        "semantic_commits_created=",
+        "scene_nodes_reused=",
+        "property_upload_bytes=",
+        "content_upload_bytes_total=",
+        "retained_gpu_resource_count_high_water=",
+        "opacity_unclassified_nodes_latest=",
+        "command_preparation_us",
+        "replenishment_commit_us",
+        "candidate_property_serial=",
+        "visible_property_serial=",
+        "full_surface_blit_bytes_total=",
+    ] {
+        assert!(
+            diagnostics.contains(field),
+            "renderer receipt must retain campaign currency {field}"
+        );
+    }
+
+    assert!(
+        gallery_runtime.contains("std::fs::write")
+            && gallery_runtime.contains("renderer_receipt_text(&workload)")
+            && gallery_runtime.contains("std::env::current_exe()")
+            && gallery_runtime.contains("renderer-receipts")
+            && !gallery_runtime.contains("TcpStream")
+            && !gallery_runtime.contains("UdpSocket")
+            && !gallery_runtime.contains("reqwest"),
+        "the field action must write a named local artifact and own no network path"
+    );
+    for height in ["136", "500", "800"] {
+        assert!(
+            gallery_state.contains(height),
+            "control gallery must retain the {height}px measurement viewport"
+        );
+    }
+}
+
+#[test]
 fn layout_publishes_text_facts_without_importing_diagnostics() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let layout = root.join("layout");
@@ -5584,6 +5645,78 @@ fn deferred_tasks_have_one_worker_execution_path() {
             && master.contains("executor tests must not sleep"),
         "master design must name task ownership and retain the suite-runtime audit"
     );
+}
+
+#[test]
+fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest =
+        std::fs::read_to_string(root.join("Cargo.toml")).expect("root manifest should read");
+    let debug_manifest = std::fs::read_to_string(root.join("tools/renderer_debug/Cargo.toml"))
+        .expect("renderer debug manifest should read");
+    let library =
+        std::fs::read_to_string(root.join("src/lib.rs")).expect("library source should read");
+    let render =
+        std::fs::read_to_string(root.join("src/render/mod.rs")).expect("render module should read");
+    let commit = std::fs::read_to_string(root.join("src/scene/commit.rs"))
+        .expect("scene commit source should read");
+    let composition = std::fs::read_to_string(root.join("src/composition/tree.rs"))
+        .expect("composition tree source should read");
+
+    assert!(
+        manifest.contains("default = []")
+            && manifest.contains("renderer-debug = []")
+            && manifest.contains("default-members = [\".\"]"),
+        "renderer-debug must remain a non-default development feature"
+    );
+    assert!(
+        debug_manifest.contains("publish = false")
+            && debug_manifest.contains("features = [\"renderer-debug\"]"),
+        "the renderer oracle must remain an unpublished development-only package"
+    );
+    assert!(
+        library.contains(
+            "#[cfg(feature = \"renderer-debug\")]\n#[doc(hidden)]\npub use render::debug as renderer_debug;"
+        ) && render.contains(
+            "#[cfg(feature = \"renderer-debug\")]\npub mod debug;"
+        ),
+        "the oracle capability must be absent from ordinary production builds"
+    );
+
+    assert!(
+        commit.contains("id: composition::tree::NodeId,")
+            && !commit.contains("RenderNodeId")
+            && !commit.contains("PresentationEpoch"),
+        "scene commits must carry composition identity and must not borrow the presentation clock"
+    );
+    let content = commit
+        .split("pub(crate) enum Content {")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) enum PropertyKind").next())
+        .expect("closed scene content declaration should exist");
+    for escape_hatch in ["Callback", "Custom", "dyn ", "Fn("] {
+        assert!(
+            !content.contains(escape_hatch),
+            "scene content must remain closed typed data without {escape_hatch}"
+        );
+    }
+    assert!(
+        composition.contains(
+            "#[cfg(feature = \"renderer-debug\")]\n    pub(crate) fn renderer_fixture(value: u64) -> Self"
+        ),
+        "synthetic composition identity must remain confined to renderer fixtures"
+    );
+
+    for selector in [
+        "WGPU_L3_RENDERER_DEBUG",
+        "WGPU_L3_LEGACY_RENDERER",
+        "WGPU_L3_RENDERER_SELECTOR",
+    ] {
+        assert!(
+            !library.contains(selector) && !render.contains(selector),
+            "the oracle must not acquire a production runtime selector named {selector}"
+        );
+    }
 }
 
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {

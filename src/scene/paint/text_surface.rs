@@ -15,7 +15,7 @@ fn surface_rect(
     )
 }
 
-pub(super) fn surface(
+pub(in crate::scene) fn surface(
     viewport: geometry::Rect,
     surface: &text::layout::TextAreaSurface,
 ) -> TextSurface {

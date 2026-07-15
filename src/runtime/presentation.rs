@@ -4,6 +4,7 @@ use super::super::{
 };
 use super::{CachedLayout, Runtime, services::Services, work};
 use crate::{animation, ime, text};
+use std::sync::Arc;
 use std::time::Instant;
 
 const MAX_VIRTUAL_REFINEMENT_PASSES: usize = 8;
@@ -20,7 +21,8 @@ struct PreparedFrame {
     epoch: window::PresentationEpoch,
     invalidation: response::effect::Invalidation,
     layout: layout::Layout,
-    scene: scene::Scene,
+    commit: Arc<scene::Commit>,
+    properties: scene::Properties,
     layers: Vec<crate::overlay::Layer>,
     capabilities: crate::overlay::Capabilities,
     native_popup_dark: bool,
@@ -31,6 +33,12 @@ struct RealizedFrame {
     presentation: scene::Presentation,
     popup_presentations: Vec<crate::overlay::PopupPresentation>,
     ime_update: ime::Update,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct VirtualProjectionChange {
+    any: bool,
+    crossed_guard: bool,
 }
 
 impl FrameNeed {
@@ -50,7 +58,11 @@ impl FrameNeed {
 }
 
 impl PreparedFrame {
-    fn realize(mut self) -> RealizedFrame {
+    fn realize(self) -> RealizedFrame {
+        let mut scene = self
+            .commit
+            .compatibility_scene(&self.properties)
+            .expect("prepared properties must remain compatible with their immutable commit");
         let ime_target = ime_target_for_layers(self.layout.text_caret_rect(), &self.layers);
         let mut popup_presentations = Vec::new();
 
@@ -60,7 +72,7 @@ impl PreparedFrame {
                 crate::overlay::LayerKind::Live | crate::overlay::LayerKind::RetiringPopup => {
                     append_or_present_overlay_layer(
                         self.window,
-                        &mut self.scene,
+                        &mut scene,
                         layer,
                         self.capabilities,
                         self.native_popup_dark,
@@ -69,8 +81,7 @@ impl PreparedFrame {
                     );
                 }
                 crate::overlay::LayerKind::Ghost => {
-                    self.scene
-                        .append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
+                    scene.append_ghost_scene_with_opacity(layer.scene(), layer.opacity());
                 }
             }
         }
@@ -82,7 +93,7 @@ impl PreparedFrame {
                 self.epoch,
                 self.invalidation,
                 self.layout,
-                self.scene,
+                scene,
             ),
             popup_presentations,
             ime_update: ime::Update::new(self.window, ime_target),
@@ -311,7 +322,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Some(interaction)
     }
 
-    fn update_virtual_projections(&mut self, window: window::Id, layout: &layout::Layout) -> bool {
+    fn update_virtual_projections(
+        &mut self,
+        window: window::Id,
+        layout: &layout::Layout,
+    ) -> VirtualProjectionChange {
         let mut next_materializations = self
             .virtual_materializations
             .get(&window)
@@ -323,9 +338,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .cloned()
             .unwrap_or_default();
         let mut seen = std::collections::HashSet::new();
+        let mut crossed_guard = false;
 
         for request in layout.virtual_list_requests() {
             seen.insert(request.id());
+            crossed_guard |= next_materializations
+                .get(&request.id())
+                .is_some_and(|current| current.range() != request.range());
             let current = next_materializations
                 .get(&request.id())
                 .cloned()
@@ -369,7 +388,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 self.virtual_measurements.insert(window, next_measurements);
             }
         }
-        materializations_changed || measurements_changed
+        VirtualProjectionChange {
+            any: materializations_changed || measurements_changed,
+            crossed_guard,
+        }
     }
 
     fn compose_layout_for_scene(
@@ -395,7 +417,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         };
 
         let mut refinement_passes = 0;
-        while self.update_virtual_projections(window, &layout) {
+        loop {
+            let replenishment_started_at = Instant::now();
+            let change = self.update_virtual_projections(window, &layout);
+            if !change.any {
+                break;
+            }
             if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
                 log::warn!(
                     "virtual geometry did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
@@ -415,6 +442,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 self.keymap,
                 popup_surfaces,
             );
+            if change.crossed_guard {
+                self.diagnostics
+                    .get_mut(window)
+                    .render
+                    .record_replenishment_commit(replenishment_started_at.elapsed());
+            }
         }
 
         if self.apply_active_descendant_reveals(window, &layout, theme) {
@@ -746,8 +779,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         if !changes.is_empty() {
             log::debug!(
-                "composition changed for window {:?}: removed={}, removed_elements={}",
+                "composition changed for window {:?}: added={}, changed={}, removed={}, removed_elements={}",
                 window,
+                changes.added().len(),
+                changes.changed().len(),
                 changes.removed().len(),
                 changes.removed_elements().len()
             );
@@ -935,7 +970,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.visual_animations
                 .update_window(window, &layout, interaction.as_ref(), theme, now);
         let canvas_color = self.canvas_color(window);
-        let (scene, entries) = scene::Scene::paint_parts_with_clear_theme_and_visuals(
+        let (commit, properties, entries, scene_stats) = self.scene.paint(
+            window,
             &layout,
             canvas_color,
             theme,
@@ -980,6 +1016,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.pipeline.record_scene_assembly(assembly_elapsed);
         diagnostics.pipeline.record_frame_prepared();
+        diagnostics.render.record_scene_projection(scene_stats);
 
         Some(PreparedFrame {
             window,
@@ -987,7 +1024,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             epoch,
             invalidation,
             layout,
-            scene,
+            commit,
+            properties,
             layers,
             capabilities,
             native_popup_dark: theme.variant() == crate::theme::Variant::Dark,

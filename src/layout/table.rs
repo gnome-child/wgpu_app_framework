@@ -26,7 +26,7 @@ struct ResolvedColumn {
     width: i32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct Track {
     kind: Kind,
     boundary: i32,
@@ -36,7 +36,7 @@ pub(crate) struct Track {
     table_node: composition::tree::NodeId,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Column {
     identity: crate::table::HeaderCell,
     header_node: composition::tree::NodeId,
@@ -44,7 +44,7 @@ struct Column {
     table_rect: Rect,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Kind {
     Column(Column),
     Row,

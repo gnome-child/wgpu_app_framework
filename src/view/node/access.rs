@@ -9,6 +9,24 @@ use crate::{interaction, subject};
 static INTERACTIVE_PANEL_POLICY: PanelPolicy = PanelPolicy::Interactive;
 
 impl Node {
+    pub(crate) fn scene_key(&self) -> super::SceneKey {
+        super::SceneKey {
+            content: self.content.clone(),
+            axis: self.axis,
+            style: self.style.clone(),
+            label: self.label.clone(),
+            text_kind: self.text_kind,
+            binding: self.binding.clone(),
+            focus_presentation: self.focus_presentation,
+            selected: self.selected,
+            active_item: self.active_item,
+            table_cell: self.table_cell,
+            table_header_cell: self.table_header_cell,
+            table_header_presentation: self.table_header_presentation,
+            participation: self.participation,
+        }
+    }
+
     pub(crate) fn content(&self) -> &Content {
         &self.content
     }

@@ -3,12 +3,17 @@ mod indicator;
 mod slider;
 mod text_area;
 mod text_box;
-mod text_surface;
+pub(super) mod text_surface;
 mod viewport_chrome;
+
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use crate::icon as icons;
 
-use super::super::{geometry, keymap, layout, overlay, theme::Theme, view};
+use super::super::{composition, geometry, keymap, layout, overlay, theme::Theme, view};
 use super::{
     Brush, Clip, Icon, Material, Offset, Outline, Pane, Quad, Scene, Shadow, Style, Text,
     TextAlign, TextStyle, TextWrap, Visuals,
@@ -21,6 +26,380 @@ enum Layer {
     Floating,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct RetainedStats {
+    pub(super) commits_created: usize,
+    pub(super) nodes_added: usize,
+    pub(super) nodes_removed: usize,
+    pub(super) node_paints: usize,
+    pub(super) node_reuses: usize,
+    pub(super) track_paints: usize,
+    pub(super) chrome_paints: usize,
+}
+
+#[derive(Default)]
+pub(super) struct Retained {
+    theme: Option<Theme>,
+    retained_nodes: HashSet<composition::tree::NodeId>,
+    frames: HashMap<composition::tree::NodeId, CachedFrame>,
+    tracks: HashMap<(composition::tree::NodeId, usize), CachedTrack>,
+    chrome: HashMap<(composition::tree::NodeId, usize), CachedChrome>,
+    nodes: HashMap<composition::tree::NodeId, Arc<super::Node>>,
+    commits: HashMap<CommitKey, Arc<super::Commit>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CommitKey {
+    Base,
+    Popup(composition::tree::NodeId),
+}
+
+#[derive(Clone)]
+struct CachedFrame {
+    key: layout::FrameSceneKey,
+    visual: super::visual::NodeState,
+    body: Scene,
+    late: Vec<viewport_chrome::Projection>,
+}
+
+#[derive(Clone)]
+struct CachedTrack {
+    key: layout::table::Track,
+    body: Scene,
+}
+
+#[derive(Clone)]
+struct CachedChrome {
+    key: layout::Chrome,
+    visual: super::visual::Scrollbar,
+    late: Vec<viewport_chrome::Projection>,
+}
+
+#[derive(Default)]
+struct Seen {
+    frames: HashSet<composition::tree::NodeId>,
+    tracks: HashSet<(composition::tree::NodeId, usize)>,
+    chrome: HashSet<(composition::tree::NodeId, usize)>,
+}
+
+struct LayerFragments {
+    frames: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
+    tracks: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
+    late: Vec<viewport_chrome::Projection>,
+}
+
+impl Retained {
+    pub(super) fn paint(
+        &mut self,
+        layout: &layout::Layout,
+        clear: super::Color,
+        theme: &Theme,
+        visuals: &Visuals,
+    ) -> (
+        Arc<super::Commit>,
+        super::Properties,
+        Vec<overlay::Draft>,
+        RetainedStats,
+    ) {
+        if self.theme.as_ref() != Some(theme) {
+            self.frames.clear();
+            self.tracks.clear();
+            self.chrome.clear();
+            self.theme = Some(theme.clone());
+        }
+
+        let mut seen = Seen::default();
+        let mut stats = RetainedStats::default();
+        let mut builder = commit_builder(layout, clear, None);
+        for layer in [Layer::Base, Layer::Chrome] {
+            let fragments =
+                self.layer_fragments(layout, layer, None, theme, visuals, &mut seen, &mut stats);
+            append_layer_fragments(&mut builder, layout.size(), fragments);
+        }
+        let base_key = CommitKey::Base;
+        let previous_base = self.commits.get(&base_key).cloned();
+        let commit = builder
+            .finish(previous_base.as_ref(), &mut self.nodes)
+            .expect("retained base commit must satisfy the scene contract");
+        stats.commits_created = usize::from(
+            previous_base
+                .as_ref()
+                .is_none_or(|previous| !Arc::ptr_eq(previous, &commit)),
+        );
+        self.commits.insert(base_key, Arc::clone(&commit));
+        let properties = super::Properties::empty(&commit)
+            .expect("a property-free retained commit accepts an empty snapshot");
+
+        let mut entries = Vec::new();
+        let mut seen_commits = HashSet::from([base_key]);
+        for panel in root_floating_panels(layout) {
+            let id = match panel.interaction_id() {
+                Some(id) => id,
+                None => continue,
+            };
+            let mut builder = commit_builder(layout, clear, Some(panel));
+            let fragments = self.layer_fragments(
+                layout,
+                Layer::Floating,
+                Some(panel),
+                theme,
+                visuals,
+                &mut seen,
+                &mut stats,
+            );
+            append_layer_fragments(&mut builder, layout.size(), fragments);
+            let commit_key = CommitKey::Popup(panel.node_id());
+            let previous_popup = self.commits.get(&commit_key).cloned();
+            let popup_commit = builder
+                .finish(previous_popup.as_ref(), &mut self.nodes)
+                .expect("retained popup commit must satisfy the scene contract");
+            stats.commits_created = stats.commits_created.saturating_add(usize::from(
+                previous_popup
+                    .as_ref()
+                    .is_none_or(|previous| !Arc::ptr_eq(previous, &popup_commit)),
+            ));
+            let popup_properties = super::Properties::empty(&popup_commit)
+                .expect("a property-free popup commit accepts an empty snapshot");
+            let panel_scene = popup_commit
+                .compatibility_scene(&popup_properties)
+                .expect("the legacy popup adapter receives its own property snapshot");
+            self.commits.insert(commit_key, Arc::clone(&popup_commit));
+            seen_commits.insert(commit_key);
+            if !panel_scene.is_empty() {
+                entries.push(
+                    overlay::Draft::retained(
+                        id,
+                        panel.rect(),
+                        popup_commit,
+                        popup_properties,
+                        panel_scene,
+                    )
+                    .prefer(overlay::Preference::NativePopup)
+                    .placement(panel.popup_placement())
+                    .context_fingerprint(panel.popup_context())
+                    .popup_material_preference(popup_material_preference(panel))
+                    .popup_border(theme.floating_panel().border())
+                    .text_caret_rect(text_caret_rect_for_panel(layout, panel))
+                    .accepts_input(panel.panel_accepts_input())
+                    .force_group_at_full_opacity(panel.force_overlay_group()),
+                );
+            }
+        }
+
+        self.frames.retain(|id, _| seen.frames.contains(id));
+        self.tracks.retain(|key, _| seen.tracks.contains(key));
+        self.chrome.retain(|key, _| seen.chrome.contains(key));
+        self.nodes.retain(|id, _| seen.frames.contains(id));
+        self.commits.retain(|key, _| seen_commits.contains(key));
+        stats.nodes_added = seen.frames.difference(&self.retained_nodes).count();
+        stats.nodes_removed = self.retained_nodes.difference(&seen.frames).count();
+        self.retained_nodes = seen.frames;
+
+        (commit, properties, entries, stats)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn layer_fragments(
+        &mut self,
+        layout: &layout::Layout,
+        layer: Layer,
+        panel: Option<&layout::Frame>,
+        theme: &Theme,
+        visuals: &Visuals,
+        seen: &mut Seen,
+        stats: &mut RetainedStats,
+    ) -> LayerFragments {
+        let mut frames = Vec::new();
+        let mut tracks = Vec::new();
+        let mut late = Vec::new();
+
+        for frame in layout.frames().iter().filter(|frame| {
+            layer_for(frame) == layer
+                && panel.is_none_or(|panel| frame_belongs_to_panel(frame, panel))
+        }) {
+            seen.frames.insert(frame.node_id());
+            let key = frame.scene_key();
+            let visual = visuals.node_state(frame.target());
+            let cached = self
+                .frames
+                .get(&frame.node_id())
+                .filter(|cached| cached.key == key && cached.visual == visual);
+            let cached = if let Some(cached) = cached {
+                stats.node_reuses = stats.node_reuses.saturating_add(1);
+                cached.clone()
+            } else {
+                let mut body = Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
+                let mut frame_late = Vec::new();
+                let clip = frame
+                    .clip()
+                    .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+                paint_frame(frame, &mut body, theme, visuals, &mut frame_late, clip);
+                let cached = CachedFrame {
+                    key,
+                    visual,
+                    body,
+                    late: frame_late,
+                };
+                self.frames.insert(frame.node_id(), cached.clone());
+                stats.node_paints = stats.node_paints.saturating_add(1);
+                cached
+            };
+            let clip = frame
+                .clip()
+                .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+            frames.push((frame.node_id(), clip, cached.body));
+            late.extend(cached.late);
+        }
+
+        let mut track_ordinals = HashMap::new();
+        for track in layout.table_tracks().iter().filter(|track| {
+            table_track_layer_for(track) == layer
+                && panel.is_none_or(|panel| table_track_belongs_to_panel(layout, track, panel))
+        }) {
+            let ordinal = track_ordinals.entry(track.table_node()).or_insert(0_usize);
+            let cache_key = (track.table_node(), *ordinal);
+            *ordinal = ordinal.saturating_add(1);
+            seen.tracks.insert(cache_key);
+            let cached = self
+                .tracks
+                .get(&cache_key)
+                .filter(|cached| cached.key == *track)
+                .cloned()
+                .unwrap_or_else(|| {
+                    let mut body =
+                        Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
+                    paint_table_track(track, &mut body, theme);
+                    let cached = CachedTrack {
+                        key: track.clone(),
+                        body,
+                    };
+                    self.tracks.insert(cache_key, cached.clone());
+                    stats.track_paints = stats.track_paints.saturating_add(1);
+                    cached
+                });
+            let clip = track
+                .clip()
+                .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+            tracks.push((track.table_node(), clip, cached.body));
+        }
+
+        let mut chrome_ordinals = HashMap::new();
+        for chrome in layout.chrome().iter().filter(|chrome| {
+            chrome_layer_for(layout, chrome) == layer
+                && panel.is_none_or(|panel| chrome_belongs_to_panel(layout, chrome, panel))
+        }) {
+            let ordinal = chrome_ordinals.entry(chrome.owner()).or_insert(0_usize);
+            let cache_key = (chrome.owner(), *ordinal);
+            *ordinal = ordinal.saturating_add(1);
+            seen.chrome.insert(cache_key);
+            let visual = visuals.scrollbar(chrome.target());
+            let cached = self
+                .chrome
+                .get(&cache_key)
+                .filter(|cached| cached.key == *chrome && cached.visual == visual)
+                .cloned()
+                .unwrap_or_else(|| {
+                    let mut chrome_late = Vec::new();
+                    project_chrome(chrome, theme, visuals, &mut chrome_late);
+                    let cached = CachedChrome {
+                        key: chrome.clone(),
+                        visual,
+                        late: chrome_late,
+                    };
+                    self.chrome.insert(cache_key, cached.clone());
+                    stats.chrome_paints = stats.chrome_paints.saturating_add(1);
+                    cached
+                });
+            late.extend(cached.late);
+        }
+
+        late.sort_by_key(viewport_chrome::Projection::layer_order);
+        LayerFragments {
+            frames,
+            tracks,
+            late,
+        }
+    }
+}
+
+fn commit_builder(
+    layout: &layout::Layout,
+    clear: super::Color,
+    panel: Option<&layout::Frame>,
+) -> super::CommitBuilder {
+    let frames = layout
+        .frames()
+        .iter()
+        .filter(|frame| match panel {
+            Some(panel) => {
+                layer_for(frame) == Layer::Floating && frame_belongs_to_panel(frame, panel)
+            }
+            None => layer_for(frame) != Layer::Floating,
+        })
+        .collect::<Vec<_>>();
+    let included = frames
+        .iter()
+        .map(|frame| frame.node_id())
+        .collect::<HashSet<_>>();
+    let mut builder = super::CommitBuilder::new(layout.size(), clear);
+    for frame in frames {
+        builder.register(
+            frame.node_id(),
+            frame.parent().filter(|parent| included.contains(parent)),
+            frame.content_revision(),
+            frame.rect(),
+        );
+    }
+    builder
+}
+
+fn append_layer_fragments(
+    target: &mut super::CommitBuilder,
+    size: geometry::Size,
+    fragments: LayerFragments,
+) {
+    append_shared_clip_fragments(target, fragments.frames);
+    append_shared_clip_fragments(target, fragments.tracks);
+    let mut late = fragments.late;
+    late.sort_by_key(viewport_chrome::Projection::layer_order);
+    for projection in late {
+        let owner = projection.owner();
+        let mut fragment = Scene::new_with_clear(size, super::Color::rgba(0, 0, 0, 0));
+        projection.paint_into(&mut fragment);
+        target.append_fragment(owner, &fragment);
+    }
+}
+
+fn append_shared_clip_fragments(
+    target: &mut super::CommitBuilder,
+    fragments: Vec<(composition::tree::NodeId, Option<Clip>, Scene)>,
+) {
+    let mut active_clip = None;
+    for (owner, clip, fragment) in fragments {
+        switch_commit_clip_scope(target, &mut active_clip, clip);
+        target.append_fragment(owner, &fragment);
+    }
+    switch_commit_clip_scope(target, &mut active_clip, None);
+}
+
+fn switch_commit_clip_scope(
+    target: &mut super::CommitBuilder,
+    active: &mut Option<Clip>,
+    next: Option<Clip>,
+) {
+    if *active == next {
+        return;
+    }
+    if active.take().is_some() {
+        target.pop_clip();
+    }
+    if let Some(clip) = next {
+        target.push_clip(clip);
+        *active = Some(clip);
+    }
+}
+
+#[cfg(test)]
 pub(super) fn paint_layout_with_theme(
     layout: &layout::Layout,
     scene: &mut Scene,
@@ -64,6 +443,7 @@ pub(super) fn paint_layout_with_theme(
     paint_overlay_entries(layout, scene.clear(), theme, visuals)
 }
 
+#[cfg(test)]
 fn paint_overlay_entries(
     layout: &layout::Layout,
     clear: super::Color,
@@ -197,6 +577,7 @@ fn paint_table_track(track: &layout::table::Track, scene: &mut Scene, theme: &Th
     scene.push_rule(rule);
 }
 
+#[cfg(test)]
 fn paint_frames_with_shared_clip<'a>(
     frames: impl IntoIterator<Item = &'a layout::Frame>,
     scene: &mut Scene,
@@ -215,6 +596,7 @@ fn paint_frames_with_shared_clip<'a>(
     switch_clip_scope(scene, &mut active_clip, None);
 }
 
+#[cfg(test)]
 fn paint_table_tracks_with_shared_clip<'a>(
     tracks: impl IntoIterator<Item = &'a layout::table::Track>,
     scene: &mut Scene,
@@ -231,6 +613,7 @@ fn paint_table_tracks_with_shared_clip<'a>(
     switch_clip_scope(scene, &mut active_clip, None);
 }
 
+#[cfg(test)]
 fn switch_clip_scope(scene: &mut Scene, active: &mut Option<Clip>, next: Option<Clip>) {
     if *active == next {
         return;
@@ -390,6 +773,7 @@ fn paint_frame(
 
     if let Some(color) = focus_outline_color_for(frame, theme) {
         late_chrome.push(viewport_chrome::Projection::outline(
+            frame.node_id(),
             viewport_chrome::Scope::new(clip),
             Outline::new(focus_outline_rect_for(frame), color)
                 .with_width(theme.focus().width as f32)
@@ -507,7 +891,7 @@ fn project_scrollbar(
             .iter()
             .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding())),
     );
-    let mut projection = viewport_chrome::Projection::scrollbar(scope);
+    let mut projection = viewport_chrome::Projection::scrollbar(chrome.owner(), scope);
 
     if appearance.track.channels().3 > 0 {
         projection.push_quad(

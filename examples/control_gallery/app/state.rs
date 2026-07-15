@@ -14,6 +14,8 @@ pub struct State {
     pub record_enabled: HashMap<u64, bool>,
     pub(super) record_order: Option<RecordOrder>,
     pub expanded_rows: bool,
+    pub renderer_viewport: RendererViewport,
+    pub renderer_workload: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +23,13 @@ pub enum Mode {
     Design,
     Inspect,
     Preview,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RendererViewport {
+    Compact,
+    Baseline,
+    Tall,
 }
 
 impl State {
@@ -36,6 +45,26 @@ impl Mode {
             Self::Design => "Design",
             Self::Inspect => "Inspect",
             Self::Preview => "Preview",
+        }
+    }
+}
+
+impl RendererViewport {
+    pub const ALL: [Self; 3] = [Self::Compact, Self::Baseline, Self::Tall];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Compact => "136 px",
+            Self::Baseline => "500 px",
+            Self::Tall => "800 px",
+        }
+    }
+
+    pub fn logical_height(self) -> i32 {
+        match self {
+            Self::Compact => 136,
+            Self::Baseline => 500,
+            Self::Tall => 800,
         }
     }
 }
@@ -60,6 +89,8 @@ impl Default for State {
             record_enabled: HashMap::new(),
             record_order: None,
             expanded_rows: false,
+            renderer_viewport: RendererViewport::Baseline,
+            renderer_workload: "control-gallery-500px-idle".to_owned(),
         }
     }
 }

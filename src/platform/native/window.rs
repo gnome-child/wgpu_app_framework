@@ -87,6 +87,18 @@ impl Window {
         self.handle.scale_factor()
     }
 
+    pub fn display_name(&self) -> Option<String> {
+        self.handle
+            .current_monitor()
+            .and_then(|monitor| monitor.name())
+    }
+
+    pub fn display_refresh_millihertz(&self) -> Option<u32> {
+        self.handle
+            .current_monitor()
+            .and_then(|monitor| monitor.refresh_rate_millihertz())
+    }
+
     pub fn set_visibility(&self, visible: bool) {
         self.handle.set_visible(visible);
     }

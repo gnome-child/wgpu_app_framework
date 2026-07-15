@@ -1,0 +1,8 @@
+[package]
+name = "renderer_debug"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+wgpu_l3 = { path = "../..", features = ["renderer-debug"] }

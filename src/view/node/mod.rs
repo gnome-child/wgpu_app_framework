@@ -131,7 +131,58 @@ pub struct Node {
     children: Vec<Node>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
+pub(crate) struct SceneKey {
+    content: Content,
+    axis: Option<Axis>,
+    style: Style,
+    label: Option<String>,
+    text_kind: TextKind,
+    binding: Option<Binding>,
+    focus_presentation: super::focus::Presentation,
+    selected: bool,
+    active_item: bool,
+    table_cell: Option<crate::table::Cell>,
+    table_header_cell: Option<crate::table::HeaderCell>,
+    table_header_presentation: Option<crate::table::HeaderPresentation>,
+    participation: Option<Participation>,
+}
+
+impl PartialEq for SceneKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.content.same_scene_state(&other.content)
+            && self.axis == other.axis
+            && self.style == other.style
+            && self.label == other.label
+            && self.text_kind == other.text_kind
+            && optional_binding_scene_state_eq(self.binding.as_ref(), other.binding.as_ref())
+            && self.focus_presentation == other.focus_presentation
+            && self.selected == other.selected
+            && self.active_item == other.active_item
+            && self.table_cell == other.table_cell
+            && self.table_header_cell == other.table_header_cell
+            && self.table_header_presentation == other.table_header_presentation
+            && self.participation == other.participation
+    }
+}
+
+impl Eq for SceneKey {}
+
+impl std::fmt::Debug for SceneKey {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SceneKey(..)")
+    }
+}
+
+fn optional_binding_scene_state_eq(left: Option<&Binding>, right: Option<&Binding>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.same_scene_state(right),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProvidedRow {
     list: interaction::Id,
     key: virtual_list::Key,

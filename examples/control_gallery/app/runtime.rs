@@ -2,8 +2,9 @@ use super::{
     State,
     command::{
         ClearFeedback, EditRecordCount, EditRecordNote, IncrementClicks, OpenRecord, ResetControls,
-        SelectMode, SetLevel, SetRecordEnabled, ShowInfoFeedback, ShowWarningFeedback, SubmitQuery,
-        ToggleAdvanced, ToggleExpandedRows, ToggleGrid, ToggleWrap,
+        SelectMode, SelectRendererViewport, SetLevel, SetRecordEnabled, SetRendererWorkload,
+        ShowInfoFeedback, ShowWarningFeedback, SubmitQuery, ToggleAdvanced, ToggleExpandedRows,
+        ToggleGrid, ToggleWrap, WriteRendererReceipt,
     },
     view,
     view::{CANVAS_COLOR, WINDOW_TITLE, window_size},
@@ -12,10 +13,12 @@ use wgpu_l3::{Runtime, View, command, document, feedback, window};
 
 struct ControlsMenu;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Event {
     Report(feedback::Severity),
     ClearFeedback,
+    BeginRendererMeasurement,
+    WriteRendererReceipt(String),
 }
 
 pub fn app(state: State) -> Runtime<State, Event, View> {
@@ -82,7 +85,17 @@ pub fn app(state: State) -> Runtime<State, Event, View> {
                         .placement(command::menu::Placement::category(
                             command::menu::Category::of::<ControlsMenu>(),
                         )),
-                );
+                )
+                .register::<WriteRendererReceipt>(
+                    command::Spec::new("Write renderer receipt")
+                        .shortcut("Primary+Shift+R")
+                        .description("Write local renderer telemetry beside the gallery executable")
+                        .placement(command::menu::Placement::category(
+                            command::menu::Category::of::<ControlsMenu>(),
+                        )),
+                )
+                .register::<SelectRendererViewport>(command::Spec::new("Select renderer viewport"))
+                .register::<SetRendererWorkload>(command::Spec::new("Set renderer workload"));
         })
         .responders(|responders| {
             responders
@@ -103,7 +116,10 @@ pub fn app(state: State) -> Runtime<State, Event, View> {
                 .target::<OpenRecord>()
                 .target::<ShowInfoFeedback>()
                 .target::<ShowWarningFeedback>()
-                .target::<ClearFeedback>();
+                .target::<ClearFeedback>()
+                .target::<SelectRendererViewport>()
+                .target::<SetRendererWorkload>()
+                .target::<WriteRendererReceipt>();
         })
         .started(|cx| {
             cx.open_window(
@@ -133,7 +149,91 @@ pub fn app(state: State) -> Runtime<State, Event, View> {
                 Event::ClearFeedback => {
                     cx.clear_all_feedback(window);
                 }
+                Event::BeginRendererMeasurement => {
+                    if let Some(diagnostics) = cx.diagnostics_mut(window) {
+                        diagnostics.begin_renderer_measurement();
+                    }
+                }
+                Event::WriteRendererReceipt(workload) => {
+                    let captured_unix_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis();
+                    let result = std::env::current_exe()
+                        .map_err(|error| error.to_string())
+                        .and_then(|executable| {
+                            executable
+                                .parent()
+                                .map(|parent| parent.join("renderer-receipts"))
+                                .ok_or_else(|| {
+                                    "gallery executable has no parent directory".to_owned()
+                                })
+                        })
+                        .and_then(|directory| {
+                            let path = directory.join(format!(
+                                "{}-{captured_unix_ms}.txt",
+                                receipt_file_stem(&workload)
+                            ));
+                            let diagnostics = cx.diagnostics(window).ok_or_else(|| {
+                                "renderer diagnostics are not available yet".to_owned()
+                            })?;
+                            std::fs::create_dir_all(&directory)
+                                .map_err(|error| error.to_string())?;
+                            std::fs::write(&path, diagnostics.renderer_receipt_text(&workload))
+                                .map_err(|error| error.to_string())?;
+                            Ok(path)
+                        });
+                    match result {
+                        Ok(path) => {
+                            cx.report_feedback(
+                                window,
+                                feedback::Severity::Info,
+                                format!("Renderer receipt written to {}", path.display()),
+                            );
+                        }
+                        Err(error) => {
+                            cx.report_feedback(
+                                window,
+                                feedback::Severity::Warning,
+                                format!("Renderer receipt failed: {error}"),
+                            );
+                        }
+                    }
+                }
             }
         })
         .view(view::view)
+}
+
+fn receipt_file_stem(workload: &str) -> String {
+    let stem: String = workload
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches('-');
+    if stem.is_empty() {
+        "control-gallery-manual".to_owned()
+    } else {
+        stem.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::receipt_file_stem;
+
+    #[test]
+    fn receipt_filename_keeps_workload_identity_local_and_portable() {
+        assert_eq!(
+            receipt_file_stem("control gallery / 500px scroll"),
+            "control-gallery---500px-scroll"
+        );
+        assert_eq!(receipt_file_stem("   "), "control-gallery-manual");
+    }
 }

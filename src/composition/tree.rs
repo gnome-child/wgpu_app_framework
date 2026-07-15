@@ -12,6 +12,9 @@ pub(crate) struct NodeId {
     value: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ContentRevision(u64);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 enum Space {
     Retained,
@@ -22,6 +25,7 @@ enum Space {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Changes {
     added: Vec<NodeId>,
+    changed: Vec<NodeId>,
     removed: Vec<NodeId>,
     removed_elements: Vec<interaction::Id>,
     removed_table_cells: Vec<crate::table::Cell>,
@@ -46,6 +50,8 @@ pub(crate) struct Layout {
 #[derive(Debug, Clone)]
 pub(crate) struct Node {
     id: NodeId,
+    content_revision: ContentRevision,
+    scene_key: view::node::SceneKey,
     key: Key,
     element_id: Option<interaction::Id>,
     subject: Option<subject::Segment>,
@@ -87,6 +93,18 @@ impl NodeId {
         id
     }
 
+    #[cfg(feature = "renderer-debug")]
+    pub(crate) fn renderer_fixture(value: u64) -> Self {
+        assert!(
+            value > 0,
+            "renderer fixtures require nonzero composition identity"
+        );
+        Self {
+            space: Space::Retained,
+            value,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn layout(next: &mut u64) -> Self {
         let id = Self {
@@ -103,19 +121,36 @@ impl NodeId {
     }
 }
 
+impl ContentRevision {
+    pub(crate) const INITIAL: Self = Self(1);
+
+    fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn get(self) -> u64 {
+        self.0
+    }
+}
+
 impl Changes {
     fn empty() -> Self {
         Self {
             added: Vec::new(),
+            changed: Vec::new(),
             removed: Vec::new(),
             removed_elements: Vec::new(),
             removed_table_cells: Vec::new(),
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn added(&self) -> &[NodeId] {
         &self.added
+    }
+
+    pub(crate) fn changed(&self) -> &[NodeId] {
+        &self.changed
     }
 
     pub(crate) fn removed(&self) -> &[NodeId] {
@@ -131,11 +166,15 @@ impl Changes {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.added.is_empty() && self.removed.is_empty()
+        self.added.is_empty() && self.changed.is_empty() && self.removed.is_empty()
     }
 
     fn add_added(&mut self, id: NodeId) {
         self.added.push(id);
+    }
+
+    fn add_changed(&mut self, id: NodeId) {
+        self.changed.push(id);
     }
 
     fn add_removed_subtree(&mut self, node: &Node) {
@@ -211,7 +250,7 @@ impl Node {
     ) -> Self {
         let id = NodeId::next(next_node_id);
         changes.add_added(id);
-        let mut node = Self::new(id, view, parent);
+        let mut node = Self::new(id, view, parent, ContentRevision::INITIAL);
         node.children = view
             .children()
             .iter()
@@ -223,7 +262,7 @@ impl Node {
     #[cfg(test)]
     fn build_layout(view: &view::Node, parent: Option<NodeId>, next_id: &mut u64) -> Self {
         let id = NodeId::layout(next_id);
-        let mut node = Self::new(id, view, parent);
+        let mut node = Self::new(id, view, parent, ContentRevision::INITIAL);
         node.children = view
             .children()
             .iter()
@@ -252,7 +291,15 @@ impl Node {
             changes.add_added(id);
             id
         });
-        let mut node = Self::new(id, view, parent);
+        let content_revision = match old {
+            Some(old) if old.scene_key == view.scene_key() => old.content_revision,
+            Some(old) => {
+                changes.add_changed(id);
+                old.content_revision.next()
+            }
+            None => ContentRevision::INITIAL,
+        };
+        let mut node = Self::new(id, view, parent, content_revision);
         let mut used_old = HashSet::new();
 
         for (index, child) in view.children().iter().enumerate() {
@@ -296,9 +343,16 @@ impl Node {
         node
     }
 
-    fn new(id: NodeId, view: &view::Node, parent: Option<NodeId>) -> Self {
+    fn new(
+        id: NodeId,
+        view: &view::Node,
+        parent: Option<NodeId>,
+        content_revision: ContentRevision,
+    ) -> Self {
         Self {
             id,
+            content_revision,
+            scene_key: view.scene_key(),
             key: Key::for_view(view),
             element_id: element_id_for(view),
             subject: subject_for(view),
@@ -358,11 +412,15 @@ impl Node {
         self.id
     }
 
+    pub(crate) fn content_revision(&self) -> ContentRevision {
+        self.content_revision
+    }
+
     pub(crate) fn element_id(&self) -> Option<interaction::Id> {
         self.element_id
     }
 
-    pub(in crate::composition) fn parent(&self) -> Option<NodeId> {
+    pub(crate) fn parent(&self) -> Option<NodeId> {
         self.parent
     }
 

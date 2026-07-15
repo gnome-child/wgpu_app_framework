@@ -1,11 +1,21 @@
+mod commit;
 mod material;
 mod paint;
 mod presentation;
 mod primitive;
 mod region;
+mod store;
 mod visual;
 
 pub use crate::color::Color;
+pub(crate) use commit::{Builder as CommitBuilder, Commit, Node, Properties};
+#[cfg(feature = "renderer-debug")]
+pub(crate) use commit::{
+    Content, ContractError, EffectDeclaration, OpacityDeclaration, PropertyKind, PropertyRef,
+    PropertyValue,
+};
+#[cfg(feature = "renderer-debug")]
+pub(crate) use commit::{FixtureCase, renderer_fixture};
 pub(crate) use material::GlassBase;
 pub use material::{
     BackdropBlur, BackdropEdgeMode, BackdropLayer, Glass, Luminosity, Material, Noise, Refraction,
@@ -21,9 +31,12 @@ pub(crate) use region::{
     MaterialCapabilities, MaterialFidelity, MaterialRealizationReport, MaterialRegion,
     MaterialRenderer, RealizedMaterialParts,
 };
+pub(crate) use store::{PaintStats, Store};
 pub(crate) use visual::Visuals;
 
-use super::{composition, geometry, layout, overlay, theme, theme::Theme};
+use super::{composition, geometry, theme};
+#[cfg(test)]
+use super::{layout, overlay, theme::Theme};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
@@ -83,6 +96,7 @@ impl Scene {
         scene
     }
 
+    #[cfg(test)]
     pub(crate) fn paint_parts_with_clear_theme_and_visuals(
         layout: &layout::Layout,
         clear: Color,

@@ -30,6 +30,7 @@ pub(crate) use control::{
 };
 pub(crate) use engine::Engine;
 pub(crate) use frame::Frame;
+pub(crate) use frame::SceneKey as FrameSceneKey;
 pub(crate) use hit::Hit;
 pub use text::Text;
 pub(crate) use typography::{

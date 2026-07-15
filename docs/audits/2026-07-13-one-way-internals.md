@@ -7,6 +7,16 @@ ledger for the full cleanup campaign. The campaign runs its examination loop
 until the exit theorem is satisfied. It does not stop after one cell, one rung,
 or the exhaustion of the initial queue.
 
+Renderer territory handoff — **accepted at R5-70 on 2026-07-14**. The Retained
+Renderer campaign owns changes to `composition::tree::Changes` demanded by the
+renderer, keyed layout-to-scene projection, scene commit/property projection,
+runtime presentation activation and visible-property receipts, render
+planning/resources/shaders/diagnostics/readbacks, the native surface handoff,
+and their architecture/doctrine witnesses. One-Way does not select cells in
+that territory while the renderer campaign is active. Cleanup findings inside
+the claim use the established One-Way loop as `OW-*` cells in the renderer
+ledger; work outside the claim remains paused here.
+
 The [crate-seams investigation](2026-07-13-crate-seams-investigation.md) is a
 useful census and source of hypotheses. It is not the architectural direction.
 The live framework, `master_design.md`, established case law, and evidence

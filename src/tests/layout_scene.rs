@@ -186,6 +186,103 @@ impl crate::table::Provider for MillionTableProvider {
     }
 }
 
+#[test]
+fn unchanged_second_commit_paints_zero_scene_nodes() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Retained scene reuse"));
+        })
+        .view(|_, _| {
+            widget::view_node(
+                view::Node::stack(view::Axis::Vertical)
+                    .child(view::Node::world_text(
+                        "Stable title",
+                        text::Overflow::EllipsisEnd,
+                    ))
+                    .child(widget::Widget::into_node(widget::Button::new(
+                        "Stable action",
+                    ))),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 100);
+    app.show_scene(window, size)
+        .expect("first commit should populate retained scene fragments");
+
+    app.diagnostics_mut(window)
+        .expect("window diagnostics")
+        .begin_renderer_measurement();
+    app.request_redraw(window);
+    app.show_scene(window, size)
+        .expect("unchanged second commit should remain drawable");
+
+    let render = &app.diagnostics(window).expect("window diagnostics").render;
+    assert_eq!(render.semantic_commits_created, 0);
+    assert_eq!(render.scene_nodes_rebuilt, 0);
+    assert_eq!(render.scene_paint_calls, 0);
+    assert!(render.scene_nodes_reused > 0);
+}
+
+#[test]
+fn departed_scene_nodes_are_removed_once() {
+    let show_extra = Rc::new(Cell::new(true));
+    let show_extra_for_view = Rc::clone(&show_extra);
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Retained scene removal"));
+        })
+        .view(move |_, _| {
+            let stack = view::Node::stack(view::Axis::Vertical).child(view::Node::world_text(
+                "Stable",
+                text::Overflow::EllipsisEnd,
+            ));
+            let stack = if show_extra_for_view.get() {
+                stack.child(view::Node::world_text(
+                    "Departing",
+                    text::Overflow::EllipsisEnd,
+                ))
+            } else {
+                stack
+            };
+            widget::view_node(stack)
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 100);
+    app.show_scene(window, size)
+        .expect("first commit should retain both nodes");
+
+    show_extra.set(false);
+    app.diagnostics_mut(window)
+        .expect("window diagnostics")
+        .begin_renderer_measurement();
+    app.present(window).expect("changed view should reconcile");
+    app.show_scene(window, size)
+        .expect("removed node should produce the next commit");
+    assert!(
+        app.diagnostics(window)
+            .expect("window diagnostics")
+            .render
+            .scene_nodes_removed
+            > 0
+    );
+
+    app.diagnostics_mut(window)
+        .expect("window diagnostics")
+        .begin_renderer_measurement();
+    app.request_redraw(window);
+    app.show_scene(window, size)
+        .expect("unchanged post-removal commit should remain drawable");
+    assert_eq!(
+        app.diagnostics(window)
+            .expect("window diagnostics")
+            .render
+            .scene_nodes_removed,
+        0
+    );
+}
+
 #[derive(Clone)]
 struct MutableTableProvider {
     keys: Rc<RefCell<Vec<u64>>>,
