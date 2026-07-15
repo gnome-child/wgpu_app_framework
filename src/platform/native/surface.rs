@@ -215,16 +215,37 @@ impl Native {
                             .pending_presentations
                             .remove(&window)
                             .expect("ready preparation must still be pending");
-                        match pending.complete() {
-                            super::PendingCompletion::Activate(prepared) => {
+                        let completed = pending.complete();
+                        let Some(successor) = completed.successor else {
+                            activation_from_pending = true;
+                            break completed.prepared;
+                        };
+                        let rebased = successor.properties().rebase_onto_for_activation(
+                            completed.prepared.commit(),
+                            completed.prepared.properties(),
+                        );
+                        self.pending_presentations
+                            .insert(window, super::PendingPresentation::new(successor.clone()));
+                        match rebased {
+                            Ok(properties) => {
                                 activation_from_pending = true;
-                                break prepared;
+                                break completed.prepared.with_activation_properties(properties);
                             }
-                            super::PendingCompletion::ActivateAndContinue { prepared, latest } => {
-                                self.pending_presentations
-                                    .insert(window, super::PendingPresentation::new(latest));
-                                activation_from_pending = true;
-                                break prepared;
+                            Err(error) => {
+                                log::debug!(
+                                    "deferring prepared activation whose latest scroll state cannot rebase: {error}"
+                                );
+                                renderer.cancel_stack_synchronization(
+                                    completed.prepared.stack(),
+                                    active.as_ref().map(shell::Presentation::stack),
+                                );
+                                refreshes_active = true;
+                                break project_onto_active(
+                                    active.as_ref().expect(
+                                        "pending realization requires a complete active presentation",
+                                    ),
+                                    &successor,
+                                );
                             }
                         }
                     }

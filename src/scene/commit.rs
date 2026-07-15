@@ -1169,6 +1169,41 @@ impl Properties {
         Self::new(commit, self.serial, values, changed).map(|properties| (properties, true))
     }
 
+    pub(crate) fn rebase_onto_for_activation(
+        &self,
+        commit: &Commit,
+        current: &Self,
+    ) -> Result<Self, ContractError> {
+        current.require_compatible(commit)?;
+        let mut values = Vec::with_capacity(commit.property_topology.len());
+
+        for property in commit.property_topology.iter().copied() {
+            let candidate = self.value(property);
+            let value = if property.kind == PropertyKind::ScrollOffset {
+                let value = candidate.ok_or(ContractError::MissingValue(property))?;
+                if !value.is_valid(commit) || !value.is_projectable_onto(commit) {
+                    return Err(ContractError::InvalidValue(property));
+                }
+                value
+            } else {
+                candidate
+                    .filter(|value| value.is_valid(commit) && value.is_projectable_onto(commit))
+                    .or_else(|| current.value(property))
+                    .ok_or(ContractError::MissingValue(property))?
+            };
+            values.push(value);
+        }
+
+        let changed = values
+            .iter()
+            .filter_map(|value| {
+                let property = value.property_ref();
+                (current.value(property) != Some(*value)).then_some(property)
+            })
+            .collect();
+        Self::new(commit, self.serial, values, changed)
+    }
+
     pub(crate) fn require_compatible(&self, commit: &Commit) -> Result<(), ContractError> {
         if self.commit == commit.revision {
             Ok(())
@@ -2289,6 +2324,112 @@ mod tests {
 
             assert_eq!(properties.scroll_offset(node_id), Some(offset));
         }
+    }
+
+    #[test]
+    fn pending_activation_requires_latest_scroll_to_fit_prepared_residency() {
+        let viewport = geometry::Rect::new(0, 0, 100, 100);
+        let prepared_declaration = ScrollDeclaration::new(
+            viewport,
+            geometry::Rect::new(0, 0, 100, 200),
+            interaction::ScrollOffset::new(0, 0),
+        )
+        .expect("prepared structure should admit a bounded forward rebase");
+        let prepared_node = empty_node(1, None)
+            .with_properties([PropertyKind::ScrollOffset])
+            .with_scroll(prepared_declaration);
+        let node_id = prepared_node.id();
+        let prepared = Commit::new(
+            Revision::INITIAL,
+            geometry::Size::new(100, 100),
+            Color::rgba(0, 0, 0, 0),
+            vec![prepared_node],
+        )
+        .expect("prepared commit should be valid");
+        let prepared_properties = Properties::new(
+            &prepared,
+            PropertySerial::INITIAL,
+            vec![PropertyValue::ScrollOffset {
+                node: node_id,
+                value: interaction::ScrollOffset::new(0, 0),
+            }],
+            Vec::new(),
+        )
+        .expect("prepared properties should be valid");
+
+        let latest_offset = interaction::ScrollOffset::new(0, 60);
+        let latest_node = empty_node(1, None)
+            .with_properties([PropertyKind::ScrollOffset])
+            .with_scroll(
+                ScrollDeclaration::new(viewport, viewport, latest_offset)
+                    .expect("latest commit should cover its baseline"),
+            );
+        let latest = Commit::new(
+            Revision::INITIAL.next(),
+            geometry::Size::new(100, 100),
+            Color::rgba(0, 0, 0, 0),
+            vec![latest_node],
+        )
+        .expect("latest commit should be valid");
+        let latest_properties = Properties::new(
+            &latest,
+            PropertySerial::INITIAL.next(),
+            vec![PropertyValue::ScrollOffset {
+                node: node_id,
+                value: latest_offset,
+            }],
+            Vec::new(),
+        )
+        .expect("latest properties should be valid");
+
+        let rebased = latest_properties
+            .rebase_onto_for_activation(&prepared, &prepared_properties)
+            .expect("latest scroll inside prepared residency should rebase exactly");
+        assert_eq!(rebased.scroll_offset(node_id), Some(latest_offset));
+        assert_eq!(rebased.serial(), latest_properties.serial());
+
+        let beyond_prepared = interaction::ScrollOffset::new(0, 160);
+        let beyond_node = empty_node(1, None)
+            .with_properties([PropertyKind::ScrollOffset])
+            .with_scroll(
+                ScrollDeclaration::new(viewport, viewport, beyond_prepared)
+                    .expect("successor should cover its own baseline"),
+            );
+        let beyond = Commit::new(
+            Revision::INITIAL.next().next(),
+            geometry::Size::new(100, 100),
+            Color::rgba(0, 0, 0, 0),
+            vec![beyond_node],
+        )
+        .expect("successor commit should be valid");
+        let beyond_properties = Properties::new(
+            &beyond,
+            latest_properties.serial().next(),
+            vec![PropertyValue::ScrollOffset {
+                node: node_id,
+                value: beyond_prepared,
+            }],
+            Vec::new(),
+        )
+        .expect("successor properties should fit their own commit");
+        assert!(matches!(
+            beyond_properties.rebase_onto_for_activation(&prepared, &prepared_properties),
+            Err(ContractError::InvalidValue(_))
+        ));
+
+        let without_scroll = Commit::new(
+            Revision::INITIAL.next().next().next(),
+            geometry::Size::new(100, 100),
+            Color::rgba(0, 0, 0, 0),
+            vec![empty_node(1, None)],
+        )
+        .expect("successor without scroll should be valid");
+        let without_scroll_properties = Properties::empty(&without_scroll)
+            .expect("successor without scroll should need no values");
+        assert!(matches!(
+            without_scroll_properties.rebase_onto_for_activation(&prepared, &prepared_properties),
+            Err(ContractError::MissingValue(_))
+        ));
     }
 
     fn ordered_builder(

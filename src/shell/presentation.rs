@@ -77,4 +77,10 @@ impl Presentation {
         presentation.property_only = true;
         presentation
     }
+
+    pub(crate) fn with_activation_properties(&self, properties: scene::Properties) -> Self {
+        let mut presentation = self.clone();
+        presentation.stack = Arc::new(self.stack.with_base_properties(properties));
+        presentation
+    }
 }

@@ -53,9 +53,9 @@ struct PendingPresentation<T = crate::shell::Presentation> {
     latest: Option<T>,
 }
 
-enum PendingCompletion<T> {
-    Activate(T),
-    ActivateAndContinue { prepared: T, latest: T },
+struct PendingCompletion<T> {
+    prepared: T,
+    successor: Option<T>,
 }
 
 impl<T> PendingPresentation<T> {
@@ -83,12 +83,9 @@ impl<T> PendingPresentation<T> {
     }
 
     fn complete(self) -> PendingCompletion<T> {
-        match self.latest {
-            Some(latest) => PendingCompletion::ActivateAndContinue {
-                prepared: self.preparing,
-                latest,
-            },
-            None => PendingCompletion::Activate(self.preparing),
+        PendingCompletion {
+            prepared: self.preparing,
+            successor: self.latest,
         }
     }
 }
@@ -582,10 +579,10 @@ impl Default for Native {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplyDue, CursorHost, Native, POPUP_SYS_SETTLE_DELAY, PendingCompletion,
-        PendingPresentation, PopupAccentState, PopupBorderState, PopupGeometry, PopupGeometryState,
-        PopupKey, PopupMaterialReadiness, PopupMaterialRealization, PopupPresentationMode,
-        popup_accent_due, popup_border_due, popup_geometry_due, readiness_for_reused_session,
+        ApplyDue, CursorHost, Native, POPUP_SYS_SETTLE_DELAY, PendingPresentation,
+        PopupAccentState, PopupBorderState, PopupGeometry, PopupGeometryState, PopupKey,
+        PopupMaterialReadiness, PopupMaterialRealization, PopupPresentationMode, popup_accent_due,
+        popup_border_due, popup_geometry_due, readiness_for_reused_session,
     };
     use crate::geometry::area;
     use crate::overlay::PopupMaterialPreference;
@@ -610,18 +607,13 @@ mod tests {
         assert_eq!(pending.preparing, (1, "updated preparing"));
         assert_eq!(pending.latest, Some((3, "updated latest")));
 
-        assert!(matches!(
-            pending.complete(),
-            PendingCompletion::ActivateAndContinue {
-                prepared: (1, "updated preparing"),
-                latest: (3, "updated latest"),
-            }
-        ));
+        let completed = pending.complete();
+        assert_eq!(completed.prepared, (1, "updated preparing"));
+        assert_eq!(completed.successor, Some((3, "updated latest")));
 
-        assert!(matches!(
-            PendingPresentation::new((4, "ready")).complete(),
-            PendingCompletion::Activate((4, "ready"))
-        ));
+        let completed = PendingPresentation::new((4, "ready")).complete();
+        assert_eq!(completed.prepared, (4, "ready"));
+        assert_eq!(completed.successor, None);
     }
 
     fn geometry(x: i32, y: i32, scale: f64) -> PopupGeometry {
