@@ -200,6 +200,11 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
+            "text_area_render_surface_line_reuses={}",
+            self.text.text_area_render_surface_line_reuses
+        );
+        let _ = writeln!(
+            receipt,
             "text_area_render_surface_source_lines={}",
             self.text.text_area_render_surface_source_lines
         );
@@ -265,6 +270,11 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
+            "text_area_width_observed_updates={}",
+            self.text.text_area_width_observed_updates
+        );
+        let _ = writeln!(
+            receipt,
             "text_area_width_source_lines={}",
             self.text.text_area_width_source_lines
         );
@@ -311,7 +321,9 @@ mod tests {
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",
             "text_area_render_surface_calls=0",
+            "text_area_render_surface_line_reuses=0",
             "text_area_render_window_area_max=0",
+            "text_area_width_observed_updates=0",
             "text_area_width_source_bytes=0",
         ] {
             assert!(receipt.contains(field), "missing receipt field {field}");

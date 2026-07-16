@@ -60,9 +60,12 @@ impl Engine {
             viewport,
         );
         let content_width = match area_model.wrap() {
-            AreaWrap::None => {
-                self.text_area_logical_width(&projection.buffer, style, viewport.width().max(0.0))
-            }
+            AreaWrap::None => self.text_area_logical_width(
+                &projection.buffer,
+                style,
+                viewport.width().max(0.0),
+                None,
+            ),
             AreaWrap::WordOrGlyph => viewport.width().max(0.0),
         };
         let content_area = area::logical(content_width, content_height);
@@ -428,12 +431,15 @@ impl Engine {
         }
 
         self.add_highlight_stats(combined_stats);
+        let observed_document_width =
+            complete_observed_width(&request.projection.buffer, request.segments, observed_width);
         let content_area = request.content_area.unwrap_or_else(|| {
             let content_width = match request.area_model.wrap() {
                 AreaWrap::None => self.text_area_logical_width(
                     &request.projection.buffer,
                     request.style,
                     request.viewport.width().max(observed_width),
+                    observed_document_width,
                 ),
                 AreaWrap::WordOrGlyph => text_area_content_width(
                     request.area_model.wrap(),
@@ -468,6 +474,7 @@ impl Engine {
         source: &super::super::super::buffer::Buffer,
         style: Style,
         minimum: f32,
+        observed_document_width: Option<f32>,
     ) -> f32 {
         let key = super::super::width::Key::new(source, style);
         let width = if let Some(width) = self.text_area_widths.get(&key).copied() {
@@ -475,14 +482,34 @@ impl Engine {
             width
         } else {
             self.diagnostics.text_area_width_cache_misses += 1;
-            self.diagnostics.text_area_width_source_lines += source.logical_line_count();
-            self.diagnostics.text_area_width_source_bytes += source.len();
-            let started = Instant::now();
-            let width = super::super::width::measure(&mut self.font_system, source, style);
-            self.diagnostics.text_area_width_measure_us += started.elapsed().as_micros();
+            let width = if let Some(observed_width) = observed_document_width {
+                self.diagnostics.text_area_width_observed_updates += 1;
+                observed_width
+            } else {
+                self.diagnostics.text_area_width_source_lines += source.logical_line_count();
+                self.diagnostics.text_area_width_source_bytes += source.len();
+                let started = Instant::now();
+                let width = super::super::width::measure(&mut self.font_system, source, style);
+                self.diagnostics.text_area_width_measure_us += started.elapsed().as_micros();
+                width
+            };
             self.text_area_widths.put(key, width);
             width
         };
         width.max(minimum.max(0.0))
     }
+}
+
+fn complete_observed_width(
+    source: &super::super::super::buffer::Buffer,
+    segments: &[TextAreaDisplaySegment],
+    observed_width: f32,
+) -> Option<f32> {
+    let line_count = source.logical_line_count();
+    (segments.len() == line_count
+        && segments
+            .iter()
+            .enumerate()
+            .all(|(line, segment)| segment.display.source_line == line))
+    .then_some(observed_width)
 }

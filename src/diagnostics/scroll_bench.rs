@@ -10,7 +10,7 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 1;
+pub const SCROLL_BENCH_VERSION: u32 = 2;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
@@ -70,10 +70,10 @@ impl ScrollBenchReceipt {
                 "viewport={}x{} document_bytes={} document_lines={} offset_x={} logical_width={} ",
                 "warmup={} samples={} official_matrix={} cold_us={} p50_us={} p95_us={} p99_us={} max_us={} ",
                 "near_window_width={} far_window_width={} render_window_width_max={} render_window_height_max={} render_window_area_max={} bounded_window={} ",
-                "paint_layout_calls={} visible_lines={} shaped_lines={} line_shape_calls={} render_surface_calls={} render_cache_hits={} render_cache_misses={} ",
+                "paint_layout_calls={} visible_lines={} shaped_lines={} line_shape_calls={} render_surface_calls={} render_cache_hits={} render_cache_misses={} render_line_reuses={} ",
                 "render_source_lines={} render_source_bytes={} render_total_us={} render_shape_us={} ",
-                "width_cache_hits={} width_cache_misses={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
-                "cold_render_source_bytes={} cold_render_shape_us={} cold_width_source_bytes={} cold_width_measure_us={}"
+                "width_cache_hits={} width_cache_misses={} width_observed_updates={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
+                "cold_render_line_reuses={} cold_render_source_bytes={} cold_render_shape_us={} cold_width_observed_updates={} cold_width_source_bytes={} cold_width_measure_us={}"
             ),
             SCROLL_BENCH_VERSION,
             self.workload.name(),
@@ -114,20 +114,24 @@ impl ScrollBenchReceipt {
             self.diagnostics.text_area_render_surface_calls,
             self.diagnostics.text_area_render_surface_cache_hits,
             self.diagnostics.text_area_render_surface_cache_misses,
+            self.diagnostics.text_area_render_surface_line_reuses,
             self.diagnostics.text_area_render_surface_source_lines,
             self.diagnostics.text_area_render_surface_source_bytes,
             self.diagnostics.text_area_render_surface_total_us,
             self.diagnostics.text_area_render_surface_shape_us,
             self.diagnostics.text_area_width_cache_hits,
             self.diagnostics.text_area_width_cache_misses,
+            self.diagnostics.text_area_width_observed_updates,
             self.diagnostics.text_area_width_source_lines,
             self.diagnostics.text_area_width_source_bytes,
             self.diagnostics.text_area_width_measure_us,
             self.diagnostics.text_area_caret_run_scans,
             self.diagnostics.text_area_caret_glyph_scans,
             self.diagnostics.highlight_run_scans,
+            self.cold_diagnostics.text_area_render_surface_line_reuses,
             self.cold_diagnostics.text_area_render_surface_source_bytes,
             self.cold_diagnostics.text_area_render_surface_shape_us,
+            self.cold_diagnostics.text_area_width_observed_updates,
             self.cold_diagnostics.text_area_width_source_bytes,
             self.cold_diagnostics.text_area_width_measure_us,
         )

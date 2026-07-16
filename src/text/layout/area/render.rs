@@ -18,8 +18,8 @@ use super::super::{
     output::TextAreaSurface,
     system, text_area,
     text_area::{
-        CachedRenderBuffer as CachedTextAreaRenderBuffer, RenderAnchor as TextAreaRenderAnchor,
-        RenderBufferKey as TextAreaRenderBufferKey,
+        CachedRenderBuffer as CachedTextAreaRenderBuffer, LineDisplayKey as TextAreaLineDisplayKey,
+        RenderAnchor as TextAreaRenderAnchor, RenderBufferKey as TextAreaRenderBufferKey,
     },
 };
 
@@ -88,9 +88,9 @@ impl Engine {
             anchor.source_line_end,
         );
         let source_lines = anchor.source_line_end.saturating_sub(anchor.source_line);
-        self.diagnostics.text_area_render_surface_source_lines += source_lines;
 
         let mut cache_hit = false;
+        let mut line_reuse = false;
         let mut text_us = 0;
         let mut buffer_us = 0;
         let mut attrs_us = 0;
@@ -105,40 +105,61 @@ impl Engine {
             cached.buffer.clone()
         } else {
             self.diagnostics.text_area_render_surface_cache_misses += 1;
-            let attrs = system::attrs_for_style(style);
+            let line_buffer = if committed && source_lines == 1 {
+                TextAreaLineDisplayKey::new(
+                    area_model,
+                    source,
+                    style,
+                    viewport.width().max(0.0),
+                    anchor.source_line,
+                )
+                .and_then(|key| self.text_area_line_displays.get(&key))
+                .map(|cached| cached.buffer)
+            } else {
+                None
+            };
+            let buffer = if let Some(buffer) = line_buffer {
+                line_reuse = true;
+                self.diagnostics.text_area_render_surface_line_reuses += 1;
+                buffer
+            } else {
+                let attrs = system::attrs_for_style(style);
 
-            let text_started = Instant::now();
-            let text = source.text_for_line_range(anchor.source_line, anchor.source_line_end);
-            text_us = elapsed_micros(text_started);
-            self.diagnostics.text_area_render_surface_text_us += text_us;
+                let text_started = Instant::now();
+                let text = source.text_for_line_range(anchor.source_line, anchor.source_line_end);
+                text_us = elapsed_micros(text_started);
+                self.diagnostics.text_area_render_surface_text_us += text_us;
+                self.diagnostics.text_area_render_surface_source_lines += source_lines;
+                self.diagnostics.text_area_render_surface_source_bytes += text.len();
 
-            let buffer_started = Instant::now();
-            let mut buffer = glyphon::Buffer::new_empty(metrics);
-            buffer_us = elapsed_micros(buffer_started);
+                let buffer_started = Instant::now();
+                let mut buffer = glyphon::Buffer::new_empty(metrics);
+                buffer_us = elapsed_micros(buffer_started);
 
-            let size_started = Instant::now();
-            buffer.set_wrap(&mut self.font_system, glyph_wrap(area_model.wrap()));
-            buffer.set_size(&mut self.font_system, layout_width, None);
-            size_us = elapsed_micros(size_started);
-            self.diagnostics.text_area_render_surface_size_us += size_us;
+                let size_started = Instant::now();
+                buffer.set_wrap(&mut self.font_system, glyph_wrap(area_model.wrap()));
+                buffer.set_size(&mut self.font_system, layout_width, None);
+                size_us = elapsed_micros(size_started);
+                self.diagnostics.text_area_render_surface_size_us += size_us;
 
-            let attrs_started = Instant::now();
-            let attrs = glyphon::AttrsList::new(&attrs);
-            attrs_us = elapsed_micros(attrs_started);
-            self.diagnostics.text_area_render_surface_attrs_us += attrs_us;
+                let attrs_started = Instant::now();
+                let attrs = glyphon::AttrsList::new(&attrs);
+                attrs_us = elapsed_micros(attrs_started);
+                self.diagnostics.text_area_render_surface_attrs_us += attrs_us;
 
-            let buffer_started = Instant::now();
-            let shaping = text_area_shaping_for_text(style, &text);
-            set_cosmic_buffer_text(&mut buffer, &text, attrs, shaping);
-            buffer_us += elapsed_micros(buffer_started);
-            self.diagnostics.text_area_render_surface_buffer_us += buffer_us;
+                let buffer_started = Instant::now();
+                let shaping = text_area_shaping_for_text(style, &text);
+                set_cosmic_buffer_text(&mut buffer, &text, attrs, shaping);
+                buffer_us += elapsed_micros(buffer_started);
+                self.diagnostics.text_area_render_surface_buffer_us += buffer_us;
 
-            let shape_started = Instant::now();
-            buffer.shape_until_scroll(&mut self.font_system, false);
-            shape_us = elapsed_micros(shape_started);
-            self.diagnostics.text_area_render_surface_shape_us += shape_us;
+                let shape_started = Instant::now();
+                buffer.shape_until_scroll(&mut self.font_system, false);
+                shape_us = elapsed_micros(shape_started);
+                self.diagnostics.text_area_render_surface_shape_us += shape_us;
 
-            let buffer = Rc::new(RefCell::new(buffer));
+                Rc::new(RefCell::new(buffer))
+            };
             if committed && let Some(key) = key {
                 self.text_area_render_buffers.put(
                     key,
@@ -153,14 +174,16 @@ impl Engine {
         let (source_start, source_text_len) = {
             let inner = &source.inner;
             let start = inner.document.line_start(anchor.source_line);
-            let end = inner
-                .document
-                .line_start(anchor.source_line_end.min(source.logical_line_count()));
+            let line_count = source.logical_line_count();
+            let end = if anchor.source_line_end >= line_count {
+                source.len()
+            } else {
+                inner.document.line_start(anchor.source_line_end)
+            };
             (start, end.saturating_sub(start))
         };
         let metadata_us = elapsed_micros(metadata_started);
         self.diagnostics.text_area_render_surface_metadata_us += metadata_us;
-        self.diagnostics.text_area_render_surface_source_bytes += source_text_len;
         let total_us = elapsed_micros(total_started);
         self.diagnostics.text_area_render_surface_total_us += total_us;
 
@@ -168,7 +191,7 @@ impl Engine {
             eprintln!(
                 concat!(
                     "[wgpu_l3 text-surface] ",
-                    "lines={}..{} count={} bytes={} cache_hit={} ",
+                    "lines={}..{} count={} bytes={} cache_hit={} line_reuse={} ",
                     "viewport={:.1}x{:.1} scroll={:.1},{:.1} surface={:.1}x{:.1} ",
                     "anchor={}us text={}us buffer={}us attrs={}us size={}us shape={}us meta={}us total={}us"
                 ),
@@ -177,6 +200,7 @@ impl Engine {
                 source_lines,
                 source_text_len,
                 cache_hit,
+                line_reuse,
                 viewport.width(),
                 viewport.height(),
                 state.scroll_x(),

@@ -12,9 +12,8 @@ use super::edit::Editor;
 use super::layout::{
     Engine, HighlightStats, Measure, TEXT_AREA_FRAME_MAX_LOGICAL_LINES,
     TEXT_AREA_FRAME_MIN_OVERSCAN_LINES, TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
-    TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN, TEXT_LAYOUT_VISUAL_LINE_EPSILON,
-    TextAreaSurface, TextLayoutMap, VisualLineGroup, clamp_cursor_in_buffer,
-    text_area_estimated_line_height,
+    TEXT_FIELD_CARET_MARGIN, TEXT_LAYOUT_VISUAL_LINE_EPSILON, TextAreaSurface, TextLayoutMap,
+    VisualLineGroup, clamp_cursor_in_buffer, text_area_estimated_line_height,
 };
 use super::selection::{self, Motion, PointerKind, State};
 use super::surface::{Area, Field};
@@ -877,15 +876,9 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
     );
     assert_eq!(diagnostics.text_area_render_surface_cache_hits, 1);
     assert_eq!(diagnostics.text_area_render_surface_cache_misses, 0);
-    assert!(
-        diagnostics.text_area_render_surface_source_lines
-            >= diagnostics.text_area_visible_logical_lines + TEXT_AREA_RENDER_GUARD_LINES,
-        "render surface should own a reusable guard band"
-    );
-    assert!(
-        diagnostics.text_area_render_surface_source_lines
-            <= diagnostics.text_area_visible_logical_lines + TEXT_AREA_RENDER_GUARD_LINES * 2,
-        "render surface should not shape an excessive scroll window"
+    assert_eq!(
+        diagnostics.text_area_render_surface_source_lines, 0,
+        "a render-buffer cache hit must visit no source lines"
     );
     assert_eq!(
         diagnostics.text_area_render_surface_shape_us, 0,
@@ -1018,6 +1011,7 @@ fn no_wrap_text_area_logical_width_includes_unrealized_lines() {
     let cold = engine.diagnostics();
     assert_eq!(cold.text_area_width_cache_hits, 0);
     assert_eq!(cold.text_area_width_cache_misses, 1);
+    assert_eq!(cold.text_area_width_observed_updates, 0);
     assert_eq!(cold.text_area_width_source_lines, 200);
     assert_eq!(cold.text_area_width_source_bytes, source_bytes);
 
@@ -1039,6 +1033,57 @@ fn no_wrap_text_area_logical_width_includes_unrealized_lines() {
     );
     assert_eq!(warm.text_area_width_source_lines, 0);
     assert_eq!(warm.text_area_width_source_bytes, 0);
+}
+
+#[test]
+fn one_line_text_area_reuses_its_observed_shape_for_width_and_render() {
+    let mut engine = engine();
+    let source = "wide glyph runway ".repeat(4_096);
+    let source_len = source.len();
+    let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
+    let viewport = area::logical(320.0, 80.0);
+    let style = Style::default().with_size(13.0);
+
+    engine.reset_diagnostics();
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+    let measured = Engine::new().text_area_metrics_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+
+    assert!(layout.layout().content_area().width() > viewport.width());
+    assert!(
+        (layout.layout().content_area().width() - measured.content_area().width()).abs() < 0.01,
+        "observed complete width must equal independent document measurement: observed={} measured={}",
+        layout.layout().content_area().width(),
+        measured.content_area().width()
+    );
+    assert_eq!(diagnostics.text_area_line_shape_calls, 1);
+    assert_eq!(diagnostics.text_area_width_cache_misses, 1);
+    assert_eq!(diagnostics.text_area_width_observed_updates, 1);
+    assert_eq!(diagnostics.text_area_width_source_lines, 0);
+    assert_eq!(diagnostics.text_area_width_source_bytes, 0);
+    assert_eq!(diagnostics.text_area_width_measure_us, 0);
+    assert_eq!(diagnostics.text_area_render_surface_cache_misses, 1);
+    assert_eq!(diagnostics.text_area_render_surface_line_reuses, 1);
+    assert_eq!(diagnostics.text_area_render_surface_source_lines, 0);
+    assert_eq!(diagnostics.text_area_render_surface_source_bytes, 0);
+    assert_eq!(diagnostics.text_area_render_surface_shape_us, 0);
+    assert_eq!(
+        layout.render_surfaces()[0].source_text_len(),
+        source_len,
+        "the last logical line must retain its complete source metadata"
+    );
 }
 #[test]
 fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {

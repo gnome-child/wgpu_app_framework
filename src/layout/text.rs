@@ -33,6 +33,7 @@ pub struct Text {
     pub text_area_render_surface_calls: usize,
     pub text_area_render_surface_cache_hits: usize,
     pub text_area_render_surface_cache_misses: usize,
+    pub text_area_render_surface_line_reuses: usize,
     pub text_area_render_surface_source_lines: usize,
     pub text_area_render_surface_source_bytes: usize,
     pub text_area_render_surface_anchor_us: u128,
@@ -53,6 +54,7 @@ pub struct Text {
     pub text_area_height_index_misses: usize,
     pub text_area_width_cache_hits: usize,
     pub text_area_width_cache_misses: usize,
+    pub text_area_width_observed_updates: usize,
     pub text_area_width_source_lines: usize,
     pub text_area_width_source_bytes: usize,
     pub text_area_width_measure_us: u128,
@@ -396,6 +398,8 @@ impl Text {
         self.text_area_render_surface_cache_hits += diagnostics.text_area_render_surface_cache_hits;
         self.text_area_render_surface_cache_misses +=
             diagnostics.text_area_render_surface_cache_misses;
+        self.text_area_render_surface_line_reuses +=
+            diagnostics.text_area_render_surface_line_reuses;
         self.text_area_render_surface_source_lines +=
             diagnostics.text_area_render_surface_source_lines;
         self.text_area_render_surface_source_bytes +=
@@ -429,6 +433,7 @@ impl Text {
         self.text_area_height_index_misses += diagnostics.text_area_height_index_misses;
         self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
         self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
+        self.text_area_width_observed_updates += diagnostics.text_area_width_observed_updates;
         self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
         self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
         self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;
@@ -453,6 +458,8 @@ impl Text {
         self.text_area_render_surface_cache_hits += diagnostics.text_area_render_surface_cache_hits;
         self.text_area_render_surface_cache_misses +=
             diagnostics.text_area_render_surface_cache_misses;
+        self.text_area_render_surface_line_reuses +=
+            diagnostics.text_area_render_surface_line_reuses;
         self.text_area_render_surface_source_lines +=
             diagnostics.text_area_render_surface_source_lines;
         self.text_area_render_surface_source_bytes +=
@@ -486,6 +493,7 @@ impl Text {
         self.text_area_height_index_misses += diagnostics.text_area_height_index_misses;
         self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
         self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
+        self.text_area_width_observed_updates += diagnostics.text_area_width_observed_updates;
         self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
         self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
         self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;

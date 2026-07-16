@@ -35,8 +35,7 @@ pub use caret::{Caret, CaretLayout};
 pub(super) use constants::{TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES};
 #[cfg(test)]
 pub(super) use constants::{
-    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES, TEXT_FIELD_CARET_MARGIN,
-    TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_FIELD_CARET_MARGIN, TEXT_LAYOUT_VISUAL_LINE_EPSILON,
 };
 #[cfg(test)]
 pub(super) use content::text_area_estimated_line_height;

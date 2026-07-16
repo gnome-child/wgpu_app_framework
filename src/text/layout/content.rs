@@ -13,12 +13,7 @@ pub(super) fn buffer_content_area(buffer: &glyphon::Buffer) -> area::Logical {
     let mut height: f32 = 0.0;
 
     for run in buffer.layout_runs() {
-        let run_width = run
-            .glyphs
-            .iter()
-            .map(|glyph| glyph.x + glyph.w)
-            .fold(0.0_f32, f32::max);
-        width = width.max(run_width);
+        width = width.max(run.line_w);
         height = height.max(run.line_top + run.line_height);
     }
 
