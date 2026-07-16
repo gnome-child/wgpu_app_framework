@@ -465,9 +465,15 @@ impl Engine {
     ) -> f32 {
         let key = super::super::width::Key::new(source, style);
         let width = if let Some(width) = self.text_area_widths.get(&key).copied() {
+            self.diagnostics.text_area_width_cache_hits += 1;
             width
         } else {
+            self.diagnostics.text_area_width_cache_misses += 1;
+            self.diagnostics.text_area_width_source_lines += source.logical_line_count();
+            self.diagnostics.text_area_width_source_bytes += source.len();
+            let started = Instant::now();
             let width = super::super::width::measure(&mut self.font_system, source, style);
+            self.diagnostics.text_area_width_measure_us += started.elapsed().as_micros();
             self.text_area_widths.put(key, width);
             width
         };

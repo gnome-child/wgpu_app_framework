@@ -1,23 +1,21 @@
 use lru::LruCache;
 
 use super::super::{
-    buffer::Buffer,
+    buffer::{Buffer, ContentVersion},
     document::{Align, Block, Document, Run, Style},
 };
 use super::{Measure, constants::TEXT_AREA_WIDTH_CACHE_CAPACITY, key::StyleKey, system};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct Key {
-    buffer: u64,
-    revision: u64,
+    content: ContentVersion,
     style: StyleKey,
 }
 
 impl Key {
     pub(super) fn new(buffer: &Buffer, style: Style) -> Self {
         Self {
-            buffer: buffer.id(),
-            revision: buffer.revision(),
+            content: buffer.content_version(),
             style: StyleKey::new(style),
         }
     }
@@ -36,4 +34,21 @@ pub(super) fn measure(font_system: &mut glyphon::FontSystem, source: &Buffer, st
 
 pub(super) fn cache() -> LruCache<Key, f32> {
     LruCache::new(TEXT_AREA_WIDTH_CACHE_CAPACITY)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn document_width_key_survives_clones_but_not_independent_content() {
+        let source = Buffer::from_multiline_text("alpha\nbeta");
+        let clone = source.clone();
+        let independent = Buffer::from_multiline_text("a much wider independent document");
+        let style = Style::default();
+
+        assert_ne!(source.id(), clone.id());
+        assert_eq!(Key::new(&source, style), Key::new(&clone, style));
+        assert_ne!(Key::new(&source, style), Key::new(&independent, style));
+    }
 }

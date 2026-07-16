@@ -59,16 +59,34 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(in crate::runtime::input) fn record_scroll_input(
         &mut self,
         window: window::Id,
+        transition: super::dispatch::ScrollTransition,
         offset_changed: bool,
-        redraw_requested: bool,
+        duration: std::time::Duration,
     ) {
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.scroll.wheel_events += 1;
         if offset_changed {
             diagnostics.scroll.scroll_offset_changes += 1;
         }
-        if redraw_requested {
+        if offset_changed {
             diagnostics.scroll.scroll_redraw_requests += 1;
+        }
+        match transition {
+            super::dispatch::ScrollTransition::Unchanged => {
+                diagnostics.scroll.record_unchanged(duration);
+            }
+            super::dispatch::ScrollTransition::PropertyTick(_) => {
+                diagnostics.scroll.record_property_tick(duration);
+            }
+            super::dispatch::ScrollTransition::NeedsResidency { desired, admitted } => {
+                diagnostics.scroll.record_needs_residency(
+                    desired.x(),
+                    desired.y(),
+                    admitted.x(),
+                    admitted.y(),
+                    duration,
+                );
+            }
         }
     }
 

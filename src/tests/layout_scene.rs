@@ -7240,6 +7240,13 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
         render.visible_property_serial,
         tick.properties().serial().value()
     );
+    let scroll_metrics = &app.diagnostics(window).expect("window diagnostics").scroll;
+    assert_eq!(scroll_metrics.scroll_input_events, 4);
+    assert_eq!(scroll_metrics.scroll_desired_changes, 4);
+    assert_eq!(scroll_metrics.scroll_admitted_changes, 4);
+    assert_eq!(scroll_metrics.scroll_property_ticks, 4);
+    assert_eq!(scroll_metrics.scroll_needs_residency, 0);
+    assert_eq!(scroll_metrics.scroll_unchanged, 0);
 }
 
 #[test]
@@ -10573,6 +10580,15 @@ fn text_area_input_clamps_to_presented_extent_before_admission() {
             .frame_scroll_commits,
         frame_scroll_commits
     );
+    let scroll_metrics = &app
+        .diagnostics(window)
+        .expect("window should retain scroll metrics")
+        .scroll;
+    assert_eq!(scroll_metrics.scroll_input_events, 1);
+    assert_eq!(scroll_metrics.scroll_unchanged, 1);
+    assert_eq!(scroll_metrics.scroll_desired_changes, 0);
+    assert_eq!(scroll_metrics.scroll_property_ticks, 0);
+    assert_eq!(scroll_metrics.scroll_needs_residency, 0);
 }
 
 #[test]

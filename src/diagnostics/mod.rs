@@ -91,6 +91,57 @@ impl Diagnostics {
         let _ = writeln!(receipt, "wheel_events={}", self.scroll.wheel_events);
         let _ = writeln!(
             receipt,
+            "scroll_input_events={}",
+            self.scroll.scroll_input_events
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_desired_changes={}",
+            self.scroll.scroll_desired_changes
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_admitted_changes={}",
+            self.scroll.scroll_admitted_changes
+        );
+        let _ = writeln!(receipt, "scroll_unchanged={}", self.scroll.scroll_unchanged);
+        let _ = writeln!(
+            receipt,
+            "scroll_property_ticks={}",
+            self.scroll.scroll_property_ticks
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_needs_residency={}",
+            self.scroll.scroll_needs_residency
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_desired_admitted_lag_x_max={}",
+            self.scroll.desired_admitted_lag_x_max
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_desired_admitted_lag_y_max={}",
+            self.scroll.desired_admitted_lag_y_max
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_request_p95_us={}",
+            self.scroll.request_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_property_tick_p95_us={}",
+            self.scroll.property_tick_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_needs_residency_p95_us={}",
+            self.scroll.needs_residency_p95_us()
+        );
+        let _ = writeln!(
+            receipt,
             "scroll_offset_changes={}",
             self.scroll.scroll_offset_changes
         );
@@ -129,6 +180,96 @@ impl Diagnostics {
             "text_area_render_surface_calls={}",
             self.text.text_area_render_surface_calls
         );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_surface_cache_hits={}",
+            self.text.text_area_render_surface_cache_hits
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_surface_cache_misses={}",
+            self.text.text_area_render_surface_cache_misses
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_surface_source_lines={}",
+            self.text.text_area_render_surface_source_lines
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_surface_source_bytes={}",
+            self.text.text_area_render_surface_source_bytes
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_surface_total_us={}",
+            self.text.text_area_render_surface_total_us
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_surface_shape_us={}",
+            self.text.text_area_render_surface_shape_us
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_window_origin_x_max={}",
+            self.text.text_area_render_window_origin_x_max
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_window_origin_y_max={}",
+            self.text.text_area_render_window_origin_y_max
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_window_width_max={}",
+            self.text.text_area_render_window_width_max
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_window_height_max={}",
+            self.text.text_area_render_window_height_max
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_render_window_area_max={}",
+            self.text.text_area_render_window_area_max
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_height_index_hits={}",
+            self.text.text_area_height_index_hits
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_height_index_misses={}",
+            self.text.text_area_height_index_misses
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_cache_hits={}",
+            self.text.text_area_width_cache_hits
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_cache_misses={}",
+            self.text.text_area_width_cache_misses
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_source_lines={}",
+            self.text.text_area_width_source_lines
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_source_bytes={}",
+            self.text.text_area_width_source_bytes
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_measure_us={}",
+            self.text.text_area_width_measure_us
+        );
         receipt
     }
 }
@@ -145,9 +286,15 @@ mod tests {
             "scene_assembly_p95_us=0",
             "event_handling_p95_us=0",
             "presentation_layout_p95_us=0",
+            "scroll_input_events=0",
+            "scroll_property_ticks=0",
+            "scroll_needs_residency=0",
+            "scroll_request_p95_us=0",
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",
             "text_area_render_surface_calls=0",
+            "text_area_render_window_area_max=0",
+            "text_area_width_source_bytes=0",
         ] {
             assert!(receipt.contains(field), "missing receipt field {field}");
         }

@@ -6105,7 +6105,9 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
             && interaction.contains("pub(super) fn admit(")
             && dispatch.contains("enum ScrollTransition {")
             && dispatch.contains("PropertyTick(interaction::ScrollOffset),")
-            && dispatch.contains("NeedsResidency(interaction::ScrollOffset),")
+            && dispatch.contains("NeedsResidency {")
+            && dispatch.contains("desired: interaction::ScrollOffset,")
+            && dispatch.contains("admitted: interaction::ScrollOffset,")
             && dispatch.matches("self.apply_scroll_transition(").count() == 2,
         "relative and absolute input must cross one authoritative request/admit and scheduling path"
     );

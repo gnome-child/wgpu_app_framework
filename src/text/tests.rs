@@ -748,6 +748,20 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     assert_eq!(first.interaction_surfaces().len(), 0);
     assert_eq!(first_diagnostics.text_area_render_surface_cache_misses, 1);
     assert_eq!(first_diagnostics.text_area_render_surface_cache_hits, 0);
+    let first_surface = first.render_surfaces().first().expect("render surface");
+    assert_eq!(
+        first_diagnostics.text_area_render_window_width_max,
+        first_surface.width().ceil() as usize
+    );
+    assert_eq!(
+        first_diagnostics.text_area_render_window_height_max,
+        first_surface.height().ceil() as usize
+    );
+    assert_eq!(
+        first_diagnostics.text_area_render_window_area_max,
+        (first_surface.width().ceil() as usize)
+            .saturating_mul(first_surface.height().ceil() as usize)
+    );
     assert!(
         first_diagnostics.text_area_render_surface_shape_us > 0,
         "a cold render surface should perform the one required text layout pass"
@@ -977,8 +991,11 @@ fn no_wrap_text_area_logical_width_includes_unrealized_lines() {
         .map(|index| format!("short {index}"))
         .collect::<Vec<_>>();
     lines[180] = "unrealized horizontal extent ".repeat(40);
-    let area_model = Area::new(Buffer::from_multiline_text(lines.join("\n"))).no_wrap();
+    let source = lines.join("\n");
+    let source_bytes = source.len();
+    let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
     let viewport = area::logical(180.0, 52.0);
+    engine.reset_diagnostics();
     let layout = engine.text_area_paint_layout_for_area_at(
         &area_model,
         Style::default().with_size(13.0),
@@ -998,6 +1015,30 @@ fn no_wrap_text_area_logical_width_includes_unrealized_lines() {
             .all(|surface| surface.source_line() < 180),
         "the extent witness line should remain unrealized in this frame"
     );
+    let cold = engine.diagnostics();
+    assert_eq!(cold.text_area_width_cache_hits, 0);
+    assert_eq!(cold.text_area_width_cache_misses, 1);
+    assert_eq!(cold.text_area_width_source_lines, 200);
+    assert_eq!(cold.text_area_width_source_bytes, source_bytes);
+
+    engine.reset_diagnostics();
+    engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default().with_size(13.0),
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let warm = engine.diagnostics();
+    assert_eq!(
+        (
+            warm.text_area_width_cache_hits,
+            warm.text_area_width_cache_misses
+        ),
+        (1, 0)
+    );
+    assert_eq!(warm.text_area_width_source_lines, 0);
+    assert_eq!(warm.text_area_width_source_bytes, 0);
 }
 #[test]
 fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {

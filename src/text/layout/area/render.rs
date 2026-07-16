@@ -53,6 +53,28 @@ impl Engine {
         let surface_width = viewport.width().max(1.0)
             + state.scroll_x().max(0.0)
             + TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
+        let surface_width_px = ceil_to_usize(surface_width);
+        let surface_height_px = ceil_to_usize(surface_height);
+        self.diagnostics.text_area_render_window_origin_x_max = self
+            .diagnostics
+            .text_area_render_window_origin_x_max
+            .max(ceil_to_usize(state.scroll_x().max(0.0)));
+        self.diagnostics.text_area_render_window_origin_y_max = self
+            .diagnostics
+            .text_area_render_window_origin_y_max
+            .max(ceil_to_usize(state.scroll_y().max(0.0)));
+        self.diagnostics.text_area_render_window_width_max = self
+            .diagnostics
+            .text_area_render_window_width_max
+            .max(surface_width_px);
+        self.diagnostics.text_area_render_window_height_max = self
+            .diagnostics
+            .text_area_render_window_height_max
+            .max(surface_height_px);
+        self.diagnostics.text_area_render_window_area_max = self
+            .diagnostics
+            .text_area_render_window_area_max
+            .max(surface_width_px.saturating_mul(surface_height_px));
         let layout_width = match area_model.wrap() {
             AreaWrap::None => None,
             AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
@@ -265,4 +287,8 @@ impl Engine {
 
 fn elapsed_micros(start: Instant) -> u128 {
     start.elapsed().as_micros()
+}
+
+fn ceil_to_usize(value: f32) -> usize {
+    value.ceil().clamp(0.0, usize::MAX as f32) as usize
 }

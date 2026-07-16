@@ -16,7 +16,12 @@ pub(super) use document::TextDocumentStatsSnapshot;
 pub use mark::{Mark, MarkGravity, MarkRange};
 
 static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_CONTENT_VERSION: AtomicU64 = AtomicU64::new(1);
 static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
+
+pub(super) fn next_content_version() -> ContentVersion {
+    ContentVersion(NEXT_CONTENT_VERSION.fetch_add(1, Ordering::Relaxed))
+}
 
 fn next_line_id() -> LineId {
     LineId(NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed))
@@ -84,6 +89,14 @@ pub(crate) struct LineLayoutIdentity {
     pub(crate) revision: u64,
 }
 
+/// Identity of one immutable document-content version.
+///
+/// Unlike [`Buffer::id`], this survives cheap buffer clones. Every actual text
+/// mutation receives a new value, including mutations made on independently
+/// edited clones, so document-wide layout caches cannot alias unrelated text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ContentVersion(u64);
+
 pub struct Buffer {
     pub(super) inner: BufferInner,
 }
@@ -92,6 +105,7 @@ pub struct Buffer {
 pub(super) struct BufferInner {
     pub(super) id: u64,
     pub(super) revision: u64,
+    pub(super) content_version: ContentVersion,
     pub(super) document: TextDocument,
     pub(super) multiline: bool,
 }
@@ -132,6 +146,7 @@ impl Buffer {
         let inner = BufferInner {
             id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
             revision: document.revision,
+            content_version: next_content_version(),
             document,
             multiline,
         };
@@ -142,6 +157,9 @@ impl Buffer {
     }
     pub fn revision(&self) -> u64 {
         self.inner.revision
+    }
+    pub(crate) fn content_version(&self) -> ContentVersion {
+        self.inner.content_version
     }
 
     #[cfg(test)]
@@ -344,6 +362,7 @@ impl Clone for Buffer {
         let cloned = BufferInner {
             id: NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed),
             revision: inner.revision,
+            content_version: inner.content_version,
             document: inner.document.clone(),
             multiline: inner.multiline,
         };

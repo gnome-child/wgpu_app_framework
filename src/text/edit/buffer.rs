@@ -1,4 +1,6 @@
-use super::super::buffer::{Buffer, CursorSelection, Position, Range, normalize_for_buffer};
+use super::super::buffer::{
+    Buffer, CursorSelection, Position, Range, next_content_version, normalize_for_buffer,
+};
 use super::super::selection::State;
 use super::{
     Marker,
@@ -32,6 +34,7 @@ impl Buffer {
                 .document
                 .replace_range(Range::new(range.start, range.end), &inserted);
             inner.revision = inner.document.revision;
+            inner.content_version = next_content_version();
             let cursor = inner
                 .document
                 .cursor_for_text_index(range.start + inserted.len());

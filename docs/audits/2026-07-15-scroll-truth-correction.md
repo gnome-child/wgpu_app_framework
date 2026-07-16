@@ -707,6 +707,33 @@ delta, and the cells exposed by re-census.
   Table rule/cell pixel unity remains S-006, bounded text economics and stable
   anchoring remain S-004/S-005, and quantitative fixed-point work remains S-009.
 
+### S-004/S-009 checkpoint A — attributable input and text-window economics
+
+- **Metric ownership.** The production diagnostic receipt now distinguishes
+  unchanged input, admitted property hits, and residency requests; records
+  desired/admitted axis lag and fixed-capacity request timing; and exposes text
+  render-window bounds, resident source lines/bytes, shaping phases, height-index
+  work, and unwrapped-width cache/source/measure work. The legacy counters remain
+  compatible, while the transition enum carries the exact admitted value beside
+  pending desired truth instead of reconstructing lag in the observer.
+- **Exposed cache-identity violation.** The first cold/warm width witness failed
+  because ordinary committed preedit projection clones its `Buffer`, clones
+  intentionally mint a new editor identity, and the document-wide width cache
+  used that editor identity. Unchanged unwrapped text therefore flattened and
+  shaped the whole document on every layout. A typed `ContentVersion` now
+  survives harmless persistent-document clones and advances on every real edit,
+  including edits made independently on two clones. The width key consumes that
+  version plus style; it cannot alias unrelated revision-zero buffers.
+- **Structural delta and witnesses.** The cold no-wrap witness still records the
+  currently admitted whole-source width pass (200 lines and every source byte),
+  while the immediately repeated layout records one cache hit, zero misses, and
+  zero source lines/bytes visited. `document_width_key_survives_clones_but_not_independent_content`
+  ratchets the two identities directly. The library checkpoint reports 1,202
+  passed and four intentional ignores. This is not S-004 closure: absolute-
+  offset-sized horizontal surfaces and cold/edit-time whole-document width work
+  remain red owners, and the versioned release `scroll-bench` matrix plus baseline
+  receipts remain required before timing claims.
+
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a
 new `S-*` cell before continuing. New cells are not deferred merely because the

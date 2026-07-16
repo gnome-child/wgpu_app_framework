@@ -5,24 +5,30 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScrollTransition {
+pub(super) enum ScrollTransition {
     Unchanged,
     PropertyTick(interaction::ScrollOffset),
-    NeedsResidency(interaction::ScrollOffset),
+    NeedsResidency {
+        desired: interaction::ScrollOffset,
+        admitted: interaction::ScrollOffset,
+    },
 }
 
 impl ScrollTransition {
     fn offset(self) -> Option<interaction::ScrollOffset> {
         match self {
             Self::Unchanged => None,
-            Self::PropertyTick(offset) | Self::NeedsResidency(offset) => Some(offset),
+            Self::PropertyTick(offset)
+            | Self::NeedsResidency {
+                desired: offset, ..
+            } => Some(offset),
         }
     }
 
     fn effect(self) -> response::Effect {
         match self {
             Self::Unchanged | Self::PropertyTick(_) => response::Effect::None,
-            Self::NeedsResidency(_) => response::Effect::Rebuild,
+            Self::NeedsResidency { .. } => response::Effect::Rebuild,
         }
     }
 }
@@ -136,24 +142,26 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 Ok(self.window_outcome(window, false, effect))
             }
             input::Input::Scroll { target, delta } => {
+                let started = std::time::Instant::now();
                 let transition = self.apply_scroll_transition(
                     window,
                     target,
                     interaction::ScrollUpdate::Relative(delta),
                 );
                 let scrolled = transition.offset().is_some();
-                self.record_scroll_input(window, scrolled, scrolled);
+                self.record_scroll_input(window, transition, scrolled, started.elapsed());
 
                 Ok(self.window_outcome(window, false, transition.effect()))
             }
             input::Input::ScrollTo { target, offset } => {
+                let started = std::time::Instant::now();
                 let transition = self.apply_scroll_transition(
                     window,
                     target,
                     interaction::ScrollUpdate::Absolute(offset),
                 );
                 let scrolled = transition.offset().is_some();
-                self.record_scroll_input(window, scrolled, scrolled);
+                self.record_scroll_input(window, transition, scrolled, started.elapsed());
 
                 Ok(self.window_outcome(window, false, transition.effect()))
             }
@@ -233,13 +241,21 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             self.session.request_property_tick(window);
             ScrollTransition::PropertyTick(offset)
         } else {
+            let admitted = self
+                .session
+                .interaction(window)
+                .map(|interaction| interaction.scroll().offset(&target))
+                .unwrap_or_default();
             let request = self
                 .presented_layout(window)
                 .and_then(|layout| layout.virtual_request_for_scroll_offset(&target, offset));
             if let Some(request) = request {
                 self.install_virtual_request(window, request);
             }
-            ScrollTransition::NeedsResidency(offset)
+            ScrollTransition::NeedsResidency {
+                desired: offset,
+                admitted,
+            }
         }
     }
 }

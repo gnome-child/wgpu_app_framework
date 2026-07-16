@@ -22,6 +22,8 @@ pub struct Text {
     pub text_area_metrics_layout_calls: usize,
     pub text_area_visible_logical_lines: usize,
     pub text_area_shaped_logical_lines: usize,
+    pub text_area_shaped_visual_lines: usize,
+    pub text_area_line_shape_calls: usize,
     pub text_area_layout_segments: usize,
     pub text_area_overscan_segments: usize,
     pub text_area_interaction_surfaces: usize,
@@ -33,6 +35,27 @@ pub struct Text {
     pub text_area_render_surface_cache_misses: usize,
     pub text_area_render_surface_source_lines: usize,
     pub text_area_render_surface_source_bytes: usize,
+    pub text_area_render_surface_anchor_us: u128,
+    pub text_area_render_surface_text_us: u128,
+    pub text_area_render_surface_buffer_us: u128,
+    pub text_area_render_surface_attrs_us: u128,
+    pub text_area_render_surface_size_us: u128,
+    pub text_area_render_surface_shape_us: u128,
+    pub text_area_render_surface_metadata_us: u128,
+    pub text_area_render_surface_total_us: u128,
+    pub text_area_render_window_origin_x_max: usize,
+    pub text_area_render_window_origin_y_max: usize,
+    pub text_area_render_window_width_max: usize,
+    pub text_area_render_window_height_max: usize,
+    pub text_area_render_window_area_max: usize,
+    pub text_area_hit_run_scans: usize,
+    pub text_area_height_index_hits: usize,
+    pub text_area_height_index_misses: usize,
+    pub text_area_width_cache_hits: usize,
+    pub text_area_width_cache_misses: usize,
+    pub text_area_width_source_lines: usize,
+    pub text_area_width_source_bytes: usize,
+    pub text_area_width_measure_us: u128,
 }
 
 #[derive(Clone)]
@@ -359,6 +382,8 @@ impl Text {
         self.text_area_metrics_layout_calls += diagnostics.text_area_metrics_layout_calls;
         self.text_area_visible_logical_lines += diagnostics.text_area_visible_logical_lines;
         self.text_area_shaped_logical_lines += diagnostics.text_area_shaped_logical_lines;
+        self.text_area_shaped_visual_lines += diagnostics.text_area_shaped_visual_lines;
+        self.text_area_line_shape_calls += diagnostics.text_area_line_shape_calls;
         self.text_area_layout_segments += diagnostics.text_area_layout_segments;
         self.text_area_overscan_segments += diagnostics.text_area_overscan_segments;
         self.text_area_interaction_surfaces += diagnostics.text_area_interaction_surfaces;
@@ -373,6 +398,38 @@ impl Text {
             diagnostics.text_area_render_surface_source_lines;
         self.text_area_render_surface_source_bytes +=
             diagnostics.text_area_render_surface_source_bytes;
+        self.text_area_render_surface_anchor_us += diagnostics.text_area_render_surface_anchor_us;
+        self.text_area_render_surface_text_us += diagnostics.text_area_render_surface_text_us;
+        self.text_area_render_surface_buffer_us += diagnostics.text_area_render_surface_buffer_us;
+        self.text_area_render_surface_attrs_us += diagnostics.text_area_render_surface_attrs_us;
+        self.text_area_render_surface_size_us += diagnostics.text_area_render_surface_size_us;
+        self.text_area_render_surface_shape_us += diagnostics.text_area_render_surface_shape_us;
+        self.text_area_render_surface_metadata_us +=
+            diagnostics.text_area_render_surface_metadata_us;
+        self.text_area_render_surface_total_us += diagnostics.text_area_render_surface_total_us;
+        self.text_area_render_window_origin_x_max = self
+            .text_area_render_window_origin_x_max
+            .max(diagnostics.text_area_render_window_origin_x_max);
+        self.text_area_render_window_origin_y_max = self
+            .text_area_render_window_origin_y_max
+            .max(diagnostics.text_area_render_window_origin_y_max);
+        self.text_area_render_window_width_max = self
+            .text_area_render_window_width_max
+            .max(diagnostics.text_area_render_window_width_max);
+        self.text_area_render_window_height_max = self
+            .text_area_render_window_height_max
+            .max(diagnostics.text_area_render_window_height_max);
+        self.text_area_render_window_area_max = self
+            .text_area_render_window_area_max
+            .max(diagnostics.text_area_render_window_area_max);
+        self.text_area_hit_run_scans += diagnostics.text_area_hit_run_scans;
+        self.text_area_height_index_hits += diagnostics.text_area_height_index_hits;
+        self.text_area_height_index_misses += diagnostics.text_area_height_index_misses;
+        self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
+        self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
+        self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
+        self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
+        self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;
     }
 
     fn add_text_layout(&mut self, diagnostics: text_engine::layout::Diagnostics) {
@@ -380,6 +437,8 @@ impl Text {
         self.text_area_metrics_layout_calls += diagnostics.text_area_metrics_layout_calls;
         self.text_area_visible_logical_lines += diagnostics.text_area_visible_logical_lines;
         self.text_area_shaped_logical_lines += diagnostics.text_area_shaped_logical_lines;
+        self.text_area_shaped_visual_lines += diagnostics.text_area_shaped_visual_lines;
+        self.text_area_line_shape_calls += diagnostics.text_area_line_shape_calls;
         self.text_area_layout_segments += diagnostics.text_area_layout_segments;
         self.text_area_overscan_segments += diagnostics.text_area_overscan_segments;
         self.text_area_interaction_surfaces += diagnostics.text_area_interaction_surfaces;
@@ -394,6 +453,38 @@ impl Text {
             diagnostics.text_area_render_surface_source_lines;
         self.text_area_render_surface_source_bytes +=
             diagnostics.text_area_render_surface_source_bytes;
+        self.text_area_render_surface_anchor_us += diagnostics.text_area_render_surface_anchor_us;
+        self.text_area_render_surface_text_us += diagnostics.text_area_render_surface_text_us;
+        self.text_area_render_surface_buffer_us += diagnostics.text_area_render_surface_buffer_us;
+        self.text_area_render_surface_attrs_us += diagnostics.text_area_render_surface_attrs_us;
+        self.text_area_render_surface_size_us += diagnostics.text_area_render_surface_size_us;
+        self.text_area_render_surface_shape_us += diagnostics.text_area_render_surface_shape_us;
+        self.text_area_render_surface_metadata_us +=
+            diagnostics.text_area_render_surface_metadata_us;
+        self.text_area_render_surface_total_us += diagnostics.text_area_render_surface_total_us;
+        self.text_area_render_window_origin_x_max = self
+            .text_area_render_window_origin_x_max
+            .max(diagnostics.text_area_render_window_origin_x_max);
+        self.text_area_render_window_origin_y_max = self
+            .text_area_render_window_origin_y_max
+            .max(diagnostics.text_area_render_window_origin_y_max);
+        self.text_area_render_window_width_max = self
+            .text_area_render_window_width_max
+            .max(diagnostics.text_area_render_window_width_max);
+        self.text_area_render_window_height_max = self
+            .text_area_render_window_height_max
+            .max(diagnostics.text_area_render_window_height_max);
+        self.text_area_render_window_area_max = self
+            .text_area_render_window_area_max
+            .max(diagnostics.text_area_render_window_area_max);
+        self.text_area_hit_run_scans += diagnostics.text_area_hit_run_scans;
+        self.text_area_height_index_hits += diagnostics.text_area_height_index_hits;
+        self.text_area_height_index_misses += diagnostics.text_area_height_index_misses;
+        self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
+        self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
+        self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
+        self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
+        self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;
     }
 }
 
