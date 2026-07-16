@@ -882,6 +882,14 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
             .expect("window should have interaction state")
             .scroll()
             .offset(&scroll_target),
+        interaction::ScrollOffset::default()
+    );
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window should have interaction state")
+            .scroll()
+            .desired_offset(&scroll_target),
         interaction::ScrollOffset::new(0, 96)
     );
 
@@ -935,6 +943,10 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
     assert_eq!(interaction.pointer().capture(), None);
     assert_eq!(
         interaction.scroll().offset(&scroll_target),
+        interaction::ScrollOffset::default()
+    );
+    assert_eq!(
+        interaction.scroll().desired_offset(&scroll_target),
         interaction::ScrollOffset::default()
     );
     assert_eq!(app.pending_tasks(), 0);

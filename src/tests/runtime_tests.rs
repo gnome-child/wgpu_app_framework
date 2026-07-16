@@ -4,6 +4,28 @@ fn successful_render_report() -> diagnostics::RenderReport {
     diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
 }
 
+#[derive(Clone, Copy)]
+struct IndependentRows(&'static str);
+
+impl crate::virtual_list::Provider for IndependentRows {
+    fn len(&self) -> usize {
+        1_000
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        view::Node::label(format!("{} row {index}", self.0))
+    }
+}
+
 #[test]
 fn store_starts_clean_with_initial_revision() {
     let store = state::Store::new(EditorState::default());
@@ -30,7 +52,7 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
         epoch,
         candidate.invalidation(),
         candidate.layout(),
-        candidate.properties(),
+        candidate.stack(),
         candidate.property_only(),
         successful_render_report().with_presented(false),
     );
@@ -75,7 +97,7 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
         retry.epoch(),
         retry.invalidation(),
         retry.layout(),
-        retry.properties(),
+        retry.stack(),
         retry.property_only(),
         successful_render_report(),
     );
@@ -104,7 +126,7 @@ fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
         visible.epoch(),
         visible.invalidation(),
         visible.layout(),
-        visible.properties(),
+        visible.stack(),
         visible.property_only(),
         successful_render_report(),
     );
@@ -133,7 +155,7 @@ fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
         candidate.epoch(),
         candidate.invalidation(),
         candidate.layout(),
-        candidate.properties(),
+        candidate.stack(),
         candidate.property_only(),
         successful_render_report().with_presented(false),
     );
@@ -162,6 +184,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
     let active_layout = active.layout().clone();
     let active_commit = std::sync::Arc::clone(active.commit());
     let active_properties = active.properties().clone();
+    let active_stack = std::sync::Arc::clone(active.stack());
     let table_cell = active
         .layout()
         .frames()
@@ -179,7 +202,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
         active_epoch,
         active_invalidation,
         &active_layout,
-        &active_properties,
+        &active_stack,
         active.property_only(),
         successful_render_report(),
     );
@@ -228,12 +251,13 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
         Some(interaction::ScrollOffset::new(0, 24))
     );
 
+    let projected_stack = std::sync::Arc::new(active_stack.with_base_properties(projected));
     app.finish_active_refresh(
         window,
         active_epoch,
         active_invalidation,
         &active_layout,
-        &projected,
+        &projected_stack,
         successful_render_report(),
     );
 
@@ -260,7 +284,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
 }
 
 #[test]
-fn scroll_leaving_resident_topology_promotes_to_a_semantic_commit() {
+fn scroll_leaving_resident_topology_advances_residency_without_a_semantic_commit() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -269,6 +293,8 @@ fn scroll_leaving_resident_topology_promotes_to_a_semantic_commit() {
         .render_scene(window, size)
         .expect("initial active frame should prepare");
     let active_commit = std::sync::Arc::clone(active.commit());
+    let active_drawable = std::sync::Arc::clone(active.stack().base().drawable_commit());
+    let active_residencies = active.stack().base().residencies().to_vec();
     let table_cell = active
         .layout()
         .frames()
@@ -281,35 +307,283 @@ fn scroll_leaving_resident_topology_promotes_to_a_semantic_commit() {
         })
         .expect("gallery should materialize the stable scroll witness cell");
     let point = geometry::Point::new(table_cell.rect().x() + 1, table_cell.rect().y() + 1);
+    let delta = interaction::ScrollDelta::vertical(24);
+    let target = active
+        .layout()
+        .scroll_target_at(point, delta)
+        .expect("stable witness cell should belong to a scroll target");
     app.finish_render_report(
         window,
         active.epoch(),
         active.invalidation(),
         active.layout(),
-        active.properties(),
+        active.stack(),
+        active.property_only(),
+        successful_render_report(),
+    );
+    drop(active);
+    let semantic_activations = app
+        .diagnostics(window)
+        .expect("initial presentation diagnostics")
+        .render
+        .semantic_commits_activated;
+    let mut admitted = interaction::ScrollOffset::default();
+
+    let mut replenished = None;
+    for _ in 0..128 {
+        app.scroll_at(window, size, point, delta)
+            .expect("scroll should remain a valid input while resident content is exhausted");
+        let candidate = app
+            .render_scene(window, size)
+            .expect("scroll should always produce a complete drawable candidate");
+        assert!(
+            candidate.layout().scene_residency_is_complete(),
+            "every successful slow-scroll candidate must cover every visible pixel"
+        );
+        if !candidate.property_only() {
+            replenished = Some(candidate);
+            break;
+        }
+        app.finish_render_report(
+            window,
+            candidate.epoch(),
+            candidate.invalidation(),
+            candidate.layout(),
+            candidate.stack(),
+            candidate.property_only(),
+            successful_render_report(),
+        );
+        let next = app
+            .session()
+            .interaction(window)
+            .expect("scroll interaction")
+            .scroll()
+            .offset(&target);
+        assert!(
+            next.y() >= admitted.y(),
+            "admitted scroll must be monotonic"
+        );
+        admitted = next;
+    }
+
+    let replenished = replenished
+        .expect("leaving resident coverage must request residency replenishment, not panic");
+    let previous_ids = active_commit
+        .nodes()
+        .iter()
+        .map(|node| node.id())
+        .collect::<std::collections::HashSet<_>>();
+    let next_ids = replenished
+        .commit()
+        .nodes()
+        .iter()
+        .map(|node| node.id())
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        std::sync::Arc::ptr_eq(&active_commit, replenished.commit()),
+        "pure residency must retain semantic topology; removed={:?} added={:?}; {}",
+        previous_ids.difference(&next_ids).collect::<Vec<_>>(),
+        next_ids.difference(&previous_ids).collect::<Vec<_>>(),
+        active_commit.projection_difference(replenished.commit())
+    );
+    assert!(
+        replenished
+            .stack()
+            .base()
+            .residencies()
+            .iter()
+            .zip(active_residencies.iter())
+            .any(|(next, previous)| next.revision() > previous.revision()),
+        "crossing coverage must advance a local residency revision"
+    );
+    let forward = replenished
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| {
+            projection.target() == &target && projection.viewport().max_scroll().y() > 0
+        })
+        .expect("replenished table must retain its vertical scroll projection");
+    let next_residencies = replenished.stack().base().residencies();
+    let previous_forward = active_residencies
+        .iter()
+        .find(|residency| residency.scroll() == forward.node())
+        .expect("active table must have a local residency");
+    let next_forward = next_residencies
+        .iter()
+        .find(|residency| residency.scroll() == forward.node())
+        .expect("replenished table must have a local residency");
+    assert!(next_forward.revision() > previous_forward.revision());
+    assert!(
+        !std::sync::Arc::ptr_eq(
+            &active_drawable,
+            replenished.stack().base().drawable_commit()
+        ),
+        "the layer drawable must advance even when an earlier local residency is reusable"
+    );
+    let viewport = forward.viewport();
+    let resident = forward
+        .resident_bounds()
+        .expect("replenished table projection must carry complete resident bounds");
+    let (_, maximum) = forward
+        .accepted_offsets()
+        .expect("complete table residency must prove its admitted interval");
+    assert!(
+        maximum.y() > viewport.resolved_scroll().y(),
+        "replenishment must retain forward runway below the table viewport"
+    );
+    let resident_bottom_at_maximum = resident
+        .bottom()
+        .saturating_add(viewport.resolved_scroll().y())
+        .saturating_sub(maximum.y());
+    assert!(
+        resident_bottom_at_maximum >= viewport.visible_content().bottom(),
+        "the admitted interval must keep resident pixels across the table viewport bottom"
+    );
+    if maximum.y() < viewport.max_scroll().y() {
+        let beyond = interaction::ScrollOffset::new(maximum.x(), maximum.y().saturating_add(1));
+        assert!(
+            !replenished
+                .layout()
+                .scroll_property_accepts(&target, beyond),
+            "one pixel beyond forward residency must be rejected before exposing the table viewport bottom"
+        );
+    }
+    app.finish_render_report(
+        window,
+        replenished.epoch(),
+        replenished.invalidation(),
+        replenished.layout(),
+        replenished.stack(),
+        replenished.property_only(),
+        successful_render_report(),
+    );
+    let next = app
+        .session()
+        .interaction(window)
+        .expect("scroll interaction after residency activation")
+        .scroll()
+        .offset(&target);
+    assert!(next.y() > admitted.y());
+    assert_eq!(
+        app.diagnostics(window)
+            .expect("residency presentation diagnostics")
+            .render
+            .semantic_commits_activated,
+        semantic_activations,
+        "pure residency activation must record zero semantic commits"
+    );
+}
+
+#[test]
+fn one_scroll_residency_can_advance_while_an_independent_one_stays_reusable() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Independent residency"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.row(|ui| {
+                    ui.add(
+                        crate::VirtualList::new("independent.first", 20, IndependentRows("first"))
+                            .width(view::Dimension::fixed(180))
+                            .height(view::Dimension::fixed(120)),
+                    );
+                    ui.add(
+                        crate::VirtualList::new(
+                            "independent.second",
+                            20,
+                            IndependentRows("second"),
+                        )
+                        .width(view::Dimension::fixed(180))
+                        .height(view::Dimension::fixed(120)),
+                    );
+                });
+            })
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(400, 140);
+    let active = app
+        .render_scene(window, size)
+        .expect("independent virtual lists should prepare");
+    let lists = active.layout().find_role(view::Role::VirtualList);
+    assert_eq!(lists.len(), 2);
+    let first_node = lists[0].node_id();
+    let second_node = lists[1].node_id();
+    let second_point = frame_point(lists[1]);
+    let active_drawable = std::sync::Arc::clone(active.stack().base().drawable_commit());
+    let active_residencies = active.stack().base().residencies().to_vec();
+    app.finish_render_report(
+        window,
+        active.epoch(),
+        active.invalidation(),
+        active.layout(),
+        active.stack(),
         active.property_only(),
         successful_render_report(),
     );
     drop(active);
 
     let mut replenished = None;
-    for _ in 0..128 {
-        app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(24))
-            .expect("scroll should remain a valid input while resident content is exhausted");
+    for _ in 0..64 {
+        app.scroll_at(
+            window,
+            size,
+            second_point,
+            interaction::ScrollDelta::vertical(20),
+        )
+        .expect("second list should scroll");
         let candidate = app
             .render_scene(window, size)
-            .expect("scroll should always produce a complete drawable candidate");
+            .expect("second list should always prepare complete pixels");
         if !candidate.property_only() {
-            replenished = Some(std::sync::Arc::clone(candidate.commit()));
+            replenished = Some(candidate);
             break;
         }
+        app.finish_render_report(
+            window,
+            candidate.epoch(),
+            candidate.invalidation(),
+            candidate.layout(),
+            candidate.stack(),
+            candidate.property_only(),
+            successful_render_report(),
+        );
     }
+    let replenished = replenished.expect("second list must eventually cross its runway");
+    let next_residencies = replenished.stack().base().residencies();
+    let revision = |residencies: &[scene::Residency], node| {
+        residencies
+            .iter()
+            .find(|residency| residency.scroll() == node)
+            .map(scene::Residency::revision)
+            .expect("virtual list should have local residency")
+    };
 
-    let replenished = replenished
-        .expect("leaving resident coverage must request semantic replenishment, not panic");
+    assert_eq!(
+        revision(&active_residencies, first_node),
+        revision(next_residencies, first_node),
+        "the untouched list must retain its local residency revision"
+    );
     assert!(
-        !std::sync::Arc::ptr_eq(&active_commit, &replenished),
-        "semantic replenishment must replace the exhausted commit topology"
+        revision(next_residencies, second_node) > revision(&active_residencies, second_node),
+        "the scrolled list must advance only its local residency revision"
+    );
+    assert!(
+        !std::sync::Arc::ptr_eq(
+            &active_drawable,
+            replenished.stack().base().drawable_commit()
+        ),
+        "the layer must nevertheless select the new shared drawable snapshot"
+    );
+    assert!(
+        replenished
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value().starts_with("second row ") && text.value() != "second row 0"),
+        "the new drawable must contain replenished second-list rows"
     );
 }
 
@@ -334,7 +608,7 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
         newer.epoch(),
         newer.invalidation(),
         newer.layout(),
-        newer.properties(),
+        newer.stack(),
         newer.property_only(),
         successful_render_report(),
     );
@@ -343,7 +617,7 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
         older.epoch(),
         older.invalidation(),
         older.layout(),
-        older.properties(),
+        older.stack(),
         older.property_only(),
         successful_render_report(),
     );
@@ -390,7 +664,7 @@ fn model_revision_desired_epoch_and_acknowledged_epoch_are_independent_facts() {
         candidate.epoch(),
         candidate.invalidation(),
         candidate.layout(),
-        candidate.properties(),
+        candidate.stack(),
         candidate.property_only(),
         successful_render_report(),
     );
@@ -424,7 +698,7 @@ fn window_teardown_removes_acknowledged_geometry() {
         candidate.epoch(),
         candidate.invalidation(),
         candidate.layout(),
-        candidate.properties(),
+        candidate.stack(),
         candidate.property_only(),
         successful_render_report(),
     );

@@ -32,6 +32,7 @@ pub(crate) enum Action {
     ScrollTo {
         target: interaction::Target,
         offset: interaction::ScrollOffset,
+        axis: interaction::ScrollbarAxis,
     },
     ToggleMenu(interaction::Menu),
     TextSelection(text::selection::Operation),
@@ -119,8 +120,13 @@ impl Action {
     pub(crate) fn scroll_to(
         target: interaction::Target,
         offset: interaction::ScrollOffset,
+        axis: interaction::ScrollbarAxis,
     ) -> Self {
-        Self::ScrollTo { target, offset }
+        Self::ScrollTo {
+            target,
+            offset,
+            axis,
+        }
     }
 
     pub(crate) fn toggle_menu(menu: interaction::Menu) -> Self {

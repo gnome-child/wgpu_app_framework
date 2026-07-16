@@ -151,8 +151,9 @@ fn project_scrollbar_property(
         thickness,
     );
 
-    if let Some((baseline_start, extent, baseline_position)) = thumb {
-        let offset = properties.scroll_offset(node).unwrap_or_default();
+    if let Some((baseline_start, extent, baseline_position)) = thumb
+        && let Some(offset) = properties.scroll_offset(node)
+    {
         let position = projection
             .scrollbar_position(offset)
             .expect("scrollbar thumb projection must have one integral position");
@@ -391,6 +392,8 @@ impl Projection {
 struct TargetSpace {
     origin: [f32; 2],
     size: [f32; 2],
+    text_origin: [f32; 2],
+    text_size: [f32; 2],
     target: Option<composition::tree::NodeId>,
     scroll_root: Option<composition::tree::NodeId>,
     current_scroll: Option<composition::tree::NodeId>,
@@ -400,6 +403,8 @@ impl PartialEq for TargetSpace {
     fn eq(&self, other: &Self) -> bool {
         self.origin.map(f32::to_bits) == other.origin.map(f32::to_bits)
             && self.size.map(f32::to_bits) == other.size.map(f32::to_bits)
+            && self.text_origin.map(f32::to_bits) == other.text_origin.map(f32::to_bits)
+            && self.text_size.map(f32::to_bits) == other.text_size.map(f32::to_bits)
             && self.target == other.target
             && self.scroll_root == other.scroll_root
             && self.current_scroll == other.current_scroll
@@ -412,6 +417,8 @@ impl std::hash::Hash for TargetSpace {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.origin.map(f32::to_bits).hash(state);
         self.size.map(f32::to_bits).hash(state);
+        self.text_origin.map(f32::to_bits).hash(state);
+        self.text_size.map(f32::to_bits).hash(state);
         self.target.hash(state);
         self.scroll_root.hash(state);
         self.current_scroll.hash(state);
@@ -552,10 +559,11 @@ impl Realizer {
         budget: std::time::Duration,
         deadline: std::time::Duration,
     ) -> render::Result<Synchronize> {
+        validate_residencies(layer)?;
         self.synchronize_projected(
             render_context,
             viewport,
-            layer.commit(),
+            layer.drawable_commit(),
             Projection::from_layer(layer),
             text_renderer,
             budget,
@@ -665,7 +673,8 @@ impl Realizer {
     pub(in crate::render) fn cancel_layer_synchronization(&mut self, layer: &scene::Layer) {
         let projection = Projection::from_layer(layer);
         self.pending.retain(|pending| {
-            !Arc::ptr_eq(&pending.commit, layer.commit()) || pending.projection != projection
+            !Arc::ptr_eq(&pending.commit, layer.drawable_commit())
+                || pending.projection != projection
         });
     }
 
@@ -699,10 +708,11 @@ impl Realizer {
         layer: &scene::Layer,
         text_renderer: &mut render::text_renderer::TextRenderer,
     ) -> render::Result<Prepared> {
+        validate_residencies(layer)?;
         self.prepare_projected(
             render_context,
             viewport,
-            layer.commit(),
+            layer.drawable_commit(),
             layer.properties(),
             Projection::from_layer(layer),
             text_renderer,
@@ -827,10 +837,11 @@ impl Realizer {
         layer: &scene::Layer,
         text_renderer: &mut render::text_renderer::TextRenderer,
     ) -> render::Result<Option<Prepared>> {
+        validate_residencies(layer)?;
         self.prepare_candidate_projected(
             render_context,
             viewport,
-            layer.commit(),
+            layer.drawable_commit(),
             layer.properties(),
             &Projection::from_layer(layer),
             text_renderer,
@@ -926,7 +937,7 @@ impl Realizer {
                 && entry
                     .commit
                     .upgrade()
-                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, layer.commit()))
+                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, layer.drawable_commit()))
         }) else {
             return;
         };
@@ -1018,6 +1029,35 @@ impl Realizer {
     }
 }
 
+fn validate_residencies(layer: &scene::Layer) -> render::Result<()> {
+    for residency in layer.residencies() {
+        residency
+            .require_compatible(layer.commit())
+            .map_err(|_| render::Error::RetainedSceneContract)?;
+        let nodes = residency.node_ids().collect::<HashSet<_>>();
+        if !nodes.contains(&residency.scroll())
+            || residency
+                .draw_order()
+                .iter()
+                .any(|node| !nodes.contains(node))
+            || nodes.iter().any(|node| {
+                !layer
+                    .drawable_commit()
+                    .nodes()
+                    .iter()
+                    .any(|candidate| candidate.id() == *node)
+            })
+            || layer
+                .properties()
+                .scroll_offset(residency.scroll())
+                .is_some_and(|offset| !residency.accepts(offset))
+        {
+            return Err(render::Error::RetainedSceneContract);
+        }
+    }
+    Ok(())
+}
+
 fn record_candidate_timing(
     stats: &mut render::DrawStats,
     elapsed: std::time::Duration,
@@ -1066,7 +1106,7 @@ fn collect_text_transforms(
                 collect_text_transforms(&layer.render_batches, properties, translation, transforms);
             }
             PlanStep::Text(batch) => {
-                transforms.push((*batch, translation));
+                transforms.push((*batch, batch.translation(translation)));
             }
             PlanStep::Group(group) => {
                 collect_text_transforms(&group.render_batches, properties, [0.0, 0.0], transforms);
@@ -1111,6 +1151,11 @@ impl PendingPlan {
         let main = TargetSpace {
             origin: projection.origin,
             size: [
+                viewport.logical_area().width().max(1.0),
+                viewport.logical_area().height().max(1.0),
+            ],
+            text_origin: projection.origin,
+            text_size: [
                 viewport.logical_area().width().max(1.0),
                 viewport.logical_area().height().max(1.0),
             ],
@@ -1238,6 +1283,11 @@ impl PendingPlan {
                         space: TargetSpace {
                             origin: [bounds.origin.x(), bounds.origin.y()],
                             size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
+                            text_origin: [bounds.origin.x(), bounds.origin.y()],
+                            text_size: [
+                                bounds.area.width().max(1.0),
+                                bounds.area.height().max(1.0),
+                            ],
                             target: Some(*node),
                             scroll_root: space.current_scroll.or(space.scroll_root),
                             current_scroll: None,
@@ -1255,6 +1305,10 @@ impl PendingPlan {
                         declaration.viewport(),
                         builder.viewport.scale_factor(),
                     );
+                    let resident = render::scene::to_paint_rect_value_at_scale(
+                        declaration.resident_bounds(),
+                        builder.viewport.scale_factor(),
+                    );
                     self.frames.push(PendingFrame {
                         kind: PendingFrameKind::Scroll {
                             node: *node,
@@ -1264,6 +1318,11 @@ impl PendingPlan {
                         },
                         space: TargetSpace {
                             current_scroll: Some(*node),
+                            text_origin: [resident.origin.x(), resident.origin.y()],
+                            text_size: [
+                                resident.area.width().max(1.0),
+                                resident.area.height().max(1.0),
+                            ],
                             ..space
                         },
                         batches: Vec::new(),
@@ -1391,6 +1450,11 @@ impl PlanBuilder<'_> {
                 self.viewport.logical_area().width().max(1.0),
                 self.viewport.logical_area().height().max(1.0),
             ],
+            text_origin: self.projection.origin,
+            text_size: [
+                self.viewport.logical_area().width().max(1.0),
+                self.viewport.logical_area().height().max(1.0),
+            ],
             scroll_root: None,
             target: None,
             current_scroll: None,
@@ -1470,6 +1534,8 @@ impl PlanBuilder<'_> {
                     let group_space = TargetSpace {
                         origin: [bounds.origin.x(), bounds.origin.y()],
                         size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
+                        text_origin: [bounds.origin.x(), bounds.origin.y()],
+                        text_size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
                         target: Some(*node),
                         scroll_root: space.current_scroll.or(space.scroll_root),
                         current_scroll: None,
@@ -1501,9 +1567,18 @@ impl PlanBuilder<'_> {
                         declaration.viewport(),
                         self.viewport.scale_factor(),
                     );
+                    let resident = render::scene::to_paint_rect_value_at_scale(
+                        declaration.resident_bounds(),
+                        self.viewport.scale_factor(),
+                    );
                     let mut members = Vec::new();
                     let scroll_space = TargetSpace {
                         current_scroll: Some(*node),
+                        text_origin: [resident.origin.x(), resident.origin.y()],
+                        text_size: [
+                            resident.area.width().max(1.0),
+                            resident.area.height().max(1.0),
+                        ],
                         ..space
                     };
                     self.build_order(
@@ -1601,6 +1676,8 @@ impl PlanBuilder<'_> {
         let body_space = own_group_bounds.map_or(parent_space, |bounds| TargetSpace {
             origin: [bounds.origin.x(), bounds.origin.y()],
             size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
+            text_origin: [bounds.origin.x(), bounds.origin.y()],
+            text_size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
             target: Some(node.id()),
             scroll_root: parent_space.current_scroll.or(parent_space.scroll_root),
             current_scroll: None,
@@ -1865,8 +1942,13 @@ impl PlanBuilder<'_> {
             node,
             content_index,
             &[glyph],
-            space.origin,
+            space.text_origin,
+            space.text_size,
             space.size,
+            [
+                space.text_origin[0] - space.origin[0],
+                space.text_origin[1] - space.origin[1],
+            ],
             space.current_scroll,
             space.target,
         )?;
@@ -3030,6 +3112,8 @@ mod tests {
             space: TargetSpace {
                 origin: [0.0, 0.0],
                 size: [100.0, 80.0],
+                text_origin: [0.0, 0.0],
+                text_size: [100.0, 80.0],
                 target: None,
                 scroll_root: None,
                 current_scroll: None,

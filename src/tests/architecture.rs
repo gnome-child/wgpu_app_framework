@@ -5969,6 +5969,81 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
 }
 
 #[test]
+fn scroll_residency_uses_owner_local_names_clocks_and_the_existing_stack_handoff() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let library = std::fs::read_to_string(src.join("lib.rs")).expect("library source should read");
+    let scene =
+        std::fs::read_to_string(src.join("scene/mod.rs")).expect("scene module source should read");
+    let residency = std::fs::read_to_string(src.join("scene/residency.rs"))
+        .expect("scene residency source should read");
+    let stack = std::fs::read_to_string(src.join("scene/stack.rs"))
+        .expect("scene stack source should read");
+    let presentation = std::fs::read_to_string(src.join("runtime/presentation.rs"))
+        .expect("runtime presentation source should read");
+    let renderer = std::fs::read_to_string(src.join("render/renderer.rs"))
+        .expect("renderer source should read");
+    let popup = std::fs::read_to_string(src.join("popup.rs")).expect("popup source should read");
+
+    for forbidden in [
+        "pub mod scroll;",
+        "pub mod residency;",
+        "pub mod scheduler;",
+        "pub use scene::Residency;",
+    ] {
+        assert!(
+            !library.contains(forbidden),
+            "scroll preparation must not mint a public root owner: {forbidden}"
+        );
+    }
+    assert!(
+        scene.contains("pub(crate) mod residency;")
+            && scene.contains("pub(crate) use residency::Residency;")
+            && stack.contains("drawable: Arc<Commit>")
+            && stack.contains("residencies: Arc<[Residency]>")
+            && stack.contains("left.same_residencies(right)")
+            && stack.contains("&self.drawable")
+            && presentation.contains("Arc::clone(&self.drawable)")
+            && !presentation.contains(".residencies\n            .first()"),
+        "the stack layer must own one explicit drawable snapshot while local residency revisions travel beside it"
+    );
+    let residency_fields = residency
+        .split("pub(crate) struct Residency {")
+        .nth(1)
+        .and_then(|source| source.split("struct Resident {").next())
+        .expect("residency fields should remain inspectable");
+    assert!(
+        residency.contains("scroll: composition::tree::NodeId")
+            && residency.contains("pub(crate) struct Revision(u64)")
+            && !residency_fields.contains("drawable: Arc<Commit>")
+            && !residency.contains("Generation")
+            && !residency.contains("PresentationEpoch")
+            && !residency.contains("ResidencyId")
+            && !residency.contains("RenderNodeId"),
+        "residency must borrow composition identity and keep its local revision distinct from window and popup clocks"
+    );
+    assert!(
+        popup.contains("pub(crate) struct Generation(u64)") && !popup.contains("PresentationEpoch"),
+        "popup currentness must remain popup-local rather than deriving identity from a parent presentation epoch"
+    );
+    for forbidden in [
+        "apply_residency_patch",
+        "draw_residency",
+        "Renderer::apply_residency",
+    ] {
+        assert!(
+            !renderer.contains(forbidden),
+            "residency synchronization must not add a renderer handoff beside draw_stack: {forbidden}"
+        );
+    }
+    assert!(
+        renderer.contains("pub fn draw_stack(")
+            && renderer.contains("pub(crate) fn synchronize_stack("),
+        "the complete scene Stack must remain the sole retained renderer entrance"
+    );
+}
+
+#[test]
 fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     let interaction = include_str!("../interaction/scroll.rs");
     let dispatch = include_str!("../runtime/input/dispatch.rs");
@@ -5982,12 +6057,14 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
             && interaction.contains("Relative(ScrollDelta),")
             && interaction.contains("Absolute(ScrollOffset),")
             && interaction.contains("Geometry(ScrollOffset),")
-            && interaction.contains("pub(super) fn apply(")
+            && interaction.contains("enum Position {")
+            && interaction.contains("pub(super) fn request(")
+            && interaction.contains("pub(super) fn admit(")
             && dispatch.contains("enum ScrollTransition {")
             && dispatch.contains("PropertyTick(interaction::ScrollOffset),")
             && dispatch.contains("NeedsResidency(interaction::ScrollOffset),")
             && dispatch.matches("self.apply_scroll_transition(").count() == 2,
-        "relative and absolute input must cross one authoritative mutation and scheduling path"
+        "relative and absolute input must cross one authoritative request/admit and scheduling path"
     );
     for displaced in ["fn scroll_by(", "fn resolve_scroll("] {
         assert!(
@@ -6006,9 +6083,14 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     );
     assert!(
         layout.contains("enum ScrollResidency {")
-            && layout.contains("Complete(Rect),")
+            && layout.contains("Complete(Proof),")
             && layout.contains("Empty,")
             && layout.contains("Incomplete,")
+            && layout.contains("struct Proof {")
+            && layout.contains("accepted: Accepted,")
+            && layout.contains("key: crate::virtual_list::Key,")
+            && layout.contains("expected_keys: &[crate::virtual_list::Key]")
+            && layout.contains("key != Some(&row.key)")
             && layout.contains("fn exact_virtual_residency(")
             && paint.contains("scene painting requires a complete scroll residency proof"),
         "scene painting must remain downstream of an exact complete virtual-residency proof"

@@ -3,7 +3,7 @@ use crate::{interaction, window as app_window};
 use super::super::Session;
 
 impl Session {
-    pub(crate) fn apply_scroll(
+    pub(crate) fn request_scroll(
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
@@ -13,10 +13,21 @@ impl Session {
             return None;
         };
 
-        let changed = window.interaction.apply_scroll(target.clone(), update);
+        let changed = window.interaction.request_scroll(target.clone(), update);
         let reveal_cleared = !matches!(update, interaction::ScrollUpdate::Relative(_))
             && window.interaction.clear_scroll_reveal(&target);
-        changed.or_else(|| reveal_cleared.then(|| window.interaction.scroll().offset(&target)))
+        changed
+            .or_else(|| reveal_cleared.then(|| window.interaction.scroll().desired_offset(&target)))
+    }
+
+    pub(crate) fn admit_scroll(
+        &mut self,
+        id: app_window::Id,
+        target: interaction::Target,
+        offset: interaction::ScrollOffset,
+    ) -> Option<interaction::ScrollOffset> {
+        let window = self.window_mut(id)?;
+        window.interaction.admit_scroll(target, offset)
     }
 
     pub fn reveal_scroll(&mut self, id: app_window::Id, target: interaction::Target) -> bool {

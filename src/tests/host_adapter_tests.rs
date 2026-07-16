@@ -124,6 +124,16 @@ fn host_window_event_mapper_routes_common_window_events() {
             .offset(&target),
         interaction::ScrollOffset::new(0, 32)
     );
+    assert_eq!(
+        host.shell()
+            .runtime()
+            .session()
+            .interaction(window)
+            .expect("window should have interaction")
+            .scroll()
+            .desired_offset(&target),
+        interaction::ScrollOffset::new(0, 32)
+    );
 
     host.handle_event(host::Event::window(
         window,
@@ -155,6 +165,7 @@ fn host_window_event_mapper_routes_common_window_events() {
 
     assert_eq!(redraw.presentations().len(), 1);
     assert!(host.presentation(window).is_some());
+    acknowledge_host_work(&mut host, &redraw);
 }
 
 #[test]

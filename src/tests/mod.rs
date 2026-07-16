@@ -408,19 +408,16 @@ impl platform::Backend for FakeBackend {
         .into())
     }
 
-    fn resume_presentations(
+    fn resume_presentation(
         &mut self,
         context: &mut Self::Context<'_>,
-    ) -> Result<Vec<platform::PresentResult>, Self::Error> {
-        let pending = self
-            .pending_presentations
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
+        window: window::Id,
+    ) -> Result<Option<platform::PresentResult>, Self::Error> {
+        let pending = self.pending_presentations.get(&window).cloned();
         pending
-            .iter()
+            .as_ref()
             .map(|presentation| self.present(context, presentation))
-            .collect()
+            .transpose()
     }
 
     fn overlay_capabilities(&self) -> overlay::Capabilities {
@@ -883,7 +880,7 @@ where
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
-            presentation.properties(),
+            presentation.stack(),
             presentation.property_only(),
             diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
         );

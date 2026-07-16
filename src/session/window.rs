@@ -115,7 +115,6 @@ impl Window {
         self.desired_presentation_epoch
     }
 
-    #[cfg(test)]
     pub(crate) fn acknowledged_presentation_epoch(&self) -> Option<app_window::PresentationEpoch> {
         self.acknowledged_presentation_epoch
     }

@@ -28,6 +28,7 @@ mod overflow;
 mod shaping_cache;
 mod system;
 mod text_area;
+mod width;
 
 pub use caret::{Caret, CaretLayout};
 #[cfg(test)]
@@ -200,6 +201,7 @@ impl Engine {
         self.text_area_render_buffers = text_area::render_buffer_cache();
         self.text_field_surfaces = field::surface_cache();
         self.text_area_height_indices = height::cache();
+        self.text_area_widths = width::cache();
         self.diagnostics = Diagnostics::default();
         self.highlight_stats = HighlightStats::default();
         self.interaction_stats = TextInteractionStats::default();

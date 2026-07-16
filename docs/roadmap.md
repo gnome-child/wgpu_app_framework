@@ -6,6 +6,18 @@ is next.
 
 ## In flight
 
+37. **Scroll Truth correction — One Position, Complete Pixels, Independent
+    Residency** (ACTIVE) — full-system, fixed-point correction and performance
+    campaign across generic, table, and text scrolling. Reported defects are
+    ignition evidence rather than exhaustive scope. The campaign repeatedly
+    re-censuses all entrances, owners, projections, controls, axes, backends,
+    clocks, and performance costs; adds code-owned scroll work/latency/cadence/
+    memory receipts; compares the result against Chromium, GTK, Qt, Iced,
+    COSMIC, Firefox APZ/WebRender, and Flutter; and closes only after complete
+    pixels, one-owner property behavior, bounded viewport/runway economics, hard
+    performance gates, and two clean post-seed fixed-point sweeps. Ledger:
+    `docs/audits/2026-07-15-scroll-truth-correction.md`.
+
 ## Specced and ready
 
 ## Pending manual verification

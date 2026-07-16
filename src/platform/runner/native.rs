@@ -5,7 +5,7 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
 };
 
-use super::super::{Error, Native, NativeError, Platform, RunError};
+use super::super::{Backend, Error, Native, NativeError, Platform, RunError};
 use super::{Runner, RunnerEvent};
 use crate::animation;
 use crate::{host, shell, state::State, task};
@@ -80,8 +80,23 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
 
         self.events
             .retain_windows(|window| windows.contains(&window));
-        self.pulse_satisfied_redraws
+        self.presentation_pulses
+            .retain(|window, _| windows.contains(window));
+        self.frame_demands.retain(|window| windows.contains(window));
+        self.issued_frame_redraws
             .retain(|window| windows.contains(window));
+
+        self.frame_demands.extend(
+            self.platform
+                .host()
+                .shell()
+                .runtime()
+                .session()
+                .windows()
+                .iter()
+                .filter(|window| window.redraw_requested())
+                .map(crate::session::Window::id),
+        );
 
         for window in windows {
             if let Some(scale_factor) = self.platform.backend().scale_factor(window) {
@@ -114,46 +129,30 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         &mut self,
         event_loop: &ActiveEventLoop,
     ) -> Result<(), Error<NativeError>> {
-        let pending = self
-            .platform
-            .host()
-            .shell()
-            .runtime()
-            .session()
-            .windows()
-            .iter()
-            .filter(|window| window.redraw_requested())
-            .map(crate::session::Window::id)
-            .collect::<Vec<_>>();
-        if pending.is_empty() {
-            return Ok(());
-        }
-
-        let refresh_millihertz = pending
-            .iter()
-            .filter_map(|window| self.platform.backend().display_refresh_millihertz(*window))
-            .max();
         let now = Instant::now();
-        let due = self.presentation_pulse.is_due(now, refresh_millihertz);
-        if !due {
+        let due = self
+            .frame_demands
+            .iter()
+            .copied()
+            .filter(|window| !self.issued_frame_redraws.contains(window))
+            .filter(|window| {
+                let refresh = self.platform.backend().display_refresh_millihertz(*window);
+                self.presentation_pulses
+                    .get(window)
+                    .is_none_or(|pulse| pulse.is_due(now, refresh))
+            })
+            .collect::<Vec<_>>();
+        if due.is_empty() {
             return Ok(());
         }
 
         let mut context = super::super::NativeContext::new(event_loop);
-        self.platform.drain_with(&mut context)?;
-        self.presentation_pulse.mark_presented(Instant::now());
-        for window in pending {
-            let still_pending = self
-                .platform
-                .host()
-                .shell()
-                .runtime()
-                .session()
-                .window(window)
-                .is_some_and(crate::session::Window::redraw_requested);
-            if !still_pending {
-                self.pulse_satisfied_redraws.insert(window);
-            }
+        for window in due {
+            self.platform
+                .backend_mut()
+                .request_redraw(&mut context, window)
+                .map_err(Error::Backend)?;
+            self.issued_frame_redraws.insert(window);
         }
         Ok(())
     }
@@ -200,12 +199,30 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
             return;
         }
 
+        let now = Instant::now();
         let schedule = if self.platform.backend().poll_requested() {
             animation::Schedule::NextFrame
         } else {
             self.platform.animation_schedule()
         };
-        let control_flow = control_flow(schedule, Instant::now());
+        let pulse_schedule =
+            self.frame_demands
+                .iter()
+                .fold(animation::Schedule::Idle, |schedule, window| {
+                    if self.issued_frame_redraws.contains(window) {
+                        return schedule;
+                    }
+                    let refresh = self.platform.backend().display_refresh_millihertz(*window);
+                    let due = self
+                        .presentation_pulses
+                        .get(window)
+                        .and_then(|pulse| pulse.deadline(refresh));
+                    schedule.merge(
+                        due.map(animation::Schedule::At)
+                            .unwrap_or(animation::Schedule::NextFrame),
+                    )
+                });
+        let control_flow = control_flow(schedule.merge(pulse_schedule), now);
         event_loop.set_control_flow(control_flow);
     }
 
@@ -255,15 +272,24 @@ mod tests {
     }
 
     #[test]
-    fn presentation_pulse_is_refresh_relative_and_never_waits_for_first_frame() {
-        let mut pulse = PresentationPulse::default();
+    fn presentation_pulses_are_window_local_refresh_clocks() {
+        let mut slow = PresentationPulse::default();
+        let mut fast = PresentationPulse::default();
         let now = Instant::now();
 
-        assert!(pulse.is_due(now, Some(60_000)));
-        pulse.mark_presented(now);
-        assert!(!pulse.is_due(now + Duration::from_millis(8), Some(60_000)));
-        assert!(pulse.is_due(now + Duration::from_millis(17), Some(60_000)));
-        assert!(pulse.is_due(now + Duration::from_millis(7), Some(144_000)));
+        assert!(slow.is_due(now, Some(60_000)));
+        assert!(fast.is_due(now, Some(144_000)));
+        slow.mark_presented(now);
+        fast.mark_presented(now);
+        assert!(!slow.is_due(now + Duration::from_millis(8), Some(60_000)));
+        assert!(fast.is_due(now + Duration::from_millis(8), Some(144_000)));
+        assert!(slow.is_due(now + Duration::from_millis(17), Some(60_000)));
+
+        fast.mark_presented(now + Duration::from_millis(8));
+        assert_eq!(
+            slow.deadline(Some(60_000)),
+            now.checked_add(Duration::from_secs_f64(1.0 / 60.0))
+        );
     }
 }
 

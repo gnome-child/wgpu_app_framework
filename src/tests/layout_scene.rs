@@ -1015,7 +1015,11 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
             <= 10,
         "the stable view root is infrastructure; materialized list frames stay bounded"
     );
-    assert!(row_calls.get().saturating_sub(calls_before_jump) <= 16);
+    let jump_row_calls = row_calls.get().saturating_sub(calls_before_jump);
+    assert!(
+        jump_row_calls <= 16,
+        "a gallery-scale relative jump must retain bounded materialization; observed {jump_row_calls} row builds"
+    );
 
     let near_maximum = interaction::ScrollOffset::new(0, maximum.y() - 1);
     let calls_before_absolute = row_calls.get();
@@ -1998,7 +2002,7 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
         skipped.epoch(),
         skipped.invalidation(),
         skipped.layout(),
-        skipped.properties(),
+        skipped.stack(),
         skipped.property_only(),
         diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
             .with_presented(false),
@@ -6326,7 +6330,17 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
         .into_iter()
         .next()
         .expect("focused field should remain laid out while clipped");
-    assert!(focused.rect().bottom() <= viewport.y());
+    let scroll_offset = fully_clipped
+        .stack()
+        .scroll_offset(scroll.node_id())
+        .expect("focused scroll should carry a receipted property");
+    let presented_focused = geometry::Rect::new(
+        focused.rect().x().saturating_sub(scroll_offset.x()),
+        focused.rect().y().saturating_sub(scroll_offset.y()),
+        focused.rect().width(),
+        focused.rect().height(),
+    );
+    assert!(presented_focused.bottom() <= viewport.y());
     assert_outline_is_scoped_by_clip(fully_clipped.scene(), focused.rect(), viewport);
 }
 
@@ -6514,8 +6528,18 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
         .iter()
         .find(|frame| frame.label_text() == Some("Row 11"))
         .expect("last row should be laid out");
+    let offset = rendered
+        .stack()
+        .scroll_offset(scroll.node_id())
+        .expect("scroll should carry its receipted property");
+    let presented_last = geometry::Rect::new(
+        last.rect().x().saturating_sub(offset.x()),
+        last.rect().y().saturating_sub(offset.y()),
+        last.rect().width(),
+        last.rect().height(),
+    );
 
-    assert!(last.rect().bottom() <= viewport.bottom());
+    assert!(presented_last.bottom() <= viewport.bottom());
 }
 
 #[test]
@@ -6642,16 +6666,52 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
         .target()
         .expect("scroll should expose a target")
         .clone();
+    let scroll_node = scroll.node_id();
+    assert!(
+        initial
+            .layout()
+            .scroll_property_accepts(&target, expected_max_scroll),
+        "a fully realized ordinary scroll must admit its maximum property offset"
+    );
+    assert!(
+        app.presented_layout(window)
+            .is_some_and(|layout| layout.scroll_property_accepts(&target, expected_max_scroll)),
+        "runtime routing must retain the same accepted layout"
+    );
 
-    app.scroll_at(
-        window,
-        size,
-        frame_point_at(scroll.rect()),
-        interaction::ScrollDelta::vertical(400),
-    )
-    .expect("scroll input should be handled");
-    app.show_scene(window, size)
+    let point = frame_point_at(scroll.rect());
+    let delta = interaction::ScrollDelta::vertical(400);
+    assert_eq!(
+        initial.layout().scroll_target_at(point, delta),
+        Some(target.clone())
+    );
+    app.scroll_at(window, size, point, delta)
+        .expect("scroll input should be handled");
+    let interaction = app
+        .session()
+        .interaction(window)
+        .expect("scroll input should retain interaction");
+    assert_eq!(
+        interaction.scroll().desired_offset(&target),
+        expected_max_scroll
+    );
+    assert_eq!(interaction.scroll().offset(&target), expected_max_scroll);
+    assert!(
+        app.session()
+            .window(window)
+            .expect("scroll window should remain open")
+            .property_tick_requested(),
+        "an admitted ordinary wheel scroll must request a property tick"
+    );
+    let presented = app
+        .show_scene(window, size)
         .expect("scroll feedback should render");
+    assert!(presented.property_only());
+    assert_eq!(
+        presented.stack().scroll_offset(scroll_node),
+        Some(expected_max_scroll),
+        "the successful presentation must carry the exact admitted property"
+    );
 
     let offset = app
         .session()
@@ -6747,6 +6807,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .target()
         .expect("scroll should expose a target")
         .clone();
+    let scroll_node = scroll.node_id();
     let expected_max_scroll = scroll
         .viewport()
         .expect("scroll should resolve viewport geometry")
@@ -6777,17 +6838,25 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
     );
     app.pointer_drag_at(window, size, drag)
         .expect("scroll pointer drag should be handled");
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction")
+        .scroll();
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction")
-            .scroll()
-            .offset(&target),
+        scroll.offset(&target),
         expected_max_scroll,
-        "drag must update authoritative scroll before presentation"
+        "a fully resident ordinary scroll admits through the shared property path"
     );
-    app.show_scene(window, size)
+    assert_eq!(scroll.desired_offset(&target), expected_max_scroll);
+    let presented = app
+        .show_scene(window, size)
         .expect("scroll feedback should render");
+    assert_eq!(
+        presented.stack().scroll_offset(scroll_node),
+        Some(expected_max_scroll),
+        "the presented property snapshot must contain the admitted scroll"
+    );
 
     let offset = app
         .session()
@@ -6797,6 +6866,83 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
         .offset(&target);
 
     assert_eq!(offset, expected_max_scroll);
+}
+
+#[test]
+fn older_successful_scroll_receipt_cannot_regress_admitted_property() {
+    let mut app = scroll_app();
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(220, 120);
+    let initial = app
+        .show_scene(window, size)
+        .expect("scroll view should render");
+    let scroll = first_scroll_frame(&initial);
+    let target = scroll
+        .target()
+        .expect("scroll should expose a target")
+        .clone();
+    let node = scroll.node_id();
+    let point = frame_point_at(scroll.rect());
+
+    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(16))
+        .expect("first scroll should be admitted");
+    let older = app
+        .render_scene(window, size)
+        .expect("older property candidate should prepare");
+    assert_eq!(
+        older.stack().scroll_offset(node),
+        Some(interaction::ScrollOffset::new(0, 16))
+    );
+
+    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(16))
+        .expect("second scroll should be admitted");
+    let newer = app
+        .render_scene(window, size)
+        .expect("newer property candidate should prepare");
+    assert!(newer.epoch() > older.epoch());
+    assert_eq!(
+        newer.stack().scroll_offset(node),
+        Some(interaction::ScrollOffset::new(0, 32))
+    );
+
+    for candidate in [&newer, &older] {
+        app.finish_render_report(
+            window,
+            candidate.epoch(),
+            candidate.invalidation(),
+            candidate.layout(),
+            candidate.stack(),
+            candidate.property_only(),
+            diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+        );
+    }
+    app.finish_active_refresh(
+        window,
+        older.epoch(),
+        older.invalidation(),
+        older.layout(),
+        older.stack(),
+        diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+    );
+
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("scroll interaction should remain")
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(0, 32)
+    );
+    assert_eq!(
+        app.presented_properties(window)
+            .and_then(|properties| properties.scroll_offset(node)),
+        Some(interaction::ScrollOffset::new(0, 32))
+    );
+    assert_eq!(
+        app.acknowledged_presentation_epoch(window),
+        Some(newer.epoch())
+    );
 }
 
 #[test]
@@ -6869,7 +7015,7 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
         tick.epoch(),
         tick.invalidation(),
         tick.layout(),
-        tick.properties(),
+        tick.stack(),
         tick.property_only(),
         diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -6887,7 +7033,7 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
 }
 
 #[test]
-fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
+fn retained_scroll_layer_preserves_the_content_owners_actual_runway() {
     let mut app = nested_clipped_scroll_app();
     app.start();
     let window = app.session().windows()[0].id();
@@ -6908,28 +7054,11 @@ fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
         let resident = projection
             .resident_bounds()
             .expect("rendered scroll projection must have complete residency");
-        let max = viewport.max_scroll();
-        let width_limit = if max.x() > 0 {
-            visible.width().saturating_mul(2)
-        } else {
-            visible.width()
-        };
-        let height_limit = if max.y() > 0 {
-            visible.height().saturating_mul(2)
-        } else {
-            visible.height()
-        };
-
         assert!(bounds.x() <= visible.x());
         assert!(bounds.y() <= visible.y());
         assert!(bounds.right() >= visible.right());
         assert!(bounds.bottom() >= visible.bottom());
-        assert!(bounds.width() <= width_limit);
-        assert!(bounds.height() <= height_limit);
-        assert!(resident.x() >= bounds.x());
-        assert!(resident.y() >= bounds.y());
-        assert!(resident.right() <= bounds.right());
-        assert!(resident.bottom() <= bounds.bottom());
+        assert_eq!(resident, bounds);
         assert!(resident.x() <= visible.x());
         assert!(resident.y() <= visible.y());
         assert!(resident.right() >= visible.right());
@@ -6938,19 +7067,28 @@ fn retained_scroll_layer_window_is_bounded_by_visible_geometry() {
 }
 
 #[test]
-fn control_gallery_retains_two_repeated_nested_scroll_scopes() {
+fn control_gallery_keeps_viewport_clips_outside_repeated_nested_scroll_scopes() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
     let rendered = app
         .show_scene(window, geometry::Size::new(760, 660))
         .expect("control gallery should render");
+    let table_scrolls = rendered
+        .layout()
+        .scroll_projections()
+        .iter()
+        .filter(|projection| projection.target().kind() != interaction::Kind::TextArea)
+        .map(layout::ScrollProjection::node)
+        .collect::<std::collections::HashSet<_>>();
     let mut group_depth = 0_usize;
     let mut clip_depth = 0_usize;
     let mut scroll_depth = 0_usize;
     let mut scrolls = Vec::new();
     for draw in rendered
-        .commit()
+        .stack()
+        .base()
+        .drawable_commit()
         .order()
         .expect("gallery uses explicit order")
     {
@@ -6960,25 +7098,103 @@ fn control_gallery_retains_two_repeated_nested_scroll_scopes() {
             scene::Draw::PushClip { .. } => clip_depth += 1,
             scene::Draw::PopClip => clip_depth = clip_depth.saturating_sub(1),
             scene::Draw::PushScroll { node } => {
-                scrolls.push((*node, group_depth, clip_depth, scroll_depth));
+                if table_scrolls.contains(node) {
+                    scrolls.push((*node, group_depth, clip_depth, scroll_depth));
+                }
                 scroll_depth += 1;
             }
             scene::Draw::PopScroll => scroll_depth = scroll_depth.saturating_sub(1),
             scene::Draw::Content { .. } => {}
         }
     }
-    assert_eq!(scrolls.len(), 4);
-    assert_eq!(scrolls[0].0, scrolls[2].0);
-    assert_eq!(scrolls[1].0, scrolls[3].0);
-    assert_ne!(scrolls[0].0, scrolls[1].0);
-    assert_eq!((scrolls[0].1, scrolls[0].2, scrolls[0].3), (0, 0, 0));
-    assert_eq!(scrolls[1].1, 0);
-    assert_eq!(scrolls[1].2, 0);
-    assert_eq!(scrolls[1].3, 1);
-    assert_eq!((scrolls[2].1, scrolls[2].2, scrolls[2].3), (0, 0, 0));
-    assert_eq!(scrolls[3].1, 0);
-    assert_eq!(scrolls[3].2, 0);
-    assert_eq!(scrolls[3].3, 1);
+    let unique = scrolls
+        .iter()
+        .map(|(node, ..)| *node)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        unique.len(),
+        2,
+        "gallery table should retain two scroll owners"
+    );
+    assert!(
+        scrolls
+            .iter()
+            .all(|(_, group, clip, _)| *group == 0 && *clip > 0),
+        "every repeated scroll scope must begin inside a fixed viewport clip: {scrolls:?}"
+    );
+    let outer = scrolls
+        .iter()
+        .filter(|(_, _, _, depth)| *depth == 0)
+        .map(|(node, ..)| *node)
+        .collect::<Vec<_>>();
+    let nested = scrolls
+        .iter()
+        .filter(|(_, _, _, depth)| *depth == 1)
+        .map(|(node, ..)| *node)
+        .collect::<Vec<_>>();
+    assert!(outer.len() >= 2 && outer.iter().all(|node| *node == outer[0]));
+    assert!(nested.len() >= 2 && nested.iter().all(|node| *node == nested[0]));
+    assert_ne!(outer[0], nested[0]);
+}
+
+#[test]
+fn control_gallery_property_tick_does_not_move_the_table_viewport_clip() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let initial = app
+        .show_scene(window, size)
+        .expect("control gallery should render");
+    let cell = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == interaction::Id::new("detail")
+            })
+        })
+        .expect("gallery should materialize the table witness cell");
+    let point = geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
+    let target = initial
+        .layout()
+        .scroll_target_at(point, interaction::ScrollDelta::vertical(4))
+        .expect("table witness should route vertical scrolling");
+    let viewport = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.target() == &target)
+        .map(|projection| projection.viewport().visible_content())
+        .expect("table should expose its visible viewport");
+
+    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(4))
+        .expect("small table scroll should be accepted by active residency");
+    let tick = app
+        .render_scene(window, size)
+        .expect("property tick should render");
+    assert!(tick.property_only());
+
+    let translated = geometry::Rect::new(
+        viewport.x(),
+        viewport.y().saturating_sub(4),
+        viewport.width(),
+        viewport.height(),
+    );
+    assert!(
+        tick.scene().primitives().iter().any(
+            |primitive| matches!(primitive, scene::Primitive::Clip(clip) if clip.rect() == viewport)
+        ),
+        "the table property tick must retain its fixed viewport clip"
+    );
+    assert!(
+        !tick.scene().primitives().iter().any(
+            |primitive| matches!(primitive, scene::Primitive::Clip(clip) if clip.rect() == translated)
+        ),
+        "the viewport clip must not translate with row content and expose a bottom-edge band"
+    );
 }
 
 #[test]
@@ -7488,6 +7704,7 @@ fn scrolled_out_content_is_not_interactive() {
         interaction::ScrollDelta::vertical(56),
     )
     .expect("scroll should be handled");
+    app.request_redraw(window);
     let rendered = app
         .show_scene(window, size)
         .expect("scrolled view should render");
@@ -8147,10 +8364,28 @@ fn command_palette_search_box_wins_over_clipped_results() {
         .next()
         .expect("palette query should be laid out");
     let point = rect_bottom_point(query.rect());
+    let results = command_palette_results_frame(&rendered);
+    let results_node = results.node_id();
+    let offset = rendered
+        .stack()
+        .scroll_offset(results_node)
+        .expect("palette results should carry a receipted scroll property");
 
     assert!(
         rendered.layout().frames().iter().any(|frame| {
-            frame.target().is_some() && frame.rect().contains(point) && !frame.clip_contains(point)
+            let rect = geometry::Rect::new(
+                frame.rect().x().saturating_sub(offset.x()),
+                frame.rect().y().saturating_sub(offset.y()),
+                frame.rect().width(),
+                frame.rect().height(),
+            );
+            frame.target().is_some()
+                && rendered
+                    .layout()
+                    .scroll_ancestry(frame.node_id())
+                    .contains(&results_node)
+                && rect.contains(point)
+                && !frame.clip_contains(point)
         }),
         "a clipped palette result should geometrically overlap the query box"
     );
@@ -9267,32 +9502,86 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("coordinate scroll should be handled");
 
     assert!(outcome.is_handled());
-    assert!(outcome.effect().contains_invalidation());
+    assert_eq!(outcome.effect(), &response::Effect::None);
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .scroll();
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction state")
-            .scroll()
-            .offset(&target),
+        scroll.offset(&target),
+        interaction::ScrollOffset::new(0, 96)
+    );
+    assert_eq!(
+        scroll.desired_offset(&target),
         interaction::ScrollOffset::new(0, 96)
     );
 
     let scrolled = app
         .show_scene(window, size)
         .expect("scrolled scene should render");
-    let text_area = scrolled
+    assert!(scrolled.property_only());
+    let projection = scrolled
         .layout()
-        .find_role(view::Role::TextArea)
-        .into_iter()
-        .next()
-        .expect("text area should be laid out after scrolling");
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.target() == &target)
+        .expect("text area should retain the universal scroll projection");
     assert_eq!(
-        text_area
-            .text_area_layout()
-            .expect("text area should use text area layout")
-            .layout()
-            .scroll_y(),
-        96.0
+        scrolled.properties().scroll_offset(projection.node()),
+        Some(interaction::ScrollOffset::new(0, 96))
+    );
+    let chrome = scrolled
+        .layout()
+        .chrome()
+        .iter()
+        .find(|chrome| {
+            chrome.scroll_target() == &target
+                && chrome.axis() == interaction::ScrollbarAxis::Vertical
+        })
+        .expect("scrolled text area should project vertical scrollbar chrome");
+    let baseline_thumb = chrome.thumb_with_thickness(
+        crate::theme::Theme::dark()
+            .scrollbar()
+            .appearance
+            .overlay_thickness,
+    );
+    let theme = crate::theme::Theme::dark();
+    let (thumb_r, thumb_g, thumb_b, _) = theme.scrollbar().appearance.thumb.channels();
+    let properties = crate::scene::Properties::new(
+        scrolled.commit(),
+        scrolled.properties().serial(),
+        vec![
+            crate::scene::PropertyValue::Scrollbar {
+                node: chrome.owner(),
+                opacity: 1.0,
+                thickness: theme.scrollbar().appearance.overlay_thickness as f32,
+            },
+            crate::scene::PropertyValue::ScrollOffset {
+                node: projection.node(),
+                value: interaction::ScrollOffset::new(0, 96),
+            },
+        ],
+        Vec::new(),
+    )
+    .expect("text area fixture should declare the shared scroll and scrollbar properties");
+    let projected = scrolled
+        .commit()
+        .compatibility_scene(&properties)
+        .expect("text area scrollbar should project from the admitted scroll property");
+    let thumb_quads = projected
+        .quads()
+        .into_iter()
+        .filter_map(|quad| {
+            let (r, g, b, a) = quad.fill().channels();
+            ((r, g, b) == (thumb_r, thumb_g, thumb_b) && a > 0).then_some((quad.rect(), a))
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        thumb_quads
+            .iter()
+            .any(|(rect, _)| rect.y() > baseline_thumb.y()),
+        "text scrollbar must advance from the authored baseline with the same admitted property as its content: baseline={baseline_thumb:?}, actual={thumb_quads:?}"
     );
 }
 
@@ -9334,12 +9623,14 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
         .scroll_at(window, size, point, wheel_down)
         .expect("wheel scroll should route to text area");
     assert!(outcome.is_handled());
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should retain interaction state")
+        .scroll();
+    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should retain interaction state")
-            .scroll()
-            .offset(&target),
+        scroll.desired_offset(&target),
         interaction::ScrollOffset::new(0, 448)
     );
 
@@ -9360,7 +9651,7 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
 }
 
 #[test]
-fn text_area_render_writes_back_clamped_scroll_offset() {
+fn text_area_input_clamps_to_presented_extent_before_admission() {
     let mut app = text_editor::app(text_editor::State {
         document: TextDocument::from_multiline_text("short\ntext"),
         ..text_editor::State::default()
@@ -9385,54 +9676,43 @@ fn text_area_render_writes_back_clamped_scroll_offset() {
         .clone();
     let point = geometry::Point::new(text_area.rect().x() + 4, text_area.rect().y() + 4);
 
-    app.scroll_at(
-        window,
-        size,
-        point,
-        interaction::ScrollDelta::vertical(4_000),
-    )
-    .expect("coordinate scroll should be handled");
+    let frame_scroll_commits = app
+        .diagnostics(window)
+        .expect("window should have diagnostics")
+        .scroll
+        .frame_scroll_commits;
+    let outcome = app
+        .scroll_at(
+            window,
+            size,
+            point,
+            interaction::ScrollDelta::vertical(4_000),
+        )
+        .expect("coordinate scroll should be handled");
+    assert_eq!(outcome.effect(), &response::Effect::None);
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .scroll();
+    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction state")
-            .scroll()
-            .offset(&target),
-        interaction::ScrollOffset::new(0, 4_000)
-    );
-
-    let clamped = app
-        .show_scene(window, size)
-        .expect("clamped scene should render");
-
-    assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction state")
-            .scroll()
-            .offset(&target),
+        scroll.desired_offset(&target),
         interaction::ScrollOffset::default()
+    );
+    assert!(
+        !app.session()
+            .window(window)
+            .expect("text area window should remain open")
+            .property_tick_requested(),
+        "a clamped no-op must schedule no property work"
     );
     assert_eq!(
         app.diagnostics(window)
-            .expect("window should have diagnostics after clamping")
+            .expect("window should have diagnostics after input")
             .scroll
             .frame_scroll_commits,
-        1
-    );
-    let text_area = clamped
-        .layout()
-        .find_role(view::Role::TextArea)
-        .into_iter()
-        .next()
-        .expect("text area should be laid out after clamping");
-    assert_eq!(
-        text_area
-            .text_area_layout()
-            .expect("text area should use text area layout")
-            .layout()
-            .scroll_y(),
-        0.0
+        frame_scroll_commits
     );
 }
 
@@ -9474,12 +9754,17 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
 
     app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(240))
         .expect("coordinate scroll should be handled");
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .scroll();
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction state")
-            .scroll()
-            .offset(&target),
+        scroll.offset(&target),
+        interaction::ScrollOffset::new(0, 240)
+    );
+    assert_eq!(
+        scroll.desired_offset(&target),
         interaction::ScrollOffset::new(0, 240)
     );
 
@@ -9645,14 +9930,26 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
     );
     assert!(!highlights.is_empty());
 
-    for highlight in highlights {
-        assert!(
-            rect_contains(text_area_rect, highlight.rect()),
-            "selection highlight should stay inside text area: bounds {:?}, highlight {:?}",
-            text_area_rect,
-            highlight.rect()
-        );
+    let mut clips = Vec::new();
+    let mut clipped_highlights = 0_usize;
+    for primitive in scrolled.scene().primitives() {
+        match primitive {
+            scene::Primitive::Clip(clip) => clips.push(clip.rect()),
+            scene::Primitive::PopClip => {
+                clips.pop();
+            }
+            scene::Primitive::Quad(quad) if quad.fill().channels() == (10, 132, 255, 96) => {
+                assert!(
+                    rect_contains(text_area_rect, quad.rect()) || clips.contains(&text_area_rect),
+                    "selection highlight must either be preclipped or remain under the fixed text viewport clip: bounds {text_area_rect:?}, highlight {:?}, clips={clips:?}",
+                    quad.rect()
+                );
+                clipped_highlights += 1;
+            }
+            _ => {}
+        }
     }
+    assert_eq!(clipped_highlights, highlights.len());
 }
 
 #[test]
@@ -12931,6 +13228,9 @@ fn scroll_outer_until_inner_overlaps_search(
         interaction::ScrollDelta::vertical(112),
     )
     .expect("outer scroll should be handled");
+    // These tests inspect authored layout geometry rather than the production
+    // projected hit-test path, so request a layout baseline at the new offset.
+    app.request_redraw(window);
 }
 
 fn first_scroll_frame(presentation: &scene::Presentation) -> &layout::Frame {

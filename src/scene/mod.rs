@@ -4,6 +4,7 @@ mod paint;
 mod presentation;
 mod primitive;
 mod region;
+pub(crate) mod residency;
 mod stack;
 mod store;
 mod visual;
@@ -18,7 +19,7 @@ pub(crate) use commit::{
 pub(crate) use commit::{
     FixtureCase, renderer_fixture, renderer_partial_update_fixture,
     renderer_scroll_layer_semantic_pair, renderer_scroll_properties, renderer_scroll_semantic_pair,
-    renderer_text_atlas_pressure_pair,
+    renderer_scroll_text_runway_pair, renderer_text_atlas_pressure_pair,
 };
 pub(crate) use material::GlassBase;
 pub use material::{
@@ -35,6 +36,7 @@ pub(crate) use region::{
     MaterialCapabilities, MaterialFidelity, MaterialRealizationReport, MaterialRegion,
     MaterialRenderer, RealizedMaterialParts,
 };
+pub(crate) use residency::Residency;
 pub(crate) use stack::{Layer, MaterialProjection, Stack};
 pub(crate) use store::{PaintStats, Store};
 pub(crate) use visual::Visuals;

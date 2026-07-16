@@ -23,6 +23,8 @@ struct PreparedFrame {
     invalidation: response::effect::Invalidation,
     layout: layout::Layout,
     commit: Arc<scene::Commit>,
+    drawable: Arc<scene::Commit>,
+    residencies: Arc<[scene::Residency]>,
     properties: scene::Properties,
     layers: Vec<crate::overlay::Layer>,
     capabilities: crate::overlay::Capabilities,
@@ -67,10 +69,15 @@ impl FrameNeed {
 impl PreparedFrame {
     fn realize(self) -> RealizedFrame {
         let mut scene = self
-            .commit
+            .drawable
             .compatibility_scene(&self.properties)
             .expect("prepared properties must remain compatible with their immutable commit");
-        let mut stack = scene::Stack::new(Arc::clone(&self.commit), self.properties.clone());
+        let mut stack = scene::Stack::new(
+            Arc::clone(&self.commit),
+            Arc::clone(&self.drawable),
+            Arc::clone(&self.residencies),
+            self.properties.clone(),
+        );
         let ime_target = ime_target_for_layers(self.layout.text_caret_rect(), &self.layers);
         let mut popup_presentations = Vec::new();
 
@@ -128,6 +135,7 @@ fn retained_overlay_layer(
 ) -> scene::Layer {
     scene::Layer::projected(
         Arc::clone(layer.commit()),
+        Arc::from([]),
         Arc::clone(layer.properties()),
         geometry::Point::new(0, 0),
         layer.bounds(),
@@ -199,17 +207,26 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     pub(super) fn apply_layout_feedback(&mut self, window: window::Id, layout: &layout::Layout) {
-        for frame in layout.frames() {
-            let Some(offset) = frame.resolved_scroll() else {
-                continue;
-            };
-            let Some(target) = frame.target().cloned() else {
-                continue;
-            };
+        let Some(interaction) = self.session.interaction(window) else {
+            return;
+        };
+        let corrections = layout
+            .scroll_projections()
+            .iter()
+            .filter_map(|projection| {
+                let desired = interaction.scroll().desired_offset(projection.target());
+                let resolved = projection.viewport().resolve(desired);
+                (resolved != desired).then(|| (projection.target().clone(), resolved))
+            })
+            .chain(layout.frames().iter().filter_map(|frame| {
+                Some((frame.target()?.clone(), frame.resolved_scroll_correction()?))
+            }))
+            .collect::<std::collections::HashMap<_, _>>();
 
+        for (target, offset) in corrections {
             if self
                 .session
-                .apply_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
+                .request_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
                 .is_some()
             {
                 self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
@@ -217,7 +234,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
-    fn install_virtual_request(
+    pub(super) fn install_virtual_request(
         &mut self,
         window: window::Id,
         request: crate::virtual_list::Request,
@@ -233,7 +250,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .unwrap_or_else(|| {
                 crate::virtual_list::Materialization::new(request.range(), Vec::new())
             });
-        materializations.insert(request.id(), current.with_range(request.range()));
+        materializations.insert(request.id(), current.with_runway(request.range()));
         self.virtual_materializations
             .insert(window, materializations);
 
@@ -271,7 +288,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             let current = self
                 .session
                 .interaction(window)
-                .map(|interaction| interaction.scroll().offset(&target))
+                .map(|interaction| interaction.scroll().desired_offset(&target))
                 .unwrap_or_default();
             let Some(offset) = active_descendant_reveal_offset(
                 layout,
@@ -290,7 +307,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             needs_recompose |= changed;
             if self
                 .session
-                .apply_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
+                .request_scroll(
+                    window,
+                    target.clone(),
+                    interaction::ScrollUpdate::Geometry(offset),
+                )
                 .is_some()
             {
                 if let Some(request) = virtual_request {
@@ -393,8 +414,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 }
 
 impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
-    fn refresh_presented_projection(&mut self, window: window::Id) -> Option<()> {
-        let interaction = self.session.interaction(window).cloned();
+    fn refresh_requested_projection(&mut self, window: window::Id) -> Option<()> {
+        let mut interaction = self.session.interaction(window).cloned();
+        if let Some(interaction) = interaction.as_mut() {
+            interaction.project_requested_scroll();
+        }
         let focus = self.session.focused(window);
         let composition = self.composition.get_mut(window)?;
         composition.project_transient_state(interaction.as_ref(), focus);
@@ -445,7 +469,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 .unwrap_or_else(|| {
                     crate::virtual_list::Materialization::new(request.range(), Vec::new())
                 });
-            next_materializations.insert(request.id(), current.with_range(request.range()));
+            let materialization = if current.preserves(&request.range()) {
+                current
+            } else {
+                current.with_range(request.range())
+            };
+            next_materializations.insert(request.id(), materialization);
             if let Some(measurements) = request.measurements() {
                 next_measurements.insert(request.id(), measurements);
             } else {
@@ -496,7 +525,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         frame: animation::Frame,
         popup_surfaces: layout::PopupSurfaces,
     ) -> Option<layout::Layout> {
-        self.refresh_presented_projection(window)?;
+        self.refresh_requested_projection(window)?;
         let mut layout = {
             let composition = self.composition.get(window)?;
             layout::Layout::compose_composition_with_theme_at(
@@ -523,7 +552,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 }
                 refinement_passes += 1;
                 self.present(window)?;
-                self.refresh_presented_projection(window)?;
+                self.refresh_requested_projection(window)?;
                 let composition = self.composition.get(window)?;
                 layout = layout::Layout::compose_composition_with_theme_at(
                     composition,
@@ -552,7 +581,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 }
                 refinement_passes += 1;
                 self.present(window)?;
-                self.refresh_presented_projection(window)?;
+                self.refresh_requested_projection(window)?;
                 let composition = self.composition.get(window)?;
                 layout = layout::Layout::compose_composition_with_theme_at(
                     composition,
@@ -1081,60 +1110,68 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let assembly_started_at = Instant::now();
         let interaction = self.interaction_projected_for_layout(window, &layout);
         let canvas_color = self.canvas_color(window);
-        let (commit, properties, entries, scene_stats, visual_schedule) = if property_only {
-            let visual_update = self.visual_animations.update_window(
-                window,
-                &layout,
-                interaction.as_ref(),
-                theme,
-                now,
-            );
-            let Some((commit, properties, entries, scene_stats)) = self.scene.tick_properties(
-                window,
-                &layout,
-                visual_update.visuals(),
-                interaction.as_ref(),
-            ) else {
-                return self.prepare_frame(
+        let (commit, drawable, residencies, properties, entries, scene_stats, visual_schedule) =
+            if property_only {
+                let visual_update = self.visual_animations.update_window(
                     window,
-                    size,
-                    FrameNeed::Invalidated(response::effect::Invalidation::Layout),
+                    &layout,
+                    interaction.as_ref(),
                     theme,
                     now,
-                    capabilities,
                 );
+                let Some((commit, drawable, residencies, properties, entries, scene_stats)) =
+                    self.scene.tick_properties(
+                        window,
+                        &layout,
+                        visual_update.visuals(),
+                        interaction.as_ref(),
+                    )
+                else {
+                    return self.prepare_frame(
+                        window,
+                        size,
+                        FrameNeed::Invalidated(response::effect::Invalidation::Layout),
+                        theme,
+                        now,
+                        capabilities,
+                    );
+                };
+                (
+                    commit,
+                    drawable,
+                    residencies,
+                    properties,
+                    entries,
+                    scene_stats,
+                    visual_update.schedule(),
+                )
+            } else {
+                let visual_update = self.visual_animations.update_window(
+                    window,
+                    &layout,
+                    interaction.as_ref(),
+                    theme,
+                    now,
+                );
+                let (commit, drawable, residencies, properties, entries, scene_stats) =
+                    self.scene.paint(
+                        window,
+                        &layout,
+                        canvas_color,
+                        theme,
+                        visual_update.visuals(),
+                        interaction.as_ref(),
+                    );
+                (
+                    commit,
+                    drawable,
+                    residencies,
+                    properties,
+                    entries,
+                    scene_stats,
+                    visual_update.schedule(),
+                )
             };
-            (
-                commit,
-                properties,
-                entries,
-                scene_stats,
-                visual_update.schedule(),
-            )
-        } else {
-            let visual_update = self.visual_animations.update_window(
-                window,
-                &layout,
-                interaction.as_ref(),
-                theme,
-                now,
-            );
-            let (commit, properties, entries, scene_stats) = self.scene.paint(
-                window,
-                &layout,
-                canvas_color,
-                theme,
-                visual_update.visuals(),
-                interaction.as_ref(),
-            );
-            (
-                commit,
-                properties,
-                entries,
-                scene_stats,
-                visual_update.schedule(),
-            )
-        };
         let overlay_update =
             self.overlays
                 .update_window(window, entries, theme.overlay(), capabilities, now);
@@ -1182,6 +1219,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             invalidation,
             layout,
             commit,
+            drawable,
+            residencies,
             properties,
             layers,
             capabilities,
@@ -1222,7 +1261,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
-            presentation.properties(),
+            presentation.stack(),
             presentation.property_only(),
             crate::diagnostics::RenderReport::new(
                 std::time::Duration::ZERO,
@@ -1260,7 +1299,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
-            presentation.properties(),
+            presentation.stack(),
             presentation.property_only(),
             crate::diagnostics::RenderReport::new(
                 std::time::Duration::ZERO,
@@ -1304,7 +1343,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             presentation.epoch(),
             presentation.invalidation(),
             presentation.layout(),
-            presentation.properties(),
+            presentation.stack(),
             presentation.property_only(),
             crate::diagnostics::RenderReport::new(
                 std::time::Duration::ZERO,

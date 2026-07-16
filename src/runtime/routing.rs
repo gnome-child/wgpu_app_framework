@@ -1,5 +1,5 @@
 use super::super::{
-    command::Error, context as command_context, input, response, state, view, window,
+    command::Error, context as command_context, input, interaction, response, state, view, window,
 };
 use super::Runtime;
 
@@ -185,7 +185,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             view::Action::Scroll { target, delta } => {
                 self.handle_input(window, input::Input::scroll(target, delta))
             }
-            view::Action::ScrollTo { target, offset } => {
+            view::Action::ScrollTo {
+                target,
+                offset,
+                axis,
+            } => {
+                let current = self
+                    .session
+                    .interaction(window)
+                    .map(interaction::Interaction::scroll)
+                    .map(|scroll| scroll.desired_offset(&target))
+                    .unwrap_or_default();
+                let offset = scrollbar_offset(axis, current, offset);
                 self.handle_input(window, input::Input::scroll_to(target, offset))
             }
             view::Action::ToggleMenu(menu) => {
@@ -195,5 +206,44 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.handle_input(window, input::Input::text_selection(operation))
             }
         }
+    }
+}
+
+fn scrollbar_offset(
+    axis: interaction::ScrollbarAxis,
+    current: interaction::ScrollOffset,
+    candidate: interaction::ScrollOffset,
+) -> interaction::ScrollOffset {
+    match axis {
+        interaction::ScrollbarAxis::Horizontal => {
+            interaction::ScrollOffset::new(candidate.x(), current.y())
+        }
+        interaction::ScrollbarAxis::Vertical => {
+            interaction::ScrollOffset::new(current.x(), candidate.y())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollbar_drag_preserves_the_other_desired_axis() {
+        let desired = interaction::ScrollOffset::new(70, 90);
+        let stale_layout = interaction::ScrollOffset::new(10, 20);
+
+        assert_eq!(
+            scrollbar_offset(
+                interaction::ScrollbarAxis::Horizontal,
+                desired,
+                stale_layout,
+            ),
+            interaction::ScrollOffset::new(10, 90)
+        );
+        assert_eq!(
+            scrollbar_offset(interaction::ScrollbarAxis::Vertical, desired, stale_layout,),
+            interaction::ScrollOffset::new(70, 20)
+        );
     }
 }

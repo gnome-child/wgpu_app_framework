@@ -65,11 +65,12 @@ pub trait Backend {
         presentation: &shell::Presentation,
     ) -> Result<PresentResult, Self::Error>;
 
-    fn resume_presentations(
+    fn resume_presentation(
         &mut self,
         _context: &mut Self::Context<'_>,
-    ) -> Result<Vec<PresentResult>, Self::Error> {
-        Ok(Vec::new())
+        _window: window::Id,
+    ) -> Result<Option<PresentResult>, Self::Error> {
+        Ok(None)
     }
 
     #[allow(private_interfaces)]

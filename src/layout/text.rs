@@ -339,6 +339,16 @@ impl Service {
     }
 }
 
+impl Area {
+    pub(super) fn resident_bounds(&self, viewport: Rect) -> Option<Rect> {
+        let [surface] = self.render_surfaces.as_slice() else {
+            return None;
+        };
+        let rect = surface.pixel_rect(viewport);
+        (rect.width() > 0 && rect.height() > 0).then_some(rect)
+    }
+}
+
 impl Text {
     pub(crate) fn add(&mut self, diagnostics: Self) {
         self.author_text_overflows += diagnostics.author_text_overflows;

@@ -1,112 +1,201 @@
-# Scroll Truth correction — One Position, Complete Pixels
+# Scroll Truth correction — One Position, Complete Pixels, Independent Residency
 
 Status: **active**. This correction follows the completed retained-renderer
 campaign and starts from production HEAD `66c84945`. It owns the scroll,
-virtual-residency, scene-property, and pending/active presentation seams until
-the exit theorem below is proved.
+virtual-residency, scene-property, frame-scheduling, and pending/active
+presentation seams until the exit theorem below is proved.
 
-This is an architectural correction, not a compatibility patch. Public APIs
-and internal call sites may move when the practiced ownership model requires
-it. Existing popup/menu corrections in the starting worktree remain protected
-and are verified and published independently from the scroll mechanism.
+This is an architectural correction, not a compatibility patch. It supersedes
+the retained-renderer campaign's classification of virtual cache membership as
+semantic scene structure. Public APIs remain unchanged unless a real external
+caller appears; internal call sites may move when the practiced ownership model
+requires it.
+
+The field defects that ignited this correction and the subsequent code audit
+are seed evidence, not an exhaustive defect list and not the campaign boundary.
+The campaign repeatedly re-censuses every scroll entrance, owner, projection,
+consumer, axis, control species, backend, and failure path. A green seed queue
+does not close the campaign; only the fixed-point exit theorem does.
 
 ## Indictment
 
 The framework owns one logical session offset but projects it into resident
 layout, scene properties, and pending/active presentation without one atomic
-admission contract. Three invalid states are consequently representable:
+admission contract. Four invalid states are consequently representable:
 
 1. an integral logical offset is narrowed to `f32`, then rounded back to a
    different integer at large content extents;
-2. a layout/commit may be drawable without proving that every requested
-   virtual row and every viewport pixel is resident;
-3. an older prepared semantic state may activate after a newer scroll state
-   exists, visibly restoring the older offset.
+2. layout or scene state may be drawable without proving that every requested
+   virtual row and every required viewport pixel is resident;
+3. an older prepared semantic state may activate after a newer accepted scroll
+   state exists, visibly restoring the older offset;
+4. ordinary virtual cache replenishment mints a semantic commit, so continuous
+   desired movement can outrun every prepared commit and force a choice between
+   stale snap-back and activation starvation.
 
 Wheel input and scrollbar-thumb input mutate the same session owner but pass
 through duplicated transition logic, allowing their scheduling behavior and
-event receipts to diverge.
+event receipts to diverge. The runner also owns one process-wide presentation
+pulse even though window presentation epochs and popup generations are local.
+
+## Non-exhaustive ignition evidence
+
+These findings establish that a system correction is necessary. They may be
+split, merged, generalized, or displaced by deeper ownership findings during
+the campaign:
+
+- layout feedback and presentation receipts can write interaction-owned
+  desired/admitted offsets, and an existing pointer-drag witness demonstrates a
+  newly admitted offset returning to an older layout value;
+- `TextArea` scroll and other transient view fields participate in semantic
+  scene equality, so text property movement can mint content work that generic
+  and table scroll avoid;
+- text layout admits a bounded resident runway while glyph preparation is
+  clipped to the current visible rectangle, allowing drawable residency to
+  promise pixels that the GPU has not prepared;
+- the horizontal text render surface grows with absolute `scroll_x`, and
+  unwrapped width measurement may flatten and measure the whole document;
+- text scroll crosses an integral-to-float-to-integral boundary and variable
+  line-height refinement has no stable anchor correction path;
+- text and table scrollbar visibility/activity differ because their node
+  topology selects different scroll targets rather than one explicit two-axis
+  chrome policy; and
+- table rules and fixed viewport clips have lacked a pixel-level transition
+  witness even where their layout rectangles and property values look correct.
+
+The first re-census begins with these cells but is required to search beyond
+them. A newly discovered defect is admitted by evidence and ownership impact,
+not by resemblance to this list.
 
 ## Constitution
 
-> Scroll has one authoritative state. Every materialization, property sample,
-> scrollbar, hit projection, activation, and receipt is derived from it.
+> Scroll has one authoritative interaction owner. Requested movement and
+> admitted position are different lifecycle facts inside that owner. Input
+> advances desired movement immediately; only a position covered by complete
+> active residency becomes the admitted `ScrollOffset`.
 
-> A scrollable presentation is drawable only when its immutable structure
+> A scrollable presentation is drawable only when immutable scene residency
 > proves complete pixel coverage for the integral property value it presents.
 
-> Activation may change resident structure; it may never regress the newest
-> accepted scroll property.
+> Residency revision is a fourth handoff, disjoint from semantic commit,
+> property tick, and presentation event. Activation may change residency; it
+> may never regress the newest accepted scroll property, starve behind a farther
+> desired value, or borrow another window or popup clock.
 
-These specialize the retained-renderer laws rather than replacing them:
-structure remains in the commit, values remain in property state, and
-presentation owns activation. The correction changes the contracts that let
-those clocks disagree without an admission proof.
+This corrects one retained-renderer ruling while preserving its other laws:
+semantic structure remains in `scene::Commit`, bounded virtual realization
+belongs to `scene::Residency`, values remain in `scene::Properties`, and
+presentation alone owns activation and visibility. Events mutate desired
+interaction truth immediately, `RedrawRequested` samples admitted truth once,
+and only a successful receipt promotes visible geometry.
 
 ## Ownership and representation
 
-### Authoritative state
+### Requested and admitted interaction state
 
-`interaction` / `session` owns scroll mutation. Relative wheel deltas,
-absolute thumb positions, programmatic scrolling, and layout-derived extent
-corrections enter one typed transition and produce one resulting integral
-`ScrollOffset`. Runtime scheduling consumes that result; it does not duplicate
-mutation policy.
+`interaction` / `session` owns scroll mutation. Relative wheel deltas, absolute
+thumb positions, programmatic scrolling, and layout-derived extent corrections
+enter one `ScrollUpdate`. The owner accumulates a desired integral offset and
+retains a distinct admitted integral `ScrollOffset`.
 
-For stable extents, the authoritative position is the integral offset. For
-provisional variable-height geometry, a stable row anchor and its within-row
-displacement may be used to resolve the same logical position after a geometry
+Runtime asks last-presented layout whether the desired value is accepted by
+active residency. It either admits that value and requests a property tick or
+keeps it pending and requests residency. Runtime scheduling does not duplicate
+mutation policy. Relative deltas accumulate against desired state, so delaying
+admission never loses input.
+
+For provisional variable-height geometry, a stable row anchor and its within-
+row displacement may resolve the same desired logical position after a geometry
 revision. That anchor is a resolution rule, not a second offset authority:
-virtual layout proposes the correction and the session owner alone applies it.
+virtual layout proposes the correction and the interaction owner applies it
+through the same request/admission path.
 
 ### Integral property law
 
-Logical scroll coordinates remain `ScrollOffset` / `i32` through interaction,
-layout, scene properties, projection, validation, activation, and receipts.
-The renderer may convert only the bounded difference between a commit baseline
-and the active offset to GPU `f32`. Total content extent never crosses that
-floating-point boundary.
+Desired and admitted logical scroll coordinates remain `ScrollOffset` / `i32`
+through interaction, layout, scene residency, properties, projection,
+validation, activation, and receipts. The renderer may convert only the bounded
+difference between a residency baseline and the active offset to GPU `f32`.
+Total content extent never crosses that floating-point boundary.
 
 ### Exact residency law
 
 Virtual residency is a proved snapshot, not a bounding-box inference. The
-layout snapshot binds:
+layout proof binds:
 
-- the existing composition identity of the scroll owner;
+- the existing composition identity and interaction target of the scroll owner;
 - the requested contiguous index range;
-- the actual realized row identities and indices;
+- the actual realized row identities, provider keys, and indices;
 - ordered row rectangles and their contiguous pixel coverage;
 - the viewport, integral baseline offset, and admitted property interval.
 
 No independent materialization identity is minted. The request and realized
-rows are checked in the same immutable layout snapshot, and the resulting scene
-commit revision is the existing structural revision currency.
+rows are checked in the same immutable layout snapshot. Scene projects that
+proof into one immutable `scene::Residency` for the scroll `NodeId`.
+`scene::residency::Revision` is its local structural currency. It is not
+semantic identity, application content revision, property serial, presentation
+epoch, popup generation, or renderer-generated key.
 
 A virtual snapshot is complete only when every requested index occurs exactly
-once, row geometry is ordered and gap-free across the visible axis, and the
-baseline viewport is wholly covered. Distant focus/menu pins are retained
+once, row geometry is ordered and gap-free across the visible axis, and every
+required viewport pixel is covered. Distant focus/menu pins are retained
 content but cannot contribute to contiguous residency.
 
+Drawable completeness includes every painted descendant of that range, not
+only row backgrounds and rules. Retained text must shape, allocate, and prepare
+glyph vertices over the bounded resident runway; culling preparation to the
+current surface would admit offsets whose rows exist structurally but whose
+text cannot draw.
+
 An incomplete snapshot is `NotReady`. It cannot silently omit a scroll
-declaration, create a drawable scene commit, update presented geometry, or
+declaration, create drawable scene residency, update presented geometry, or
 activate. Reaching the refinement limit with incomplete coverage is a rejected
 candidate, not a warning followed by presentation.
 
-### Monotonic activation law
+### Fixed viewport clip law
 
-When a prepared state `B` completes while a newer semantic state `C` exists,
-presentation must first project the newest property values onto `B`.
+The viewport coverage clip encloses its scroll transform and therefore remains
+fixed in target space while resident content moves beneath it. Row-local and
+content-local clips may move with their scroll scope. Paint may close and
+reopen scroll scopes to change a fixed clip, but it may not translate the
+viewport clip with the rows or extend table rules beyond complete content.
 
-- If every newest scroll value is declared and accepted by `B`'s proved
-  residency, `B` may activate using those newest values while `C` continues
-  preparing.
-- If any newest scroll value is not accepted, `B` does not activate. The
-  complete active state remains drawable and `C` becomes the preparation
-  target.
+### Progress-preserving activation law
 
-Generic best-effort property projection is insufficient for this decision: a
-missing or rejected scroll value is an activation veto. Successful presentation
-receipts bind the exact layout and rebased property snapshot that drew.
+When prepared residency `B` completes while a farther desired offset `C`
+exists, presentation chooses the newest offset admitted by `B`.
+
+- If `B` accepts `C`, it activates with `C`.
+- If `B` accepts only an intermediate offset, it may activate forward with the
+  newest compatible value while `C` remains pending and continues preparing.
+- If `B` accepts no forward compatible offset, it does not activate; the
+  complete active state remains drawable while the newest target prepares.
+
+While `B` prepares, the active stack projects `C` to the furthest value inside
+its own accepted interval, independently on each axis. It never treats one
+out-of-range component as a reason to reuse the entire older property snapshot.
+The unclamped `C` remains desired interaction truth and continues preparation;
+only the projected active value may receive an intermediate presentation.
+
+Generic best-effort property projection is insufficient for this decision. A
+missing or rejected admitted scroll value is an activation veto, while a farther
+desired value is pending intent rather than proof that an intermediate forward
+activation is stale. Successful presentation receipts bind the exact layout,
+semantic commit, residency revisions, and property snapshot that drew.
+
+### Clock locality law
+
+Application revision, semantic commit revision, residency revision, property
+serial, window presentation epoch, and popup generation name different facts.
+A residency revision is local to one scroll `NodeId`. In-frame panels share the
+parent window's frame cadence but retain independent scroll residencies. Native
+popups retain popup-local generations; parent presentation activity cannot make
+their content stale, and pending parent preparation cannot block independently
+ready popup realization.
+
+The native runner retains one `PresentationPulse` per `window::Id`. Deadline
+wakeups request redraw for the affected window; they do not present directly.
+`RedrawRequested` remains the platform frame boundary.
 
 ### Unified input law
 
@@ -117,59 +206,480 @@ scroll requests share one transition result:
 Unchanged | PropertyTick(offset) | NeedsResidency(offset)
 ```
 
+`PropertyTick` means the offset was admitted. `NeedsResidency` means the offset
+is retained only as desired movement; it cannot reach properties, scrollbar
+projection, hit testing, or a successful receipt until admitted.
+
 Horizontal and vertical scrollbars consume the same axis-generic geometry,
 capture, mutation, and scheduling path. Axis-specific arithmetic may select a
 component; it may not select different ownership or presentation physics.
 
+### Bounded-work performance law
+
+Correct scroll architecture must also make the cheapest truthful path the
+ordinary path:
+
+- an admitted offset already covered by active residency is a property update;
+  after warmup it performs zero view rebuilds, layout recompositions, semantic
+  commits, scene assemblies, text shaping/preparation, retained-resource
+  creation, and geometry-buffer creation;
+- a residency crossing performs work proportional to the newly exposed strip
+  and its descendants, never to absolute offset, total document length, total
+  table length, or the whole already-resident runway;
+- horizontal and vertical text targets remain bounded by viewport plus named
+  runway guards. No allocation, texture, buffer, shaping request, or cache key
+  may grow as `viewport + absolute_scroll`;
+- scrolling a stable document does not rescan, concatenate, hash, clone, shape,
+  or measure the whole document. Global extents are incrementally maintained or
+  revision-keyed and reused;
+- generic, table, and text controls may have different content economics but
+  share one property/admission/presentation fast path; and
+- metrics are code-owned, release-meaningful, allocation-free on the measured
+  hot path, and disabled or bounded outside diagnostics. Instrumentation may not
+  become a second scheduling or dirty-state authority.
+
+Timing ceilings are acceptance floors, not permission to stop optimizing. The
+campaign continues until the performance fixed-point sweep below finds no
+remaining unbounded work, duplicated work, false invalidation, avoidable hot-
+path allocation, or evidence-backed optimization with material benefit.
+
+## Operating mandate
+
+The campaign is an examination loop, not a finite symptom checklist:
+
+**Census -> Trace -> Model -> Measure -> Challenge -> Admit -> Correct ->
+Optimize -> Prove -> Ratchet -> Re-census.**
+
+1. **Census** one bounded scroll cell and enumerate every relevant entrance,
+   output, owner, consumer, lifecycle, coordinate space, clock, backend, and
+   failure path.
+2. **Trace** the fact from native input or programmatic intent through session,
+   runtime, layout, scene commit/residency/properties, retained realization,
+   presentation, receipt, hit testing, and chrome.
+3. **Model** the current and proposed owner graphs, including identities,
+   revisions, caches, bounds, allocation lifetimes, and pending/active states.
+4. **Measure** semantic work, CPU latency, GPU work, cadence, memory high-water,
+   and scaling behavior before selecting an optimization.
+5. **Challenge** every conversion, feedback edge, cache key, clone, allocation,
+   full-range walk, invalidation, branch by widget species, optional state, and
+   rectangle-only proof encountered by the trace.
+6. **Admit** a correction or optimization only with a named violated law,
+   reproduced output defect, structural waste, complexity failure, or measured
+   owner. A zero-change ruling is still recorded.
+7. **Correct** the earliest owner that makes the paths disagree and delete the
+   displaced path rather than synchronizing two truths.
+8. **Optimize** the corrected path from structural work removal outward: first
+   zero false work, then bounded incremental work, then cache/resource reuse,
+   then data layout and micro-optimization.
+9. **Prove** pixels, state, work counts, bounds, timing distributions, cadence,
+   and cleanup with the narrowest deterministic witness plus proportional GPU
+   and native evidence.
+10. **Ratchet and re-census** with architecture witnesses and receipts, then
+    select the next highest-value cell. Clearing the ignition evidence merely
+    unlocks the next sweep.
+
+Every sweep covers at least these lenses:
+
+| Lens | Required census |
+|---|---|
+| Entrances | wheel, precision/touch deltas, scrollbar track/thumb, keyboard, programmatic scroll/reveal, caret/selection reveal, focus/accessibility movement, resize and scale correction |
+| Controls | generic scroll, fixed and virtual tables, wrapped and unwrapped text, editable/read-only text, nested scroll owners, panels, windows, and native popups |
+| Axes | vertical, horizontal, diagonal, independently saturated axes, RTL/bidi where horizontal coordinates participate |
+| Handoffs | interaction, session, runtime routing, layout, scene commit, residency, properties, retained resources, pending/active presentation, receipts, hit testing, and chrome |
+| Transitions | warm property tick, residency boundary, large jump, reversal, acceleration, resize, scale/backend/device change, content edit, provider shrink/reorder, focus/capture pin, activation race, occlusion, and device loss |
+| Economics | asymptotic work, allocations, clones/hashes, shaping/measurement, uploads, resource churn, passes/draws, memory high-water, input-to-submit/present latency, and missed cadence |
+
+## Industry reference line
+
+The named frameworks are mandatory comparison witnesses and a floor for mature
+behavior, not authorities to copy. The campaign records an explicit comparison
+at baseline, after the owner/residency correction, and at final fixed point. A
+framework pattern may inspire a cell; it is admitted only when it fits this
+repository's one-owner, integral-coordinate, complete-pixel, and disjoint-clock
+laws. Conversely, a different implementation here requires evidence that it
+meets or exceeds the relevant industry property.
+
+| Reference | Industry-standard property to challenge against | Campaign use, not imitation |
+|---|---|---|
+| [Chromium compositor](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/docs/how_cc_works.md) and [input](https://chromium.googlesource.com/chromium/src/+/HEAD/cc/input/README.md) | Main/pending/active/recycle state, property-driven compositor movement, readiness before activation, and visible/near-viewport raster prioritization | Challenge commit/residency/property/activation separation, active progress during preparation, retained reuse, and zero semantic work. Do not import Chromium process/thread complexity or float total-extent coordinates. |
+| [GTK `Scrollable`](https://docs.gtk.org/gtk4/iface.Scrollable.html), [`Adjustment`](https://docs.gtk.org/gtk4/class.Adjustment.html), and [`TextView`](https://docs.gtk.org/gtk4/class.TextView.html) | One adjustment model per axis carrying value/range/page geometry, a common scrollable interface across list/table/text species, and explicit non-scrolling border | Challenge sole value ownership, per-axis parity, extent correction, and common chrome semantics. Do not treat GTK's scalar type or signal mechanics as architecture law. |
+| [Qt `QAbstractScrollArea`](https://doc.qt.io/qt-6/qabstractscrollarea.html) and [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) | One central viewport coordinated with both bars, content drawn from their values, as-needed visibility when range is non-zero, and paragraph/block-oriented large plain-text handling | Challenge the two-axis viewport solver, resize/gutter feedback, block text indexing, visible-block lookup, and incremental repaint. Do not copy QWidget repaint ownership or platform-specific policy. |
+| [Iced scrollable source](https://docs.iced.rs/src/iced_widget/scrollable.rs.html) | One state owns both offsets and interaction; one viewport binds offset/bounds/content bounds; fixed visible layer encloses the negative content translation; both scrollbar axes derive from the same state | Challenge shared draw/hit/chrome coordinates, clip ordering, axis status, and topology independence. Preserve this engine's integral truth instead of adopting Iced's floating offsets. |
+| [COSMIC toolkit](https://pop-os.github.io/libcosmic-book/) and [widget catalog](https://pop-os.github.io/libcosmic/cosmic/widget/index.html) | Production desktop integration built on Iced primitives, including scrollable, text editor, and table consumers | Treat COSMIC as the Iced integration/desktop-product witness, not a fictitious independent engine. Inspect any COSMIC policy or widget deviations that expose gaps in nested controls, theming, input, or accessibility. |
+| [Firefox APZ/WebRender](https://firefox-source-docs.mozilla.org/gfx/AsyncPanZoom.html) and [rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html) | Low-latency property transforms, an independent tree of scroll owners, transform-consistent hit testing, and a bounded velocity/direction-informed displayport rather than whole-page residency | Challenge predictive runway sizing, nested-owner routing/handoff, input-coordinate projection, and uninterrupted active progress. Firefox documents checkerboarding as a failure to mitigate; this campaign keeps complete pixels as a hard gate rather than accepting it. |
+| [Flutter `ScrollPosition`](https://api.flutter.dev/flutter/widgets/ScrollPosition-class.html), [`RenderViewport`](https://api.flutter.dev/flutter/rendering/RenderViewport-class.html), and [viewport-aware slivers](https://docs.flutter.dev/resources/inside-flutter#infinite-scrolling) | Position/activity and content dimensions have explicit APIs; viewport/cache extent drives finite on-demand realization of potentially unbounded content; layout correction is named | Challenge desired/admitted/dimensions separation, anchor correction, cache/runway extent, and viewport-proportional realization. Do not import floating authoritative offsets or interleaved build/layout where existing repository layers can express the proof more cleanly. |
+
+Across these references, the campaign uses the following shared industry line as
+a minimum challenge set:
+
+1. ordinary scrolling changes a retained property/position rather than
+   rebuilding semantic content;
+2. a fixed viewport clips content transformed underneath it, and hit testing,
+   scrollbars, fixed/sticky content, and paint consume compatible coordinates;
+3. position/activity ownership is explicit, while layout supplies dimensions
+   and corrections through a named contract instead of becoming a second owner;
+4. large or unbounded content is realized from viewport/cache/runway demand and
+   remains bounded independently of total extent;
+5. prepared/active presentation remains usable while replacement content is
+   produced, and incomplete pixels are not mislabeled ready;
+6. both axes and all scrollable control species share a coherent viewport and
+   input contract; and
+7. large-text controls use block/line indexing and incremental visible-region
+   work rather than a whole-document surface or scan on scroll.
+
+Checkpoint receipts cite the exact upstream document/source revision and date
+consulted. External evolution can open a comparison cell, but cannot silently
+rewrite repository doctrine or make network access part of the test boundary.
+
 ## Checkpoints
 
-### 0. Protect starting work and ratify the contract
+### 0. Ratify the four-handoff contract and pin the baseline
 
-- verify and publish the already-confirmed retained popup/menu-origin fix;
-- retain or deliberately replace each uncommitted scroll correction;
-- plant this formulation and focused structural witnesses.
+- update master doctrine and supersede the historical semantic-residency ruling;
+- retain established names and module visibility;
+- plant structural witnesses for the fourth handoff, clock locality, sole stack
+  renderer entrance, and absence of a second identity runtime;
+- preserve every known red witness as ignition evidence rather than normalizing
+  its expectation;
+- add the code-owned scroll metric schema and deterministic workload driver;
+- record cold and warm release baselines before performance edits, including
+  environment, sample count, semantic work, latency distributions, cadence,
+  resource high-water, and pixels.
 
-### 1. Preserve integral scroll truth
+### 1. Preserve integral requested/admitted truth
 
-- replace floating scene scroll values with `ScrollOffset`;
-- convert only bounded renderer deltas to `f32`;
-- cover offsets on both sides of `2^24`, the 24,000,000-pixel gallery extent,
-  and exact lower/upper resident boundaries.
+- split private `interaction::Scroll` entries into admitted and pending species;
+- accumulate `ScrollUpdate` against desired state and admit only proved values;
+- preserve integral coordinates on both sides of `2^24` and near the gallery
+  maximum;
+- convert only bounded renderer deltas to `f32`.
 
-### 2. Make complete residency constructible and incomplete residency rejected
+### 2. Make complete layout residency constructible
 
-- introduce exact virtual coverage validation at layout ownership;
-- require a valid coverage snapshot for every virtual scroll declaration;
-- reject non-converged/incomplete candidates before scene painting;
-- derive guard rows from viewport/cost bounds rather than a two-row magic
-  default while retaining bounded nodes for one million rows.
+- retain `virtual_list::{Request, Materialization}` as the materialization
+  vocabulary;
+- require exact keyed row and pixel coverage in `layout::ScrollProjection`;
+- reject non-converged/incomplete candidates before scene residency;
+- derive the resident runway from viewport/cost bounds rather than a two-row
+  magic default while retaining bounded nodes for one million rows.
+- establish the fixed viewport clip outside moving scroll scopes.
 
-### 3. Make activation scroll-monotonic
+### 3. Separate scene residency from semantic commits
 
-- strictly rebase newest scroll properties onto an older prepared structure;
-- veto stale activation when its residency cannot accept them;
-- retain the complete active state while the newest compatible state prepares;
-- receipt only the property/layout pair actually drawn.
+- introduce `scene::Residency` plus its namespaced local revision;
+- keep stable scroll topology in `scene::Commit` while resident row membership
+  moves through residency revision;
+- extend `scene::Stack` as the sole native handoff for commit, residency, and
+  properties;
+- synchronize resident membership incrementally while retaining GPU identity by
+  carried `NodeId` and content/geometry revisions;
+- prepare retained text over the full bounded resident runway while projecting
+  glyphs into the actual target surface;
+- remove scroll, reveal, caret blink, and other presentation-only text fields
+  from semantic content equality and renderer content-resource identity;
+- prove ordinary boundary crossings mint zero semantic commits.
 
-### 4. Unify scroll transitions and close the old paths
+### 4. Make activation monotonic and progress-preserving
 
-- route relative and absolute input through one session transition;
-- delete duplicated runtime scheduling logic;
+- admit only scroll values covered by active or activating residency;
+- allow one completed residency to activate the newest compatible forward
+  offset even while a farther desired value remains pending;
+- project a pending desired offset to the active residency boundary instead of
+  reverting the whole scroll property to its prior value;
+- retain the complete active state while the newest target prepares;
+- receipt only the commit/residency/property/layout combination actually drawn.
+
+### 5. Preserve local presentation clocks
+
+- keep a `PresentationPulse` per `window::Id` and schedule the earliest due
+  deadline without presenting outside `RedrawRequested`;
+- preserve popup-local `popup::Generation` currentness and independently
+  presentable popup work;
+- prove slow parent residency cannot block popup realization and popup work
+  cannot block parent scrolling.
+
+### 6. Bound, predict, recycle, unify input, and optimize to fixed point
+
+- size a directional runway from measured preparation time, refresh, input
+  velocity/delta, viewport, and row heights;
+- retain bounded current, preparing, and recycle states;
+- replace absolute-offset-sized text surfaces with bounded two-dimensional
+  windows and retain/recycle prepared text by stable line/block identity;
+- maintain unwrapped width and variable height incrementally so scrolling never
+  performs a whole-document text flatten/measure pass;
+- make property-only updates allocation-free after warmup and make residency
+  replenishment proportional to the entering strip;
+- route relative and absolute input through one request/admission transition;
 - prove horizontal/vertical scrollbar capture and mutation parity;
-- restore variable-height anchoring as an explicit geometry-resolution rule,
-  not an implicit competing writer.
+- optimize every measured owner above the campaign materiality threshold, then
+  repeat the profile/census sweep until the fixed-point rule holds;
+- remove the displaced semantic-replenishment, float, rectangle-only, global-
+  pulse, stale-activation, and duplicated scheduling paths.
 
-### 5. Runtime and burn-down
+### 7. Runtime, resistance, and burn-down
 
-- run focused semantic, architecture, and pending/active tests;
+- run focused owner, architecture, cross-layer, and pending/active tests;
 - run workspace all-target, doctest, renderer-debug, and deep GPU tiers in
   proportion to changed code;
-- repeatedly launch the release Control Gallery and exercise slow/fast wheel
-  scrolling, large thumb jumps, both scrollbars, column resizing, typing, and
-  selection while checking process survival;
-- remove temporary diagnostics and displaced rectangle-only/float/duplicated
-  mechanisms;
-- commit and push each coherent checkpoint.
+- repeatedly launch the release Control Gallery and exercise slow/fast/sustained
+  wheel scrolling, large thumb jumps, both scrollbars, multiple panels/windows,
+  column resizing, typing, and selection while checking process survival;
+- run two complete post-seed re-census/profile sweeps, admitting or recording a
+  resistance ruling for every newly exposed scroll or performance cell;
+- prove the final performance receipts against both structural and timing gates;
+- remove temporary diagnostics and commit/push each coherent checkpoint.
+
+## Live campaign ledger
+
+This queue is an ignition map, not a closed backlog. Every cell receipt records
+the bounded question, traced paths, current/proposed owners, measurements,
+admission or resistance ruling, implementation/deletion, witnesses, performance
+delta, and the cells exposed by re-census.
+
+| Cell | Initial question | Ignition evidence | Status | Close condition |
+|---|---|---|---|---|
+| S-000 | Whole-system scroll census | Three controls and several input paths exhibit different ownership/economics | Open | Every required lens has an entrance-to-receipt map; unknowns become cells |
+| S-001 | Sole requested/admitted owner | Layout feedback and presentation receipts can restore an older offset | **Complete; R-001** | Only interaction mutates desired/admitted state; stale feedback cannot regress it |
+| S-002 | Semantic versus transient text identity | `TextArea` property movement participates in semantic equality | Open | Scroll/reveal/blink property ticks mint zero content, geometry, or topology revisions |
+| S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **In progress** | Admission and prepared pixels name the same integral region for every descendant |
+| S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
+| S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Open | One line/block anchor plus within-line displacement resolves through `ScrollUpdate` |
+| S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | Open | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
+| S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | Open | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
+| S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
+| S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
+
+### R-001 — sole requested/admitted owner
+
+- **Bounded question and trace.** Wheel and absolute input, scrollbar drag,
+  caret reveal, extent clamp, full scene preparation, property ticks, candidate
+  receipts, and native active-refresh receipts were traced from runtime routing
+  through `session`/`interaction`, layout projection, scene properties, and the
+  installed presented stack. The final source census finds desired/admitted
+  mutation only through `session::{request_scroll, admit_scroll}` into
+  `interaction::Scroll`; view-node offsets are transient projections, not
+  authorities.
+- **Displaced owners.** Unconditional frame-baseline feedback was replaced by
+  extent clamp and explicit reveal corrections through `ScrollUpdate::Geometry`.
+  Full paint no longer forces commit baselines into live properties. Receipt
+  admission consumes only the exact property carried by the successful stack;
+  the layout fallback and duplicate frame walk were deleted.
+- **Admission and activation ruling.** Legal intent is first normalized to the
+  last-presented content extent. Active residency admits it immediately or
+  retains it as desired. A newly prepared stack samples the newest compatible
+  desired property; a property tick samples admitted truth. Candidate receipts
+  must advance the window epoch. Active-refresh receipts must match both the
+  acknowledged epoch and visible stack structure, so neither receipt species
+  can regress admitted state.
+- **Structural performance delta.** Ordinary relative and absolute requests at
+  the content boundary now coalesce into one property tick with zero semantic
+  commits, scene-node rebuilds, or scene-paint calls. A clamped no-op schedules
+  no property or layout work. Quantitative release timing remains owned by
+  S-009 rather than being inferred from unit-test elapsed time.
+- **Witnesses.** `generic_scroll_feedback_clamps_session_offset_after_present`,
+  `generic_scroll_pointer_drag_updates_viewport_offset`,
+  `in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick`,
+  `text_area_input_clamps_to_presented_extent_before_admission`,
+  `text_area_caret_reveal_resolves_framework_owned_scroll_after_edit`, and
+  `older_successful_scroll_receipt_cannot_regress_admitted_property` cover input
+  parity, exact full-paint/property-tick sampling, explicit geometry correction,
+  structural-zero work, out-of-order candidates, and stale active refreshes.
+  The checkpoint suite is green after the stale-active-refresh ratchet:
+  `cargo test --lib --quiet` reports 1,188 passed and 4 intentional ignores.
+- **Re-census result.** Variable-height anchor correction remains S-005.
+  Compatible forward projection and cancellation across changing residencies
+  remains S-008. Exact drawable coverage remains S-003. No additional desired
+  or admitted authority was found.
+
+### S-003 checkpoint — exact proof and drawable ownership
+
+- Virtual proof now binds every requested index to the provider's current stable
+  key in the same layout snapshot; missing, duplicate, reordered, stale-key, and
+  gap-producing material cannot create complete residency.
+- A layer owns one explicit drawable commit beside its semantic commit. Local
+  `Residency` objects no longer select a shared drawable by incidental vector
+  order. The independent-two-list witness proves one residency may be reused
+  while another advances and the new rows still become the layer drawable.
+- Text paint and residency use one integral surface rectangle conversion. Text
+  no longer unions the viewport into an unproved prepared region, and an
+  unmodelled zero- or multi-surface result is rejected instead of reduced to a
+  union rectangle.
+- Retained text preparation uses the whole resident surface as its glyph bound;
+  the fixed scene clip, not current-surface glyph culling, controls visible
+  output as properties move through the accepted interval.
+- Production and test configurations are both compiled: the active-refresh
+  epoch accessor is no longer test-only, and
+  `cargo check --workspace --all-targets --all-features --quiet` is green.
+  Remaining S-003 closure work is the renderer/native pixel oracle across the
+  residency boundary and a final descendant/clip re-census.
+
+When a trace discovers another authority, cache, consumer, widget species,
+backend discrepancy, complexity failure, or material performance owner, append a
+new `S-*` cell before continuing. New cells are not deferred merely because the
+seed symptoms are already fixed.
+
+## Performance measurement contract
+
+### Metric ownership and schema
+
+Extend the existing `diagnostics::{Scroll, Pipeline, Render}` receipt rather
+than creating a benchmark-only truth. Reuse existing render timing and resource
+counters; add the missing scroll-specific attribution below. Metric names are
+stable receipt vocabulary once implemented.
+
+| Domain | Required counters / gauges | Required distributions |
+|---|---|---|
+| Intent and admission | `scroll_input_events`, `scroll_desired_changes`, `scroll_admitted_changes`, `scroll_unchanged`, `scroll_property_ticks`, `scroll_needs_residency`, `scroll_active_boundary_projections`, desired-minus-admitted distance per axis | request-to-admit time, desired/admitted lag magnitude |
+| Pipeline work caused by scroll | scroll-attributed view rebuilds, routing layouts, presentation layouts, composition reconciliations, scene assemblies, semantic commits, residency requests/revisions/activations, property serials, attempts and successful presents | scroll event handling, reconciliation, layout, assembly, and input-to-submit CPU time |
+| Text layout and preparation | source lines/bytes visited, width-index queries/updates, height-index queries/updates, anchor corrections, shaped lines/glyphs, prepared lines/glyphs, render-window origin/size/area, text cache hits/misses, resident text bytes | text measure, shape, resident-window build, glyph prepare, and replenishment time |
+| Table/layout residency | requested/realized rows, entering/leaving rows, pins, covered pixels, runway extent, refinement iterations, rejected incomplete candidates | residency proof, materialization, and incremental layout time |
+| Retained renderer | existing plan reuse/rebuild, quad/text prepare, upload bytes, buffer/resource create/replace/remove, retained resource count/bytes, draws/passes, cache hits/misses; add scroll-binding bytes and resident glyph vertex bytes | existing property/semantic batch prepare, encode/submit/present, draw, key-to-present; add residency preparation |
+| Cadence and progress | input deltas received/coalesced, redraws requested, attempts, presents, property/residency deadline misses, consecutive missed frames, longest no-progress interval | frame interval, event-to-attempt, event-to-present, residency wait |
+| Allocation and memory | hot-path allocation count/bytes through a test/diagnostic allocator, active/preparing/recycle CPU and GPU high-water | allocation size only in diagnostic runs |
+
+Every sample is tagged or separated by transition class:
+
+```text
+PropertyHit | ResidencyCrossing | SemanticChange | ResizeOrScale | ColdStart
+```
+
+Property and residency metrics never infer causality from a total frame count.
+The transition result, active commit, residency revisions, property serial, and
+presentation receipt supply the attribution. Long-running histograms/rings are
+fixed-capacity; recording a sample performs no heap allocation. Diagnostics-off
+overhead must be statistically indistinguishable from the pre-metric baseline
+and below one percent in the controlled benchmark.
+
+### Deterministic workload matrix
+
+The code-owned driver lives in `renderer_debug` beside the retained renderer
+oracle and emits a versioned `scroll-bench` receipt. Pure state/work contracts
+remain ordinary tests; GPU timing/readback witnesses remain ignored release
+tests. Native release-gallery runs add real pacing and process-survival evidence
+without replacing the code-owned workload.
+
+| Workload | Required trace | Sizes / positions | What it must expose |
+|---|---|---|---|
+| Generic property runway | 4 px, 120 px, reversal, diagonal, independent axis saturation | ordinary and nested viewports; offsets around `2^24` and near maximum | pure property cost, coordinate precision, nested clip/transform reuse |
+| Virtual table vertical | slow continuous, fast wheel, large thumb jump, provider shrink/reorder | 136/500/800 px gallery heights; one million logical rows | admission/replenishment, row/rule/text completeness, bounded nodes/resources |
+| Wide table horizontal | slow/fast drag, wheel/trackpad, maximum jump, column resize during scroll | narrow and wide viewports; production column grammar | rule/cell motion, fixed clip, two-axis chrome, track/layout reuse |
+| Text vertical | slow 4 px stream, page movement, jump, reversal, active edit/selection | 8 MiB and 64 MiB documents plus one-million-line synthetic source | stable anchor, visible-line lookup, bounded shaping/preparation, cadence |
+| Text horizontal | slow/fast movement and jumps on unwrapped content | 1 MiB line and 64 MiB mixed long-line document; `2^24 - 1`, `2^24`, `2^24 + 1`, far maximum | target-size independence, incremental width truth, glyph-window recycling |
+| Text diagonal/two-axis | continuous diagonal input and one saturated axis | wrapped and unwrapped, editable and read-only | independent axis admission, shared viewport policy, no all-or-nothing rollback |
+| Residency race | `active A -> preparing B -> desired C`, acceleration and reversal | C inside B, beyond B, and one-axis-only compatible | monotonic projection, cancellation/reuse, progress without input settling |
+| Multi-owner/native | two panels, two windows, parent plus popup under uninterrupted input | 1–2 ms input trace, occlusion and reveal | local clocks, fair attempts, no cross-owner starvation or process failure |
+| Lifecycle stress | resize, fractional scale, backend/device recreation, content edit during movement | scales 1.0, 1.25, 1.5, 2.0; DX12 and Vulkan where available | invalidation truth, cleanup, cache compatibility, exact pixels after recovery |
+
+Each warm property workload uses at least 64 unmeasured warmup transitions and
+1,024 measured transitions. Residency workloads use at least 16 warmups and 128
+measured crossings; cold-start/device cases use at least 16 independent samples.
+Run three trials and compare the median trial p50/p95/p99/maximum. Receipts name
+workload version, commit, release profile, timer, refresh rate, adapter, backend,
+device class, driver, OS, architecture, scale, viewport, document/table shape,
+runway policy, warmup, samples, and whether readback or native presentation was
+included. Deliberate input pacing is never reported as CPU or GPU work.
+
+### Structural performance floors
+
+Portable structural gates outrank noisy elapsed-time comparisons:
+
+1. A warm `PropertyHit` changes the admitted offset/property serial and performs
+   **zero** view rebuilds, routing or presentation layouts, composition
+   reconciliations, semantic commits, residency revisions, scene assemblies,
+   node realization rebuilds, quad/text prepare calls, text shape/measure work,
+   retained-resource creates/replacements, geometry-buffer creations, and hot-
+   path heap allocations.
+2. A residency crossing mints **zero semantic commits**. Its materialization,
+   proof, shaping, glyph preparation, uploads, and allocation scale with the
+   entering strip plus retained pins, not the complete runway or total source.
+3. Text render-window width/height/area and prepared glyph storage have a fixed
+   implementation bound derived from viewport, scale, runway, and content
+   density. Holding those inputs constant while increasing absolute offset or
+   document length cannot raise the bound.
+4. Reversing within current/recycle residency reuses the prior realization and
+   resources. Direction changes do not throw away compatible work.
+5. Table rules, cells, row backgrounds, text, hit testing, and both scrollbars
+   consume the same admitted property. No species pays an extra semantic/layout
+   path to obtain behavior another species gets from a property tick.
+6. Continuous input may be coalesced only by accumulating into the one desired
+   position. It may not drop net movement, wait for quiescence, or reduce work by
+   presenting stale state.
+
+### Timing and cadence gates
+
+Checkpoint 0 pins actual reference-machine numbers before optimization. The
+following are minimum final gates on that same environment; meeting them does
+not end the optimization loop:
+
+- warm `PropertyHit` input-to-submit CPU p95 is at most 25% of one refresh
+  interval and p99 at most 50%; its draw p95 is also at most 25%;
+- warm input-to-present p95 is at most one refresh interval plus the measured
+  acquire/present wait that the application cannot schedule away;
+- a residency crossing's CPU preparation p95 fits within one refresh interval,
+  and sustained motion never records two consecutive no-progress frame
+  intervals while compatible active residency exists;
+- the seeded large-text vertical and horizontal traces improve their baseline
+  p95 by at least 2x unless the baseline is already below 10% of one refresh
+  interval, in which case structural zero/bounded-work and the fixed-point rule
+  govern;
+- generic and table p95/p99, cadence, and memory do not regress by more than 5%
+  across the median of three controlled trials; any exception requires a named
+  correctness tradeoff and explicit campaign ruling; and
+- diagnostics-on CPU time and allocation overhead remain below 1% versus the
+  same release workload with diagnostics recording disabled.
+
+Evaluate both 60 Hz and 120 Hz budgets when the display/backend permits it. A
+faster optional machine may corroborate a result but cannot redefine the pinned
+campaign threshold or become necessary for closure.
+
+### Optimization order and fixed point
+
+Optimize in this order so local speedups cannot preserve the wrong graph:
+
+1. delete false semantic work, duplicate ownership, feedback loops, and stale
+   activation;
+2. make work asymptotically viewport/runway bounded and entering-strip
+   incremental;
+3. retain and recycle layout indices, shaped runs, glyph vertices, GPU
+   resources, render plans, and bounded allocations by their real revisions;
+4. coalesce compatible input/preparation without losing desired-state truth;
+5. remove hot-path allocation, cloning, concatenation, hashing, sorting,
+   virtual dispatch, and redundant coordinate conversion identified by metrics;
+6. improve data layout, batching, upload ranges, and branch locality only after
+   the preceding structural receipts hold.
+
+After every optimization cell, re-run pixels, structural work, timing, cadence,
+and memory receipts. Profile the highest remaining owner with code counters
+first and PIX/ETW, a CPU profiler, or GPU captures only when the code-owned
+receipt cannot answer the named question. Every owner consuming at least 10% of
+scroll input-to-submit CPU time receives either a reduction or a recorded
+resistance ruling.
+
+The performance loop reaches fixed point only after two consecutive full
+workload sweeps find no admissible change that does any of the following without
+violating correctness or another measured gate:
+
+- removes unbounded, duplicated, invalidated, or allocation-producing work;
+- turns required warm work into a structural zero;
+- improves p95 by at least 5% or p99 by at least 10% in at least two of three
+  controlled trials; or
+- reduces steady/high-water CPU or GPU memory by at least 10%.
+
+### Prohibited performance shortcuts
+
+- widening overscan/runways to hide preparation latency without proving memory
+  and worst-case preparation bounds;
+- retaining a whole document/table, an absolute-offset-sized surface, or stale
+  duplicate scene/layout truth to make one trace fast;
+- dropping input, delaying work until input stops, checkerboarding, exposing
+  incomplete pixels, loosening pixel tolerances, lowering coordinate precision,
+  or changing scrollbar behavior to improve timing;
+- benchmark-only production branches, permanent verbose logging, unbounded
+  sample storage, or a diagnostic dirty flag that production consumes;
+- caches without explicit owner, key, revision, bound, eviction/recycle rule,
+  device-loss behavior, and hit/miss/resource receipts; and
+- declaring victory from average FPS, one settled frame, one backend, one axis,
+  one widget species, or a faster external machine.
 
 ## Required witnesses
 
@@ -178,17 +688,46 @@ The correction cannot close without deterministic witnesses for:
 1. exact integral round trips at `16_777_215`, `16_777_216`, `16_777_217`,
    representative odd values near 24,000,000, and the gallery maximum;
 2. missing, duplicate, out-of-order, and gap-producing virtual rows yielding
-   `NotReady` and no scene commit;
-3. a complete requested range covering every viewport pixel;
+   `NotReady` and no scene residency;
+3. a complete requested range covering every required viewport pixel;
 4. a distant pin being excluded from contiguous residency;
-5. `active A -> preparing B -> latest C` activating `B` only with `C`'s scroll
-   value when accepted, and otherwise preserving `A` while preparing `C`;
-6. no successful receipt whose scroll property serial/value regresses;
+5. `active A -> preparing B -> desired C` activating `B` with `C` when accepted,
+   otherwise making compatible forward progress while `C` remains pending;
+6. no successful receipt whose property serial or admitted value regresses;
 7. relative and absolute requests for the same resulting offset producing the
    same scheduling transition;
 8. vertical and horizontal scrollbar hit/capture parity;
 9. one-million-row resident node/resource bounds and a crash-free large-thumb
-   release-gallery run.
+   release-gallery run;
+10. zero semantic commits for ordinary resident boundary crossings;
+11. two independently scrolling panels and two windows with independent pulses;
+12. parent/native-popup preparation and receipt independence;
+13. uninterrupted native input every 1–2 ms producing regular attempts and
+    successful forward progress without waiting for input to stop;
+14. fixed viewport clips enclosing every repeated scroll scope;
+15. retained row backgrounds, rules, and text all remaining pixel-complete at
+    both an ordinary property tick and the active residency boundary;
+16. generic, table, and text property hits sharing the structural-zero fast path
+    while preserving their distinct content semantics;
+17. horizontal text movement at near and far offsets retaining the same bounded
+    render-window/resource high-water and performing no whole-document scan;
+18. vertical text height refinement preserving a stable line/block anchor and
+    within-line displacement without a visible chop or second offset owner;
+19. text and table vertical/horizontal scrollbar presence, gutter, activity,
+    fade, hit, capture, and mutation following the campaign's explicit common
+    policy rather than incidental node topology;
+20. table rules maintaining exact pixel displacement relative to their cells
+    through horizontal and vertical property ticks, residency crossings,
+    fractional scales, and resize;
+21. every deterministic workload emitting the versioned semantic-work, timing,
+    cadence, allocation, memory, environment, and pixel receipt;
+22. warm property ticks, residency crossings, large text, and one-million-row
+    workloads satisfying all structural and timing gates; and
+23. two complete post-seed re-census/profile sweeps producing no new admitted
+    correctness or material performance cell; and
+24. baseline, post-ownership, and final comparison receipts against every named
+    industry reference, with each relevant property either met/exceeded or
+    represented by an open campaign cell.
 
 Tests that inspect only a union rectangle, one non-clear pixel, settled output,
 or an offscreen renderer without the native pending queue are insufficient.
@@ -197,17 +736,36 @@ or an offscreen renderer without the native pending queue are insufficient.
 
 The goal is complete only when:
 
-1. scroll coordinates remain integral until a bounded renderer-local delta;
-2. every drawable virtual scroll commit carries exact, complete residency;
-3. incomplete or non-converged residency cannot enter scene painting or
-   activation;
-4. pending/active activation cannot regress the newest accepted scroll value;
-5. all scroll inputs and both axes share one mutation/scheduling contract;
-6. variable-height correction has one explicit anchor-resolution path;
-7. presented geometry, scrollbar geometry, hit testing, and renderer output
-   consume the same receipted property state;
-8. the required deterministic, workspace, renderer, and real release-gallery
-   witnesses pass; and
-9. the old lossy, rectangle-only, stale-activation, and duplicated transition
-   paths are absent.
-
+1. desired and admitted scroll coordinates remain integral until a bounded
+   renderer-local delta;
+2. every drawable virtual scroll scope carries exact, complete scene residency;
+3. incomplete or non-converged residency cannot enter scene drawing or activation;
+4. viewport clips remain fixed outside moving scroll scopes and every painted
+   descendant, including text, is prepared across accepted residency;
+5. resident membership changes mint residency revisions and zero semantic commits;
+6. pending/active projection and activation cannot regress the newest accepted scroll value or
+   starve behind a farther desired value;
+7. all scroll inputs and both axes share one request/admission contract;
+8. variable-height correction has one explicit anchor-resolution path;
+9. per-window and popup-local clocks remain independent;
+10. presented geometry, scrollbar geometry, hit testing, and renderer output
+    consume the same receipted property state;
+11. the required deterministic, workspace, renderer, native-stream, and real
+    release-gallery witnesses pass;
+12. every displaced float, rectangle-only, semantic-replenishment, global-pulse,
+    stale-activation, and duplicated transition path is deleted;
+13. property-hit and residency-crossing work obey the structural performance
+    floors, resource and memory use remain viewport/runway bounded, and the
+    pinned release timing/cadence gates pass;
+14. every scroll owner consuming at least 10% of input-to-submit CPU time has an
+    evidence-backed reduction or resistance ruling, and no admitted material
+    optimization remains after two consecutive full workload sweeps;
+15. the live ledger contains receipts for every admitted and zero-change cell,
+    including cells discovered after the ignition queue was green; and
+16. a final bidirectional entrance-to-receipt and receipt-to-entrance sweep
+    across every required lens finds no competing truth, uncovered drawable
+    state, inconsistent control/axis path, unbounded scaling, false invalidation,
+    avoidable hot-path allocation, or unowned performance cost; and
+17. the final industry comparison meets or exceeds every applicable shared-line
+    property, with repository-specific differences justified by stronger local
+    correctness, boundedness, or measured performance evidence.

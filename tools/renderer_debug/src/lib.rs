@@ -291,6 +291,15 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
+    fn retained_scroll_tick_realizes_text_entering_from_the_runway() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        harness.require_scroll_text_runway().expect(
+            "an admitted property tick must reveal the complete row, including retained text",
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
     fn unrelated_semantic_commit_reuses_retained_scroll_subtree() {
         let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
         let receipt = harness
@@ -430,17 +439,13 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
-    fn control_gallery_pending_scroll_keeps_visible_active_output() {
-        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
-            pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_pending_scroll(
-                scale_factor,
-            ))
-            .unwrap_or_else(|error| {
-                panic!(
-                    "pending gallery scroll must keep a visible complete active scene at {scale_factor}x: {error}"
-                )
-            });
-        }
+    fn control_gallery_slow_scroll_never_exposes_unprepared_output() {
+        pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_slow_scroll(
+            1.0,
+        ))
+        .unwrap_or_else(|error| {
+            panic!("slow gallery scroll must remain monotonic and pixel-complete at 1.0x: {error}")
+        });
     }
 
     #[test]

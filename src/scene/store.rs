@@ -2,11 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::super::{interaction, layout, notification, overlay, theme::Theme, window};
-use super::{Color, Commit, Properties, Visuals, paint};
+use super::{Color, Commit, Properties, Residency, Visuals, paint, residency};
 
 #[derive(Default)]
 pub(crate) struct Store {
     windows: HashMap<window::Id, paint::Retained>,
+    semantics: HashMap<window::Id, Arc<Commit>>,
+    drawables: HashMap<window::Id, Arc<Commit>>,
+    residencies: HashMap<window::Id, Arc<[Residency]>>,
 }
 
 impl Store {
@@ -18,11 +21,39 @@ impl Store {
         theme: &Theme,
         visuals: &Visuals,
         interaction: Option<&interaction::Interaction>,
-    ) -> (Arc<Commit>, Properties, Vec<overlay::Draft>, PaintStats) {
+    ) -> (
+        Arc<Commit>,
+        Arc<Commit>,
+        Arc<[Residency]>,
+        Properties,
+        Vec<overlay::Draft>,
+        PaintStats,
+    ) {
         let retained = self.windows.entry(window).or_default();
-        let (commit, properties, overlays, stats) =
+        let (candidate, properties, overlays, stats) =
             retained.paint(layout, clear, theme, visuals, interaction);
-        (commit, properties, overlays, PaintStats::from(stats))
+        let resident_nodes = layout.virtual_resident_node_ids();
+        let previous_semantic = self.semantics.get(&window);
+        let commit = Commit::semantic_projection(&candidate, previous_semantic, &resident_nodes)
+            .expect("painted semantic scene must satisfy the commit contract");
+        let semantic_changed =
+            previous_semantic.is_none_or(|previous| !Arc::ptr_eq(previous, &commit));
+        let drawable = if candidate.revision() == commit.revision() {
+            candidate
+        } else {
+            candidate.with_revision(commit.revision())
+        };
+        let properties = properties.with_commit_revision(&drawable);
+        let previous = self.residencies.get(&window).map_or(&[][..], Arc::as_ref);
+        let residencies = residency::Builder::new(&commit, Arc::clone(&drawable), previous)
+            .build(layout)
+            .expect("painted scene residency must satisfy its layout proof and semantic commit");
+        self.semantics.insert(window, Arc::clone(&commit));
+        self.drawables.insert(window, Arc::clone(&drawable));
+        self.residencies.insert(window, Arc::clone(&residencies));
+        let mut stats = PaintStats::from(stats);
+        stats.commits_created = usize::from(semantic_changed);
+        (commit, drawable, residencies, properties, overlays, stats)
     }
 
     pub(crate) fn tick_properties(
@@ -31,11 +62,28 @@ impl Store {
         layout: &layout::Layout,
         visuals: &Visuals,
         interaction: Option<&interaction::Interaction>,
-    ) -> Option<(Arc<Commit>, Properties, Vec<overlay::Draft>, PaintStats)> {
+    ) -> Option<(
+        Arc<Commit>,
+        Arc<Commit>,
+        Arc<[Residency]>,
+        Properties,
+        Vec<overlay::Draft>,
+        PaintStats,
+    )> {
         let retained = self.windows.get_mut(&window)?;
-        let (commit, properties, overlays) =
-            retained.tick_properties(layout, visuals, interaction)?;
-        Some((commit, properties, overlays, PaintStats::default()))
+        let (_, properties, overlays) = retained.tick_properties(layout, visuals, interaction)?;
+        let commit = Arc::clone(self.semantics.get(&window)?);
+        let drawable = Arc::clone(self.drawables.get(&window)?);
+        let properties = properties.with_commit_revision(&drawable);
+        let residencies = Arc::clone(self.residencies.get(&window)?);
+        Some((
+            commit,
+            drawable,
+            residencies,
+            properties,
+            overlays,
+            PaintStats::default(),
+        ))
     }
 
     #[cfg(test)]
@@ -47,6 +95,9 @@ impl Store {
 impl notification::Listener<window::Departed> for Store {
     fn notify(&mut self, window: &window::Id) -> notification::Reaction {
         self.windows.remove(window);
+        self.semantics.remove(window);
+        self.drawables.remove(window);
+        self.residencies.remove(window);
         notification::Reaction::ignored()
     }
 }

@@ -60,6 +60,16 @@ struct RetainedTextTransform {
 pub(in crate::render) struct RetainedBatch {
     key: render::retained::ResourceKey,
     transform: Option<RetainedTextTransform>,
+    render_origin_bits: [u32; 2],
+}
+
+impl RetainedBatch {
+    pub(in crate::render) fn translation(self, scroll: [f32; 2]) -> [f32; 2] {
+        [
+            f32::from_bits(self.render_origin_bits[0]) + scroll[0],
+            f32::from_bits(self.render_origin_bits[1]) + scroll[1],
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -130,11 +140,18 @@ impl TextRenderer {
         glyphs: &[content::Glyph<'_>],
         target_origin: [f32; 2],
         target_size: [f32; 2],
+        render_size: [f32; 2],
+        render_origin: [f32; 2],
         scroll: Option<crate::composition::tree::NodeId>,
         scroll_root: Option<crate::composition::tree::NodeId>,
     ) -> Result<RetainedTextReport> {
         let resource_removals = self.prune_retained();
-        let transform = retained_transform(viewport, target_size, scroll, scroll_root);
+        let transform = retained_transform(viewport, render_size, scroll, scroll_root);
+        let batch = |key| RetainedBatch {
+            key,
+            transform,
+            render_origin_bits: render_origin.map(f32::to_bits),
+        };
         let key = render::retained::ResourceKey::for_target(
             node,
             content_index,
@@ -154,7 +171,7 @@ impl TextRenderer {
                 entry.owners.push(Arc::downgrade(node));
             }
             return Ok(RetainedTextReport {
-                batch: entry.has_text.then_some(RetainedBatch { key, transform }),
+                batch: entry.has_text.then(|| batch(key)),
                 resource_removals,
                 ..RetainedTextReport::default()
             });
@@ -187,6 +204,7 @@ impl TextRenderer {
             &mut renderer,
             &glyph_viewport,
             glyphs,
+            scroll.is_some(),
         )?;
         let has_text = report.has_text;
         self.retained.insert(
@@ -200,7 +218,7 @@ impl TextRenderer {
         );
 
         Ok(RetainedTextReport {
-            batch: has_text.then_some(RetainedBatch { key, transform }),
+            batch: has_text.then(|| batch(key)),
             stats: report.stats,
             prepare_calls: 1,
             resource_creations: 1,
@@ -226,9 +244,10 @@ impl TextRenderer {
         };
         let viewport = if let Some(transform) = batch.transform {
             let grid = paint::Grid::new(scale_factor);
+            let translation = batch.translation(scroll_translation);
             let offset = [
-                grid.snap_text_origin(scroll_translation[0]) as i32,
-                grid.snap_text_origin(scroll_translation[1]) as i32,
+                grid.snap_text_origin(translation[0]) as i32,
+                grid.snap_text_origin(translation[1]) as i32,
             ];
             let transform = retained_transforms
                 .iter()
@@ -451,6 +470,7 @@ fn prepare_glyphs(
     renderer: &mut glyphon::TextRenderer,
     viewport: &glyphon::Viewport,
     glyphs: &[content::Glyph<'_>],
+    resident_text: bool,
 ) -> Result<TextBatchReport> {
     let mut prepared = Vec::with_capacity(glyphs.len());
     let mut stats = InlineStats::default();
@@ -464,7 +484,7 @@ fn prepare_glyphs(
                 }
             }
             content::Glyph::TextViewport(text) => {
-                prepared.extend(prepare_text_viewport(text, scale_factor));
+                prepared.extend(prepare_text_viewport(text, scale_factor, resident_text));
             }
             content::Glyph::Icon(icon) => {
                 if let Some(glyph) = prepare_icon(inline_cache, icon, scale_factor) {
@@ -610,10 +630,23 @@ fn prepare_text(
 fn prepare_text_viewport<'a>(
     viewport: &'a paint::TextViewport,
     scale_factor: f32,
+    resident: bool,
 ) -> impl Iterator<Item = PreparedText<'a>> + 'a {
     viewport.surfaces.iter().filter_map(move |surface| {
-        prepare_text_surface_in_bounds(surface, viewport.rect, scale_factor)
+        prepare_text_surface_in_bounds(
+            surface,
+            text_viewport_preparation_bounds(viewport.rect, surface.rect, resident),
+            scale_factor,
+        )
     })
+}
+
+fn text_viewport_preparation_bounds(
+    viewport: paint::Rect,
+    surface: paint::Rect,
+    resident: bool,
+) -> paint::Rect {
+    if resident { surface } else { viewport }
 }
 
 fn prepare_text_surface_in_bounds<'a>(
@@ -781,6 +814,23 @@ mod tests {
         assert_eq!(
             [bounds.left, bounds.top, bounds.right, bounds.bottom],
             [171, 6, 534, 28]
+        );
+    }
+
+    #[test]
+    fn retained_scroll_prepares_the_whole_text_surface_runway() {
+        let viewport = Rect::new(point::logical(20.0, 30.0), area::logical(100.0, 40.0));
+        let resident = Rect::new(point::logical(20.0, -90.0), area::logical(356.0, 280.0));
+
+        assert_eq!(
+            text_viewport_preparation_bounds(viewport, resident, false),
+            viewport,
+            "ordinary text keeps its authored viewport bound"
+        );
+        assert_eq!(
+            text_viewport_preparation_bounds(viewport, resident, true),
+            resident,
+            "retained scroll text must prepare every glyph in its admitted runway"
         );
     }
 

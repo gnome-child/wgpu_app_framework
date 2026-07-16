@@ -1146,6 +1146,17 @@ fn wheel_deltas_accumulate_losslessly_before_one_frame() {
             .expect("wheel delta should update session truth");
     }
 
+    let admitted_before_frame = platform
+        .host()
+        .shell()
+        .runtime()
+        .session()
+        .interaction(window)
+        .unwrap()
+        .scroll()
+        .offset(&target);
+    assert!(admitted_before_frame.y() > 0);
+    assert!(admitted_before_frame.y() < 1_000);
     assert_eq!(
         platform
             .host()
@@ -1155,7 +1166,7 @@ fn wheel_deltas_accumulate_losslessly_before_one_frame() {
             .interaction(window)
             .unwrap()
             .scroll()
-            .offset(&target),
+            .desired_offset(&target),
         interaction::ScrollOffset::new(0, 1_000)
     );
     assert!(
@@ -1179,6 +1190,18 @@ fn wheel_deltas_accumulate_losslessly_before_one_frame() {
             .filter(|event| matches!(event, BackendEvent::Present { .. }))
             .count(),
         1
+    );
+    assert_eq!(
+        platform
+            .host()
+            .shell()
+            .runtime()
+            .session()
+            .interaction(window)
+            .unwrap()
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(0, 1_000)
     );
 }
 
@@ -1617,19 +1640,19 @@ fn deferred_parent_preparation_does_not_block_popup_or_ime_realization() {
         .expect("pending parent preparation should remain drawable");
 
     assert!(
-        platform
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::RequestRedraw { window: requested } if *requested == window
+        )),
+        "a deferred candidate must continue on its window-local redraw clock"
+    );
+    assert!(
+        !platform
             .backend()
             .events()
             .iter()
             .any(|event| matches!(event, BackendEvent::Poll)),
-        "a deferred candidate must schedule its continuation on the poll clock"
-    );
-    assert!(
-        !platform.backend().events().iter().any(|event| matches!(
-            event,
-            BackendEvent::RequestRedraw { window: requested } if *requested == window
-        )),
-        "renderer preparation must not re-enter semantic frame production"
+        "renderer preparation must not wait for an idle poll behind a continuous input stream"
     );
     assert!(
         platform.backend().events().iter().any(|event| matches!(
@@ -1660,29 +1683,32 @@ fn deferred_parent_preparation_does_not_block_popup_or_ime_realization() {
 
     platform.backend_mut().events.clear();
     platform
-        .continue_presentations()
-        .expect("unfinished backend preparation should continue without semantic work");
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("unfinished backend preparation should continue on the next window frame");
     assert!(
-        platform
-            .backend()
-            .events()
-            .iter()
-            .any(|event| matches!(event, BackendEvent::Poll)),
-        "an unfinished continuation must schedule its next bounded slice"
+        platform.backend().events().iter().any(|event| matches!(
+            event,
+            BackendEvent::RequestRedraw { window: requested } if *requested == window
+        )),
+        "an unfinished continuation must schedule its next bounded window-local slice"
     );
     assert!(
         !platform.backend().events().iter().any(|event| matches!(
             event,
-            BackendEvent::RequestRedraw { .. }
-                | BackendEvent::PresentPopup { .. }
-                | BackendEvent::SetIme { .. }
+            BackendEvent::Poll | BackendEvent::PresentPopup { .. } | BackendEvent::SetIme { .. }
         )),
         "an unfinished continuation must not re-enter or duplicate semantic child work"
     );
 
     platform.backend_mut().events.clear();
     platform
-        .continue_presentations()
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
         .expect("ready parent should activate from its exact pending state");
 
     assert!(

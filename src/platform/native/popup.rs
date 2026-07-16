@@ -370,6 +370,7 @@ impl Native {
         let visual_bounds = popup_realization.visual_bounds();
         let layer = crate::scene::Layer::projected(
             Arc::clone(presentation.commit()),
+            Arc::from([]),
             Arc::clone(presentation.properties()),
             popup_realization.retained_visual_origin(),
             crate::geometry::Rect::new(0, 0, visual_bounds.width(), visual_bounds.height()),

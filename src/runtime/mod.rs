@@ -54,7 +54,7 @@ struct CachedLayout {
 #[derive(Clone)]
 struct PresentedGeometry {
     layout: Arc<layout::Layout>,
-    properties: scene::Properties,
+    stack: Arc<scene::Stack>,
 }
 
 impl PresentedGeometry {
@@ -82,7 +82,7 @@ impl PresentedGeometry {
                 return None;
             }
             let baseline = viewport.resolved_scroll();
-            let current = self.properties.scroll_offset(*scroll).unwrap_or(baseline);
+            let current = self.stack.scroll_offset(*scroll).unwrap_or(baseline);
             translation[0] =
                 translation[0].saturating_add(baseline.x().saturating_sub(current.x()));
             translation[1] =
@@ -189,7 +189,7 @@ impl PresentedGeometry {
                     .scroll_projections()
                     .iter()
                     .find(|projection| projection.target() == target)
-                    .and_then(|projection| self.properties.scroll_offset(projection.node()))
+                    .and_then(|projection| self.stack.scroll_offset(projection.node()))
                     .unwrap_or_else(|| viewport.resolved_scroll())
             },
         )

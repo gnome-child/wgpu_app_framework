@@ -221,7 +221,7 @@ impl Native {
                             break completed.prepared;
                         };
                         let rebased = successor.properties().rebase_onto_for_activation(
-                            completed.prepared.commit(),
+                            completed.prepared.drawable_commit(),
                             completed.prepared.properties(),
                         );
                         self.pending_presentations
@@ -233,19 +233,10 @@ impl Native {
                             }
                             Err(error) => {
                                 log::debug!(
-                                    "deferring prepared activation whose latest scroll state cannot rebase: {error}"
+                                    "activating prepared forward progress while a newer scroll state continues preparation: {error}"
                                 );
-                                renderer.cancel_stack_synchronization(
-                                    completed.prepared.stack(),
-                                    active.as_ref().map(shell::Presentation::stack),
-                                );
-                                refreshes_active = true;
-                                break project_onto_active(
-                                    active.as_ref().expect(
-                                        "pending realization requires a complete active presentation",
-                                    ),
-                                    &successor,
-                                );
+                                activation_from_pending = true;
+                                break completed.prepared;
                             }
                         }
                     }
@@ -359,30 +350,25 @@ impl Native {
         })
     }
 
-    pub(in crate::platform::native) fn resume_native_presentations(
+    pub(in crate::platform::native) fn resume_native_presentation(
         &mut self,
-    ) -> Result<Vec<super::super::PresentResult>, NativeError> {
-        let pending = self
+        window: app_window::Id,
+    ) -> Result<Option<super::super::PresentResult>, NativeError> {
+        let presentation = self
             .pending_presentations
-            .values()
-            .map(|pending| pending.preparing.clone())
-            .collect::<Vec<_>>();
-        let mut results = Vec::with_capacity(pending.len());
+            .get(&window)
+            .map(|pending| pending.preparing.clone());
+        let Some(presentation) = presentation else {
+            return Ok(None);
+        };
+        let is_current = self
+            .pending_presentations
+            .get(&window)
+            .is_some_and(|current| Arc::ptr_eq(current.preparing.stack(), presentation.stack()));
 
-        for presentation in pending {
-            let window = presentation.window();
-            let is_current = self
-                .pending_presentations
-                .get(&window)
-                .is_some_and(|current| {
-                    Arc::ptr_eq(current.preparing.commit(), presentation.commit())
-                });
-            if is_current {
-                results.push(self.present_native(&presentation)?);
-            }
-        }
-
-        Ok(results)
+        is_current
+            .then(|| self.present_native(&presentation))
+            .transpose()
     }
 
     pub(in crate::platform::native) fn sync_window_surface(
@@ -449,12 +435,9 @@ fn project_onto_active(
     active: &shell::Presentation,
     newest: &shell::Presentation,
 ) -> shell::Presentation {
-    match newest
-        .properties()
-        .project_onto(active.commit(), active.properties())
-    {
-        Ok((properties, true)) => active.with_active_properties(properties),
-        Ok((_, false)) | Err(_) => active.clone(),
+    match active.stack().project_base_properties(newest.properties()) {
+        Some((properties, true)) => active.with_active_properties(properties),
+        Some((_, false)) | None => active.clone(),
     }
 }
 
@@ -494,6 +477,107 @@ fn native_backend_attempts(explicit: Option<context::Backends>) -> Attempts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_projection_advances_to_the_active_residency_boundary() {
+        let mut shell = crate::shell::Shell::new(crate::control_gallery::app(
+            crate::control_gallery::State::default(),
+        ));
+        shell.start();
+        let window = shell.runtime().session().windows()[0].id();
+        let size = crate::geometry::Size::new(760, 700);
+        assert!(shell.set_window_size(window, size));
+        let initial = shell.drain();
+        let active = initial
+            .presentations()
+            .last()
+            .cloned()
+            .expect("control gallery should produce an active presentation");
+        shell.runtime_mut().finish_render_report(
+            active.window(),
+            active.epoch(),
+            active.invalidation(),
+            active.layout(),
+            active.stack(),
+            active.property_only(),
+            crate::diagnostics::RenderReport::new(
+                std::time::Duration::ZERO,
+                std::time::Duration::ZERO,
+                Instant::now(),
+            ),
+        );
+        let cell = active
+            .layout()
+            .frames()
+            .iter()
+            .find(|frame| {
+                frame.table_cell().is_some_and(|cell| {
+                    cell.row() == crate::virtual_list::Key::new(1)
+                        && cell.column() == crate::interaction::Id::new("detail")
+                })
+            })
+            .expect("control gallery should materialize a table cell");
+        let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
+        let target = active
+            .layout()
+            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .expect("table cell should route vertical scrolling");
+        let projection = active
+            .layout()
+            .scroll_projections()
+            .iter()
+            .find(|projection| {
+                projection.target() == &target && projection.viewport().max_scroll().y() > 0
+            })
+            .expect("table should have an active vertical residency");
+        let scroll = projection.node();
+        let (_, maximum) = projection
+            .accepted_offsets()
+            .expect("active table residency should prove an admitted interval");
+        let active_offset = active
+            .properties()
+            .scroll_offset(scroll)
+            .expect("active table should have a scroll property");
+        let delta = maximum.y().saturating_add(1);
+
+        shell
+            .runtime_mut()
+            .scroll_at(
+                window,
+                size,
+                point,
+                crate::interaction::ScrollDelta::vertical(delta),
+            )
+            .expect("scroll beyond active residency should request replenishment");
+        let pending = shell.drain();
+        let newest = pending
+            .presentations()
+            .last()
+            .expect("replenishment should produce a pending presentation");
+        assert!(
+            !active.stack().same_structure(newest.stack()),
+            "fixture must require a new drawable residency"
+        );
+        assert!(
+            newest
+                .properties()
+                .scroll_offset(scroll)
+                .is_some_and(|offset| offset.y() > maximum.y()),
+            "pending presentation must carry the desired offset beyond active coverage"
+        );
+
+        let projected = project_onto_active(&active, newest);
+
+        assert_eq!(
+            projected.properties().scroll_offset(scroll),
+            Some(maximum),
+            "native active refresh must advance to the furthest complete offset instead of snapping back"
+        );
+        assert_ne!(
+            maximum, active_offset,
+            "fixture must prove forward progress beyond the previously active offset"
+        );
+    }
 
     #[test]
     fn explicit_backend_choice_is_the_only_attempt() {

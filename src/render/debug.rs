@@ -850,6 +850,64 @@ impl Harness {
         })
     }
 
+    pub fn require_scroll_text_runway(&mut self) -> Result<(), String> {
+        let ((commit, initial, tick), (expected, expected_properties)) =
+            scene::renderer_scroll_text_runway_pair().map_err(|error| error.to_string())?;
+        let commit = std::sync::Arc::new(commit);
+        let expected = std::sync::Arc::new(expected);
+        let (width, height) = self.physical_extent(commit.size());
+
+        self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &initial,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (actual, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &tick,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected, _) = self.witness.draw_commit_offscreen_debug(
+            &self.context,
+            &expected,
+            &expected_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if actual != expected {
+            let mut changed = 0_usize;
+            let mut bounds = (width, height, 0_u32, 0_u32);
+            let mut first = None;
+            for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                if actual == expected {
+                    continue;
+                }
+                changed += 1;
+                let x = index as u32 % width;
+                let y = index as u32 / width;
+                bounds.0 = bounds.0.min(x);
+                bounds.1 = bounds.1.min(y);
+                bounds.2 = bounds.2.max(x);
+                bounds.3 = bounds.3.max(y);
+                first.get_or_insert((x, y, *actual, *expected));
+            }
+            return Err(format!(
+                "a scroll property tick exposed {changed} incomplete runway pixels: bounds={bounds:?}, first={first:?}"
+            ));
+        }
+        Ok(())
+    }
+
     pub fn scroll_unrelated_semantic_receipt(
         &mut self,
     ) -> Result<UnrelatedSemanticReceipt, String> {
@@ -1398,62 +1456,6 @@ impl Harness {
             ));
         }
 
-        Ok(())
-    }
-
-    pub(crate) fn compare_scroll_candidate_preserves_stable_prefix(
-        &mut self,
-        active_commit: &std::sync::Arc<scene::Commit>,
-        active_properties: &scene::Properties,
-        candidate_commit: &std::sync::Arc<scene::Commit>,
-        candidate_properties: &scene::Properties,
-    ) -> Result<(), String> {
-        let cutoff = active_commit
-            .nodes()
-            .iter()
-            .filter_map(|node| {
-                let declaration = node.scroll()?;
-                (active_properties.scroll_offset(node.id())
-                    != candidate_properties.scroll_offset(node.id()))
-                .then_some(declaration.viewport().y())
-            })
-            .min()
-            .ok_or_else(|| {
-                "semantic scroll candidate changed no declared scroll value".to_owned()
-            })?;
-        let (width, height) = self.physical_extent(active_commit.size());
-        let (active, _) = self.witness.draw_commit_offscreen_debug(
-            &self.context,
-            active_commit,
-            active_properties,
-            width,
-            height,
-            self.scale_factor,
-            false,
-        )?;
-        let (candidate, _) = self.witness.draw_commit_offscreen_debug(
-            &self.context,
-            candidate_commit,
-            candidate_properties,
-            width,
-            height,
-            self.scale_factor,
-            false,
-        )?;
-        let stable_rows = ((cutoff.max(0) as f32) * self.scale_factor)
-            .ceil()
-            .min(height as f32) as usize;
-        let stable_pixels = stable_rows.saturating_mul(width as usize);
-        let changed = active[..stable_pixels]
-            .iter()
-            .zip(&candidate[..stable_pixels])
-            .filter(|(active, candidate)| active != candidate)
-            .count();
-        if changed > 0 {
-            return Err(format!(
-                "semantic scroll candidate changed {changed} stable prefix pixels above y={cutoff}"
-            ));
-        }
         Ok(())
     }
 

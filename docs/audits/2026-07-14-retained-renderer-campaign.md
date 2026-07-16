@@ -1,5 +1,13 @@
 # Retained Renderer campaign — The Edges Teach Inward
 
+> Superseded scroll-residency ruling (2026-07-15): this completed campaign's
+> classification of virtual resident membership as semantic commit structure
+> was disproved by continuous-scroll activation starvation. The active Scroll
+> Truth correction and `docs/master_design.md` now define residency revision as
+> a fourth disjoint scene handoff. The historical measurements and retained
+> renderer results remain valid; guard replenishment no longer mints semantic
+> commits.
+
 Status: **complete; Checkpoints 0–10 complete**. One-Way
 Internals is paused at the independently green R5-70 boundary. The renderer
 territory was claimed from starting HEAD `24bd0768`; the local baseline, WARP,

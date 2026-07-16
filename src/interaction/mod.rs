@@ -320,12 +320,24 @@ impl Interaction {
         self.pointer.promote_hover_tip(now, delay)
     }
 
-    pub(super) fn apply_scroll(
+    pub(super) fn request_scroll(
         &mut self,
         target: Target,
         update: scroll::ScrollUpdate,
     ) -> Option<ScrollOffset> {
-        self.scroll.apply(target, update)
+        self.scroll.request(target, update)
+    }
+
+    pub(super) fn admit_scroll(
+        &mut self,
+        target: Target,
+        offset: ScrollOffset,
+    ) -> Option<ScrollOffset> {
+        self.scroll.admit(target, offset)
+    }
+
+    pub(crate) fn project_requested_scroll(&mut self) {
+        self.scroll.project_desired();
     }
 
     pub(super) fn reveal_scroll(&mut self, target: Target) -> bool {

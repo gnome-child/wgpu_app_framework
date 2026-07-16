@@ -1810,12 +1810,14 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
     assert!(!scrolled.changed_state());
     assert!(scrolled.effect().contains_invalidation());
     assert_eq!(app.revision(), revision);
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .scroll();
+    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction state")
-            .scroll()
-            .offset(&target),
+        scroll.desired_offset(&target),
         interaction::ScrollOffset::new(0, 120)
     );
     {
@@ -1838,12 +1840,14 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
     assert!(!scrolled_again.changed_state());
     assert!(scrolled_again.effect().contains_invalidation());
     assert_eq!(app.revision(), revision);
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("window should have interaction state")
+        .scroll();
+    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
     assert_eq!(
-        app.session()
-            .interaction(window)
-            .expect("window should have interaction state")
-            .scroll()
-            .offset(&target),
+        scroll.desired_offset(&target),
         interaction::ScrollOffset::new(8, 100)
     );
     {
@@ -1908,11 +1912,31 @@ fn text_area_interaction_id_scrolls_without_focus() {
 
     assert!(scrolled.is_handled());
     assert!(!scrolled.changed_state());
-    assert!(scrolled.effect().contains_invalidation());
+    assert_eq!(scrolled.effect(), &response::Effect::None);
 
     let presentation = app
         .show_scene(window, size)
         .expect("scrolled preview scene should render");
+    let presented_text_area = presentation
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("presented preview should retain its text area");
+    assert_eq!(
+        presented_text_area.resolved_scroll(),
+        Some(Default::default())
+    );
+    let projection = presentation
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.target() == &target)
+        .expect("preview text area should retain its scroll projection");
+    assert_eq!(
+        presentation.properties().scroll_offset(projection.node()),
+        Some(interaction::ScrollOffset::new(0, 96))
+    );
 
     assert_eq!(app.session().focused(window), None);
     assert_eq!(
@@ -1935,7 +1959,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
             .expect("preview should use text area layout")
             .layout()
             .scroll_y(),
-        96.0
+        0.0
     );
 }
 

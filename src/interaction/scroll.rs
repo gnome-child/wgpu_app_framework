@@ -9,7 +9,16 @@ pub(crate) struct Scroll {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ScrollEntry {
     target: Target,
-    offset: ScrollOffset,
+    position: Position,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Position {
+    Admitted(ScrollOffset),
+    Pending {
+        admitted: ScrollOffset,
+        desired: ScrollOffset,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +51,15 @@ impl Scroll {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
-            .map(|entry| entry.offset)
+            .map(|entry| entry.position.admitted())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn desired_offset(&self, target: &Target) -> ScrollOffset {
+        self.offsets
+            .iter()
+            .find(|entry| &entry.target == target)
+            .map(|entry| entry.position.desired())
             .unwrap_or_default()
     }
 
@@ -62,27 +79,60 @@ impl Scroll {
             .collect()
     }
 
-    pub(super) fn apply(&mut self, target: Target, update: ScrollUpdate) -> Option<ScrollOffset> {
-        let before = self.offset(&target);
-        let offset = match update {
+    pub(super) fn request(&mut self, target: Target, update: ScrollUpdate) -> Option<ScrollOffset> {
+        let before = self.desired_offset(&target);
+        let desired = match update {
             ScrollUpdate::Relative(delta) => before.scrolled_by(delta),
             ScrollUpdate::Absolute(offset) | ScrollUpdate::Geometry(offset) => offset,
         };
-        if before == offset {
+        if before == desired {
             return None;
         }
 
         let index = self.offsets.iter().position(|entry| entry.target == target);
-        if offset.is_zero() {
+        let admitted = index
+            .map(|index| self.offsets[index].position.admitted())
+            .unwrap_or_default();
+        let position = Position::new(admitted, desired);
+        if position.is_zero() {
             if let Some(index) = index {
                 self.offsets.remove(index);
             }
         } else if let Some(index) = index {
-            self.offsets[index].offset = offset;
+            self.offsets[index].position = position;
         } else {
-            self.offsets.push(ScrollEntry { target, offset });
+            self.offsets.push(ScrollEntry { target, position });
         }
-        Some(offset)
+        Some(desired)
+    }
+
+    pub(super) fn admit(&mut self, target: Target, admitted: ScrollOffset) -> Option<ScrollOffset> {
+        let before = self.offset(&target);
+        if before == admitted {
+            return None;
+        }
+
+        let index = self.offsets.iter().position(|entry| entry.target == target);
+        let desired = index
+            .map(|index| self.offsets[index].position.desired())
+            .unwrap_or(admitted);
+        let position = Position::new(admitted, desired);
+        if position.is_zero() {
+            if let Some(index) = index {
+                self.offsets.remove(index);
+            }
+        } else if let Some(index) = index {
+            self.offsets[index].position = position;
+        } else {
+            self.offsets.push(ScrollEntry { target, position });
+        }
+        Some(admitted)
+    }
+
+    pub(super) fn project_desired(&mut self) {
+        for entry in &mut self.offsets {
+            entry.position = Position::Admitted(entry.position.desired());
+        }
     }
 
     pub(super) fn reveal(&mut self, target: Target) -> bool {
@@ -136,6 +186,38 @@ impl Scroll {
                 .matches_removed_identity(removed_nodes, removed_elements, &[])
         });
         before_offsets != self.offsets.len() || before_reveals != self.reveal_requests.len()
+    }
+}
+
+impl Position {
+    fn new(admitted: ScrollOffset, desired: ScrollOffset) -> Self {
+        if admitted == desired {
+            Self::Admitted(admitted)
+        } else {
+            Self::Pending { admitted, desired }
+        }
+    }
+
+    fn admitted(self) -> ScrollOffset {
+        match self {
+            Self::Admitted(offset)
+            | Self::Pending {
+                admitted: offset, ..
+            } => offset,
+        }
+    }
+
+    fn desired(self) -> ScrollOffset {
+        match self {
+            Self::Admitted(offset)
+            | Self::Pending {
+                desired: offset, ..
+            } => offset,
+        }
+    }
+
+    fn is_zero(self) -> bool {
+        self.admitted().is_zero() && self.desired().is_zero()
     }
 }
 
@@ -205,7 +287,15 @@ mod tests {
         let second = Target::scroll("same.scroll", "Second Label");
 
         assert_eq!(
-            scroll.apply(first, ScrollUpdate::Relative(ScrollDelta::vertical(42))),
+            scroll.request(
+                first.clone(),
+                ScrollUpdate::Relative(ScrollDelta::vertical(42))
+            ),
+            Some(ScrollOffset::new(0, 42))
+        );
+        assert_eq!(scroll.offset(&first), ScrollOffset::default());
+        assert_eq!(
+            scroll.admit(first, ScrollOffset::new(0, 42)),
             Some(ScrollOffset::new(0, 42))
         );
         assert_eq!(scroll.offset(&second), ScrollOffset::new(0, 42));
@@ -215,31 +305,106 @@ mod tests {
     }
 
     #[test]
-    fn relative_absolute_and_both_axes_share_one_scroll_mutation() {
+    fn relative_absolute_and_geometry_share_one_request_admission_law() {
         let mut scroll = Scroll::default();
         let target = Target::scroll("shared.scroll", "Shared");
 
         assert_eq!(
-            scroll.apply(
+            scroll.request(
                 target.clone(),
                 ScrollUpdate::Relative(ScrollDelta::new(18, 24)),
             ),
             Some(ScrollOffset::new(18, 24))
         );
+        assert_eq!(scroll.offset(&target), ScrollOffset::default());
+        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(18, 24));
         assert_eq!(
-            scroll.apply(
+            scroll.request(
                 target.clone(),
                 ScrollUpdate::Absolute(ScrollOffset::new(40, 60)),
             ),
             Some(ScrollOffset::new(40, 60))
         );
         assert_eq!(
-            scroll.apply(
+            scroll.request(
                 target.clone(),
                 ScrollUpdate::Geometry(ScrollOffset::new(40, 60)),
             ),
             None
         );
+        assert_eq!(scroll.offset(&target), ScrollOffset::default());
+        assert_eq!(
+            scroll.admit(target.clone(), ScrollOffset::new(40, 60)),
+            Some(ScrollOffset::new(40, 60))
+        );
         assert_eq!(scroll.offset(&target), ScrollOffset::new(40, 60));
+    }
+
+    #[test]
+    fn relative_requests_accumulate_against_desired_while_admitted_stays_visible() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("pending.scroll", "Pending");
+
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::vertical(30)),
+            ),
+            Some(ScrollOffset::new(0, 30))
+        );
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::vertical(40)),
+            ),
+            Some(ScrollOffset::new(0, 70))
+        );
+
+        assert_eq!(scroll.offset(&target), ScrollOffset::default());
+        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 70));
+    }
+
+    #[test]
+    fn intermediate_admission_preserves_a_farther_desired_offset() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("progress.scroll", "Progress");
+
+        scroll.request(
+            target.clone(),
+            ScrollUpdate::Absolute(ScrollOffset::new(0, 300)),
+        );
+        assert_eq!(
+            scroll.admit(target.clone(), ScrollOffset::new(0, 120)),
+            Some(ScrollOffset::new(0, 120))
+        );
+        assert_eq!(scroll.offset(&target), ScrollOffset::new(0, 120));
+        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 300));
+
+        assert_eq!(
+            scroll.admit(target.clone(), ScrollOffset::new(0, 300)),
+            Some(ScrollOffset::new(0, 300))
+        );
+        assert_eq!(scroll.offset(&target), ScrollOffset::new(0, 300));
+        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 300));
+    }
+
+    #[test]
+    fn desired_projection_changes_only_the_projection_clone() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("projection.scroll", "Projection");
+        scroll.request(
+            target.clone(),
+            ScrollUpdate::Absolute(ScrollOffset::new(0, 240)),
+        );
+
+        let mut projection = scroll.clone();
+        projection.project_desired();
+
+        assert_eq!(scroll.offset(&target), ScrollOffset::default());
+        assert_eq!(projection.offset(&target), ScrollOffset::new(0, 240));
+        assert_eq!(
+            projection.desired_offset(&target),
+            ScrollOffset::new(0, 240)
+        );
     }
 }

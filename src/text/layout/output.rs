@@ -1,4 +1,4 @@
-use crate::geometry::area;
+use crate::geometry::{Rect, area};
 use std::cell::{Ref, RefCell};
 use std::fmt;
 use std::rc::Rc;
@@ -201,6 +201,15 @@ impl TextFieldPaintLayout {
 }
 
 impl TextAreaSurface {
+    pub(crate) fn pixel_rect(&self, viewport: Rect) -> Rect {
+        Rect::new(
+            viewport.x().saturating_add(self.x.round() as i32),
+            viewport.y().saturating_add(self.y.round() as i32),
+            self.width.ceil().max(0.0) as i32,
+            self.height.ceil().max(0.0) as i32,
+        )
+    }
+
     pub fn x(&self) -> f32 {
         self.x
     }
@@ -249,5 +258,33 @@ impl TextAreaSurface {
 impl ShapedBuffer {
     pub(crate) fn borrow(&self) -> Ref<'_, glyphon::Buffer> {
         self.0.borrow()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_surface_has_one_integral_rectangle_for_paint_and_residency() {
+        let surface = TextAreaSurface {
+            x: 0.51,
+            y: -3.49,
+            width: 20.01,
+            height: 10.01,
+            source_line: 0,
+            source_line_id: None,
+            source_start: 0,
+            source_text_len: 0,
+            buffer: Rc::new(RefCell::new(glyphon::Buffer::new_empty(
+                glyphon::Metrics::new(14.0, 17.5),
+            ))),
+            default_color: Color::BLACK,
+        };
+
+        assert_eq!(
+            surface.pixel_rect(Rect::new(100, 50, 80, 40)),
+            Rect::new(101, 47, 21, 11)
+        );
     }
 }

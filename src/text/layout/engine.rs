@@ -13,6 +13,7 @@ use super::{
         CachedRenderBuffer as CachedTextAreaRenderBuffer, LineDisplayKey as TextAreaLineDisplayKey,
         RenderBufferKey as TextAreaRenderBufferKey,
     },
+    width,
 };
 
 #[cfg(test)]
@@ -27,6 +28,7 @@ pub struct Engine {
         LruCache<TextAreaRenderBufferKey, CachedTextAreaRenderBuffer>,
     pub(super) text_field_surfaces: ShapingCache<FieldSurfaceKey, CachedFieldSurface>,
     pub(super) text_area_height_indices: LruCache<TextAreaHeightKey, TextAreaHeightIndex>,
+    pub(super) text_area_widths: LruCache<width::Key, f32>,
     pub(super) diagnostics: Diagnostics,
     #[cfg(test)]
     pub(super) highlight_stats: HighlightStats,
@@ -45,6 +47,7 @@ impl Engine {
             text_area_render_buffers: text_area::render_buffer_cache(),
             text_field_surfaces: field::surface_cache(),
             text_area_height_indices: height::cache(),
+            text_area_widths: width::cache(),
             diagnostics: Diagnostics::default(),
             #[cfg(test)]
             highlight_stats: HighlightStats::default(),

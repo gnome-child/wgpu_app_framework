@@ -455,10 +455,12 @@ data rather than requiring the application to declare every logical child.
 `virtual_list::Provider` is the first species: it supplies a logical length,
 stable `virtual_list::Key`, efficient reverse lookup, and an ordinary public
 `view::Node` for a requested row. Provider keys extend retained sibling
-reconciliation; they do not create a second identity runtime. Uniform row
-height lets layout derive the visible range arithmetically from the existing
-viewport. Runtime reaches a bounded fixed point by materializing that range
-plus overscan and pins, then laying out once more.
+reconciliation; they do not create a second identity runtime. Layout derives a
+bounded requested range from the existing viewport and retained measurements.
+`virtual_list::Materialization` owns the requested rows plus pins, while scene
+residency owns only their renderer-independent drawable realization. Entering
+or leaving the materialized window is cache residency, not semantic node birth
+or removal and not an application-content revision.
 
 A resolved virtual-list frame owns viewport geometry and its materialization
 request as one optional layout fact. The pair is installed atomically; neither
@@ -471,9 +473,10 @@ bounded inactive drafts may survive. Focused, pointer-captured, and actively
 edited rows pin and may remain clipped; selection never pins. When reverse
 lookup no longer finds a key, ordinary composition removal prunes its focus,
 capture, active edit, and draft state. Logical focus movement first
-materializes the keyed row and only then transfers focus. V1 virtualization is
-synchronous, flat, uniform-height, and bounded to visible rows plus overscan
-and pins; it has no variable-height, streaming, or async provider policy.
+materializes the keyed row and only then transfers focus. Virtualization is
+synchronous and flat, supports retained uniform or measured variable heights,
+and remains bounded to a predictive runway plus pins; it has no streaming or
+async provider policy.
 
 Interaction pruning returns either unchanged or changed. A changed receipt
 owns the independent downstream consequences discovered during the same pass:
@@ -596,7 +599,9 @@ targeting. Captured drags may continue outside those clips after capture.
 Chrome is projected above its owner's viewport content, but initial chrome
 hits still respect the owner's inherited ancestor clip. Rounded panel corners
 remain rectangular for both paint clipping and hit testing until rounded clip
-support exists.
+support exists. A viewport coverage clip is fixed in target space and encloses
+its scroll transform; row-local clips may move with content, but paint must not
+translate the viewport clip with resident rows.
 
 A resolved hit has exactly one action source: its frame, late chrome, or an
 explicit synthetic target such as a table divider or input indicator. Those
@@ -668,12 +673,14 @@ presentation activation.
 The rendering constitution is:
 
 > The inside of a window obeys the popup laws already sealed at its edge.
-> Content revisions mint scene commits. Parameter animation does not mint
-> content revisions. Presentation activates and receipts commits without
-> altering them. Each handoff owns disjoint fields, and the renderer realizes
-> their combined active state without marrying their clocks.
+> Content revisions mint scene commits. Virtual cache membership mints
+> residency revisions. Parameter animation does not mint either structural
+> revision. Presentation activates and receipts their complete combination
+> without altering it. Each handoff owns disjoint fields, and the renderer
+> realizes their combined active state without marrying their clocks.
 
-> Structure belongs to the commit; values belong to property state.
+> Semantic structure belongs to the commit; bounded virtual realization
+> belongs to residency; values belong to property state.
 
 > Each field has exactly one mutation clock.
 
@@ -683,12 +690,24 @@ property declarations, opacity classes, and effect envelopes. There is no
 renderer identity. Reordering changes order, not identity; a commit-local
 content or property address cannot become a cross-commit semantic key.
 
+An immutable `scene::Residency` carries the drawable virtual nodes for exactly
+one declared scroll `NodeId`, its local residency revision, carried composition
+identity and content revisions, exact pixel coverage, and the integral offset
+interval that coverage admits. Residency is compatible with one semantic
+commit topology. It neither mints identity nor turns dematerialization into
+semantic removal. Missing, duplicate, gapped, stale, or incompatible residency
+is not drawable. Completeness covers every painted descendant: retained text
+shapes and prepares glyphs over the bounded resident runway, even when some of
+those glyphs begin outside the current target surface.
+
 `composition::Changes` is the root semantic change stream. Composition records
 identity lifetime/content facts; layout and scene append only the keyed facts
-they own. Renderer synchronization compares those carried revisions and may not
-create a parallel dirty-bit authority. A truthful global cause—scale, device
-loss, theme, or surface format—may invalidate a whole resource class without
-pretending to be a node-local edit.
+they own. Residency is a distinct closed scene handoff derived from
+composition-owned identity and exact layout coverage, never a second semantic
+change authority. Renderer synchronization compares those carried revisions
+and may not create a parallel dirty-bit authority. A truthful global cause—
+scale, device loss, theme, or surface format—may invalidate a whole resource
+class without pretending to be a node-local edit.
 
 `scene::Properties` is a complete value snapshot compatible with exactly one
 commit topology. Scroll, transform, opacity, admitted clip values, and admitted
@@ -702,15 +721,17 @@ The public `scene::Scene` remains an authored/inspection and native-material
 compatibility facade. Runtime may project it once per semantic commit where a
 public or material consumer still requires the snapshot. It is not a renderer
 handoff and cannot justify per-frame flattening. The native renderer consumes a
-closed `scene::Stack` of retained layers, each carrying exact commit/property
-objects and its material projection.
+closed `scene::Stack` of retained layers, each carrying an exact commit, its
+compatible local residencies, a property snapshot, and its material projection.
 
 Scene clips are retained topology and value declarations. Renderer preparation
 applies every resolved frame clip; it does not decide that a role or layer
 should ignore clipping. Filters inside clipped or promoted content sample from
 the accumulated backdrop beneath the current layer, then write their result
 into the current local target. A filter inside a layer must not silently skip
-itself because it is no longer drawing directly to the main target.
+itself because it is no longer drawing directly to the main target. The fixed
+viewport clip encloses moving scroll scopes; changing that clip may close and
+reopen the scopes, but may not make viewport coverage move with content.
 
 Scene is also the presentation-space boundary. The doctrine is: layout is
 snapped, presentation is continuous, and animation is presentation. Resting
@@ -755,39 +776,46 @@ commit contains no `PresentationEpoch`; presentation stamps activation without
 mutating commit or property state. Failed, skipped, lost, or occluded attempts
 promote neither candidate structure nor sampled properties.
 
-Commit, property, and presentation handoffs touch disjoint facts:
+Commit, residency, property, and presentation handoffs touch disjoint facts:
 
 | Handoff | May change | Must not change |
 | --- | --- | --- |
 | Semantic commit | node lifetime/order, typed content, revisions, local bounds, property/effect topology | presentation epoch, current property values, surface state |
+| Residency revision | bounded resident node membership/order, exact coverage, admitted offset interval | semantic identity/lifetime, application content revision, current property values, presentation epoch |
 | Property tick | values for already-declared transforms, scroll, opacity, clips, and admitted effects | node topology, content revisions, effect class/envelope, activation |
 | Presentation event | active stack, activation stamp, sampled/visible property receipt | commit contents, property values, semantic identity |
 
-The Qt/GTK-class base activates only complete ready commits and keeps guard
-replenishment bounded under synchronous presentation. Measured guard work still
-missed the development refresh while a complete active state could otherwise
-draw, which admitted the next mechanism: the presentation owner keeps that
-active state drawable while a different semantic stack prepares incrementally.
-Missing a preparation budget presents the active state again, optionally
-projected with compatible newer properties; it never exposes partially ready
-resources. One complete prepared state may activate atomically while only the
-latest successor remains queued. Failed activation is requeued; stale,
-cancelled, incompatible, resized, or departed candidates retire without
-becoming active.
+The Qt/GTK-class base keeps a bounded keyed resident runway around each virtual
+viewport. Ordinary movement inside that runway is a property tick. Crossing it
+prepares a residency revision without minting a semantic commit. The
+presentation owner keeps the complete active state drawable while either a
+semantic commit or residency revision prepares incrementally. Missing a
+preparation budget presents the active state again, optionally projected with
+compatible newer properties; it never exposes partially ready resources. A
+pending desired scroll is projected independently on each axis to the furthest
+offset accepted by active residency, while its unclamped value remains pending;
+one out-of-range component never rolls the whole property snapshot backward. One
+complete prepared residency may activate atomically with the newest integral
+offset it admits while a farther desired offset remains pending. Failed
+activation is requeued; stale, cancelled, incompatible, resized, or departed
+candidates retire without becoming active.
 
-This pending/active mechanism is the evidence-admitted Chromium-class ceiling
-for the current framework. It does not admit a render thread, tiles,
-checkerboarding, raster workers, a GPU process, damage, occlusion, or partial
-present. Those mechanisms remain rejected until a measured owner demands them.
+This pending/active mechanism plus retained residency is the evidence-admitted
+Chromium-scroll/Qt-recycling ceiling for the current framework. It does not
+admit a render thread, tiles, checkerboarding, raster workers, a GPU process,
+damage, occlusion, or partial present. Those mechanisms remain rejected until a
+measured owner demands them.
 
 `render`
 
 Owns retained GPU realization, content preparation, global planning, opacity
 classification, effect islands, glyph-atlas use, command encoding, and resource
-readiness. Resources key on carried `NodeId` plus relevant revisions and target
-facts—never flattened primitive hashes, property serials, presentation epochs,
-or renderer-minted identity. Unchanged content reuses its realization with zero
-scene painting, shaping/preparing, content upload, and GPU creation.
+readiness. Resources key on carried `NodeId` plus relevant content/geometry
+revisions and target facts—never flattened primitive hashes, residency
+revisions, property serials, presentation epochs, or renderer-minted identity.
+Residency revisions synchronize bounded membership; unchanged content reuses
+its realization with zero scene painting, shaping/preparing, content upload,
+and GPU creation.
 
 Analytic shapes use one static unit-quad topology plus retained instances. Text
 preparation is retained by content revision and shares the renderer-global
@@ -796,6 +824,11 @@ storage, so active and pending states can share equal values without allowing a
 candidate write to corrupt active output. Removal, commit retirement, window
 departure, popup teardown, renderer recreation, and device loss each have a
 complete cleanup/rebuild path derived from semantic state.
+
+Text preparation culls against bounded residency, not merely the current
+surface, while its retained transform still projects into the actual target.
+Thus every accepted scroll property has prepared glyph allocation and vertices
+for rows that can enter the viewport without reshaping on the property tick.
 
 The source-pinned glyphon delta earns only the missing capabilities required by
 that law: live retained renderers can reassert prepared glyph allocations across
@@ -1797,15 +1830,17 @@ promotes the layout plus the exact sampled property state to visible truth.
 Skipped, lost, occluded, or otherwise unsuccessful attempts leave the prior
 active geometry/properties authoritative.
 
-Presented geometry is the active commit's keyed layout geometry combined with
-the successfully presented property snapshot and the established scale/space
-projection. Scroll updates authoritative interaction truth immediately, but an
-in-window scroll is a property tick: it advances neither scene structure nor
-content revision and performs zero scene paint, text shape/prepare, primitive
-prepare, or content upload. Guard-window replenishment is a bounded semantic
-commit. Hit testing, hover, capture, cursor, selection, divider manipulation,
-IME, reveal, and popup placement all consume the same receipted transform; none
-may read newer unpresented scroll truth or ask the renderer where it drew.
+Presented geometry is the active commit's keyed layout geometry, its compatible
+residency revisions, and the successfully presented property snapshot under the
+established scale/space projection. Scroll requests update desired interaction
+state immediately, but only an admitted offset becomes property truth. Movement
+inside active residency is a property tick: it advances neither semantic nor
+residency revision and performs zero scene paint, text shape/prepare, primitive
+prepare, or content upload. Crossing the resident runway prepares a bounded
+residency revision. Hit testing, hover, capture, cursor, selection, divider
+manipulation, IME, reveal, scrollbar projection, and popup placement all consume
+the same receipted admitted transform; none may read a newer desired offset or
+ask the renderer where it drew.
 
 Pointer input is interpreted through last-presented geometry, because the user
 cannot target a private candidate they never saw. Interaction retains logical

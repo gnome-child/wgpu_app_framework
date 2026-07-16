@@ -3,24 +3,12 @@ use crate::{geometry, text, theme::Theme};
 use super::super::primitive::TextColor;
 use super::super::{Rule, TextSurface};
 
-fn surface_rect(
-    viewport: geometry::Rect,
-    surface: &text::layout::TextAreaSurface,
-) -> geometry::Rect {
-    geometry::Rect::new(
-        viewport.x().saturating_add(surface.x().round() as i32),
-        viewport.y().saturating_add(surface.y().round() as i32),
-        surface.width().ceil().max(0.0) as i32,
-        surface.height().ceil().max(0.0) as i32,
-    )
-}
-
 pub(in crate::scene) fn surface(
     viewport: geometry::Rect,
     surface: &text::layout::TextAreaSurface,
 ) -> TextSurface {
     TextSurface::new(
-        surface_rect(viewport, surface),
+        surface.pixel_rect(viewport),
         surface.shaped_buffer(),
         text_color(surface.default_color()),
     )

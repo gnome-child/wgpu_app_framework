@@ -390,6 +390,10 @@ impl Commit {
         self.size
     }
 
+    pub(crate) fn revision(&self) -> Revision {
+        self.revision
+    }
+
     pub(crate) fn clear(&self) -> Color {
         self.clear
     }
@@ -405,6 +409,64 @@ impl Commit {
 
     pub(crate) fn order(&self) -> Option<&[Draw]> {
         self.order.as_deref()
+    }
+
+    pub(crate) fn semantic_projection(
+        candidate: &Arc<Self>,
+        previous: Option<&Arc<Self>>,
+        resident_nodes: &HashSet<composition::tree::NodeId>,
+    ) -> Result<Arc<Self>, ContractError> {
+        if resident_nodes.is_empty() {
+            return Ok(Arc::clone(candidate));
+        }
+        let nodes = candidate
+            .nodes
+            .iter()
+            .filter(|node| !resident_nodes.contains(&node.id))
+            .map(|node| {
+                Node::semantic(
+                    previous.and_then(|previous| {
+                        previous
+                            .nodes
+                            .iter()
+                            .find(|candidate| candidate.id == node.id)
+                    }),
+                    node,
+                )
+            })
+            .collect::<Vec<_>>();
+        let order = candidate
+            .order
+            .as_ref()
+            .map(|order| semantic_order(order, resident_nodes));
+        let material_regions = candidate
+            .material_regions
+            .iter()
+            .filter(|region| !resident_nodes.contains(&region.id()))
+            .cloned()
+            .collect();
+        let revision = previous.map_or(Revision::INITIAL, |commit| commit.revision.next());
+        let semantic = Self::from_parts(
+            revision,
+            candidate.size,
+            candidate.clear,
+            nodes,
+            order,
+            material_regions,
+        )?;
+        if let Some(previous) = previous
+            && previous.same_projection(&semantic)
+        {
+            Ok(Arc::clone(previous))
+        } else {
+            Ok(Arc::new(semantic))
+        }
+    }
+
+    pub(crate) fn with_revision(&self, revision: Revision) -> Arc<Self> {
+        let mut commit = self.clone();
+        commit.revision = revision;
+        Arc::new(commit)
     }
 
     pub(crate) fn compatibility_scene(
@@ -531,6 +593,37 @@ impl Commit {
             && self.material_regions == other.material_regions
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
+    pub(crate) fn projection_difference(&self, other: &Self) -> String {
+        let changed_nodes = self
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                other
+                    .nodes
+                    .iter()
+                    .find(|candidate| candidate.id == node.id)
+                    .filter(|candidate| candidate.as_ref() != node.as_ref())
+                    .map(|_| node.id)
+            })
+            .collect::<Vec<_>>();
+        let first_order = self
+            .order
+            .iter()
+            .flatten()
+            .zip(other.order.iter().flatten())
+            .position(|(left, right)| left != right);
+        format!(
+            "size={} clear={} changed_nodes={changed_nodes:?} properties={} order_lengths={:?}/{:?} first_order_difference={first_order:?} materials={}",
+            self.size == other.size,
+            self.clear == other.clear,
+            self.property_topology == other.property_topology,
+            self.order.as_ref().map(Vec::len),
+            other.order.as_ref().map(Vec::len),
+            self.material_regions == other.material_regions,
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn test_pair(scene: &Scene) -> (Arc<Self>, Properties) {
         let mut next = 1;
@@ -567,8 +660,12 @@ impl Commit {
             primitives.extend(self.compatibility_node(child, properties));
         }
         if let Some(PropertyValue::ScrollOffset { value, .. }) = scroll {
-            let dx = value.x().saturating_neg();
-            let dy = value.y().saturating_neg();
+            let baseline = node.scroll.map_or(
+                interaction::ScrollOffset::default(),
+                ScrollDeclaration::baseline,
+            );
+            let dx = baseline.x().saturating_sub(value.x());
+            let dy = baseline.y().saturating_sub(value.y());
             primitives = primitives
                 .iter()
                 .map(|primitive| primitive.translated(dx, dy))
@@ -599,6 +696,61 @@ impl Commit {
         }
         primitives
     }
+}
+
+fn semantic_order(
+    order: &[Draw],
+    resident_nodes: &HashSet<composition::tree::NodeId>,
+) -> Vec<Draw> {
+    let mut projected = Vec::with_capacity(order.len());
+    let mut scopes = Vec::new();
+    for draw in order {
+        match draw {
+            Draw::PushClip { node, .. } => {
+                let retained = node.is_none_or(|node| !resident_nodes.contains(&node));
+                let start = retained.then(|| {
+                    let start = projected.len();
+                    projected.push(draw.clone());
+                    start
+                });
+                scopes.push((start, Draw::PopClip));
+            }
+            Draw::PushGroup { node, .. } => {
+                let start = (!resident_nodes.contains(node)).then(|| {
+                    let start = projected.len();
+                    projected.push(draw.clone());
+                    start
+                });
+                scopes.push((start, Draw::PopGroup));
+            }
+            Draw::PushScroll { node } => {
+                let start = (!resident_nodes.contains(node)).then(|| {
+                    let start = projected.len();
+                    projected.push(draw.clone());
+                    start
+                });
+                scopes.push((start, Draw::PopScroll));
+            }
+            Draw::PopClip | Draw::PopGroup | Draw::PopScroll => {
+                let Some((start, pop)) = scopes.pop() else {
+                    continue;
+                };
+                debug_assert_eq!(std::mem::discriminant(draw), std::mem::discriminant(&pop));
+                if let Some(start) = start {
+                    if projected.len() == start + 1 {
+                        projected.truncate(start);
+                    } else {
+                        projected.push(pop);
+                    }
+                }
+            }
+            Draw::Content { node, .. } if !resident_nodes.contains(node) => {
+                projected.push(draw.clone());
+            }
+            Draw::Content { .. } => {}
+        }
+    }
+    projected
 }
 
 impl Content {
@@ -718,8 +870,8 @@ impl ContentProjection {
         if let Self::ScrollbarThumb {
             baseline_position, ..
         } = self
+            && let Some(offset) = properties.scroll_offset(node)
         {
-            let offset = properties.scroll_offset(node).unwrap_or_default();
             let position = self
                 .scrollbar_position(offset)
                 .expect("scrollbar thumb projection must have one integral position");
@@ -986,6 +1138,58 @@ impl Node {
         }
     }
 
+    fn semantic(previous: Option<&Arc<Self>>, source: &Arc<Self>) -> Arc<Self> {
+        let scroll = source.scroll.map(ScrollDeclaration::semantic);
+        let content_revision = previous.map_or(source.content_revision, |previous| {
+            if previous.content == source.content {
+                previous.content_revision
+            } else {
+                previous.content_revision.next()
+            }
+        });
+        let geometry_revision = previous.map_or(GeometryRevision::INITIAL, |previous| {
+            if previous.local_bounds == source.local_bounds {
+                previous.geometry_revision
+            } else {
+                previous.geometry_revision.next()
+            }
+        });
+        let topology_revision = previous.map_or(TopologyRevision::INITIAL, |previous| {
+            if previous.parent == source.parent
+                && previous.properties == source.properties
+                && previous.scroll == scroll
+                && previous.clip == source.clip
+                && previous.opacity == source.opacity
+                && previous.effect == source.effect
+            {
+                previous.topology_revision
+            } else {
+                previous.topology_revision.next()
+            }
+        });
+        let candidate = Self {
+            id: source.id,
+            parent: source.parent,
+            content_revision,
+            geometry_revision,
+            topology_revision,
+            local_bounds: source.local_bounds,
+            content: source.content.clone(),
+            properties: source.properties.clone(),
+            scroll,
+            clip: source.clip,
+            opacity: source.opacity,
+            effect: source.effect,
+        };
+        if let Some(previous) = previous
+            && previous.as_ref() == &candidate
+        {
+            Arc::clone(previous)
+        } else {
+            Arc::new(candidate)
+        }
+    }
+
     #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn with_properties(
         mut self,
@@ -1074,16 +1278,6 @@ impl PropertyRef {
     pub(crate) const fn new(node: composition::tree::NodeId, kind: PropertyKind) -> Self {
         Self { node, kind }
     }
-
-    #[cfg(feature = "renderer-debug")]
-    pub(crate) const fn kind(self) -> PropertyKind {
-        self.kind
-    }
-
-    #[cfg(feature = "renderer-debug")]
-    pub(crate) const fn node(self) -> composition::tree::NodeId {
-        self.node
-    }
 }
 
 impl Properties {
@@ -1168,12 +1362,33 @@ impl Properties {
         commit: &Commit,
         current: &Self,
     ) -> Result<(Self, bool), ContractError> {
+        self.project_onto_with_scroll(commit, current, |_, offset| offset)
+    }
+
+    pub(super) fn project_onto_with_scroll(
+        &self,
+        commit: &Commit,
+        current: &Self,
+        mut project_scroll: impl FnMut(
+            composition::tree::NodeId,
+            interaction::ScrollOffset,
+        ) -> interaction::ScrollOffset,
+    ) -> Result<(Self, bool), ContractError> {
         current.require_compatible(commit)?;
         let values = commit
             .property_topology
             .iter()
             .filter_map(|property| {
                 self.value(*property)
+                    .map(|value| match value {
+                        PropertyValue::ScrollOffset { node, value } => {
+                            PropertyValue::ScrollOffset {
+                                node,
+                                value: project_scroll(node, value),
+                            }
+                        }
+                        value => value,
+                    })
                     .filter(|value| value.is_valid(commit) && value.is_projectable_onto(commit))
                     .or_else(|| current.value(*property))
             })
@@ -1235,6 +1450,11 @@ impl Properties {
                 actual: self.commit,
             })
         }
+    }
+
+    pub(crate) fn with_commit_revision(mut self, commit: &Commit) -> Self {
+        self.commit = commit.revision;
+        self
     }
 
     pub(crate) fn value(&self, property: PropertyRef) -> Option<PropertyValue> {
@@ -1407,8 +1627,20 @@ impl ScrollDeclaration {
         self.viewport
     }
 
+    pub(crate) fn resident_bounds(self) -> geometry::Rect {
+        self.resident_bounds
+    }
+
     pub(crate) fn baseline(self) -> interaction::ScrollOffset {
         self.baseline
+    }
+
+    fn semantic(self) -> Self {
+        Self {
+            resident_bounds: self.content_bounds,
+            baseline: interaction::ScrollOffset::default(),
+            ..self
+        }
     }
 
     fn accepts(self, offset: interaction::ScrollOffset) -> bool {
@@ -1910,6 +2142,101 @@ pub(crate) fn renderer_scroll_properties(
             PropertyRef::new(inner, PropertyKind::ScrollOffset),
         ],
     )
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_scroll_text_runway_pair()
+-> Result<((Commit, Properties, Properties), (Commit, Properties)), ContractError> {
+    let scroll = composition::tree::NodeId::renderer_fixture(44);
+    let expected = composition::tree::NodeId::renderer_fixture(45);
+    let size = geometry::Size::new(96, 64);
+    let viewport = geometry::Rect::from_size(size);
+    let content_bounds = geometry::Rect::new(0, 0, 96, 96);
+    let declaration = ScrollDeclaration::new(
+        viewport,
+        content_bounds,
+        content_bounds,
+        interaction::ScrollOffset::default(),
+        interaction::ScrollOffset::new(0, 32),
+    )
+    .expect("renderer text-runway fixture has complete resident coverage");
+    let runway_rect = geometry::Rect::new(8, 68, 80, 18);
+    let visible_rect = geometry::Rect::new(8, 44, 80, 18);
+    let background = Color::rgba(24, 72, 128, 255);
+    let foreground = Color::rgba(248, 250, 255, 255);
+    let runway = Node::new(
+        scroll,
+        None,
+        content_bounds,
+        vec![
+            Content::Quad(Quad::new(runway_rect, background)),
+            Content::Text(Text::new(runway_rect, "RUNWAY", foreground, TextWrap::None)),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(declaration);
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(44),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(runway)],
+        Some(vec![
+            Draw::PushScroll { node: scroll },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = Properties::new(
+        &actual,
+        PropertySerial::INITIAL,
+        vec![PropertyValue::ScrollOffset {
+            node: scroll,
+            value: interaction::ScrollOffset::default(),
+        }],
+        Vec::new(),
+    )?;
+    let tick = Properties::new(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        vec![PropertyValue::ScrollOffset {
+            node: scroll,
+            value: interaction::ScrollOffset::new(0, 24),
+        }],
+        vec![PropertyRef::new(scroll, PropertyKind::ScrollOffset)],
+    )?;
+
+    let expected = Commit::new(
+        Revision::renderer_fixture(45),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Node::new(
+            expected,
+            None,
+            viewport,
+            vec![
+                Content::Quad(Quad::new(visible_rect, background)),
+                Content::Text(Text::new(
+                    visible_rect,
+                    "RUNWAY",
+                    foreground,
+                    TextWrap::None,
+                )),
+            ],
+        )],
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+
+    Ok(((actual, initial, tick), (expected, expected_properties)))
 }
 
 #[cfg(feature = "renderer-debug")]

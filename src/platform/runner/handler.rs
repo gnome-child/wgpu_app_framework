@@ -52,9 +52,13 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
         event: WinitWindowEvent,
     ) {
         let native_started_at = Instant::now();
-        if matches!(event, WinitWindowEvent::RedrawRequested)
-            && let Some(window) = self.platform.backend().window_for_raw(raw_window)
-            && self.pulse_satisfied_redraws.remove(&window)
+        let redraw_window = matches!(event, WinitWindowEvent::RedrawRequested)
+            .then(|| self.platform.backend().window_for_raw(raw_window))
+            .flatten();
+        if let Some(window) = redraw_window {
+            self.issued_frame_redraws.remove(&window);
+        }
+        if let Some(window) = redraw_window
             && self
                 .platform
                 .host()
@@ -62,11 +66,21 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
                 .runtime()
                 .session()
                 .window(window)
-                .is_some_and(|window| !window.redraw_requested())
+                .is_some_and(crate::session::Window::redraw_requested)
         {
-            self.presentation_pulse.mark_presented(Instant::now());
-            self.finish_native_pass(event_loop);
-            return;
+            let now = Instant::now();
+            let refresh = self.platform.backend().display_refresh_millihertz(window);
+            if !self
+                .presentation_pulses
+                .entry(window)
+                .or_default()
+                .is_due(now, refresh)
+            {
+                self.frame_demands.insert(window);
+                self.finish_native_pass(event_loop);
+                return;
+            }
+            self.frame_demands.remove(&window);
         }
         let translation_started_at = Instant::now();
         let Some(event) = self.translate_window_event(raw_window, &event) else {
@@ -104,7 +118,14 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
                 .record_native_event_pass(window, native_started_at.elapsed());
         }
         if redraw_requested {
-            self.presentation_pulse.mark_presented(Instant::now());
+            if let Some(window) = window
+                && self.platform.take_presented(window)
+            {
+                self.presentation_pulses
+                    .entry(window)
+                    .or_default()
+                    .mark_presented(Instant::now());
+            }
         }
 
         self.finish_native_pass(event_loop);
@@ -113,14 +134,6 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let poll_requested = self.platform.backend_mut().take_poll_requested();
         let animation_due = self.platform.animation_schedule().is_due(Instant::now());
-
-        if poll_requested && self.platform.presentation_continuation_scheduled() {
-            let mut context = NativeContext::new(event_loop);
-            if let Err(error) = self.platform.continue_presentations_with(&mut context) {
-                self.fail(event_loop, error);
-                return;
-            }
-        }
 
         if (poll_requested && self.platform.runtime_poll_scheduled()) || animation_due {
             let mut context = NativeContext::new(event_loop);

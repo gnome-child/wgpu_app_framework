@@ -55,8 +55,16 @@ impl Presentation {
         &self.scene
     }
 
+    #[allow(
+        dead_code,
+        reason = "the semantic commit remains a distinct presentation fact even when activation uses drawable residency"
+    )]
     pub(crate) fn commit(&self) -> &Arc<scene::Commit> {
         self.stack.base().commit()
+    }
+
+    pub(crate) fn drawable_commit(&self) -> &Arc<scene::Commit> {
+        self.stack.base().drawable_commit()
     }
 
     pub(crate) fn properties(&self) -> &scene::Properties {

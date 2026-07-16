@@ -183,7 +183,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         epoch: window::PresentationEpoch,
         invalidation: super::super::response::effect::Invalidation,
         layout: &super::super::layout::Layout,
-        properties: &super::super::scene::Properties,
+        stack: &std::sync::Arc<super::super::scene::Stack>,
         property_only: bool,
         report: super::super::diagnostics::RenderReport,
     ) -> bool {
@@ -192,7 +192,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             epoch,
             invalidation,
             layout,
-            properties,
+            stack,
             FinishKind::Candidate { property_only },
             report,
         )
@@ -204,7 +204,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         epoch: window::PresentationEpoch,
         invalidation: super::super::response::effect::Invalidation,
         layout: &super::super::layout::Layout,
-        properties: &super::super::scene::Properties,
+        stack: &std::sync::Arc<super::super::scene::Stack>,
         report: super::super::diagnostics::RenderReport,
     ) -> bool {
         self.finish_render_report_with_kind(
@@ -212,7 +212,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             epoch,
             invalidation,
             layout,
-            properties,
+            stack,
             FinishKind::ActiveRefresh,
             report,
         )
@@ -224,7 +224,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         epoch: window::PresentationEpoch,
         invalidation: super::super::response::effect::Invalidation,
         layout: &super::super::layout::Layout,
-        properties: &super::super::scene::Properties,
+        stack: &std::sync::Arc<super::super::scene::Stack>,
         kind: FinishKind,
         report: super::super::diagnostics::RenderReport,
     ) -> bool {
@@ -235,6 +235,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let property_only = kind.property_only();
         let refreshes_active = kind.refreshes_active();
         let presented = report.presented();
+        let properties = stack.base().properties();
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics
             .render
@@ -285,18 +286,37 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if presented {
             let activated =
                 !refreshes_active && self.session.acknowledge_presentation(window, epoch);
-            if activated && !property_only {
+            let refreshes_visible = refreshes_active
+                && self
+                    .session
+                    .window(window)
+                    .and_then(session::Window::acknowledged_presentation_epoch)
+                    == Some(epoch)
+                && self
+                    .presented_geometry
+                    .get(&window)
+                    .is_some_and(|visible| visible.stack.same_structure(stack));
+            let semantic_changed = self.presented_geometry.get(&window).is_none_or(|previous| {
+                !std::sync::Arc::ptr_eq(previous.stack.base().commit(), stack.base().commit())
+            });
+            if activated && !property_only && semantic_changed {
                 self.diagnostics
                     .get_mut(window)
                     .render
                     .record_semantic_activation();
             }
-            if activated || refreshes_active {
+            if activated || refreshes_visible {
+                for projection in layout.scroll_projections() {
+                    if let Some(offset) = stack.scroll_offset(projection.node()) {
+                        self.session
+                            .admit_scroll(window, projection.target().clone(), offset);
+                    }
+                }
                 self.presented_geometry.insert(
                     window,
                     super::PresentedGeometry {
                         layout: std::sync::Arc::new(layout.clone()),
-                        properties: properties.clone(),
+                        stack: std::sync::Arc::clone(stack),
                     },
                 );
                 let location = self
@@ -378,7 +398,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     ) -> Option<&super::super::scene::Properties> {
         self.presented_geometry
             .get(&window)
-            .map(|geometry| &geometry.properties)
+            .map(|geometry| geometry.stack.base().properties())
     }
 
     #[cfg(test)]

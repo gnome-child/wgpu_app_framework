@@ -969,6 +969,36 @@ fn text_area_prepared_frame_is_bounded_to_viewport_window() {
     assert!(surfaces.len() < 1_000);
     assert!(layout.content_area().height() > viewport.height());
 }
+
+#[test]
+fn no_wrap_text_area_logical_width_includes_unrealized_lines() {
+    let mut engine = engine();
+    let mut lines = (0..200)
+        .map(|index| format!("short {index}"))
+        .collect::<Vec<_>>();
+    lines[180] = "unrealized horizontal extent ".repeat(40);
+    let area_model = Area::new(Buffer::from_multiline_text(lines.join("\n"))).no_wrap();
+    let viewport = area::logical(180.0, 52.0);
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default().with_size(13.0),
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+
+    assert!(
+        layout.layout().content_area().width() > viewport.width(),
+        "logical horizontal extent must not depend on whether the longest line is in the render window"
+    );
+    assert!(
+        layout
+            .render_surfaces()
+            .iter()
+            .all(|surface| surface.source_line() < 180),
+        "the extent witness line should remain unrealized in this frame"
+    );
+}
 #[test]
 fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {
     let mut engine = engine();

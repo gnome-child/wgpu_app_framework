@@ -7,6 +7,7 @@ pub(super) const TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY: NonZeroUsize =
     NonZeroUsize::new(32).unwrap();
 pub(super) const TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY: NonZeroUsize =
     NonZeroUsize::new(128).unwrap();
+pub(super) const TEXT_AREA_WIDTH_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).unwrap();
 pub(super) const TEXT_AREA_HEIGHT_INDEX_BLOCK_LINES: usize = 128;
 pub(in crate::text) const TEXT_AREA_FRAME_MIN_OVERSCAN_LINES: usize = 16;
 pub(in crate::text) const TEXT_AREA_RENDER_GUARD_LINES: usize = 12;

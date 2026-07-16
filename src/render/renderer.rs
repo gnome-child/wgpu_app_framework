@@ -349,12 +349,12 @@ impl Renderer {
     ) {
         for layer in stack.layers() {
             self.retained.cancel_layer_synchronization(layer);
-            let commit = layer.commit();
+            let commit = layer.drawable_commit();
             let is_protected = protected.is_some_and(|protected| {
                 protected
                     .layers()
                     .iter()
-                    .any(|layer| std::sync::Arc::ptr_eq(layer.commit(), commit))
+                    .any(|layer| std::sync::Arc::ptr_eq(layer.drawable_commit(), commit))
             });
             if !is_protected {
                 self.retained.cancel_property_state(commit);

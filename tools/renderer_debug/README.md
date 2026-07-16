@@ -38,7 +38,13 @@ Run one witness by its test-name substring while investigating a failure:
 ```text
 cargo test --release -p renderer_debug control_gallery_property_tick_is_blend_equivalent_offscreen -- --ignored --nocapture
 cargo test --release -p renderer_debug pending_semantic_realization_yields_to_exact_active_output -- --ignored --nocapture
+cargo test --release -p renderer_debug control_gallery_slow_scroll_never_exposes_unprepared_output -- --ignored --nocapture
 ```
+
+The slow-scroll witness presents 64 consecutive four-pixel deltas. It requires
+monotonic requested/admitted motion, exact active pixels while a replacement
+residency prepares, exact pixels after activation, advancing local residency
+revisions, and zero semantic activations for row-window crossings.
 
 The production-gallery activation witness is also the code-owned Checkpoint 8
 benchmark:

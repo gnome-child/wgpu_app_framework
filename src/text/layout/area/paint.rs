@@ -60,18 +60,9 @@ impl Engine {
             viewport,
         );
         let content_width = match area_model.wrap() {
-            AreaWrap::None => self
-                .text_area_display_segments(
-                    area_model,
-                    &projection.buffer,
-                    !projection.has_preedit(),
-                    style,
-                    viewport,
-                    &state,
-                )
-                .iter()
-                .map(|segment| segment.display.width)
-                .fold(viewport.width().max(0.0), f32::max),
+            AreaWrap::None => {
+                self.text_area_logical_width(&projection.buffer, style, viewport.width().max(0.0))
+            }
             AreaWrap::WordOrGlyph => viewport.width().max(0.0),
         };
         let content_area = area::logical(content_width, content_height);
@@ -432,12 +423,20 @@ impl Engine {
 
         self.add_highlight_stats(combined_stats);
         let content_area = request.content_area.unwrap_or_else(|| {
-            area::logical(
-                text_area_content_width(
+            let content_width = match request.area_model.wrap() {
+                AreaWrap::None => self.text_area_logical_width(
+                    &request.projection.buffer,
+                    request.style,
+                    request.viewport.width().max(observed_width),
+                ),
+                AreaWrap::WordOrGlyph => text_area_content_width(
                     request.area_model.wrap(),
                     request.viewport,
                     observed_width,
                 ),
+            };
+            area::logical(
+                content_width,
                 self.text_area_content_height(
                     request.area_model,
                     &request.projection.buffer,
@@ -456,5 +455,22 @@ impl Engine {
             scroll_y: request.state.scroll_y(),
             content_area,
         }
+    }
+
+    fn text_area_logical_width(
+        &mut self,
+        source: &super::super::super::buffer::Buffer,
+        style: Style,
+        minimum: f32,
+    ) -> f32 {
+        let key = super::super::width::Key::new(source, style);
+        let width = if let Some(width) = self.text_area_widths.get(&key).copied() {
+            width
+        } else {
+            let width = super::super::width::measure(&mut self.font_system, source, style);
+            self.text_area_widths.put(key, width);
+            width
+        };
+        width.max(minimum.max(0.0))
     }
 }

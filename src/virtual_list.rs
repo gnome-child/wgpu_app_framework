@@ -11,6 +11,8 @@ mod variable;
 
 const DEFAULT_OVERSCAN: usize = 2;
 const INITIAL_ROWS: usize = 32;
+const MAX_LEADING_RUNWAY_ROWS: usize = 4;
+const MAX_TRAILING_RUNWAY_ROWS: usize = 1;
 
 /// Stable logical identity supplied by a virtual-list provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -64,13 +66,21 @@ pub(crate) struct Measurements(Rc<RefCell<variable::Region>>);
 pub(crate) struct Materialization {
     range: Range<usize>,
     pins: Vec<Key>,
+    runway: bool,
 }
 
 #[derive(Clone)]
 pub(crate) struct Request {
     id: interaction::Id,
     range: Range<usize>,
+    limit: usize,
     measurements: Option<Measurements>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Direction {
+    Backward,
+    Forward,
 }
 
 impl Measurements {
@@ -254,7 +264,7 @@ impl Model {
                         / row_height as i64) as usize;
                 let range = visible_start.saturating_sub(self.overscan)
                     ..visible_end.saturating_add(self.overscan).min(self.len());
-                Request::new(self.id, range)
+                Request::new(self.id, range, self.len())
             }
             Heights::Variable(measurements) => {
                 let materialization = measurements.borrow_mut().request(
@@ -264,9 +274,46 @@ impl Model {
                     Vec::new(),
                     self.provider.as_ref(),
                 );
-                Request::variable(self.id, materialization.range(), measurements.clone())
+                Request::variable(
+                    self.id,
+                    materialization.range(),
+                    self.len(),
+                    measurements.clone(),
+                )
             }
         }
+    }
+
+    pub(crate) fn request_for_transition(
+        &self,
+        offset_y: i32,
+        viewport_height: i32,
+        baseline_y: i32,
+    ) -> Request {
+        let request = self.request_for_viewport(offset_y, viewport_height);
+        let direction = if offset_y > baseline_y {
+            Some(Direction::Forward)
+        } else if offset_y < baseline_y {
+            Some(Direction::Backward)
+        } else {
+            None
+        };
+        let visible_rows = (viewport_height.max(1) as usize)
+            .div_ceil(self.row_height().max(1) as usize)
+            .max(1);
+        let distance_rows =
+            (offset_y.abs_diff(baseline_y) as usize).div_ceil(self.row_height().max(1) as usize);
+        if distance_rows > visible_rows.saturating_mul(2) {
+            return request;
+        }
+        let leading = visible_rows.max(distance_rows).min(MAX_LEADING_RUNWAY_ROWS);
+        let trailing = visible_rows
+            .saturating_div(2)
+            .max(self.overscan)
+            .min(MAX_TRAILING_RUNWAY_ROWS);
+        direction.map_or(request.clone(), |direction| {
+            request.with_runway(direction, leading, trailing)
+        })
     }
 
     pub(crate) fn provider(&self) -> &dyn Provider {
@@ -371,11 +418,27 @@ impl Materialization {
     pub(crate) fn new(range: Range<usize>, mut pins: Vec<Key>) -> Self {
         pins.sort_unstable();
         pins.dedup();
-        Self { range, pins }
+        Self {
+            range,
+            pins,
+            runway: false,
+        }
     }
 
     pub(crate) fn with_range(&self, range: Range<usize>) -> Self {
         Self::new(range, self.pins.clone())
+    }
+
+    pub(crate) fn with_runway(&self, range: Range<usize>) -> Self {
+        Self {
+            range,
+            pins: self.pins.clone(),
+            runway: true,
+        }
+    }
+
+    pub(crate) fn preserves(&self, range: &Range<usize>) -> bool {
+        self.runway && self.range.start <= range.start && self.range.end >= range.end
     }
 
     pub(crate) fn range(&self) -> Range<usize> {
@@ -383,21 +446,32 @@ impl Materialization {
     }
 
     pub(crate) fn with_pins(&self, pins: Vec<Key>) -> Self {
-        Self::new(self.range.clone(), pins)
+        Self::with_pins_and_runway(self.range.clone(), pins, self.runway)
     }
 
     pub(crate) fn with_pin(&self, pin: Key) -> Self {
         let mut pins = self.pins.clone();
         pins.push(pin);
-        Self::new(self.range.clone(), pins)
+        Self::with_pins_and_runway(self.range.clone(), pins, self.runway)
+    }
+
+    fn with_pins_and_runway(range: Range<usize>, mut pins: Vec<Key>, runway: bool) -> Self {
+        pins.sort_unstable();
+        pins.dedup();
+        Self {
+            range,
+            pins,
+            runway,
+        }
     }
 }
 
 impl Request {
-    pub(crate) fn new(id: interaction::Id, range: Range<usize>) -> Self {
+    pub(crate) fn new(id: interaction::Id, range: Range<usize>, limit: usize) -> Self {
         Self {
             id,
             range,
+            limit,
             measurements: None,
         }
     }
@@ -405,11 +479,13 @@ impl Request {
     pub(crate) fn variable(
         id: interaction::Id,
         range: Range<usize>,
+        limit: usize,
         measurements: Measurements,
     ) -> Self {
         Self {
             id,
             range,
+            limit,
             measurements: Some(measurements),
         }
     }
@@ -424,5 +500,82 @@ impl Request {
 
     pub(crate) fn measurements(&self) -> Option<Measurements> {
         self.measurements.clone()
+    }
+
+    fn with_runway(&self, direction: Direction, leading: usize, trailing: usize) -> Self {
+        let (before, after) = match direction {
+            Direction::Backward => (leading, trailing),
+            Direction::Forward => (trailing, leading),
+        };
+        Self {
+            id: self.id,
+            range: self.range.start.saturating_sub(before)
+                ..self.range.end.saturating_add(after).min(self.limit),
+            limit: self.limit,
+            measurements: self.measurements.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Rows(usize);
+
+    impl Provider for Rows {
+        fn len(&self) -> usize {
+            self.0
+        }
+
+        fn key(&self, index: usize) -> Key {
+            Key::new(index as u64)
+        }
+
+        fn index_of(&self, key: Key) -> Option<usize> {
+            let index = key.value() as usize;
+            (index < self.0).then_some(index)
+        }
+
+        fn row(&self, _index: usize) -> view::Node {
+            view::Node::root()
+        }
+    }
+
+    #[test]
+    fn transition_runway_is_directional_and_bounded_for_a_million_rows() {
+        let model = Model::new(
+            interaction::Id::new("runway.rows"),
+            20,
+            Rc::new(Rows(1_000_000)),
+        );
+        let baseline = model.request_for_viewport(20_000, 400);
+        let forward = model.request_for_transition(20_400, 400, 20_000);
+        let backward = model.request_for_transition(19_600, 400, 20_000);
+
+        assert!(forward.range.start < model.index_at_offset(20_400));
+        assert!(forward.range.end > model.index_at_offset(20_800));
+        assert!(backward.range.start < model.index_at_offset(19_600));
+        assert!(backward.range.end > model.index_at_offset(20_000));
+        assert!(forward.range.len() <= baseline.range.len() + 5);
+        assert!(backward.range.len() <= baseline.range.len() + 5);
+        assert!(forward.range.end <= model.len());
+        assert!(backward.range.end <= model.len());
+    }
+
+    #[test]
+    fn pin_refresh_preserves_predictive_runway() {
+        let visible = 20..30;
+        let runway = 19..34;
+        let materialization =
+            Materialization::new(visible.clone(), Vec::new()).with_runway(runway.clone());
+
+        let refreshed = materialization.with_pins(vec![Key::new(24)]);
+
+        assert_eq!(refreshed.range(), runway);
+        assert!(
+            refreshed.preserves(&visible),
+            "pin refresh must not let layout refinement trim the prepared forward runway"
+        );
     }
 }

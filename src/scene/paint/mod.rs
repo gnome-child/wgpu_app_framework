@@ -19,17 +19,17 @@ use super::{
     TextAlign, TextStyle, TextWrap, Visuals,
 };
 
+#[derive(Clone, Copy)]
+enum ScrollSample {
+    Desired,
+    Admitted,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Layer {
     Base,
     Chrome,
     Floating,
-}
-
-#[derive(Clone, Copy)]
-enum PropertySample {
-    CommitBaseline,
-    Current,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -67,6 +67,7 @@ struct CachedFrame {
     key: layout::FrameSceneKey,
     visual: super::visual::NodeState,
     body: Scene,
+    scrolled: Option<Scene>,
     late: Vec<viewport_chrome::Projection>,
 }
 
@@ -171,7 +172,7 @@ impl Retained {
                 layout,
                 visuals,
                 interaction,
-                PropertySample::CommitBaseline,
+                ScrollSample::Desired,
             )
             .expect("freshly painted base properties must satisfy their resident topology");
 
@@ -209,7 +210,7 @@ impl Retained {
                     layout,
                     visuals,
                     interaction,
-                    PropertySample::CommitBaseline,
+                    ScrollSample::Desired,
                 )
                 .expect("freshly painted popup properties must satisfy their resident topology");
             let panel_scene = popup_commit
@@ -267,7 +268,7 @@ impl Retained {
                 layout,
                 visuals,
                 interaction,
-                PropertySample::Current,
+                ScrollSample::Admitted,
             )
             .ok()?;
         let keyed =
@@ -292,7 +293,7 @@ impl Retained {
                         layout,
                         visuals,
                         interaction,
-                        PropertySample::Current,
+                        ScrollSample::Admitted,
                     )
                     .ok()?;
                 let scene = popup_commit
@@ -312,7 +313,7 @@ impl Retained {
         layout: &layout::Layout,
         visuals: &Visuals,
         interaction: Option<&super::super::interaction::Interaction>,
-        sample: PropertySample,
+        sample: ScrollSample,
     ) -> Result<super::Properties, super::commit::ContractError> {
         let mut values = layout
             .scroll_projections()
@@ -323,14 +324,22 @@ impl Retained {
                     .iter()
                     .find(|node| node.id() == projection.node())?
                     .scroll()?;
-                let offset = match sample {
-                    PropertySample::CommitBaseline => declaration.baseline(),
-                    PropertySample::Current => interaction
-                        .map(super::super::interaction::Interaction::scroll)
-                        .map(|scroll| scroll.offset(projection.target()))
-                        .map(|offset| projection.viewport().resolve(offset))
-                        .unwrap_or_else(|| declaration.baseline()),
-                };
+                let offset = interaction
+                    .map(super::super::interaction::Interaction::scroll)
+                    .map(|scroll| match sample {
+                        ScrollSample::Desired => scroll.desired_offset(projection.target()),
+                        ScrollSample::Admitted => scroll.offset(projection.target()),
+                    })
+                    .map(|offset| projection.viewport().resolve(offset))
+                    .and_then(|offset| {
+                        projection.accepted_offsets().map(|(minimum, maximum)| {
+                            super::super::interaction::ScrollOffset::new(
+                                offset.x().clamp(minimum.x(), maximum.x()),
+                                offset.y().clamp(minimum.y(), maximum.y()),
+                            )
+                        })
+                    })
+                    .unwrap_or_else(|| declaration.baseline());
                 Some(super::PropertyValue::ScrollOffset {
                     node: projection.node(),
                     value: offset,
@@ -409,11 +418,37 @@ impl Retained {
                 let clip = frame
                     .clip()
                     .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-                paint_frame(frame, &mut body, theme, visuals, &mut frame_late, clip);
+                let scrolled = if frame.text_area_layout().is_some() {
+                    paint_frame(
+                        frame,
+                        &mut body,
+                        theme,
+                        visuals,
+                        &mut frame_late,
+                        clip,
+                        false,
+                    );
+                    let mut scrolled =
+                        Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
+                    text_area::paint(frame, &mut scrolled, theme, visuals);
+                    Some(scrolled)
+                } else {
+                    paint_frame(
+                        frame,
+                        &mut body,
+                        theme,
+                        visuals,
+                        &mut frame_late,
+                        clip,
+                        true,
+                    );
+                    None
+                };
                 let cached = CachedFrame {
                     key,
                     visual,
                     body,
+                    scrolled,
                     late: frame_late,
                 };
                 self.frames.insert(frame.node_id(), cached.clone());
@@ -429,6 +464,16 @@ impl Retained {
                 scrolls: layout.scroll_ancestry(frame.node_id()).to_vec(),
                 body: cached.body,
             });
+            if let Some(body) = cached.scrolled {
+                let mut scrolls = layout.scroll_ancestry(frame.node_id()).to_vec();
+                scrolls.push(frame.node_id());
+                frames.push(Fragment {
+                    owner: frame.node_id(),
+                    clip,
+                    scrolls,
+                    body,
+                });
+            }
             late.extend(cached.late);
         }
 
@@ -577,8 +622,14 @@ fn append_scoped_fragments(target: &mut super::CommitBuilder, fragments: Vec<Fra
     let mut active_clip = None;
     let mut active_scrolls = Vec::new();
     for fragment in fragments {
+        if active_clip != fragment.clip {
+            for _ in 0..active_scrolls.len() {
+                target.pop_scroll();
+            }
+            active_scrolls.clear();
+            switch_commit_clip_scope(target, &mut active_clip, fragment.clip);
+        }
         if active_scrolls != fragment.scrolls {
-            switch_commit_clip_scope(target, &mut active_clip, None);
             let shared = active_scrolls
                 .iter()
                 .zip(&fragment.scrolls)
@@ -593,13 +644,12 @@ fn append_scoped_fragments(target: &mut super::CommitBuilder, fragments: Vec<Fra
                 active_scrolls.push(*scroll);
             }
         }
-        switch_commit_clip_scope(target, &mut active_clip, fragment.clip);
         target.append_fragment(fragment.owner, &fragment.body);
     }
-    switch_commit_clip_scope(target, &mut active_clip, None);
     for _ in 0..active_scrolls.len() {
         target.pop_scroll();
     }
+    switch_commit_clip_scope(target, &mut active_clip, None);
 }
 
 fn switch_commit_clip_scope(
@@ -811,7 +861,7 @@ fn paint_frames_with_shared_clip<'a>(
             .clip()
             .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
         switch_clip_scope(scene, &mut active_clip, clip);
-        paint_frame(frame, scene, theme, visuals, late_chrome, clip);
+        paint_frame(frame, scene, theme, visuals, late_chrome, clip, true);
     }
     switch_clip_scope(scene, &mut active_clip, None);
 }
@@ -897,6 +947,7 @@ fn paint_frame(
     visuals: &Visuals,
     late_chrome: &mut Vec<viewport_chrome::Projection>,
     clip: Option<Clip>,
+    paint_text_area: bool,
 ) {
     if is_floating_panel_role(frame.role()) {
         paint_floating_panel_shadow(frame, scene, theme);
@@ -938,10 +989,10 @@ fn paint_frame(
         view::Role::Slider => {
             slider::paint(frame, scene, theme, visuals);
         }
-        view::Role::TextArea => {
+        view::Role::TextArea if paint_text_area => {
             text_area::paint(frame, scene, theme, visuals);
         }
-        view::Role::TextBox => {
+        view::Role::TextBox if paint_text_area => {
             if frame.text_area_layout().is_some() {
                 text_area::paint(frame, scene, theme, visuals);
             } else {
@@ -982,7 +1033,9 @@ fn paint_frame(
 
     paint_table_sort_indicator(frame, scene, theme);
 
-    if frame.role() == view::Role::TextBox {
+    if frame.role() == view::Role::TextBox
+        && (paint_text_area || frame.text_area_layout().is_none())
+    {
         if let (Some(rect), Some(hint)) =
             (frame.input_indicator_rect(), frame.input_indicator_hint())
         {

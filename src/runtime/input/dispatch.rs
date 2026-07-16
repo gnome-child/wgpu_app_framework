@@ -22,7 +22,7 @@ impl ScrollTransition {
     fn effect(self) -> response::Effect {
         match self {
             Self::Unchanged | Self::PropertyTick(_) => response::Effect::None,
-            Self::NeedsResidency(_) => response::Effect::Layout,
+            Self::NeedsResidency(_) => response::Effect::Rebuild,
         }
     }
 }
@@ -206,16 +206,39 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         target: interaction::Target,
         update: interaction::ScrollUpdate,
     ) -> ScrollTransition {
-        let Some(offset) = self.session.apply_scroll(window, target.clone(), update) else {
+        let before = self
+            .session
+            .interaction(window)
+            .map(|interaction| interaction.scroll().desired_offset(&target))
+            .unwrap_or_default();
+        let Some(requested) = self.session.request_scroll(window, target.clone(), update) else {
             return ScrollTransition::Unchanged;
         };
-        if self
-            .presented_layout(window)
-            .is_some_and(|layout| layout.scroll_property_accepts(&target, offset))
-        {
+        let presented = self.presented_layout(window);
+        let offset = presented.as_ref().map_or(requested, |layout| {
+            layout.resolve_scroll_offset(&target, requested)
+        });
+        if offset != requested {
+            self.session.request_scroll(
+                window,
+                target.clone(),
+                interaction::ScrollUpdate::Geometry(offset),
+            );
+        }
+        if offset == before {
+            return ScrollTransition::Unchanged;
+        }
+        if presented.is_some_and(|layout| layout.scroll_property_accepts(&target, offset)) {
+            self.session.admit_scroll(window, target, offset);
             self.session.request_property_tick(window);
             ScrollTransition::PropertyTick(offset)
         } else {
+            let request = self
+                .presented_layout(window)
+                .and_then(|layout| layout.virtual_request_for_scroll_offset(&target, offset));
+            if let Some(request) = request {
+                self.install_virtual_request(window, request);
+            }
             ScrollTransition::NeedsResidency(offset)
         }
     }

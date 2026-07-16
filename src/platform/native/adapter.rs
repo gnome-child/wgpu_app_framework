@@ -68,11 +68,12 @@ impl Backend for Native {
         self.present_native(presentation)
     }
 
-    fn resume_presentations(
+    fn resume_presentation(
         &mut self,
         _context: &mut Self::Context<'_>,
-    ) -> Result<Vec<super::super::PresentResult>, Self::Error> {
-        self.resume_native_presentations()
+        window: app_window::Id,
+    ) -> Result<Option<super::super::PresentResult>, Self::Error> {
+        self.resume_native_presentation(window)
     }
 
     #[allow(private_interfaces)]

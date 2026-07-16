@@ -913,6 +913,9 @@ impl Frame {
 
     pub(crate) fn property_scroll_viewport(&self) -> Option<Viewport> {
         match &self.content {
+            FrameContent::Text(
+                TextContent::Area { layout, .. } | TextContent::InactiveField { layout, .. },
+            ) => Some(layout.viewport()),
             FrameContent::Scroll(ScrollContent::Ordinary { viewport }) => *viewport,
             FrameContent::Scroll(ScrollContent::Table { resolved }) => {
                 resolved.as_ref().map(|resolved| resolved.viewport)
@@ -924,11 +927,22 @@ impl Frame {
             | FrameContent::Menu
             | FrameContent::Binding
             | FrameContent::Separator(_)
-            | FrameContent::Text(_)
+            | FrameContent::Text(
+                TextContent::Field { .. } | TextContent::SectionHeader | TextContent::Label { .. },
+            )
             | FrameContent::Button(_)
             | FrameContent::Choice(_)
             | FrameContent::Slider(_)
             | FrameContent::FloatingPanel(_) => None,
+        }
+    }
+
+    pub(crate) fn scroll_resident_bounds(&self) -> Option<Rect> {
+        match &self.content {
+            FrameContent::Text(
+                TextContent::Area { layout, .. } | TextContent::InactiveField { layout, .. },
+            ) => layout.resident_bounds(self.text_area_text_rect()),
+            _ => None,
         }
     }
 
@@ -941,6 +955,13 @@ impl Frame {
         }
     }
 
+    pub(crate) fn virtual_list_key_at(&self, index: usize) -> Option<crate::virtual_list::Key> {
+        let FrameContent::VirtualList(content) = &self.content else {
+            return None;
+        };
+        content.model.key_at(index)
+    }
+
     pub(crate) fn virtual_list_request_for_offset(
         &self,
         offset: interaction::ScrollOffset,
@@ -949,11 +970,11 @@ impl Frame {
             return None;
         };
         let viewport = content.geometry.as_ref()?.viewport;
-        Some(
-            content
-                .model
-                .request_for_viewport(offset.y(), viewport.rect().height()),
-        )
+        Some(content.model.request_for_transition(
+            offset.y(),
+            viewport.rect().height(),
+            viewport.resolved_scroll().y(),
+        ))
     }
 
     pub(crate) fn virtual_row_index_at(&self, point: Point) -> Option<usize> {
@@ -972,8 +993,19 @@ impl Frame {
         Some(content.model.index_at_offset(logical_y))
     }
 
+    #[cfg(test)]
     pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
         self.viewport().map(Viewport::resolved_scroll)
+    }
+
+    pub(crate) fn resolved_scroll_correction(&self) -> Option<interaction::ScrollOffset> {
+        match &self.content {
+            FrameContent::Text(
+                TextContent::Area { model, layout, .. }
+                | TextContent::InactiveField { model, layout, .. },
+            ) if model.scroll_reveal_requested() => Some(layout.viewport().resolved_scroll()),
+            _ => None,
+        }
     }
 
     pub(crate) fn is_enabled(&self) -> bool {

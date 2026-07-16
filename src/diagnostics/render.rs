@@ -1272,7 +1272,7 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
         initial.epoch(),
         initial.invalidation(),
         initial.layout(),
-        initial.properties(),
+        initial.stack(),
         initial.property_only(),
         RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -1284,7 +1284,8 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
         .ok_or_else(|| "control gallery did not materialize a visible table cell".to_owned())?;
     let rect = body.rect();
     let point = crate::geometry::Point::new(rect.x() + 1, rect.y() + 1);
-    let commit = std::sync::Arc::clone(initial.commit());
+    let semantic_commit = std::sync::Arc::clone(initial.commit());
+    let drawable_commit = std::sync::Arc::clone(initial.stack().base().drawable_commit());
     let initial_properties = initial.properties().clone();
     let initial_scroll = initial.layout().scroll_projections().to_vec();
     drop(initial);
@@ -1300,7 +1301,10 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
     let tick = app
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce a property tick".to_owned())?;
-    if !tick.property_only() || !std::sync::Arc::ptr_eq(&commit, tick.commit()) {
+    if !tick.property_only()
+        || !std::sync::Arc::ptr_eq(&semantic_commit, tick.commit())
+        || !std::sync::Arc::ptr_eq(&drawable_commit, tick.stack().base().drawable_commit())
+    {
         return Err(format!(
             "control gallery scroll escaped the retained property clock: point={point:?}, effect={:?}, property_only={}, invalidation={:?}, initial_scroll={initial_scroll:?}",
             outcome.effect(),
@@ -1308,7 +1312,7 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
             tick.invalidation(),
         ));
     }
-    let order = commit
+    let order = drawable_commit
         .order()
         .ok_or_else(|| "control gallery commit has no retained draw order".to_owned())?;
     let vertical_owner = order
@@ -1368,7 +1372,11 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
     }
 
     let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
-    harness.compare_retained_scroll_transition(&commit, &initial_properties, tick.properties())
+    harness.compare_retained_scroll_transition(
+        &drawable_commit,
+        &initial_properties,
+        tick.properties(),
+    )
 }
 
 #[cfg(feature = "renderer-debug")]
@@ -1381,7 +1389,7 @@ pub async fn compare_control_gallery_incremental_activation(
     let initial = app
         .render_scene(window, crate::control_gallery::window_size())
         .ok_or_else(|| "control gallery did not produce an initial scene".to_owned())?;
-    let commit = std::sync::Arc::clone(initial.commit());
+    let commit = std::sync::Arc::clone(initial.stack().base().drawable_commit());
     let properties = initial.properties().clone();
     let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
     harness.compare_incremental_activation(&commit, &properties)
@@ -1396,7 +1404,7 @@ pub async fn compare_control_gallery_pending_transition(scale_factor: f32) -> Re
     let active = app
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce an active scene".to_owned())?;
-    let active_commit = std::sync::Arc::clone(active.commit());
+    let active_commit = std::sync::Arc::clone(active.stack().base().drawable_commit());
     let active_properties = active.properties().clone();
     drop(active);
 
@@ -1411,7 +1419,7 @@ pub async fn compare_control_gallery_pending_transition(scale_factor: f32) -> Re
     harness.compare_pending_transition_preserves_active(
         &active_commit,
         &active_properties,
-        candidate.commit(),
+        candidate.stack().base().drawable_commit(),
         candidate.properties(),
     )
 }
@@ -1432,7 +1440,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
         active.epoch(),
         active.invalidation(),
         active.layout(),
-        active.properties(),
+        active.stack(),
         active.property_only(),
         RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -1449,6 +1457,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
         .ok_or_else(|| "control gallery did not materialize a table cell".to_owned())?;
     let point = crate::geometry::Point::new(body.rect().x() + 1, body.rect().y() + 1);
     let active_commit = std::sync::Arc::clone(active.commit());
+    let active_drawable = std::sync::Arc::clone(active.stack().base().drawable_commit());
     let active_properties = active.properties().clone();
     drop(active);
 
@@ -1458,6 +1467,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce a semantic candidate".to_owned())?;
     let candidate_commit = std::sync::Arc::clone(candidate.commit());
+    let candidate_drawable = std::sync::Arc::clone(candidate.stack().base().drawable_commit());
     if std::sync::Arc::ptr_eq(&active_commit, &candidate_commit) {
         return Err("property refresh fixture did not create a semantic candidate".to_owned());
     }
@@ -1493,12 +1503,18 @@ pub async fn compare_control_gallery_pending_property_refresh(
             ticked_candidate.invalidation(),
         ));
     }
+    if !std::sync::Arc::ptr_eq(
+        &candidate_drawable,
+        ticked_candidate.stack().base().drawable_commit(),
+    ) {
+        return Err("pending scroll unexpectedly changed drawable residency".to_owned());
+    }
 
     let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
     harness.compare_pending_property_projection(
-        &active_commit,
+        &active_drawable,
         &active_properties,
-        &candidate_commit,
+        &candidate_drawable,
         ticked_candidate.properties(),
     )
 }
@@ -1512,14 +1528,14 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     let initial = app
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce its initial caret scene".to_owned())?;
-    let initial_commit = std::sync::Arc::clone(initial.commit());
+    let initial_commit = std::sync::Arc::clone(initial.stack().base().drawable_commit());
     let initial_properties = initial.properties().clone();
     app.finish_render_report(
         window,
         initial.epoch(),
         initial.invalidation(),
         initial.layout(),
-        initial.properties(),
+        initial.stack(),
         initial.property_only(),
         RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -1541,7 +1557,7 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     let visible = app
         .render_scene_at(window, size, epoch)
         .ok_or_else(|| "control gallery did not produce its visible caret scene".to_owned())?;
-    let visible_commit = std::sync::Arc::clone(visible.commit());
+    let visible_commit = std::sync::Arc::clone(visible.stack().base().drawable_commit());
     let visible_properties = visible.properties().clone();
     let visible_chrome = caret_blink_content_counts(&visible_commit);
     app.finish_render_report(
@@ -1549,7 +1565,7 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
         visible.epoch(),
         visible.invalidation(),
         visible.layout(),
-        visible.properties(),
+        visible.stack(),
         visible.property_only(),
         RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -1558,7 +1574,7 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     let hidden = app
         .render_scene_at(window, size, epoch + Duration::from_millis(500))
         .ok_or_else(|| "control gallery did not produce its hidden caret scene".to_owned())?;
-    let hidden_commit = std::sync::Arc::clone(hidden.commit());
+    let hidden_commit = std::sync::Arc::clone(hidden.stack().base().drawable_commit());
     let hidden_properties = hidden.properties().clone();
     let hidden_chrome = caret_blink_content_counts(&hidden_commit);
     app.finish_render_report(
@@ -1566,7 +1582,7 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
         hidden.epoch(),
         hidden.invalidation(),
         hidden.layout(),
-        hidden.properties(),
+        hidden.stack(),
         hidden.property_only(),
         RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -1577,7 +1593,9 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
         .ok_or_else(|| {
             "control gallery did not produce its second visible caret scene".to_owned()
         })?;
-    let visible_again_chrome = caret_blink_content_counts(visible_again.commit());
+    let visible_again_commit =
+        std::sync::Arc::clone(visible_again.stack().base().drawable_commit());
+    let visible_again_chrome = caret_blink_content_counts(&visible_again_commit);
 
     if visible_chrome.0 != hidden_chrome.0.saturating_add(1)
         || visible_again_chrome.0 != visible_chrome.0
@@ -1617,7 +1635,7 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     harness.compare_pending_transition_preserves_active(
         &hidden_commit,
         &hidden_properties,
-        visible_again.commit(),
+        &visible_again_commit,
         visible_again.properties(),
     )
 }
@@ -1656,7 +1674,10 @@ fn caret_blink_changed_node_revisions(
 }
 
 #[cfg(feature = "renderer-debug")]
-pub async fn compare_control_gallery_pending_scroll(scale_factor: f32) -> Result<(), String> {
+pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<(), String> {
+    const STEPS: usize = 64;
+    const DELTA: i32 = 4;
+
     let mut app = crate::control_gallery::app(crate::control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -1669,7 +1690,7 @@ pub async fn compare_control_gallery_pending_scroll(scale_factor: f32) -> Result
         initial.epoch(),
         initial.invalidation(),
         initial.layout(),
-        initial.properties(),
+        initial.stack(),
         initial.property_only(),
         RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
     );
@@ -1677,125 +1698,269 @@ pub async fn compare_control_gallery_pending_scroll(scale_factor: f32) -> Result
         .layout()
         .frames()
         .iter()
-        .find(|frame| frame.table_cell().is_some())
+        .find(|frame| {
+            frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(1)
+                    && cell.column() == crate::interaction::Id::new("detail")
+            })
+        })
         .ok_or_else(|| "control gallery did not materialize a table cell".to_owned())?;
     let point = crate::geometry::Point::new(body.rect().x() + 1, body.rect().y() + 1);
-    let active_commit = std::sync::Arc::clone(initial.commit());
-    let active_properties = initial.properties().clone();
+    let scroll_target = initial
+        .layout()
+        .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(DELTA))
+        .ok_or_else(|| "control gallery table point has no routed scroll owner".to_owned())?;
+    let projection = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.is_scene_drawable() && projection.target() == &scroll_target)
+        .ok_or_else(|| "control gallery table has no complete scroll projection".to_owned())?;
+    let scroll_node = projection.node();
+    let semantic_commit = std::sync::Arc::clone(initial.commit());
+    let mut active_stack = std::sync::Arc::clone(initial.stack());
+    let mut active_drawable = std::sync::Arc::clone(initial.stack().base().drawable_commit());
+    let mut active_properties = initial.properties().clone();
+    let mut active_residency = initial
+        .stack()
+        .base()
+        .residencies()
+        .iter()
+        .find(|residency| residency.scroll() == scroll_node)
+        .cloned()
+        .ok_or_else(|| "control gallery table has no initial scene residency".to_owned())?;
     drop(initial);
 
     let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
-    harness.require_visible_commit(&active_commit, &active_properties, "initial active commit")?;
-    let mut semantic_candidates = 0_usize;
-    let mut pending_transition_witnessed = false;
+    harness.require_visible_commit(
+        &active_drawable,
+        &active_properties,
+        "initial slow-scroll output",
+    )?;
+    let semantic_activations = app
+        .diagnostics(window)
+        .ok_or_else(|| "control gallery has no render diagnostics".to_owned())?
+        .render
+        .semantic_commits_activated;
+    let mut admitted = app
+        .session()
+        .interaction(window)
+        .ok_or_else(|| "control gallery has no interaction state".to_owned())?
+        .scroll()
+        .offset(&scroll_target);
+    let mut residency_crossings = 0_usize;
 
-    for index in 1..=6 {
+    for index in 1..=STEPS {
         app.scroll_at(
             window,
             size,
             point,
-            crate::interaction::ScrollDelta::vertical(33_600),
+            crate::interaction::ScrollDelta::vertical(DELTA),
         )
         .map_err(|error| error.to_string())?;
+        let interaction = app
+            .session()
+            .interaction(window)
+            .ok_or_else(|| format!("slow-scroll step {index} lost interaction state"))?;
+        let desired = interaction.scroll().desired_offset(&scroll_target);
+        let before_receipt = interaction.scroll().offset(&scroll_target);
+        if desired.y() <= admitted.y() {
+            return Err(format!(
+                "slow-scroll step {index} did not route its positive delta to the table owner: previous={admitted:?}, desired={desired:?}"
+            ));
+        }
+        let expected_before_receipt = if active_residency.accepts(desired) {
+            desired
+        } else {
+            admitted
+        };
+        if before_receipt != expected_before_receipt || before_receipt.y() < admitted.y() {
+            return Err(format!(
+                "slow-scroll step {index} exposed unprepared motion or snapped backward before a receipt: previous={admitted:?}, desired={desired:?}, actual={before_receipt:?}, active_accepts={}",
+                active_residency.accepts(desired),
+            ));
+        }
+
         let candidate = app
             .render_scene(window, size)
-            .ok_or_else(|| format!("control gallery produced no scroll candidate {index}"))?;
-        for projection in candidate.layout().scroll_projections() {
-            if !projection.is_scene_drawable() {
-                continue;
-            }
-            let visible = projection.viewport().visible_content();
-            let resident = projection.resident_bounds().ok_or_else(|| {
-                format!("scroll candidate {index} has incomplete virtual residency")
-            })?;
-            let layer = projection.layer_bounds();
-            if resident.x() < layer.x()
-                || resident.y() < layer.y()
-                || resident.right() > layer.right()
-                || resident.bottom() > layer.bottom()
-                || resident.x() > visible.x()
-                || resident.y() > visible.y()
-                || resident.right() < visible.right()
-                || resident.bottom() < visible.bottom()
-            {
-                return Err(format!(
-                    "scroll candidate {index} admits nonresident pixels: visible={visible:?}, resident={resident:?}, layer={layer:?}"
-                ));
-            }
+            .ok_or_else(|| format!("control gallery produced no slow-scroll frame {index}"))?;
+        if !std::sync::Arc::ptr_eq(&semantic_commit, candidate.commit()) {
+            return Err(format!(
+                "slow-scroll step {index} created a semantic commit for a residency-only change: {}",
+                semantic_commit.projection_difference(candidate.commit()),
+            ));
+        }
+        if candidate.properties().serial() <= active_properties.serial() {
+            return Err(format!(
+                "slow-scroll step {index} did not advance the property serial: active={:?}, candidate={:?}",
+                active_properties.serial(),
+                candidate.properties().serial(),
+            ));
+        }
+        if candidate.stack().scroll_offset(scroll_node) != Some(desired) {
+            return Err(format!(
+                "slow-scroll step {index} did not sample the latest desired offset: desired={desired:?}, sampled={:?}",
+                candidate.stack().scroll_offset(scroll_node),
+            ));
         }
 
-        if std::sync::Arc::ptr_eq(&active_commit, candidate.commit()) {
-            harness.compare_incremental_activation(candidate.commit(), candidate.properties())?;
-            harness.require_visible_commit(
-                &active_commit,
+        let projection = candidate
+            .layout()
+            .scroll_projections()
+            .iter()
+            .find(|projection| projection.node() == scroll_node)
+            .ok_or_else(|| format!("slow-scroll step {index} lost its scroll projection"))?;
+        let visible = projection.viewport().visible_content();
+        let baseline = projection.viewport().resolved_scroll();
+        let translated_clip = crate::geometry::Rect::new(
+            visible
+                .x()
+                .saturating_add(baseline.x().saturating_sub(desired.x())),
+            visible
+                .y()
+                .saturating_add(baseline.y().saturating_sub(desired.y())),
+            visible.width(),
+            visible.height(),
+        );
+        if translated_clip != visible
+            && candidate.scene().primitives().iter().any(
+                |primitive| matches!(primitive, crate::scene::Primitive::Clip(clip) if clip.rect() == translated_clip),
+            )
+        {
+            return Err(format!(
+                "slow-scroll step {index} translated its viewport clip with resident rows and can expose a bottom-edge band: fixed={visible:?}, translated={translated_clip:?}, baseline={baseline:?}, desired={desired:?}"
+            ));
+        }
+        let resident = projection
+            .resident_bounds()
+            .ok_or_else(|| format!("slow-scroll step {index} has incomplete virtual residency"))?;
+        let layer = projection.layer_bounds();
+        if resident.x() < layer.x()
+            || resident.y() < layer.y()
+            || resident.right() > layer.right()
+            || resident.bottom() > layer.bottom()
+            || resident.x() > visible.x()
+            || resident.y() > visible.y()
+            || resident.right() < visible.right()
+            || resident.bottom() < visible.bottom()
+        {
+            return Err(format!(
+                "slow-scroll step {index} admits nonresident pixels: visible={visible:?}, resident={resident:?}, layer={layer:?}"
+            ));
+        }
+
+        let candidate_residency = candidate
+            .stack()
+            .base()
+            .residencies()
+            .iter()
+            .find(|residency| residency.scroll() == scroll_node)
+            .cloned()
+            .ok_or_else(|| format!("slow-scroll step {index} has no scene residency"))?;
+        if !candidate_residency.accepts(desired) {
+            return Err(format!(
+                "slow-scroll step {index} prepared a residency that rejects its desired offset {desired:?}"
+            ));
+        }
+        let candidate_drawable = std::sync::Arc::clone(candidate.stack().base().drawable_commit());
+        if candidate_residency.revision() == active_residency.revision() {
+            if !std::sync::Arc::ptr_eq(&active_drawable, &candidate_drawable) {
+                return Err(format!(
+                    "slow-scroll step {index} changed drawable membership without advancing residency"
+                ));
+            }
+            harness.compare_retained_scroll_transition(
+                &active_drawable,
+                &active_properties,
                 candidate.properties(),
-                &format!("property-only scroll candidate {index}"),
             )?;
         } else {
-            semantic_candidates = semantic_candidates.saturating_add(1);
-            harness.compare_scroll_candidate_preserves_stable_prefix(
-                &active_commit,
-                &active_properties,
-                candidate.commit(),
-                candidate.properties(),
-            )?;
-            let (projected, changed) = candidate
-                .properties()
-                .project_onto(&active_commit, &active_properties)
-                .map_err(|error| error.to_string())?;
-            if changed
-                && projected
-                    .changed()
-                    .iter()
-                    .any(|property| property.kind() != crate::scene::PropertyKind::Scrollbar)
-            {
-                let details = projected
-                    .changed()
-                    .iter()
-                    .map(|property| {
-                        let declaration = active_commit
-                            .nodes()
-                            .iter()
-                            .find(|node| node.id() == property.node())
-                            .and_then(|node| node.scroll());
-                        format!(
-                            "{property:?}: active={:?}, candidate={:?}, projected={:?}, declaration={declaration:?}",
-                            active_properties.value(*property),
-                            candidate.properties().value(*property),
-                            projected.value(*property),
-                        )
-                    })
-                    .collect::<Vec<_>>();
+            if candidate_residency.revision() <= active_residency.revision() {
                 return Err(format!(
-                    "semantic guard-crossing candidate {index} projected content motion beyond the complete active scroll envelope: {}",
-                    details.join("; "),
+                    "slow-scroll step {index} moved residency backward: active={:?}, candidate={:?}",
+                    active_residency.revision(),
+                    candidate_residency.revision(),
                 ));
             }
-            if !pending_transition_witnessed {
-                harness.compare_pending_transition_preserves_active(
-                    &active_commit,
-                    &projected,
-                    candidate.commit(),
-                    candidate.properties(),
-                )?;
-                pending_transition_witnessed = true;
-            } else {
-                harness
-                    .compare_incremental_activation(candidate.commit(), candidate.properties())?;
+            residency_crossings = residency_crossings.saturating_add(1);
+            let (projected, changed) = active_stack
+                .project_base_properties(candidate.properties())
+                .ok_or_else(|| {
+                    format!(
+                        "slow-scroll step {index} could not project pending properties onto active residency"
+                    )
+                })?;
+            let projected_offset = projected.scroll_offset(scroll_node).ok_or_else(|| {
+                format!("slow-scroll step {index} lost its projected active scroll property")
+            })?;
+            let expected_projection = active_residency.project(desired);
+            let expected_changed =
+                active_properties.scroll_offset(scroll_node) != Some(expected_projection);
+            if projected_offset != expected_projection || changed != expected_changed {
+                return Err(format!(
+                    "slow-scroll step {index} did not preserve the furthest active-residency progress: desired={desired:?}, expected={expected_projection:?}, projected={projected_offset:?}, changed={changed}, expected_changed={expected_changed}"
+                ));
             }
-            harness.require_visible_commit(
-                &active_commit,
-                &projected,
-                &format!("exact active state for semantic scroll candidate {index}"),
+            if changed {
+                harness.compare_retained_scroll_transition(
+                    &active_drawable,
+                    &active_properties,
+                    &projected,
+                )?;
+            }
+            harness.compare_pending_transition_preserves_active(
+                &active_drawable,
+                &active_properties,
+                &candidate_drawable,
+                candidate.properties(),
             )?;
         }
+
+        if app.finish_render_report(
+            window,
+            candidate.epoch(),
+            candidate.invalidation(),
+            candidate.layout(),
+            candidate.stack(),
+            candidate.property_only(),
+            RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+        ) {
+            return Err(format!(
+                "slow-scroll step {index} successful receipt incorrectly requested a retry"
+            ));
+        }
+        let next_admitted = app
+            .session()
+            .interaction(window)
+            .ok_or_else(|| format!("slow-scroll step {index} lost interaction after receipt"))?
+            .scroll()
+            .offset(&scroll_target);
+        if next_admitted != desired || next_admitted.y() <= admitted.y() {
+            return Err(format!(
+                "slow-scroll step {index} did not advance monotonically on its exact receipt: previous={admitted:?}, desired={desired:?}, admitted={next_admitted:?}"
+            ));
+        }
+        if app
+            .diagnostics(window)
+            .ok_or_else(|| format!("slow-scroll step {index} lost render diagnostics"))?
+            .render
+            .semantic_commits_activated
+            != semantic_activations
+        {
+            return Err(format!(
+                "slow-scroll step {index} activated a semantic commit for pure residency motion"
+            ));
+        }
+
+        admitted = next_admitted;
+        active_stack = std::sync::Arc::clone(candidate.stack());
+        active_drawable = candidate_drawable;
+        active_properties = candidate.properties().clone();
+        active_residency = candidate_residency;
     }
 
-    if semantic_candidates == 0 {
-        return Err("large-scroll witness never crossed the retained semantic guard".to_owned());
-    }
-    if !pending_transition_witnessed {
-        return Err("large-scroll witness never exercised pending resource isolation".to_owned());
+    if residency_crossings == 0 {
+        return Err("slow-scroll witness never crossed a residency boundary".to_owned());
     }
 
     Ok(())

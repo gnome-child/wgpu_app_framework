@@ -120,6 +120,10 @@ impl TextArea {
         self.caret_epoch
     }
 
+    pub(crate) fn scroll_reveal_requested(&self) -> bool {
+        self.reveal
+    }
+
     pub fn wrap(&self) -> Wrap {
         self.wrap
     }

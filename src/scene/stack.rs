@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use super::super::geometry;
-use super::{Color, Commit, Content, MaterialRealizationReport, MaterialRenderer, Properties};
+use super::{
+    Color, Commit, Content, MaterialRealizationReport, MaterialRenderer, Properties, Residency,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Stack {
@@ -12,6 +14,8 @@ pub(crate) struct Stack {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Layer {
     commit: Arc<Commit>,
+    drawable: Arc<Commit>,
+    residencies: Arc<[Residency]>,
     properties: Arc<Properties>,
     origin: geometry::Point,
     bounds: geometry::Rect,
@@ -31,11 +35,16 @@ pub(crate) enum MaterialProjection {
 }
 
 impl Stack {
-    pub(crate) fn new(commit: Arc<Commit>, properties: Properties) -> Self {
+    pub(crate) fn new(
+        commit: Arc<Commit>,
+        drawable: Arc<Commit>,
+        residencies: Arc<[Residency]>,
+        properties: Properties,
+    ) -> Self {
         let clear = commit.clear();
         Self {
             clear,
-            layers: vec![Layer::base(commit, properties)],
+            layers: vec![Layer::base(commit, drawable, residencies, properties)],
         }
     }
 
@@ -64,6 +73,15 @@ impl Stack {
             .expect("a scene stack always contains its base layer")
     }
 
+    pub(crate) fn scroll_offset(
+        &self,
+        node: super::super::composition::tree::NodeId,
+    ) -> Option<super::super::interaction::ScrollOffset> {
+        self.layers
+            .iter()
+            .find_map(|layer| layer.properties().scroll_offset(node))
+    }
+
     pub(crate) fn with_base_properties(&self, properties: Properties) -> Self {
         debug_assert!(properties.require_compatible(self.base().commit()).is_ok());
         let mut stack = self.clone();
@@ -71,11 +89,28 @@ impl Stack {
         stack
     }
 
+    pub(crate) fn project_base_properties(
+        &self,
+        candidate: &Properties,
+    ) -> Option<(Properties, bool)> {
+        let base = self.base();
+        candidate
+            .project_onto_with_scroll(base.drawable_commit(), base.properties(), |node, offset| {
+                base.residencies()
+                    .iter()
+                    .find(|residency| residency.scroll() == node)
+                    .map_or(offset, |residency| residency.project(offset))
+            })
+            .ok()
+    }
+
     pub(crate) fn same_structure(&self, other: &Self) -> bool {
         self.clear == other.clear
             && self.layers.len() == other.layers.len()
             && self.layers.iter().zip(&other.layers).all(|(left, right)| {
                 Arc::ptr_eq(left.commit(), right.commit())
+                    && Arc::ptr_eq(left.drawable_commit(), right.drawable_commit())
+                    && left.same_residencies(right)
                     && left.origin == right.origin
                     && left.bounds == right.bounds
                     && left.force_group == right.force_group
@@ -85,10 +120,22 @@ impl Stack {
 }
 
 impl Layer {
-    fn base(commit: Arc<Commit>, properties: Properties) -> Self {
+    fn base(
+        commit: Arc<Commit>,
+        drawable: Arc<Commit>,
+        residencies: Arc<[Residency]>,
+        properties: Properties,
+    ) -> Self {
+        debug_assert!(
+            residencies
+                .iter()
+                .all(|residency| residency.require_compatible(&commit).is_ok())
+        );
         let bounds = geometry::Rect::from_size(commit.size());
         Self {
             commit,
+            drawable,
+            residencies,
             properties: Arc::new(properties),
             origin: geometry::Point::new(0, 0),
             bounds,
@@ -100,6 +147,7 @@ impl Layer {
 
     pub(crate) fn projected(
         commit: Arc<Commit>,
+        residencies: Arc<[Residency]>,
         properties: Arc<Properties>,
         origin: geometry::Point,
         bounds: geometry::Rect,
@@ -108,8 +156,15 @@ impl Layer {
         material: MaterialProjection,
     ) -> Self {
         debug_assert!(properties.require_compatible(&commit).is_ok());
+        debug_assert!(
+            residencies
+                .iter()
+                .all(|residency| residency.require_compatible(&commit).is_ok())
+        );
         Self {
+            drawable: Arc::clone(&commit),
             commit,
+            residencies,
             properties,
             origin,
             bounds,
@@ -127,8 +182,16 @@ impl Layer {
         &self.commit
     }
 
+    pub(crate) fn drawable_commit(&self) -> &Arc<Commit> {
+        &self.drawable
+    }
+
     pub(crate) fn properties(&self) -> &Properties {
         &self.properties
+    }
+
+    pub(crate) fn residencies(&self) -> &[Residency] {
+        &self.residencies
     }
 
     pub(crate) fn origin(&self) -> geometry::Point {
@@ -149,6 +212,17 @@ impl Layer {
 
     pub(crate) fn material(&self) -> &MaterialProjection {
         &self.material
+    }
+
+    fn same_residencies(&self, other: &Self) -> bool {
+        self.residencies.len() == other.residencies.len()
+            && self
+                .residencies
+                .iter()
+                .zip(other.residencies.iter())
+                .all(|(left, right)| {
+                    left.scroll() == right.scroll() && left.revision() == right.revision()
+                })
     }
 }
 
