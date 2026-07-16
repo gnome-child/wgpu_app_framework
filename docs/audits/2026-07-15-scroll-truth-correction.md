@@ -77,6 +77,9 @@ Field disposition after the 2026-07-16 correction checkpoints:
   the following update, when it snaps to the requested position. This reopens
   S-006's immediate entering-side-pixel claim and challenges S-008/S-010's
   pending/active atomicity path.
+- [ ] Table scrolling still feels choppy in the native gallery. S-009 must
+  attribute frame cadence, property-hit CPU/GPU work, residency crossings, and
+  missed/no-progress intervals separately from the correctness lag above.
 
 The first re-census begins with these cells but is required to search beyond
 them. A newly discovered defect is admitted by evidence and ownership impact,
@@ -462,7 +465,7 @@ delta, and the cells exposed by re-census.
 | S-006 | Table content/rule/clip unity | Field reconfirmation shows rules leading cells and horizontal geometry applying one update late | **Reopened after R-006** | Cells, backgrounds, rules, text, fixed clip, and entering side pixels move on the same receipted update in the native gallery and deterministic pixel witness |
 | S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | **Complete; R-007** | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
-| S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
+| S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost; native table scrolling remains visibly choppy | Open | Metric contract, table cadence attribution, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
 | S-010 | Native presentation atomicity | Fresh release capture intermittently observed a partially composed deadline frame | Open | Native property, residency, and semantic redraws expose only complete receipted frames; capture artifact versus presentation defect is resolved |
 | S-011 | Text runway versus semantic identity | The first bounded horizontal runway crossing minted a new semantic commit because prepared text and transient rule geometry leaked through the owner node | **Complete; R-011** | Bounded text replenishment changes drawable/residency identity while stable owner content and property topology reuse the semantic commit |
 
