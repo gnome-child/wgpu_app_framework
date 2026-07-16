@@ -9,8 +9,8 @@ use super::super::{composition, geometry, interaction};
 #[cfg(feature = "renderer-debug")]
 use super::{Brush, Glass, Material, Offset, Rasterization, Rounding, Style, TextStyle, TextWrap};
 use super::{
-    Clip, Color, Group, Icon, Outline, Pane, Primitive, Quad, Rule, Scene, Shadow, Text,
-    TextViewport, Transform, region::MaterialRegion,
+    Clip, Color, Icon, Outline, Pane, Primitive, Quad, Rule, Scene, Shadow, Text, TextViewport,
+    Transform, region::MaterialRegion,
 };
 
 macro_rules! revision_currency {
@@ -69,6 +69,7 @@ pub(crate) struct Commit {
     clear: Color,
     nodes: Vec<Arc<Node>>,
     property_topology: Vec<PropertyRef>,
+    spatial_topology: super::spatial::SpatialTopology,
     order: Option<Vec<Draw>>,
     material_regions: Vec<MaterialRegion>,
 }
@@ -84,6 +85,7 @@ pub(crate) struct Node {
     content: Vec<Content>,
     properties: Vec<PropertyKind>,
     scroll: Option<ScrollDeclaration>,
+    scroll_target: Option<super::spatial::ScrollTarget>,
     clip: Option<Clip>,
     opacity: OpacityDeclaration,
     effect: EffectDeclaration,
@@ -130,6 +132,7 @@ struct NodeDraft {
     content: Vec<Content>,
     properties: Vec<PropertyKind>,
     scroll: Option<ScrollDeclaration>,
+    scroll_target: Option<super::spatial::ScrollTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -278,12 +281,6 @@ pub(crate) struct ScrollDeclaration {
     maximum: interaction::ScrollOffset,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OrderStop {
-    Group,
-    Scroll,
-}
-
 #[derive(Debug, Clone, PartialEq, Error)]
 pub(crate) enum ContractError {
     #[error("scene commit contains duplicate composition identity {0:?}")]
@@ -313,6 +310,8 @@ pub(crate) enum ContractError {
     UndeclaredChange(PropertyRef),
     #[error("property snapshot contains a non-finite or out-of-envelope {0:?}")]
     InvalidValue(PropertyRef),
+    #[error(transparent)]
+    InvalidSpatialTopology(#[from] super::spatial::SpatialError),
 }
 
 #[cfg(feature = "renderer-debug")]
@@ -392,12 +391,15 @@ impl Commit {
             }
         }
 
+        let spatial_topology = super::spatial::SpatialTopology::compile(&nodes, order.as_deref())?;
+
         Ok(Self {
             revision,
             size: size.sanitized(),
             clear,
             nodes,
             property_topology,
+            spatial_topology,
             order,
             material_regions,
         })
@@ -428,6 +430,10 @@ impl Commit {
         self.order.as_deref()
     }
 
+    pub(crate) fn spatial_topology(&self) -> &super::spatial::SpatialTopology {
+        &self.spatial_topology
+    }
+
     pub(crate) fn semantic_projection(
         candidate: &Arc<Self>,
         previous: Option<&Arc<Self>>,
@@ -448,10 +454,13 @@ impl Commit {
         if resident_nodes.is_empty() && resident_scrolls.is_empty() && !has_transient_projection {
             return Ok(Arc::clone(candidate));
         }
-        let mut order = candidate
-            .order
-            .as_ref()
-            .map(|order| semantic_order(order, resident_nodes, resident_scrolls));
+        let mut order = candidate.order.as_ref().map(|order| {
+            candidate.spatial_topology.project_semantic_order(
+                order,
+                resident_nodes,
+                resident_scrolls,
+            )
+        });
         let semantic_content_overrides = order
             .as_mut()
             .map(|order| semanticize_transient_content(candidate, order))
@@ -515,114 +524,14 @@ impl Commit {
         properties: &Properties,
     ) -> Result<Scene, ContractError> {
         properties.require_compatible(self)?;
-        if let Some(order) = &self.order {
-            return Ok(Scene {
-                size: self.size,
-                clear: self.clear,
-                primitives: self.compatibility_order(order, properties),
-                material_regions: self.material_regions.clone(),
-            });
-        }
-        let mut primitives = Vec::new();
-        for node in self.nodes.iter().filter(|node| node.parent.is_none()) {
-            primitives.extend(self.compatibility_node(node, properties));
-        }
         Ok(Scene {
             size: self.size,
             clear: self.clear,
-            primitives,
+            primitives: self
+                .spatial_topology
+                .compatibility_primitives(self, properties),
             material_regions: self.material_regions.clone(),
         })
-    }
-
-    fn compatibility_order(&self, order: &[Draw], properties: &Properties) -> Vec<Primitive> {
-        let mut primitives = Vec::new();
-        let mut index = 0;
-        self.compatibility_order_until(order, &mut index, None, properties, &mut primitives);
-        primitives
-    }
-
-    fn compatibility_order_until(
-        &self,
-        order: &[Draw],
-        index: &mut usize,
-        stop: Option<OrderStop>,
-        properties: &Properties,
-        target: &mut Vec<Primitive>,
-    ) {
-        while let Some(draw) = order.get(*index) {
-            *index = index.saturating_add(1);
-            match draw {
-                Draw::Content {
-                    node,
-                    index,
-                    projection,
-                } => {
-                    let Some(content) = self
-                        .nodes
-                        .iter()
-                        .find(|candidate| candidate.id == *node)
-                        .and_then(|node| node.content.get(*index))
-                    else {
-                        continue;
-                    };
-                    if let Some(primitive) =
-                        projection.project_primitive(content.as_primitive(None), *node, properties)
-                    {
-                        target.push(primitive);
-                    }
-                }
-                Draw::PushClip { clip, .. } => target.push(Primitive::Clip(*clip)),
-                Draw::PopClip => target.push(Primitive::PopClip),
-                Draw::PushGroup { opacity, .. } => {
-                    let mut members = Vec::new();
-                    self.compatibility_order_until(
-                        order,
-                        index,
-                        Some(OrderStop::Group),
-                        properties,
-                        &mut members,
-                    );
-                    if let Some(group) = Group::new(members, *opacity) {
-                        target.push(Primitive::Group(group));
-                    }
-                }
-                Draw::PushScroll { node } => {
-                    let mut members = Vec::new();
-                    self.compatibility_order_until(
-                        order,
-                        index,
-                        Some(OrderStop::Scroll),
-                        properties,
-                        &mut members,
-                    );
-                    let declaration = self
-                        .nodes
-                        .iter()
-                        .find(|candidate| candidate.id == *node)
-                        .and_then(|node| node.scroll);
-                    if let Some(declaration) = declaration {
-                        let current = properties
-                            .scroll_offset(*node)
-                            .unwrap_or(declaration.baseline);
-                        let dx = declaration.baseline.x().saturating_sub(current.x());
-                        let dy = declaration.baseline.y().saturating_sub(current.y());
-                        let mut clipped = Vec::with_capacity(members.len().saturating_add(2));
-                        clipped.push(Primitive::Clip(Clip::new(declaration.viewport)));
-                        clipped
-                            .extend(members.iter().map(|primitive| primitive.translated(dx, dy)));
-                        clipped.push(Primitive::PopClip);
-                        target.extend(clipped);
-                    } else {
-                        target.extend(members);
-                    }
-                }
-                Draw::PopGroup if stop == Some(OrderStop::Group) => return,
-                Draw::PopGroup => {}
-                Draw::PopScroll if stop == Some(OrderStop::Scroll) => return,
-                Draw::PopScroll => {}
-            }
-        }
     }
 
     fn same_projection(&self, other: &Self) -> bool {
@@ -630,6 +539,7 @@ impl Commit {
             && self.clear == other.clear
             && self.nodes == other.nodes
             && self.property_topology == other.property_topology
+            && self.spatial_topology == other.spatial_topology
             && self.order == other.order
             && self.material_regions == other.material_regions
     }
@@ -684,134 +594,6 @@ impl Commit {
             Properties::empty(&commit).expect("test scene commit declares no dynamic properties");
         (commit, properties)
     }
-
-    fn compatibility_node(&self, node: &Node, properties: &Properties) -> Vec<Primitive> {
-        let transform = properties.value(PropertyRef::new(node.id, PropertyKind::Transform));
-        let scroll = properties.value(PropertyRef::new(node.id, PropertyKind::ScrollOffset));
-        let mut primitives = node
-            .content
-            .iter()
-            .map(|content| content.as_primitive(transform))
-            .collect::<Vec<_>>();
-        for child in self
-            .nodes
-            .iter()
-            .filter(|child| child.parent == Some(node.id))
-        {
-            primitives.extend(self.compatibility_node(child, properties));
-        }
-        if let Some(PropertyValue::ScrollOffset { value, .. }) = scroll {
-            let baseline = node.scroll.map_or(
-                interaction::ScrollOffset::default(),
-                ScrollDeclaration::baseline,
-            );
-            let dx = baseline.x().saturating_sub(value.x());
-            let dy = baseline.y().saturating_sub(value.y());
-            primitives = primitives
-                .iter()
-                .map(|primitive| primitive.translated(dx, dy))
-                .collect();
-        }
-        if matches!(node.effect, EffectDeclaration::GroupOpacity(_)) {
-            let opacity = match properties.value(PropertyRef::new(node.id, PropertyKind::Opacity)) {
-                Some(PropertyValue::Opacity { value, .. }) => value,
-                _ => 1.0,
-            };
-            primitives = Group::new(primitives, opacity)
-                .map(Primitive::Group)
-                .into_iter()
-                .collect();
-        }
-        let clip = match properties.value(PropertyRef::new(node.id, PropertyKind::Clip)) {
-            Some(PropertyValue::Clip { rect, .. }) => Some(
-                Clip::new(rect).with_rounding(node.clip.map(Clip::rounding).unwrap_or_default()),
-            ),
-            _ => node.clip,
-        };
-        if let Some(clip) = clip {
-            let mut clipped = Vec::with_capacity(primitives.len() + 2);
-            clipped.push(Primitive::Clip(clip));
-            clipped.extend(primitives);
-            clipped.push(Primitive::PopClip);
-            primitives = clipped;
-        }
-        primitives
-    }
-}
-
-fn semantic_order(
-    order: &[Draw],
-    resident_nodes: &HashSet<composition::tree::NodeId>,
-    resident_scrolls: &HashSet<composition::tree::NodeId>,
-) -> Vec<Draw> {
-    let mut projected = Vec::with_capacity(order.len());
-    let mut scopes = Vec::new();
-    let mut omitted_scroll_depth = 0_usize;
-    for draw in order {
-        if omitted_scroll_depth > 0 {
-            match draw {
-                Draw::PushScroll { .. } => {
-                    omitted_scroll_depth = omitted_scroll_depth.saturating_add(1);
-                }
-                Draw::PopScroll => {
-                    omitted_scroll_depth = omitted_scroll_depth.saturating_sub(1);
-                }
-                _ => {}
-            }
-            continue;
-        }
-        match draw {
-            Draw::PushClip { node, .. } => {
-                let retained = node.is_none_or(|node| !resident_nodes.contains(&node));
-                let start = retained.then(|| {
-                    let start = projected.len();
-                    projected.push(draw.clone());
-                    start
-                });
-                scopes.push((start, Draw::PopClip));
-            }
-            Draw::PushGroup { node, .. } => {
-                let start = (!resident_nodes.contains(node)).then(|| {
-                    let start = projected.len();
-                    projected.push(draw.clone());
-                    start
-                });
-                scopes.push((start, Draw::PopGroup));
-            }
-            Draw::PushScroll { node } => {
-                if resident_scrolls.contains(node) {
-                    omitted_scroll_depth = 1;
-                    continue;
-                }
-                let start = (!resident_nodes.contains(node)).then(|| {
-                    let start = projected.len();
-                    projected.push(draw.clone());
-                    start
-                });
-                scopes.push((start, Draw::PopScroll));
-            }
-            Draw::PopClip | Draw::PopGroup | Draw::PopScroll => {
-                let Some((start, pop)) = scopes.pop() else {
-                    continue;
-                };
-                debug_assert_eq!(std::mem::discriminant(draw), std::mem::discriminant(&pop));
-                if let Some(start) = start {
-                    if projected.len() == start + 1 {
-                        projected.truncate(start);
-                    } else {
-                        projected.push(pop);
-                    }
-                }
-            }
-            Draw::Content {
-                node, projection, ..
-            } if !resident_nodes.contains(node) && *projection != ContentProjection::Caret => {
-                projected.push(draw.clone());
-            }
-            Draw::Content { .. } => {}
-        }
-    }
-    projected
 }
 
 fn semanticize_transient_content(
@@ -912,7 +694,7 @@ fn remap_semantic_content_indices(
 }
 
 impl Content {
-    fn as_primitive(&self, transform: Option<PropertyValue>) -> Primitive {
+    pub(crate) fn as_primitive(&self, transform: Option<PropertyValue>) -> Primitive {
         match self {
             Self::Quad(quad) => {
                 let quad = match transform {
@@ -982,7 +764,7 @@ impl ContentProjection {
         Some(rounded.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32)
     }
 
-    fn project_primitive(
+    pub(crate) fn project_primitive(
         self,
         primitive: Primitive,
         node: composition::tree::NodeId,
@@ -1101,12 +883,14 @@ impl Builder {
             content: Vec::new(),
             properties: Vec::new(),
             scroll: None,
+            scroll_target: None,
         });
     }
 
     pub(crate) fn declare_scroll(
         &mut self,
         id: composition::tree::NodeId,
+        target: interaction::Target,
         declaration: ScrollDeclaration,
     ) {
         let Some(index) = self.node_indices.get(&id).copied() else {
@@ -1117,6 +901,7 @@ impl Builder {
             node.properties.push(PropertyKind::ScrollOffset);
         }
         node.scroll = Some(declaration);
+        node.scroll_target = Some(super::spatial::ScrollTarget::Interaction(target));
     }
 
     pub(crate) fn push_scroll(&mut self, node: composition::tree::NodeId) {
@@ -1257,6 +1042,7 @@ impl Node {
             content,
             properties: Vec::new(),
             scroll: None,
+            scroll_target: None,
             clip: None,
             opacity: OpacityDeclaration::Blended,
             effect: EffectDeclaration::None,
@@ -1282,6 +1068,7 @@ impl Node {
             if previous.parent == draft.parent
                 && previous.properties == draft.properties
                 && previous.scroll == draft.scroll
+                && previous.scroll_target == draft.scroll_target
             {
                 previous.topology_revision
             } else {
@@ -1298,6 +1085,7 @@ impl Node {
             content: draft.content,
             properties: draft.properties,
             scroll: draft.scroll,
+            scroll_target: draft.scroll_target,
             clip: None,
             opacity: OpacityDeclaration::Blended,
             effect: EffectDeclaration::None,
@@ -1350,6 +1138,7 @@ impl Node {
             if previous.parent == source.parent
                 && previous.properties == source.properties
                 && previous.scroll == scroll
+                && previous.scroll_target == source.scroll_target
                 && previous.clip == source.clip
                 && previous.opacity == source.opacity
                 && previous.effect == source.effect
@@ -1369,6 +1158,7 @@ impl Node {
             content,
             properties: source.properties.clone(),
             scroll,
+            scroll_target: source.scroll_target.clone(),
             clip: source.clip,
             opacity: source.opacity,
             effect: source.effect,
@@ -1406,6 +1196,13 @@ impl Node {
     #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn with_scroll(mut self, scroll: ScrollDeclaration) -> Self {
         self.scroll = Some(scroll);
+        self.scroll_target = Some(super::spatial::ScrollTarget::scene_node(self.id));
+        self
+    }
+
+    #[cfg(any(test, feature = "renderer-debug"))]
+    pub(crate) fn with_scroll_target(mut self, target: super::spatial::ScrollTarget) -> Self {
+        self.scroll_target = Some(target);
         self
     }
 
@@ -1439,6 +1236,10 @@ impl Node {
 
     pub(crate) fn scroll(&self) -> Option<ScrollDeclaration> {
         self.scroll
+    }
+
+    pub(crate) fn scroll_target(&self) -> Option<&super::spatial::ScrollTarget> {
+        self.scroll_target.as_ref()
     }
 
     pub(crate) fn clip(&self) -> Option<Clip> {
@@ -1838,6 +1639,10 @@ impl ScrollDeclaration {
 
     pub(crate) fn baseline(self) -> interaction::ScrollOffset {
         self.baseline
+    }
+
+    pub(crate) fn maximum(self) -> interaction::ScrollOffset {
+        self.maximum
     }
 
     fn semantic(self) -> Self {
@@ -3565,7 +3370,8 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
             viewport,
             vertical_bounds,
             interaction::ScrollOffset::new(0, 40),
-        ));
+        ))
+        .with_scroll_target(super::spatial::ScrollTarget::scene_node(horizontal));
     let body_node = Node::new(
         body,
         Some(vertical),
@@ -3941,6 +3747,88 @@ pub(crate) fn renderer_text_atlas_pressure_pair()
 mod tests {
     use super::super::{Glass, Material};
     use super::*;
+
+    #[cfg(feature = "renderer-debug")]
+    #[test]
+    fn tier_a_compatibility_output_is_generated_from_the_same_spatial_topology() {
+        for case in ScrollOracleCase::ALL {
+            let fixture = renderer_scroll_oracle_fixture(case).expect("Tier A fixture");
+            let actual = fixture
+                .actual
+                .compatibility_scene(&fixture.tick)
+                .expect("actual compatibility scene");
+            let expected = fixture
+                .expected
+                .compatibility_scene(&fixture.expected_properties)
+                .expect("expected compatibility scene");
+
+            let actual_geometry = compatibility_payload_geometry(actual.primitives());
+            let expected_geometry = compatibility_payload_geometry(expected.primitives());
+            let mut unmatched = actual_geometry.clone();
+            for expected_payload in &expected_geometry {
+                let position = unmatched
+                    .iter()
+                    .position(|actual_payload| actual_payload == expected_payload)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{} compatibility projection omitted {expected_payload:?}; actual payload geometry: {actual_geometry:?}",
+                            case.name()
+                        )
+                    });
+                unmatched.remove(position);
+            }
+            assert!(
+                unmatched.is_empty(),
+                "{} compatibility projection added payload geometry: {unmatched:?}",
+                case.name()
+            );
+            for region in &fixture.moving {
+                assert!(
+                    actual_geometry
+                        .iter()
+                        .any(|(_, rect)| compatibility_rect_contains(*rect, region.translated)),
+                    "{} compatibility projection did not move {} to {:?}; actual payload geometry: {actual_geometry:?}",
+                    case.name(),
+                    region.name,
+                    region.translated
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    fn compatibility_payload_geometry(
+        primitives: &[Primitive],
+    ) -> Vec<(&'static str, geometry::Rect)> {
+        let mut geometry = Vec::new();
+        for primitive in primitives {
+            match primitive {
+                Primitive::Quad(quad) => geometry.push(("quad", quad.rect())),
+                Primitive::Rule(rule) => geometry.push(("rule", rule.rect())),
+                Primitive::Text(text) => geometry.push(("text", text.rect())),
+                Primitive::TextViewport(viewport) => {
+                    geometry.push(("text-viewport", viewport.rect()));
+                }
+                Primitive::Icon(icon) => geometry.push(("icon", icon.rect())),
+                Primitive::Shadow(shadow) => geometry.push(("shadow", shadow.rect())),
+                Primitive::Pane(pane) => geometry.push(("pane", pane.rect())),
+                Primitive::Outline(outline) => geometry.push(("outline", outline.rect())),
+                Primitive::Group(group) => {
+                    geometry.extend(compatibility_payload_geometry(group.primitives()));
+                }
+                Primitive::Clip(_) | Primitive::PopClip => {}
+            }
+        }
+        geometry
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    fn compatibility_rect_contains(outer: geometry::Rect, inner: geometry::Rect) -> bool {
+        outer.x() <= inner.x()
+            && outer.y() <= inner.y()
+            && outer.right() >= inner.right()
+            && outer.bottom() >= inner.bottom()
+    }
 
     fn id(value: u64) -> composition::tree::NodeId {
         composition::tree::NodeId::layout(&mut value.clone())

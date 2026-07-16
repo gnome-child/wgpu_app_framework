@@ -1894,13 +1894,15 @@ impl Harness {
                 let (mismatched, maximum) =
                     compare_region(bounds, &tick_pixels, &expected_pixels, MATCH_TOLERANCE);
                 if mismatched > 0 {
+                    let (changed_from_initial, changed_maximum) =
+                        compare_region(bounds, &tick_pixels, &initial_pixels, MATCH_TOLERANCE);
                     let behavior = if position == "old" {
                         "did not vacate its old position"
                     } else {
                         "did not occupy its translated position"
                     };
                     return Err(format!(
-                        "{} {} {behavior} on the first property tick at {}x: mismatched_pixels={mismatched} maximum_channel_delta={maximum}",
+                        "{} {} {behavior} on the first property tick at {}x: mismatched_pixels={mismatched} maximum_channel_delta={maximum} changed_from_initial_pixels={changed_from_initial} changed_from_initial_maximum={changed_maximum}",
                         case.name(),
                         region.name,
                         self.scale_factor

@@ -307,6 +307,7 @@ pub(in crate::render) struct SyncStats {
 pub(in crate::render) struct Plan {
     batches: Vec<PlanStep>,
     property_bindings: Vec<PropertyBinding>,
+    spatial_bindings: Vec<scene::SpatialBinding>,
     requires_surface_sampling: bool,
     facts: PlanFacts,
 }
@@ -336,8 +337,11 @@ impl Plan {
     #[cfg(feature = "renderer-debug")]
     fn debug_signature(&self) -> String {
         format!(
-            "batches={:?};property_bindings={:?};requires_surface_sampling={}",
-            self.batches, self.property_bindings, self.requires_surface_sampling
+            "batches={:?};property_bindings={:?};spatial_bindings={:?};requires_surface_sampling={}",
+            self.batches,
+            self.property_bindings,
+            self.spatial_bindings,
+            self.requires_surface_sampling
         )
     }
 }
@@ -406,9 +410,14 @@ struct TargetSpace {
     size: [f32; 2],
     text_origin: [f32; 2],
     text_size: [f32; 2],
-    target: Option<composition::tree::NodeId>,
-    scroll_root: Option<composition::tree::NodeId>,
-    current_scroll: Option<composition::tree::NodeId>,
+    spatial: scene::SpatialBinding,
+}
+
+impl TargetSpace {
+    fn with_spatial(mut self, state: scene::SpatialPropertyState) -> Self {
+        self.spatial = state.spatial();
+        self
+    }
 }
 
 impl PartialEq for TargetSpace {
@@ -417,9 +426,7 @@ impl PartialEq for TargetSpace {
             && self.size.map(f32::to_bits) == other.size.map(f32::to_bits)
             && self.text_origin.map(f32::to_bits) == other.text_origin.map(f32::to_bits)
             && self.text_size.map(f32::to_bits) == other.text_size.map(f32::to_bits)
-            && self.target == other.target
-            && self.scroll_root == other.scroll_root
-            && self.current_scroll == other.current_scroll
+            && self.spatial == other.spatial
     }
 }
 
@@ -431,22 +438,18 @@ impl std::hash::Hash for TargetSpace {
         self.size.map(f32::to_bits).hash(state);
         self.text_origin.map(f32::to_bits).hash(state);
         self.text_size.map(f32::to_bits).hash(state);
-        self.target.hash(state);
-        self.scroll_root.hash(state);
-        self.current_scroll.hash(state);
+        self.spatial.hash(state);
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ScrollBinding {
-    node: Option<composition::tree::NodeId>,
-    root: Option<composition::tree::NodeId>,
+    spatial: scene::SpatialBinding,
 }
 
 impl ScrollBinding {
     const IDENTITY: Self = Self {
-        node: None,
-        root: None,
+        spatial: scene::SpatialBinding::ROOT,
     };
 }
 
@@ -460,8 +463,7 @@ struct PropertyBinding {
 impl PropertyBinding {
     fn scroll(self) -> ScrollBinding {
         ScrollBinding {
-            node: self.space.current_scroll,
-            root: self.space.scroll_root,
+            spatial: self.space.spatial,
         }
     }
 }
@@ -519,12 +521,12 @@ enum PendingFrameKind {
         bounds: crate::paint::Rect,
         opacity: f32,
         parent_origin: [f32; 2],
+        spatial: scene::SpatialBinding,
     },
     Scroll {
-        node: composition::tree::NodeId,
         viewport: crate::paint::Rect,
-        baseline: crate::interaction::ScrollOffset,
         parent_origin: [f32; 2],
+        spatial: scene::SpatialBinding,
     },
 }
 
@@ -615,6 +617,7 @@ impl Realizer {
             shapes: &mut self.shapes,
             text_renderer,
             projection: &projection,
+            spatial_topology: commit.spatial_topology(),
             rebuilt_nodes: std::mem::take(&mut pending.rebuilt_nodes),
             property_bindings: std::mem::take(&mut pending.property_bindings),
             stats: std::mem::take(&mut pending.stats),
@@ -654,9 +657,11 @@ impl Realizer {
             .batches;
         coalesce_shape_batches(&mut batches);
         let requires_surface_sampling = render::renderer::requires_surface_sampling(&batches);
+        let spatial_bindings = collect_plan_spatial_bindings(&batches);
         let plan = Arc::new(Plan {
             batches,
             property_bindings: pending.property_bindings,
+            spatial_bindings,
             requires_surface_sampling,
             facts: PlanFacts::from_stats(&pending.stats),
         });
@@ -766,6 +771,7 @@ impl Realizer {
                 shapes: &mut self.shapes,
                 text_renderer,
                 projection: &projection,
+                spatial_topology: commit.spatial_topology(),
                 rebuilt_nodes: HashSet::new(),
                 property_bindings: Vec::new(),
                 stats: render::DrawStats::default(),
@@ -784,12 +790,17 @@ impl Realizer {
             plan
         };
 
-        let (property_bindings, property_stats) = self.shapes.prepare_properties(
+        let (mut property_bindings, property_stats) = self.shapes.prepare_properties(
             render_context,
             viewport,
             commit,
             properties,
             &plan.property_bindings,
+        );
+        property_bindings.prepare_spatial_translations(
+            commit.spatial_topology(),
+            properties,
+            &plan.spatial_bindings,
         );
         apply_sync_stats(&mut stats, property_stats);
         apply_sync_stats(
@@ -798,8 +809,8 @@ impl Realizer {
                 render_context,
                 viewport,
                 commit,
-                properties,
                 plan.batches(),
+                &mut property_bindings,
                 text_renderer,
             ),
         );
@@ -875,12 +886,17 @@ impl Realizer {
         let Some(plan) = self.find_plan(commit, viewport, projection) else {
             return Ok(None);
         };
-        let (property_bindings, property_stats) = self.shapes.prepare_properties(
+        let (mut property_bindings, property_stats) = self.shapes.prepare_properties(
             render_context,
             viewport,
             commit,
             properties,
             &plan.property_bindings,
+        );
+        property_bindings.prepare_spatial_translations(
+            commit.spatial_topology(),
+            properties,
+            &plan.spatial_bindings,
         );
         let mut stats = render::DrawStats::default();
         apply_sync_stats(&mut stats, property_stats);
@@ -890,8 +906,8 @@ impl Realizer {
                 render_context,
                 viewport,
                 commit,
-                properties,
                 plan.batches(),
+                &mut property_bindings,
                 text_renderer,
             ),
         );
@@ -1100,12 +1116,12 @@ fn prepare_text_transforms(
     render_context: &render::Context,
     viewport: render::Viewport,
     commit: &Arc<scene::Commit>,
-    properties: &scene::Properties,
     batches: &[PlanStep],
+    property_bindings: &mut PropertyBindings,
     text_renderer: &mut render::text_renderer::TextRenderer,
 ) -> SyncStats {
     let mut transforms = Vec::new();
-    collect_text_transforms(batches, properties, [0.0, 0.0], &mut transforms);
+    collect_text_transforms(batches, property_bindings, &mut transforms);
     let report =
         text_renderer.prepare_retained_transforms(render_context, viewport, commit, &transforms);
     SyncStats {
@@ -1119,35 +1135,23 @@ fn prepare_text_transforms(
 
 fn collect_text_transforms(
     batches: &[PlanStep],
-    properties: &scene::Properties,
-    translation: [f32; 2],
+    property_bindings: &mut PropertyBindings,
     transforms: &mut Vec<(render::text_renderer::RetainedBatch, [f32; 2])>,
 ) {
     for batch in batches {
         match batch {
             PlanStep::Layer(layer) => {
-                collect_text_transforms(&layer.render_batches, properties, translation, transforms);
+                collect_text_transforms(&layer.render_batches, property_bindings, transforms);
             }
             PlanStep::Text(batch) => {
+                let translation = property_bindings.spatial_translation(batch.spatial());
                 transforms.push((*batch, batch.translation(translation)));
             }
             PlanStep::Group(group) => {
-                collect_text_transforms(&group.render_batches, properties, [0.0, 0.0], transforms);
+                collect_text_transforms(&group.render_batches, property_bindings, transforms);
             }
             PlanStep::Scroll(scroll) => {
-                let current = properties
-                    .scroll_offset(scroll.node)
-                    .unwrap_or(scroll.baseline);
-                let own = [
-                    scroll.baseline.x().saturating_sub(current.x()) as f32,
-                    scroll.baseline.y().saturating_sub(current.y()) as f32,
-                ];
-                collect_text_transforms(
-                    &scroll.render_batches,
-                    properties,
-                    [translation[0] + own[0], translation[1] + own[1]],
-                    transforms,
-                );
+                collect_text_transforms(&scroll.render_batches, property_bindings, transforms);
             }
             PlanStep::Shapes(_) | PlanStep::Pane(_) | PlanStep::PushClip(_) | PlanStep::PopClip => {
             }
@@ -1182,9 +1186,7 @@ impl PendingPlan {
                 viewport.logical_area().width().max(1.0),
                 viewport.logical_area().height().max(1.0),
             ],
-            scroll_root: None,
-            target: None,
-            current_scroll: None,
+            spatial: scene::SpatialBinding::ROOT,
         };
         let order = commit.order().map(|order| Arc::from(order.to_vec()));
         Self {
@@ -1226,6 +1228,7 @@ impl PendingPlan {
         let started_at = std::time::Instant::now();
         let mut prepared_content = false;
         while let Some(draw) = order.get(self.order_index) {
+            let draw_index = self.order_index;
             self.order_index = self.order_index.saturating_add(1);
             let space = self
                 .frames
@@ -1251,7 +1254,10 @@ impl PendingPlan {
                             *index,
                             content,
                             *projection,
-                            space,
+                            self.commit
+                                .spatial_topology()
+                                .draw_state(draw_index)
+                                .map_or(space, |state| space.with_spatial(state)),
                             target,
                         )?;
                     }
@@ -1271,6 +1277,11 @@ impl PendingPlan {
                                 builder.viewport.scale_factor(),
                             ),
                             scene_origin: space.origin,
+                            spatial: builder
+                                .spatial_topology
+                                .draw_state(draw_index)
+                                .map(scene::SpatialPropertyState::spatial)
+                                .unwrap_or(space.spatial),
                         }));
                 }
                 scene::Draw::PopClip => {
@@ -1287,21 +1298,24 @@ impl PendingPlan {
                     bounds,
                     opacity,
                 } => {
-                    let mut projected_index = self.order_index;
-                    let bounds = builder
-                        .project_order_group_bounds(order, &mut projected_index, &self.nodes)
-                        .unwrap_or_else(|| {
-                            render::scene::to_paint_rect_value_at_scale(
-                                *bounds,
-                                builder.viewport.scale_factor(),
-                            )
-                        });
+                    let bounds = render::scene::to_paint_rect_value_at_scale(
+                        builder
+                            .spatial_topology
+                            .surface_bounds_for_draw(draw_index)
+                            .unwrap_or(*bounds),
+                        builder.viewport.scale_factor(),
+                    );
                     self.frames.push(PendingFrame {
                         kind: PendingFrameKind::Group {
                             node: *node,
                             bounds,
                             opacity: *opacity,
                             parent_origin: space.origin,
+                            spatial: builder
+                                .spatial_topology
+                                .draw_state(draw_index)
+                                .map(scene::SpatialPropertyState::spatial)
+                                .unwrap_or(space.spatial),
                         },
                         space: TargetSpace {
                             origin: [bounds.origin.x(), bounds.origin.y()],
@@ -1311,9 +1325,7 @@ impl PendingPlan {
                                 bounds.area.width().max(1.0),
                                 bounds.area.height().max(1.0),
                             ],
-                            target: Some(*node),
-                            scroll_root: space.current_scroll.or(space.scroll_root),
-                            current_scroll: None,
+                            spatial: space.spatial,
                         },
                         batches: Vec::new(),
                     });
@@ -1334,13 +1346,15 @@ impl PendingPlan {
                     );
                     self.frames.push(PendingFrame {
                         kind: PendingFrameKind::Scroll {
-                            node: *node,
                             viewport,
-                            baseline: declaration.baseline(),
                             parent_origin: space.origin,
+                            spatial: builder
+                                .spatial_topology
+                                .draw_state(draw_index)
+                                .map(scene::SpatialPropertyState::spatial)
+                                .unwrap_or(space.spatial),
                         },
                         space: TargetSpace {
-                            current_scroll: Some(*node),
                             text_origin: [resident.origin.x(), resident.origin.y()],
                             text_size: [
                                 resident.area.width().max(1.0),
@@ -1369,6 +1383,7 @@ impl PendingPlan {
             bounds,
             opacity,
             parent_origin,
+            spatial,
         } = frame.kind
         else {
             self.frames.push(frame);
@@ -1385,6 +1400,7 @@ impl PendingPlan {
                 node: Some(node),
                 bounds: local_group_bounds(bounds, parent_origin),
                 opacity,
+                spatial,
                 render_batches: frame.batches,
             }));
     }
@@ -1394,10 +1410,9 @@ impl PendingPlan {
             return;
         };
         let PendingFrameKind::Scroll {
-            node,
             viewport,
-            baseline,
             parent_origin,
+            spatial,
         } = frame.kind
         else {
             self.frames.push(frame);
@@ -1409,9 +1424,8 @@ impl PendingPlan {
             .expect("retained scroll must return to its parent frame")
             .batches
             .push(PlanStep::Scroll(PreparedScroll {
-                node,
                 viewport: local_rect(viewport, parent_origin),
-                baseline,
+                spatial,
                 render_batches: frame.batches,
             }));
     }
@@ -1423,15 +1437,10 @@ struct PlanBuilder<'a> {
     shapes: &'a mut Shapes,
     text_renderer: &'a mut render::text_renderer::TextRenderer,
     projection: &'a Projection,
+    spatial_topology: &'a scene::SpatialTopology,
     rebuilt_nodes: HashSet<composition::tree::NodeId>,
     property_bindings: Vec<PropertyBinding>,
     stats: render::DrawStats,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PlanStop {
-    Group,
-    Scroll,
 }
 
 impl PlanBuilder<'_> {
@@ -1453,221 +1462,26 @@ impl PlanBuilder<'_> {
     }
 
     fn build(&mut self, commit: &Arc<scene::Commit>) -> render::Result<Plan> {
-        let nodes = commit
-            .nodes()
-            .iter()
-            .map(|node| (node.id(), Arc::clone(node)))
-            .collect::<HashMap<_, _>>();
-        for node in commit.nodes() {
-            match node.opacity() {
-                scene::OpacityDeclaration::Opaque => self.stats.opaque_nodes += 1,
-                scene::OpacityDeclaration::Blended | scene::OpacityDeclaration::Variable => {
-                    self.stats.blended_nodes += 1;
-                }
-            }
-        }
-        let mut batches = Vec::new();
-        let main = TargetSpace {
-            origin: self.projection.origin,
-            size: [
-                self.viewport.logical_area().width().max(1.0),
-                self.viewport.logical_area().height().max(1.0),
-            ],
-            text_origin: self.projection.origin,
-            text_size: [
-                self.viewport.logical_area().width().max(1.0),
-                self.viewport.logical_area().height().max(1.0),
-            ],
-            scroll_root: None,
-            target: None,
-            current_scroll: None,
-        };
-        if let Some(order) = commit.order() {
-            let mut index = 0;
-            self.build_order(order, &mut index, None, &nodes, main, &mut batches)?;
-        } else {
-            for node in commit.nodes().iter().filter(|node| node.parent().is_none()) {
-                self.build_node(commit, node, main, &mut batches)?;
-            }
-        }
+        let mut compiler =
+            PendingPlan::new(Arc::clone(commit), self.viewport, self.projection.clone());
+        self.stats = std::mem::take(&mut compiler.stats);
+        let ready = compiler.advance(self, std::time::Duration::MAX)?;
+        debug_assert!(ready, "an unbounded plan compile must finish in one slice");
+        let mut batches = compiler
+            .frames
+            .pop()
+            .expect("completed plan compilation must retain its root frame")
+            .batches;
         coalesce_shape_batches(&mut batches);
         let requires_surface_sampling = render::renderer::requires_surface_sampling(&batches);
+        let spatial_bindings = collect_plan_spatial_bindings(&batches);
         Ok(Plan {
             batches,
             property_bindings: std::mem::take(&mut self.property_bindings),
+            spatial_bindings,
             requires_surface_sampling,
             facts: PlanFacts::from_stats(&self.stats),
         })
-    }
-
-    fn build_order(
-        &mut self,
-        order: &[scene::Draw],
-        index: &mut usize,
-        stop: Option<PlanStop>,
-        nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
-        space: TargetSpace,
-        target: &mut Vec<PlanStep>,
-    ) -> render::Result<()> {
-        while let Some(draw) = order.get(*index) {
-            *index = index.saturating_add(1);
-            match draw {
-                scene::Draw::Content {
-                    node,
-                    index,
-                    projection,
-                } => {
-                    if let Some(owner) = nodes.get(node)
-                        && let Some(content) = owner.content().get(*index)
-                    {
-                        self.build_content(owner, *index, content, *projection, space, target)?;
-                    }
-                }
-                scene::Draw::PushClip { node, clip } => {
-                    self.stats.scene_items += 1;
-                    self.stats.clip_batches += 1;
-                    target.push(PlanStep::PushClip(PreparedClip {
-                        node: *node,
-                        fallback: render::scene::to_paint_clip_value_at_scale(
-                            *clip,
-                            self.viewport.scale_factor(),
-                        ),
-                        scene_origin: space.origin,
-                    }));
-                }
-                scene::Draw::PopClip => {
-                    self.stats.scene_items += 1;
-                    self.stats.clip_batches += 1;
-                    target.push(PlanStep::PopClip);
-                }
-                scene::Draw::PushGroup {
-                    node,
-                    bounds,
-                    opacity,
-                } => {
-                    let mut paint_index = *index;
-                    let bounds = self
-                        .project_order_group_bounds(order, &mut paint_index, nodes)
-                        .unwrap_or_else(|| {
-                            render::scene::to_paint_rect_value_at_scale(
-                                *bounds,
-                                self.viewport.scale_factor(),
-                            )
-                        });
-                    let group_space = TargetSpace {
-                        origin: [bounds.origin.x(), bounds.origin.y()],
-                        size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
-                        text_origin: [bounds.origin.x(), bounds.origin.y()],
-                        text_size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
-                        target: Some(*node),
-                        scroll_root: space.current_scroll.or(space.scroll_root),
-                        current_scroll: None,
-                    };
-                    let mut members = Vec::new();
-                    self.build_order(
-                        order,
-                        index,
-                        Some(PlanStop::Group),
-                        nodes,
-                        group_space,
-                        &mut members,
-                    )?;
-                    self.stats.scene_items += 1;
-                    self.stats.group_composites += 1;
-                    self.stats.effect_island_nodes += 1;
-                    target.push(PlanStep::Group(PreparedGroup {
-                        node: Some(*node),
-                        bounds: local_group_bounds(bounds, space.origin),
-                        opacity: *opacity,
-                        render_batches: members,
-                    }));
-                }
-                scene::Draw::PushScroll { node } => {
-                    let Some(declaration) = nodes.get(node).and_then(|node| node.scroll()) else {
-                        continue;
-                    };
-                    let viewport = render::scene::to_paint_rect_value_at_scale(
-                        declaration.viewport(),
-                        self.viewport.scale_factor(),
-                    );
-                    let resident = render::scene::to_paint_rect_value_at_scale(
-                        declaration.resident_bounds(),
-                        self.viewport.scale_factor(),
-                    );
-                    let mut members = Vec::new();
-                    let scroll_space = TargetSpace {
-                        current_scroll: Some(*node),
-                        text_origin: [resident.origin.x(), resident.origin.y()],
-                        text_size: [
-                            resident.area.width().max(1.0),
-                            resident.area.height().max(1.0),
-                        ],
-                        ..space
-                    };
-                    self.build_order(
-                        order,
-                        index,
-                        Some(PlanStop::Scroll),
-                        nodes,
-                        scroll_space,
-                        &mut members,
-                    )?;
-                    self.stats.scene_items += 1;
-                    target.push(PlanStep::Scroll(PreparedScroll {
-                        node: *node,
-                        viewport: local_rect(viewport, space.origin),
-                        baseline: declaration.baseline(),
-                        render_batches: members,
-                    }));
-                }
-                scene::Draw::PopGroup if stop == Some(PlanStop::Group) => return Ok(()),
-                scene::Draw::PopGroup => {}
-                scene::Draw::PopScroll if stop == Some(PlanStop::Scroll) => return Ok(()),
-                scene::Draw::PopScroll => {}
-            }
-        }
-        Ok(())
-    }
-
-    fn project_order_group_bounds(
-        &self,
-        order: &[scene::Draw],
-        index: &mut usize,
-        nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
-    ) -> Option<crate::paint::Rect> {
-        let mut bounds = None;
-        while let Some(draw) = order.get(*index) {
-            *index = index.saturating_add(1);
-            match draw {
-                scene::Draw::Content { node, index, .. } => {
-                    let content = nodes.get(node)?.content().get(*index)?;
-                    let content =
-                        render::scene::prepare_content(content, self.viewport.scale_factor());
-                    bounds = Some(bounds.map_or_else(
-                        || content.bounds(self.viewport.scale_factor()),
-                        |bounds| {
-                            crate::paint::union_visual_bounds(
-                                bounds,
-                                content.bounds(self.viewport.scale_factor()),
-                            )
-                        },
-                    ));
-                }
-                scene::Draw::PushGroup { .. } => {
-                    if let Some(group) = self.project_order_group_bounds(order, index, nodes) {
-                        bounds = Some(bounds.map_or(group, |bounds| {
-                            crate::paint::union_visual_bounds(bounds, group)
-                        }));
-                    }
-                }
-                scene::Draw::PopGroup => break,
-                scene::Draw::PushClip { .. }
-                | scene::Draw::PopClip
-                | scene::Draw::PushScroll { .. }
-                | scene::Draw::PopScroll => {}
-            }
-        }
-        bounds.map(|bounds| crate::paint::Grid::new(self.viewport.scale_factor()).snap_rect(bounds))
     }
 
     fn build_node(
@@ -1687,6 +1501,7 @@ impl PlanBuilder<'_> {
                     self.viewport.scale_factor(),
                 ),
                 scene_origin: parent_space.origin,
+                spatial: parent_space.spatial,
             }));
         }
 
@@ -1701,18 +1516,20 @@ impl PlanBuilder<'_> {
             size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
             text_origin: [bounds.origin.x(), bounds.origin.y()],
             text_size: [bounds.area.width().max(1.0), bounds.area.height().max(1.0)],
-            target: Some(node.id()),
-            scroll_root: parent_space.current_scroll.or(parent_space.scroll_root),
-            current_scroll: None,
+            spatial: parent_space.spatial,
         });
         let mut body = Vec::new();
         for (index, content) in node.content().iter().enumerate() {
+            let content_space = commit
+                .spatial_topology()
+                .content_state(node.id(), index, scene::ContentProjection::Normal)
+                .map_or(body_space, |state| body_space.with_spatial(state));
             self.build_content(
                 node,
                 index,
                 content,
                 scene::ContentProjection::Normal,
-                body_space,
+                content_space,
                 &mut body,
             )?;
         }
@@ -1741,6 +1558,7 @@ impl PlanBuilder<'_> {
                         parent_space.origin,
                     ),
                     opacity: 1.0,
+                    spatial: parent_space.spatial,
                     render_batches: body,
                 }));
             }
@@ -1972,8 +1790,7 @@ impl PlanBuilder<'_> {
                 space.text_origin[0] - space.origin[0],
                 space.text_origin[1] - space.origin[1],
             ],
-            space.current_scroll,
-            space.target,
+            space.spatial,
         )?;
         if report.prepare_calls > 0 {
             self.rebuilt_nodes.insert(node.id());
@@ -2051,6 +1868,7 @@ impl PlanBuilder<'_> {
                     space.origin[0],
                     space.origin[1],
                 )),
+            spatial: space.spatial,
             base,
             surface_layers,
         };
@@ -2135,6 +1953,39 @@ fn count_batches(batches: &[PlanStep]) -> usize {
         .sum()
 }
 
+fn collect_plan_spatial_bindings(batches: &[PlanStep]) -> Vec<scene::SpatialBinding> {
+    fn push_unique(target: &mut Vec<scene::SpatialBinding>, binding: scene::SpatialBinding) {
+        if !target.contains(&binding) {
+            target.push(binding);
+        }
+    }
+
+    fn collect(batches: &[PlanStep], target: &mut Vec<scene::SpatialBinding>) {
+        for batch in batches {
+            match batch {
+                PlanStep::Layer(layer) => collect(&layer.render_batches, target),
+                PlanStep::Shapes(batch) => push_unique(target, batch.binding().space.spatial),
+                PlanStep::Pane(pane) => push_unique(target, pane.spatial),
+                PlanStep::Text(batch) => push_unique(target, batch.spatial()),
+                PlanStep::PushClip(clip) => push_unique(target, clip.spatial),
+                PlanStep::PopClip => {}
+                PlanStep::Group(group) => {
+                    push_unique(target, group.spatial);
+                    collect(&group.render_batches, target);
+                }
+                PlanStep::Scroll(scroll) => {
+                    push_unique(target, scroll.spatial);
+                    collect(&scroll.render_batches, target);
+                }
+            }
+        }
+    }
+
+    let mut bindings = Vec::new();
+    collect(batches, &mut bindings);
+    bindings
+}
+
 fn coalesce_shape_batches(batches: &mut Vec<PlanStep>) {
     let mut coalesced = Vec::with_capacity(batches.len());
     for mut batch in batches.drain(..) {
@@ -2180,6 +2031,7 @@ pub(in crate::render) struct PropertyBindings {
     slot: usize,
     scroll_offsets: HashMap<ScrollBinding, u32>,
     scroll_slot: usize,
+    spatial_translations: HashMap<scene::SpatialBinding, [f32; 2]>,
 }
 
 impl PropertyBindings {
@@ -2192,6 +2044,34 @@ impl PropertyBindings {
             .get(&binding.scroll())
             .copied()
             .unwrap_or_default()
+    }
+
+    pub(in crate::render) fn spatial_translation(
+        &self,
+        spatial: scene::SpatialBinding,
+    ) -> [f32; 2] {
+        self.spatial_translations
+            .get(&spatial)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn prepare_spatial_translations(
+        &mut self,
+        topology: &scene::SpatialTopology,
+        properties: &scene::Properties,
+        bindings: &[scene::SpatialBinding],
+    ) {
+        self.spatial_translations.clear();
+        self.spatial_translations
+            .extend(bindings.iter().copied().map(|binding| {
+                (
+                    binding,
+                    topology
+                        .scroll_translation(binding, properties)
+                        .unwrap_or_default(),
+                )
+            }));
     }
 }
 
@@ -2463,6 +2343,7 @@ impl Shapes {
                     slot: 0,
                     scroll_offsets: HashMap::new(),
                     scroll_slot: 0,
+                    spatial_translations: HashMap::new(),
                 },
                 stats,
             );
@@ -2490,6 +2371,7 @@ impl Shapes {
                 slot,
                 scroll_offsets,
                 scroll_slot,
+                spatial_translations: HashMap::new(),
             },
             stats,
         )
@@ -2678,41 +2560,13 @@ impl Shapes {
             .collect::<HashMap<_, _>>();
         let required = scroll_bindings.len().max(1);
         let mut bytes = vec![0_u8; required * self.scroll_property_stride];
-        let mut inherited_scroll = HashMap::with_capacity(commit.nodes().len());
-        for node in commit.nodes() {
-            let parent_scroll = node
-                .parent()
-                .and_then(|parent| inherited_scroll.get(&parent).copied())
-                .unwrap_or([0.0_f32; 2]);
-            let own_scroll = node.scroll().map_or([0.0, 0.0], |declaration| {
-                let current = properties
-                    .scroll_offset(node.id())
-                    .unwrap_or(declaration.baseline());
-                [
-                    declaration.baseline().x().saturating_sub(current.x()) as f32,
-                    declaration.baseline().y().saturating_sub(current.y()) as f32,
-                ]
-            });
-            inherited_scroll.insert(
-                node.id(),
-                [
-                    parent_scroll[0] + own_scroll[0],
-                    parent_scroll[1] + own_scroll[1],
-                ],
-            );
-        }
-
         for (index, binding) in scroll_bindings.iter().copied().enumerate() {
-            let inherited = binding
-                .node
-                .and_then(|node| inherited_scroll.get(&node).copied())
-                .unwrap_or_default();
-            let root = binding
-                .root
-                .and_then(|node| inherited_scroll.get(&node).copied())
+            let translation = commit
+                .spatial_topology()
+                .scroll_translation(binding.spatial, properties)
                 .unwrap_or_default();
             let property = ScrollProperty {
-                translation: [inherited[0] - root[0], inherited[1] - root[1]],
+                translation,
                 ..ScrollProperty::IDENTITY
             };
             let offset = index * self.scroll_property_stride;
@@ -3152,9 +3006,7 @@ mod tests {
                 size: [100.0, 80.0],
                 text_origin: [0.0, 0.0],
                 text_size: [100.0, 80.0],
-                target: None,
-                scroll_root: None,
-                current_scroll: None,
+                spatial: scene::SpatialBinding::ROOT,
             },
             projection: scene::ContentProjection::Normal,
         }
@@ -3197,5 +3049,12 @@ mod tests {
         coalesce_shape_batches(&mut batches);
 
         assert_eq!(batches.len(), 3);
+    }
+
+    #[test]
+    fn property_binding_uses_the_compiled_spatial_identity() {
+        let local = binding(12);
+
+        assert_eq!(local.scroll(), ScrollBinding::IDENTITY);
     }
 }

@@ -1,6 +1,6 @@
 # Payload-neutral scrolling architecture audit and campaign
 
-Status: **EXECUTION AUTHORIZED; SC-000 AND SC-001 CLOSED; SC-002 READY**
+Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-002 CLOSED; SC-003 READY**
 
 Date: 2026-07-16
 
@@ -403,8 +403,8 @@ Update this table first whenever a loop changes state. `PENDING` means intention
 |---|---|---|---|
 | SC-000 | CLOSED | — | Baseline, generation vocabulary, bounded trace, property attribution, source census, and deterministic Tier B manifest are recorded at the SC-000 boundary on `master`. |
 | SC-001 | CLOSED | SC-000 vocabulary/receipts | Eight payload-neutral fixtures, 40 five-scale executions, direct/incremental plan equality, and all 10 negative controls are frozen. Twenty current executions are intentionally red and become SC-002 production gates. |
-| SC-002 | READY | SC-001 red oracle | After E-014 corrected static viewport clips, the genuine red is F04/F06 grouped text at all five scales; candidate/semantic/drawable/compatibility ownership is in scope. |
-| SC-003 | PENDING | SC-000 property receipts | Independent property-economics track; current 11,072-byte receipt is a baseline, not a budget. |
+| SC-002 | CLOSED | SC-001 red oracle | One immutable candidate-owned spatial topology now supplies candidate, semantic/drawable, compatibility, retained-planning, shape, text, clip, pane, viewport, and surface adapters. Tier A is 40/40 green with all 10 negative controls preserved. |
+| SC-003 | READY | SC-000 property receipts | Independent property-economics track; the new 10,656-byte five-scale receipt is an input, not a sparse-update budget. |
 | SC-004 | PENDING | SC-000 generation trace | Independent state contract; separate resident acceptance from `present_submitted`. |
 | SC-005 | PENDING | SC-000 input traces | Independent input-precision track; rounding remains a hypothesis pending sum-preservation controls. |
 | SC-006 | PENDING | SC-000 causal trace | Independent pacing track; `PresentationPulse` remains a hypothesis pending negative controls. |
@@ -432,6 +432,9 @@ Initial evidence ledger:
 | E-012 Tier A negative controls | RECORDED | N01, N03, N04, N05, N06 and N02 at all five scales produce exactly 10 failing mutations for missing translation, legacy group binding, double surface translation, moving fixed geometry, rule-only movement, and direct/incremental plan divergence. Each fails its named assertion. |
 | E-013 direct/incremental plan equality | RECORDED | Every Tier A fixture serializes the complete direct and bounded retained plan structures, including nested batches, geometry, resource/property bindings, and surface-sampling choice, before pixel comparison. No current positive failure is caused by direct/incremental divergence. |
 | E-014 static scroll-clip correction | RECORDED/SUPERSEDES PART OF E-011 | SC-002 preflight found that F07/F08 static expected commits omitted the fixed viewport clips introduced by production scroll scopes, and F08's first text probe began outside its initial clip. Adding independently authored fixed clips and moving the probe inside legal initial geometry makes F07/F08 green at all five scales. The corrected matrix is 30 green/10 red; only F04/F06 grouped text remains red. This invalidates E-011's inference that table text or split-axis geometry was defective, without changing its recorded first execution. |
+| E-015 explicit spatial topology | RECORDED/CLOSED | Every commit compiles a typed root/transform/scroll/surface topology with clip/effect references, content property states, scroll-target identity, and typed axis ownership. Release Tier A passes 40/40 across five scales and all 10 mutation controls remain discriminating. Direct and bounded plans execute the same resumable compiler; compatibility payload geometry matches independently authored static commits; repeated sibling, empty-payload, and filter-surface topology tests pass. |
+| E-016 post-topology warm table receipt | RECORDED | Release `table-scroll-work` is identical at scales 1.0/1.25/1.5/1.75/2.0: zero semantic/content preparation, shaping, payload upload, resource churn, and plan rebuilds; one plan reuse; 10,656 property bytes split as node 10,496, scroll 32, text 128, viewport/unattributed 0. This is 416 bytes below E-001 but remains SC-003 input, not a budget. |
+| E-017 spatial-owner deletion gate | RECORDED | The old commit-local semantic and compatibility interpreters, direct planner, mutable planner scroll ancestry, baseline-content-union surface bounds, and encoder scroll-offset reconstruction are deleted. The source census and architecture test require `SpatialTopology` to remain the sole candidate spatial compiler. Runtime-presented point projection remains explicitly owned by SC-008. |
 
 Append evidence; do not silently rewrite a failed receipt. When superseding a conclusion, add the new receipt and identify which prior inference it invalidates.
 
@@ -569,6 +572,30 @@ Closure:
 - Candidate, semantic/resident, drawable, and compatibility outputs either carry the normalized topology or are generated from it without reinterpreting draw scopes.
 - No content path infers an outer scroll from mutable group planner state.
 - Architecture tests reject a second authoritative spatial ancestry owner/interpreter, including in compatibility and residency paths.
+
+#### SC-002 closeout — candidate-owned spatial topology replaces distributed ancestry
+
+SC-002 closes the renderer-side spatial ownership replacement. `Commit::from_parts` now compiles and immutably owns one `SpatialTopology` for every candidate or projected commit. The topology contains typed root, transform, scroll, and surface-root nodes; independent clip and effect references; a normalized property state for every draw/content binding; explicit scroll-target identity; and per-axis ownership with conflict rejection. A split-axis target remains legal, while two nodes claiming the same target axis fail compilation.
+
+The original grouped-table symptom was not table behavior. A surface below an outer scroll was composited in parent scroll space while direct surface-local members could also inherit the outer scroll, and the inferred group allocation could shrink to the baseline content union. Grouped text then left that stale allocation after the first property update and disappeared or lagged while separately drawn rules moved. Direct surface-local bindings now begin at an explicit surface root, genuine nested scrolls below that root retain their local delta, and declared stable group/effect bounds replace baseline-content-union inference. This is the same contract for text, quads, rules, table payload, virtual rows, panes, clips, and filters.
+
+The migration deleted the alternate production ancestry owners rather than preserving a permanent dual path:
+
+- semantic/resident order projection and compatibility emission are methods of the candidate topology owner;
+- direct and bounded retained planning both execute `PendingPlan::advance`, with bounded work only changing scheduling;
+- mutable `TargetSpace` scroll ancestry, `PlanBuilder::build_order`, `project_order_group_bounds`, and renderer `scroll_translation`/`scroll_offset` reconstruction are gone;
+- shapes, retained text, groups, panes, clips, scroll viewports, and sampled surfaces consume compiled `SpatialBinding` values;
+- scene painting no longer emits an own-scroll fragment when its layout projection has no drawable residency, so a dangling scroll scope cannot rely on renderer no-op behavior.
+
+The independently authored release oracle changed from F04/F06 red at all five scales to all eight fixtures green at scales 1.0, 1.25, 1.5, 1.75, and 2.0: 40/40 executions. All 10 negative executions still fail their intended missing, legacy, double, fixed-clip, rule-only, or plan-divergence assertion. The actual legacy F03 binding remains proven red at every scale by N02. Direct and incremental recursive signatures agree before pixels are compared. A separate compatibility test recursively compares payload kind/geometry against each static expected commit, ignores only representational clip wrappers, and requires every independent moving probe to occupy translated payload geometry.
+
+The Tier B first-property spatial rows P003, P012, P015, P019, P031, P052, P058, P061, P065, and P080 are geometrically subsumed by the stronger five-scale Tier A execution. P026, P032, and P057 add the pane/filter-surface, empty-payload, and repeated-sibling first-property fixture values; topology tests require stable filter roots, root-only empty commits, and one interned spatial node for repeated logical sibling scopes. Their input production, state-generation, and residency dimensions remain in SC-004, SC-005, and SC-007 rather than being falsely claimed by a transform test.
+
+The post-migration release `table-scroll-work` receipt is identical at all five scales: zero node rebuilds, primitive/text preparation, text shaping, content upload, resource creation/replacement/removal, and plan rebuilds; one plan reuse; 93 draw calls in 17 passes; and 10,656 property-upload bytes split as node 10,496, scroll 32, text 128, viewport/unattributed 0. The 416-byte reduction from SC-000 is recorded without treating a full-vector warm upload as acceptable; SC-003 owns indexed dirty production and sparse/dense transfer policy.
+
+This is a local property/spatial tree, not a claim that Blink's complete affine paint-property architecture or compositor threading was copied. Transform nodes are typed in the topology, while renderer payload adapters still apply their final transform representation. Runtime `PresentedGeometry::project_point` also still consumes layout ancestry and remains the deliberate SC-008 boundary. Those limits prevent SC-002 from absorbing property economics, generation state, input precision, pacing, residency, or present-submitted hit testing.
+
+Verification at this boundary: release `tier-a-scroll-oracle` passed all five scales; release `tier-a-negative-controls` passed all 10 executions; release `table-scroll-work` reproduced E-016 at all five scales; the compatibility, repeated-sibling, empty-payload, filter-surface, surface-root, shared-axis, and source-architecture tests passed; the pairwise manifest regeneration test passed; formatter and diff checks passed; and the complete all-target/all-feature suite passed with 1,252 library tests plus four ignored hardware tests, three renderer-debug tests, and two example tests.
 
 ### SC-003 — Index property deltas and choose sparse/dense updates
 
@@ -742,6 +769,6 @@ Do not:
 
 ## 11. Immediate next action
 
-Resume at **SC-002**. Begin with the corrected F04/F06 five-scale reds and compile one normalized spatial topology beside the old path. The first vertical slice must explain why text below a group/surface root diverges after equal direct/incremental plans while the co-located quads pass, then move one candidate/semantic/drawable/compatibility consumer boundary at a time. Preserve F01/F02/F03/F05/F07/F08 green, all 10 negative controls, and the SC-000 work/resource rails throughout.
+Resume at **SC-003**. Start from E-016 and instrument property-index lookup/visit counts plus explicit full-transfer reasons before changing upload policy. Build the exact 13-case Tier C property-economics suite, including 4,096 unrelated properties, and prove that the present full-vector path scales with topology size as the negative control. Then introduce stable property indices and dirty-source production behind one independently reversible boundary while preserving all SC-002 spatial witnesses.
 
-SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 added the independent payload-neutral oracle and proved the inherited F03 correction's narrow effect; the broader spatial architecture and 20 red Tier A executions remain open.
+SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. Property delta economics, generation state, input precision, pacing, residency, present-submitted geometry consumers, and locality remain separate open loops.

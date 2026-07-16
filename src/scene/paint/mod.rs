@@ -478,7 +478,10 @@ impl Retained {
                 body: cached.body,
                 caret: cached.body_caret,
             });
-            if let Some(body) = cached.scrolled {
+            if let Some(body) = cached
+                .scrolled
+                .filter(|_| layout.scene_scroll_node_is_drawable(frame.node_id()))
+            {
                 let mut scrolls = layout.scroll_ancestry(frame.node_id()).to_vec();
                 scrolls.push(frame.node_id());
                 frames.push(Fragment {
@@ -619,7 +622,7 @@ fn commit_builder(
             projection.viewport().max_scroll(),
         )
         .expect("complete scroll residency must cover its commit baseline");
-        builder.declare_scroll(projection.node(), declaration);
+        builder.declare_scroll(projection.node(), projection.target().clone(), declaration);
     }
     builder
 }

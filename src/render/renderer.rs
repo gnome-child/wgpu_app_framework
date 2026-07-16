@@ -72,6 +72,7 @@ pub(in crate::render) struct PreparedLayer {
 #[derive(Debug, Clone)]
 pub(in crate::render) struct PreparedPane {
     pub(in crate::render) pane: paint::Pane,
+    pub(in crate::render) spatial: crate::scene::SpatialBinding,
     pub(in crate::render) base: Option<render::retained::ShapeBatch>,
     pub(in crate::render) surface_layers: Vec<Option<render::retained::ShapeBatch>>,
 }
@@ -81,6 +82,7 @@ pub(in crate::render) struct PreparedClip {
     pub(in crate::render) node: Option<crate::composition::tree::NodeId>,
     pub(in crate::render) fallback: paint::Clip,
     pub(in crate::render) scene_origin: [f32; 2],
+    pub(in crate::render) spatial: crate::scene::SpatialBinding,
 }
 
 #[derive(Debug, Clone)]
@@ -88,14 +90,14 @@ pub(in crate::render) struct PreparedGroup {
     pub(in crate::render) node: Option<crate::composition::tree::NodeId>,
     pub(in crate::render) bounds: Rect,
     pub(in crate::render) opacity: f32,
+    pub(in crate::render) spatial: crate::scene::SpatialBinding,
     pub(in crate::render) render_batches: Vec<PlanStep>,
 }
 
 #[derive(Debug, Clone)]
 pub(in crate::render) struct PreparedScroll {
-    pub(in crate::render) node: crate::composition::tree::NodeId,
     pub(in crate::render) viewport: paint::Rect,
-    pub(in crate::render) baseline: crate::interaction::ScrollOffset,
+    pub(in crate::render) spatial: crate::scene::SpatialBinding,
     pub(in crate::render) render_batches: Vec<PlanStep>,
 }
 
@@ -186,8 +188,6 @@ struct PlanEncoder<'a> {
     text_render_error: &'a mut Option<render::text_renderer::Error>,
     draw_passes: &'a mut usize,
     command_stats: &'a mut CommandStats,
-    scroll_translation: [f32; 2],
-    scroll_clip: Option<paint::Rect>,
 }
 
 struct PlanEncoderInput<'a> {
@@ -1337,8 +1337,6 @@ impl<'a> PlanEncoder<'a> {
             text_render_error: input.text_render_error,
             draw_passes: input.draw_passes,
             command_stats: input.command_stats,
-            scroll_translation: [0.0, 0.0],
-            scroll_clip: None,
         }
     }
 
@@ -1386,7 +1384,12 @@ impl<'a> PlanEncoder<'a> {
     fn encode_layer(&mut self, layer: &PreparedLayer) {
         let previous = self.layer_index.replace(layer.state_index);
         if layer.force_group || layer.opacity < 1.0 {
-            self.encode_group_batches(layer.bounds, layer.opacity, &layer.render_batches);
+            self.encode_group_batches(
+                layer.bounds,
+                layer.opacity,
+                crate::scene::SpatialBinding::ROOT,
+                &layer.render_batches,
+            );
         } else {
             self.encode_batches(&layer.render_batches);
         }
@@ -1426,9 +1429,12 @@ impl<'a> PlanEncoder<'a> {
                         }
                     }
                     PlanStep::Text(batch) => {
+                        let translation = current_bindings
+                            .map(|bindings| bindings.spatial_translation(batch.spatial()))
+                            .unwrap_or_default();
                         match self.text_renderer.render_retained(
                             *batch,
-                            self.scroll_translation,
+                            translation,
                             self.viewport.scale_factor(),
                             &mut pass,
                         ) {
@@ -1482,11 +1488,12 @@ impl<'a> PlanEncoder<'a> {
     }
 
     fn encode_pane(&mut self, prepared: &PreparedPane) {
+        let translation = self.spatial_translation(prepared.spatial);
         let mut pane = prepared.pane.clone();
-        pane.rect = translated_rect(pane.rect, self.scroll_translation);
+        pane.rect = translated_rect(pane.rect, translation);
         pane.source_rect = pane
             .source_rect
-            .map(|source| translated_rect(source, self.scroll_translation));
+            .map(|source| translated_rect(source, translation));
         let pane = &pane;
         let Some(scissor) = current_scissor(
             &self.clip_stack,
@@ -1615,20 +1622,21 @@ impl<'a> PlanEncoder<'a> {
 
     fn encode_group(&mut self, group: &PreparedGroup) {
         let opacity = self.resolve_opacity(group);
-        self.encode_group_batches(group.bounds, opacity, &group.render_batches);
+        self.encode_group_batches(group.bounds, opacity, group.spatial, &group.render_batches);
     }
 
     fn encode_group_batches(
         &mut self,
         bounds: paint::Rect,
         opacity: f32,
+        spatial: crate::scene::SpatialBinding,
         render_batches: &[PlanStep],
     ) {
         if opacity <= 0.0 {
             return;
         }
 
-        let bounds = translated_rect(bounds, self.scroll_translation);
+        let bounds = translated_rect(bounds, self.spatial_translation(spatial));
         let group_target =
             render::filter::Target::from_logical_area(bounds.area, self.viewport.scale_factor());
         let group_layer = self.filter_renderer.create_layer(
@@ -1692,34 +1700,10 @@ impl<'a> PlanEncoder<'a> {
     }
 
     fn encode_scroll(&mut self, scroll: &PreparedScroll) {
-        let parent_translation = self.scroll_translation;
-        let parent_clip = self.scroll_clip;
-        let current = self
-            .current_properties()
-            .and_then(|properties| properties.scroll_offset(scroll.node))
-            .unwrap_or(scroll.baseline);
-        let own_translation = [
-            scroll.baseline.x().saturating_sub(current.x()) as f32,
-            scroll.baseline.y().saturating_sub(current.y()) as f32,
-        ];
-        let translation = [
-            parent_translation[0] + own_translation[0],
-            parent_translation[1] + own_translation[1],
-        ];
-        let viewport = translated_rect(scroll.viewport, parent_translation);
-        let Some(visible) = parent_clip
-            .map(|clip| intersect_rect(clip, viewport))
-            .unwrap_or(Some(viewport))
-        else {
-            return;
-        };
-        self.scroll_translation = translation;
-        self.scroll_clip = Some(visible);
-        self.push_clip(paint::Clip { rect: visible });
+        let viewport = translated_rect(scroll.viewport, self.spatial_translation(scroll.spatial));
+        self.push_clip(paint::Clip { rect: viewport });
         self.encode_batches(&scroll.render_batches);
         self.composite_clip_layer();
-        self.scroll_translation = parent_translation;
-        self.scroll_clip = parent_clip;
     }
 
     fn push_clip(&mut self, clip: paint::Clip) {
@@ -1783,8 +1767,15 @@ impl<'a> PlanEncoder<'a> {
             resolved.rect.origin.x() - clip.scene_origin[0],
             resolved.rect.origin.y() - clip.scene_origin[1],
         );
-        resolved.rect = translated_rect(resolved.rect, self.scroll_translation);
+        resolved.rect = translated_rect(resolved.rect, self.spatial_translation(clip.spatial));
         resolved
+    }
+
+    fn spatial_translation(&self, spatial: crate::scene::SpatialBinding) -> [f32; 2] {
+        self.layer_index
+            .and_then(|index| self.layer_states.get(index))
+            .map(|state| state.bindings.spatial_translation(spatial))
+            .unwrap_or_default()
     }
 
     fn resolve_opacity(&self, group: &PreparedGroup) -> f32 {
@@ -1899,21 +1890,6 @@ fn translated_rect(mut rect: Rect, translation: [f32; 2]) -> Rect {
         rect.origin.y() + translation[1],
     );
     rect
-}
-
-fn intersect_rect(left: Rect, right: Rect) -> Option<Rect> {
-    let x = left.origin.x().max(right.origin.x());
-    let y = left.origin.y().max(right.origin.y());
-    let right_edge =
-        (left.origin.x() + left.area.width()).min(right.origin.x() + right.area.width());
-    let bottom_edge =
-        (left.origin.y() + left.area.height()).min(right.origin.y() + right.area.height());
-    (right_edge > x && bottom_edge > y).then(|| {
-        Rect::new(
-            point::logical(x, y),
-            area::logical(right_edge - x, bottom_edge - y),
-        )
-    })
 }
 
 fn current_target_view<'a>(
@@ -2207,7 +2183,7 @@ mod tests {
     }
 
     #[test]
-    fn group_filter_encoding_is_local_but_group_composite_uses_parent_scroll_space() {
+    fn group_filter_encoding_uses_its_compiled_parent_spatial_binding() {
         let source = std::fs::read_to_string(file!()).expect("renderer source should be readable");
         let encode_group = source
             .split("fn encode_group_batches")
@@ -2217,8 +2193,10 @@ mod tests {
             .next()
             .expect("encode_group_batches should precede push_clip");
 
-        assert!(source.contains("self.encode_group_batches(group.bounds, opacity"));
-        assert!(encode_group.contains("translated_rect(bounds, self.scroll_translation)"));
+        assert!(source.contains("group.spatial,"));
+        assert!(
+            encode_group.contains("translated_rect(bounds, self.spatial_translation(spatial))")
+        );
         assert!(encode_group.contains("Target::from_logical_area(bounds.area"));
         assert!(encode_group.contains("base_view: group_view"));
         assert!(encode_group.contains("viewport: render::Viewport::from_logical_area"));

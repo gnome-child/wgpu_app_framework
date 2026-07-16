@@ -6149,6 +6149,7 @@ fn scroll_residency_uses_owner_local_names_clocks_and_the_existing_stack_handoff
 fn bounded_scroll_content_and_transient_rules_cannot_enter_semantic_scene_identity() {
     let layout = include_str!("../layout/mod.rs");
     let commit = include_str!("../scene/commit.rs");
+    let spatial = include_str!("../scene/spatial.rs");
     let store = include_str!("../scene/store.rs");
 
     assert!(
@@ -6159,14 +6160,70 @@ fn bounded_scroll_content_and_transient_rules_cannot_enter_semantic_scene_identi
         "bounded text realization must be declared by layout and projected at the semantic/drawable store boundary"
     );
     assert!(
-        commit.contains("resident_scrolls: &HashSet<composition::tree::NodeId>")
-            && commit.contains("if resident_scrolls.contains(node)")
-            && commit.contains("*projection != ContentProjection::Caret")
+        commit.contains("candidate.spatial_topology.project_semantic_order(")
+            && spatial.contains("resident_scrolls: &HashSet<composition::tree::NodeId>")
+            && spatial.contains("if resident_scrolls.contains(node)")
+            && spatial.contains("*projection != ContentProjection::Caret")
             && commit.contains("semanticize_transient_content(candidate, order)")
             && commit.contains("baseline_start: track_start")
             && commit.contains("remap_semantic_content_indices(order, indices)")
             && commit.contains("semantic order must only name retained content"),
         "semantic projection must remove bounded scroll scopes/caret content and canonicalize transient scrollbar geometry while retaining a valid content order"
+    );
+}
+
+#[test]
+fn candidate_spatial_topology_is_the_only_scroll_ancestry_compiler() {
+    let commit = include_str!("../scene/commit.rs");
+    let spatial = include_str!("../scene/spatial.rs");
+    let retained = include_str!("../render/retained.rs");
+    let renderer = include_str!("../render/renderer.rs");
+    let text = include_str!("../render/text_renderer.rs");
+
+    assert!(
+        commit.contains("spatial_topology: super::spatial::SpatialTopology")
+            && commit.contains("SpatialTopology::compile(&nodes, order.as_deref())")
+            && commit.contains("candidate.spatial_topology.project_semantic_order(")
+            && commit.contains(
+                ".spatial_topology\n                .compatibility_primitives(self, properties)"
+            ),
+        "candidate, semantic/resident, drawable, and compatibility commits must derive spatial state from the candidate-owned topology"
+    );
+    for kind in ["Root", "Transform {", "Scroll {", "SurfaceRoot {"] {
+        assert!(
+            spatial.contains(kind),
+            "the normalized topology must retain typed {kind} nodes"
+        );
+    }
+    assert!(
+        spatial.contains("target: ScrollTarget")
+            && spatial.contains("axes: AxisOwnership")
+            && spatial.contains("ConflictingAxisOwner"),
+        "scroll target identity and per-axis ownership must be explicit and conflict checked"
+    );
+    assert!(
+        retained.contains("let ready = compiler.advance(self, std::time::Duration::MAX)?")
+            && retained.contains("let ready = pending.advance(&mut builder, budget)?")
+            && !retained.contains("fn build_order(")
+            && !retained.contains("project_order_group_bounds")
+            && !retained.contains("scroll_root")
+            && !retained.contains("current_scroll"),
+        "direct and bounded realization must execute one resumable plan compiler without mutable group-local ancestry inference"
+    );
+    assert!(
+        retained.contains(".scroll_translation(binding, properties)")
+            && text.contains("spatial: crate::scene::SpatialBinding")
+            && renderer.contains("self.spatial_translation(spatial)")
+            && !renderer.contains("scroll_translation: [f32; 2]")
+            && !renderer.contains(".scroll_offset(scroll.node)"),
+        "shape, text, surface, clip, pane, and viewport adapters must consume compiled bindings rather than reconstructing scroll ancestry"
+    );
+    assert!(
+        !commit.contains("fn semantic_order(")
+            && !commit.contains("fn compatibility_order_until(")
+            && !spatial.contains("fn compatibility_order_until(")
+            && spatial.contains("fn emit_compatibility_until("),
+        "semantic and compatibility adapters may retain structural emission only behind the topology owner"
     );
 }
 

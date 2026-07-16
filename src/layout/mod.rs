@@ -497,6 +497,12 @@ impl Layout {
         })
     }
 
+    pub(crate) fn scene_scroll_node_is_drawable(&self, node: composition::tree::NodeId) -> bool {
+        self.scroll_projections
+            .iter()
+            .any(|projection| projection.node == node && projection.is_scene_drawable())
+    }
+
     pub(crate) fn scroll_property_accepts(
         &self,
         target: &interaction::Target,

@@ -51,8 +51,7 @@ struct RetainedTransformViewport {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct RetainedTextTransform {
-    scroll: crate::composition::tree::NodeId,
-    target: Option<crate::composition::tree::NodeId>,
+    spatial: crate::scene::SpatialBinding,
     resolution: [u32; 2],
 }
 
@@ -61,6 +60,7 @@ pub(in crate::render) struct RetainedBatch {
     key: render::retained::ResourceKey,
     transform: Option<RetainedTextTransform>,
     render_origin_bits: [u32; 2],
+    spatial: crate::scene::SpatialBinding,
 }
 
 impl RetainedBatch {
@@ -69,6 +69,10 @@ impl RetainedBatch {
             f32::from_bits(self.render_origin_bits[0]) + scroll[0],
             f32::from_bits(self.render_origin_bits[1]) + scroll[1],
         ]
+    }
+
+    pub(in crate::render) fn spatial(self) -> crate::scene::SpatialBinding {
+        self.spatial
     }
 }
 
@@ -142,15 +146,15 @@ impl TextRenderer {
         target_size: [f32; 2],
         render_size: [f32; 2],
         render_origin: [f32; 2],
-        scroll: Option<crate::composition::tree::NodeId>,
-        scroll_root: Option<crate::composition::tree::NodeId>,
+        spatial: crate::scene::SpatialBinding,
     ) -> Result<RetainedTextReport> {
         let resource_removals = self.prune_retained();
-        let transform = retained_transform(viewport, render_size, scroll, scroll_root);
+        let transform = retained_transform(viewport, render_size, spatial);
         let batch = |key| RetainedBatch {
             key,
             transform,
             render_origin_bits: render_origin.map(f32::to_bits),
+            spatial,
         };
         let key = render::retained::ResourceKey::for_target(
             node,
@@ -204,7 +208,7 @@ impl TextRenderer {
             &mut renderer,
             &glyph_viewport,
             glyphs,
-            scroll.is_some(),
+            !spatial.is_identity(),
         )?;
         let has_text = report.has_text;
         self.retained.insert(
@@ -229,7 +233,7 @@ impl TextRenderer {
     pub(in crate::render) fn render_retained(
         &mut self,
         batch: RetainedBatch,
-        scroll_translation: [f32; 2],
+        spatial_translation: [f32; 2],
         scale_factor: f32,
         pass: &mut wgpu::RenderPass<'_>,
     ) -> Result<()> {
@@ -244,7 +248,7 @@ impl TextRenderer {
         };
         let viewport = if let Some(transform) = batch.transform {
             let grid = paint::Grid::new(scale_factor);
-            let translation = batch.translation(scroll_translation);
+            let translation = batch.translation(spatial_translation);
             let offset = [
                 grid.snap_text_origin(translation[0]) as i32,
                 grid.snap_text_origin(translation[1]) as i32,
@@ -404,18 +408,18 @@ impl TextRenderer {
 fn retained_transform(
     viewport: render::Viewport,
     target_size: [f32; 2],
-    scroll: Option<crate::composition::tree::NodeId>,
-    target: Option<crate::composition::tree::NodeId>,
+    spatial: crate::scene::SpatialBinding,
 ) -> Option<RetainedTextTransform> {
-    let scroll = scroll?;
+    if spatial.is_identity() {
+        return None;
+    }
     let target_viewport = render::Viewport::from_logical_area(
         crate::geometry::area::logical(target_size[0], target_size[1]),
         viewport.scale_factor(),
     );
     let physical = target_viewport.physical_area();
     Some(RetainedTextTransform {
-        scroll,
-        target,
+        spatial,
         resolution: [physical.width(), physical.height()],
     })
 }

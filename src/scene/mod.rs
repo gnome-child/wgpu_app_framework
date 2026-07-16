@@ -5,6 +5,7 @@ mod presentation;
 mod primitive;
 mod region;
 pub(crate) mod residency;
+mod spatial;
 mod stack;
 mod store;
 mod visual;
@@ -38,6 +39,7 @@ pub(crate) use region::{
     MaterialRenderer, RealizedMaterialParts,
 };
 pub(crate) use residency::Residency;
+pub(crate) use spatial::{PropertyState as SpatialPropertyState, SpatialBinding, SpatialTopology};
 pub(crate) use stack::{Layer, MaterialProjection, Stack};
 pub(crate) use store::{PaintStats, Store};
 pub(crate) use visual::Visuals;
