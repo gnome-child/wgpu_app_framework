@@ -20,6 +20,7 @@ pub use render::{
     compare_control_gallery_incremental_activation,
     compare_control_gallery_pending_property_refresh, compare_control_gallery_pending_transition,
     compare_control_gallery_property_tick, compare_control_gallery_slow_scroll,
+    measure_control_gallery_horizontal_table_scroll,
 };
 pub use scroll::Scroll;
 #[cfg(feature = "renderer-debug")]
@@ -148,6 +149,7 @@ impl Diagnostics {
             "scroll_needs_residency_p95_us={}",
             self.scroll.needs_residency_p95_us()
         );
+        receipt.push_str(&self.scroll.trace_receipt_text());
         let _ = writeln!(
             receipt,
             "scroll_offset_changes={}",
@@ -434,6 +436,8 @@ mod tests {
             "scroll_property_ticks=0",
             "scroll_needs_residency=0",
             "scroll_request_p95_us=0",
+            "scroll_trace_schema=wgpu_l3.scroll_trace.v1",
+            "scroll_trace_count=0",
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",
             "text_area_horizontal_index_builds=0",

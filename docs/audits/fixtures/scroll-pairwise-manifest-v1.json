@@ -1,0 +1,756 @@
+{
+  "schema": "wgpu_l3.scroll_pairwise_manifest.v1",
+  "generator_version": 1,
+  "seed": 20260716,
+  "case_cap": 128,
+  "candidate_count": 7770,
+  "rejected_combinations": {
+    "diagonal-requires-split-axis-fixture": 2310
+  },
+  "case_count": 87,
+  "cases_sha256": "1265b5ec68cccbffbb042e5ee38fbb7e8f723932650971d0084f44368c2a660f",
+  "dimensions": {
+    "fixture": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "repeated-sibling-scopes",
+      "empty-payload",
+      "large-unrelated-property-scene",
+      "pane-filter-surface"
+    ],
+    "input": [
+      "pixel-wheel-trackpad",
+      "line-wheel",
+      "thumb-drag",
+      "keyboard",
+      "caret-reveal",
+      "programmatic-absolute",
+      "residency-request"
+    ],
+    "scale": [
+      "1.0",
+      "1.25",
+      "1.5",
+      "1.75",
+      "2.0"
+    ],
+    "tick": [
+      "first-property",
+      "coalesced-events",
+      "no-op",
+      "bound-saturation",
+      "first-after-residency",
+      "next-semantic-rebuild"
+    ],
+    "direction": [
+      "forward",
+      "reverse",
+      "diagonal",
+      "one-axis-saturated"
+    ]
+  },
+  "cases": [
+    {
+      "id": "P001",
+      "fixture": "F08",
+      "input": "programmatic-absolute",
+      "scale": "2.0",
+      "tick": "first-after-residency",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P002",
+      "fixture": "F01",
+      "input": "keyboard",
+      "scale": "2.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "forward"
+    },
+    {
+      "id": "P003",
+      "fixture": "F08",
+      "input": "thumb-drag",
+      "scale": "1.5",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P004",
+      "fixture": "F08",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.75",
+      "tick": "coalesced-events",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P005",
+      "fixture": "large-unrelated-property-scene",
+      "input": "programmatic-absolute",
+      "scale": "1.5",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    },
+    {
+      "id": "P006",
+      "fixture": "F05",
+      "input": "line-wheel",
+      "scale": "1.25",
+      "tick": "no-op",
+      "direction": "forward"
+    },
+    {
+      "id": "P007",
+      "fixture": "pane-filter-surface",
+      "input": "caret-reveal",
+      "scale": "1.75",
+      "tick": "first-after-residency",
+      "direction": "reverse"
+    },
+    {
+      "id": "P008",
+      "fixture": "repeated-sibling-scopes",
+      "input": "thumb-drag",
+      "scale": "1.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P009",
+      "fixture": "empty-payload",
+      "input": "line-wheel",
+      "scale": "1.75",
+      "tick": "bound-saturation",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P010",
+      "fixture": "F01",
+      "input": "residency-request",
+      "scale": "1.5",
+      "tick": "no-op",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P011",
+      "fixture": "repeated-sibling-scopes",
+      "input": "pixel-wheel-trackpad",
+      "scale": "2.0",
+      "tick": "no-op",
+      "direction": "reverse"
+    },
+    {
+      "id": "P012",
+      "fixture": "F06",
+      "input": "caret-reveal",
+      "scale": "1.25",
+      "tick": "first-property",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P013",
+      "fixture": "F02",
+      "input": "residency-request",
+      "scale": "1.25",
+      "tick": "next-semantic-rebuild",
+      "direction": "reverse"
+    },
+    {
+      "id": "P014",
+      "fixture": "large-unrelated-property-scene",
+      "input": "residency-request",
+      "scale": "1.0",
+      "tick": "first-after-residency",
+      "direction": "forward"
+    },
+    {
+      "id": "P015",
+      "fixture": "F03",
+      "input": "line-wheel",
+      "scale": "1.0",
+      "tick": "first-property",
+      "direction": "reverse"
+    },
+    {
+      "id": "P016",
+      "fixture": "F07",
+      "input": "thumb-drag",
+      "scale": "1.25",
+      "tick": "coalesced-events",
+      "direction": "reverse"
+    },
+    {
+      "id": "P017",
+      "fixture": "F07",
+      "input": "caret-reveal",
+      "scale": "1.0",
+      "tick": "bound-saturation",
+      "direction": "forward"
+    },
+    {
+      "id": "P018",
+      "fixture": "F04",
+      "input": "keyboard",
+      "scale": "1.0",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P019",
+      "fixture": "F04",
+      "input": "programmatic-absolute",
+      "scale": "1.75",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P020",
+      "fixture": "F08",
+      "input": "keyboard",
+      "scale": "1.25",
+      "tick": "bound-saturation",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P021",
+      "fixture": "repeated-sibling-scopes",
+      "input": "line-wheel",
+      "scale": "1.5",
+      "tick": "coalesced-events",
+      "direction": "forward"
+    },
+    {
+      "id": "P022",
+      "fixture": "F03",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.5",
+      "tick": "first-after-residency",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P023",
+      "fixture": "F08",
+      "input": "caret-reveal",
+      "scale": "1.5",
+      "tick": "next-semantic-rebuild",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P024",
+      "fixture": "F08",
+      "input": "programmatic-absolute",
+      "scale": "1.0",
+      "tick": "no-op",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P025",
+      "fixture": "F06",
+      "input": "keyboard",
+      "scale": "1.75",
+      "tick": "no-op",
+      "direction": "reverse"
+    },
+    {
+      "id": "P026",
+      "fixture": "pane-filter-surface",
+      "input": "pixel-wheel-trackpad",
+      "scale": "2.0",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P027",
+      "fixture": "large-unrelated-property-scene",
+      "input": "caret-reveal",
+      "scale": "2.0",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P028",
+      "fixture": "F04",
+      "input": "thumb-drag",
+      "scale": "2.0",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    },
+    {
+      "id": "P029",
+      "fixture": "pane-filter-surface",
+      "input": "programmatic-absolute",
+      "scale": "1.25",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P030",
+      "fixture": "F05",
+      "input": "residency-request",
+      "scale": "1.75",
+      "tick": "next-semantic-rebuild",
+      "direction": "reverse"
+    },
+    {
+      "id": "P031",
+      "fixture": "F02",
+      "input": "keyboard",
+      "scale": "1.5",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P032",
+      "fixture": "empty-payload",
+      "input": "residency-request",
+      "scale": "2.0",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P033",
+      "fixture": "F01",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.0",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    },
+    {
+      "id": "P034",
+      "fixture": "F08",
+      "input": "line-wheel",
+      "scale": "2.0",
+      "tick": "first-after-residency",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P035",
+      "fixture": "empty-payload",
+      "input": "thumb-drag",
+      "scale": "1.25",
+      "tick": "first-after-residency",
+      "direction": "reverse"
+    },
+    {
+      "id": "P036",
+      "fixture": "F03",
+      "input": "thumb-drag",
+      "scale": "1.75",
+      "tick": "no-op",
+      "direction": "forward"
+    },
+    {
+      "id": "P037",
+      "fixture": "F06",
+      "input": "programmatic-absolute",
+      "scale": "2.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "forward"
+    },
+    {
+      "id": "P038",
+      "fixture": "large-unrelated-property-scene",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.25",
+      "tick": "next-semantic-rebuild",
+      "direction": "reverse"
+    },
+    {
+      "id": "P039",
+      "fixture": "F05",
+      "input": "keyboard",
+      "scale": "1.5",
+      "tick": "first-after-residency",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P040",
+      "fixture": "F07",
+      "input": "line-wheel",
+      "scale": "1.5",
+      "tick": "next-semantic-rebuild",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P041",
+      "fixture": "F02",
+      "input": "caret-reveal",
+      "scale": "1.0",
+      "tick": "no-op",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P042",
+      "fixture": "F03",
+      "input": "residency-request",
+      "scale": "2.0",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    },
+    {
+      "id": "P043",
+      "fixture": "F06",
+      "input": "residency-request",
+      "scale": "1.0",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P044",
+      "fixture": "F02",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.75",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P045",
+      "fixture": "F04",
+      "input": "residency-request",
+      "scale": "1.25",
+      "tick": "no-op",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P046",
+      "fixture": "F04",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.5",
+      "tick": "first-after-residency",
+      "direction": "forward"
+    },
+    {
+      "id": "P047",
+      "fixture": "empty-payload",
+      "input": "programmatic-absolute",
+      "scale": "1.5",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P048",
+      "fixture": "F03",
+      "input": "caret-reveal",
+      "scale": "1.25",
+      "tick": "coalesced-events",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P049",
+      "fixture": "F07",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.75",
+      "tick": "no-op",
+      "direction": "forward"
+    },
+    {
+      "id": "P050",
+      "fixture": "repeated-sibling-scopes",
+      "input": "caret-reveal",
+      "scale": "1.75",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    },
+    {
+      "id": "P051",
+      "fixture": "pane-filter-surface",
+      "input": "residency-request",
+      "scale": "1.5",
+      "tick": "no-op",
+      "direction": "forward"
+    },
+    {
+      "id": "P052",
+      "fixture": "F07",
+      "input": "keyboard",
+      "scale": "2.0",
+      "tick": "first-property",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P053",
+      "fixture": "F01",
+      "input": "thumb-drag",
+      "scale": "1.25",
+      "tick": "first-after-residency",
+      "direction": "forward"
+    },
+    {
+      "id": "P054",
+      "fixture": "F05",
+      "input": "programmatic-absolute",
+      "scale": "2.0",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    },
+    {
+      "id": "P055",
+      "fixture": "F06",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.5",
+      "tick": "bound-saturation",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P056",
+      "fixture": "empty-payload",
+      "input": "keyboard",
+      "scale": "1.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P057",
+      "fixture": "repeated-sibling-scopes",
+      "input": "keyboard",
+      "scale": "1.25",
+      "tick": "first-property",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P058",
+      "fixture": "F05",
+      "input": "thumb-drag",
+      "scale": "1.0",
+      "tick": "first-property",
+      "direction": "reverse"
+    },
+    {
+      "id": "P059",
+      "fixture": "F02",
+      "input": "line-wheel",
+      "scale": "2.0",
+      "tick": "bound-saturation",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P060",
+      "fixture": "pane-filter-surface",
+      "input": "keyboard",
+      "scale": "1.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "forward"
+    },
+    {
+      "id": "P061",
+      "fixture": "F08",
+      "input": "residency-request",
+      "scale": "1.25",
+      "tick": "first-property",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P062",
+      "fixture": "F01",
+      "input": "programmatic-absolute",
+      "scale": "1.75",
+      "tick": "coalesced-events",
+      "direction": "forward"
+    },
+    {
+      "id": "P063",
+      "fixture": "large-unrelated-property-scene",
+      "input": "thumb-drag",
+      "scale": "1.75",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P064",
+      "fixture": "F03",
+      "input": "keyboard",
+      "scale": "1.75",
+      "tick": "next-semantic-rebuild",
+      "direction": "reverse"
+    },
+    {
+      "id": "P065",
+      "fixture": "F01",
+      "input": "caret-reveal",
+      "scale": "2.0",
+      "tick": "first-property",
+      "direction": "forward"
+    },
+    {
+      "id": "P066",
+      "fixture": "F04",
+      "input": "caret-reveal",
+      "scale": "2.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "forward"
+    },
+    {
+      "id": "P067",
+      "fixture": "large-unrelated-property-scene",
+      "input": "line-wheel",
+      "scale": "1.0",
+      "tick": "no-op",
+      "direction": "reverse"
+    },
+    {
+      "id": "P068",
+      "fixture": "F07",
+      "input": "programmatic-absolute",
+      "scale": "1.25",
+      "tick": "first-after-residency",
+      "direction": "reverse"
+    },
+    {
+      "id": "P069",
+      "fixture": "repeated-sibling-scopes",
+      "input": "residency-request",
+      "scale": "1.5",
+      "tick": "first-after-residency",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P070",
+      "fixture": "F05",
+      "input": "caret-reveal",
+      "scale": "1.5",
+      "tick": "coalesced-events",
+      "direction": "reverse"
+    },
+    {
+      "id": "P071",
+      "fixture": "F02",
+      "input": "programmatic-absolute",
+      "scale": "1.0",
+      "tick": "first-after-residency",
+      "direction": "reverse"
+    },
+    {
+      "id": "P072",
+      "fixture": "empty-payload",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.25",
+      "tick": "no-op",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P073",
+      "fixture": "pane-filter-surface",
+      "input": "thumb-drag",
+      "scale": "1.5",
+      "tick": "bound-saturation",
+      "direction": "forward"
+    },
+    {
+      "id": "P074",
+      "fixture": "F06",
+      "input": "thumb-drag",
+      "scale": "2.0",
+      "tick": "first-after-residency",
+      "direction": "forward"
+    },
+    {
+      "id": "P075",
+      "fixture": "repeated-sibling-scopes",
+      "input": "programmatic-absolute",
+      "scale": "1.25",
+      "tick": "coalesced-events",
+      "direction": "reverse"
+    },
+    {
+      "id": "P076",
+      "fixture": "F08",
+      "input": "caret-reveal",
+      "scale": "2.0",
+      "tick": "no-op",
+      "direction": "reverse"
+    },
+    {
+      "id": "P077",
+      "fixture": "F02",
+      "input": "thumb-drag",
+      "scale": "1.75",
+      "tick": "bound-saturation",
+      "direction": "forward"
+    },
+    {
+      "id": "P078",
+      "fixture": "F01",
+      "input": "line-wheel",
+      "scale": "1.75",
+      "tick": "no-op",
+      "direction": "forward"
+    },
+    {
+      "id": "P079",
+      "fixture": "large-unrelated-property-scene",
+      "input": "keyboard",
+      "scale": "1.0",
+      "tick": "coalesced-events",
+      "direction": "forward"
+    },
+    {
+      "id": "P080",
+      "fixture": "F05",
+      "input": "pixel-wheel-trackpad",
+      "scale": "1.25",
+      "tick": "first-property",
+      "direction": "reverse"
+    },
+    {
+      "id": "P081",
+      "fixture": "F04",
+      "input": "line-wheel",
+      "scale": "1.25",
+      "tick": "bound-saturation",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P082",
+      "fixture": "empty-payload",
+      "input": "caret-reveal",
+      "scale": "1.25",
+      "tick": "first-after-residency",
+      "direction": "one-axis-saturated"
+    },
+    {
+      "id": "P083",
+      "fixture": "F07",
+      "input": "residency-request",
+      "scale": "1.5",
+      "tick": "bound-saturation",
+      "direction": "forward"
+    },
+    {
+      "id": "P084",
+      "fixture": "F03",
+      "input": "programmatic-absolute",
+      "scale": "1.5",
+      "tick": "bound-saturation",
+      "direction": "forward"
+    },
+    {
+      "id": "P085",
+      "fixture": "pane-filter-surface",
+      "input": "line-wheel",
+      "scale": "2.0",
+      "tick": "next-semantic-rebuild",
+      "direction": "forward"
+    },
+    {
+      "id": "P086",
+      "fixture": "F08",
+      "input": "thumb-drag",
+      "scale": "1.75",
+      "tick": "coalesced-events",
+      "direction": "diagonal"
+    },
+    {
+      "id": "P087",
+      "fixture": "F06",
+      "input": "line-wheel",
+      "scale": "1.0",
+      "tick": "bound-saturation",
+      "direction": "reverse"
+    }
+  ]
+}

@@ -771,6 +771,10 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
         .expect("renderer context source should read");
     let diagnostics = std::fs::read_to_string(root.join("src/diagnostics/render.rs"))
         .expect("renderer diagnostics source should read");
+    let scroll_diagnostics = std::fs::read_to_string(root.join("src/diagnostics/scroll.rs"))
+        .expect("scroll diagnostics source should read");
+    let diagnostics_boundary = std::fs::read_to_string(root.join("src/diagnostics/mod.rs"))
+        .expect("diagnostics boundary source should read");
     let gallery_runtime =
         std::fs::read_to_string(root.join("examples/control_gallery/app/runtime.rs"))
             .expect("control gallery runtime source should read");
@@ -792,6 +796,10 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
         "semantic_commits_created=",
         "scene_nodes_reused=",
         "property_upload_bytes=",
+        "node_property_upload_bytes=",
+        "scroll_property_upload_bytes=",
+        "text_property_upload_bytes=",
+        "unattributed_property_upload_bytes=",
         "content_upload_bytes_total=",
         "retained_gpu_resource_count_high_water=",
         "opacity_unclassified_nodes_latest=",
@@ -805,7 +813,9 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
         "command_preparation_us",
         "replenishment_commit_us",
         "candidate_property_serial=",
-        "visible_property_serial=",
+        "attempted_property_serial=",
+        "gpu_submitted_property_serial=",
+        "present_submitted_property_serial=",
         "full_surface_blit_bytes_total=",
     ] {
         assert!(
@@ -813,6 +823,11 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
             "renderer receipt must retain campaign currency {field}"
         );
     }
+    assert!(
+        scroll_diagnostics.contains("scroll_trace_schema=wgpu_l3.scroll_trace.v1")
+            && diagnostics_boundary.contains("self.scroll.trace_receipt_text()"),
+        "the assembled renderer receipt must consume the scroll-owned causal trace"
+    );
 
     assert!(
         gallery_runtime.contains("std::fs::write")

@@ -214,12 +214,27 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         target: interaction::Target,
         update: interaction::ScrollUpdate,
     ) -> ScrollTransition {
+        let target_key = target.focus_key();
         let before = self
             .session
             .interaction(window)
             .map(|interaction| interaction.scroll().desired_offset(&target))
             .unwrap_or_default();
         let Some(requested) = self.session.request_scroll(window, target.clone(), update) else {
+            let resident_offset = self
+                .session
+                .interaction(window)
+                .map(|interaction| interaction.scroll().offset(&target))
+                .unwrap_or_default();
+            self.record_scroll_trace(
+                window,
+                target_key,
+                before,
+                before,
+                resident_offset,
+                false,
+                "unchanged",
+            );
             return ScrollTransition::Unchanged;
         };
         let presented = self.presented_layout(window);
@@ -233,12 +248,38 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 interaction::ScrollUpdate::Geometry(offset),
             );
         }
+        let resident_accepted = presented
+            .as_ref()
+            .is_some_and(|layout| layout.scroll_property_accepts(&target, offset));
         if offset == before {
+            let resident_offset = self
+                .session
+                .interaction(window)
+                .map(|interaction| interaction.scroll().offset(&target))
+                .unwrap_or_default();
+            self.record_scroll_trace(
+                window,
+                target_key,
+                requested,
+                offset,
+                resident_offset,
+                resident_accepted,
+                "unchanged",
+            );
             return ScrollTransition::Unchanged;
         }
-        if presented.is_some_and(|layout| layout.scroll_property_accepts(&target, offset)) {
+        if resident_accepted {
             self.session.admit_scroll(window, target, offset);
             self.session.request_property_tick(window);
+            self.record_scroll_trace(
+                window,
+                target_key,
+                requested,
+                offset,
+                offset,
+                true,
+                "property-tick",
+            );
             ScrollTransition::PropertyTick(offset)
         } else {
             let admitted = self
@@ -252,10 +293,47 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             if let Some(request) = request {
                 self.install_virtual_request(window, request);
             }
+            self.record_scroll_trace(
+                window,
+                target_key,
+                requested,
+                offset,
+                admitted,
+                false,
+                "needs-residency",
+            );
             ScrollTransition::NeedsResidency {
                 desired: offset,
                 admitted,
             }
         }
+    }
+
+    fn record_scroll_trace(
+        &mut self,
+        window: window::Id,
+        target_key: u64,
+        requested: interaction::ScrollOffset,
+        clamped: interaction::ScrollOffset,
+        resident_offset: interaction::ScrollOffset,
+        resident_accepted: bool,
+        outcome: &'static str,
+    ) {
+        let Some(epoch) = self
+            .session
+            .window(window)
+            .map(session::Window::desired_presentation_epoch)
+        else {
+            return;
+        };
+        self.diagnostics.get_mut(window).scroll.record_transition(
+            epoch,
+            target_key,
+            requested,
+            clamped,
+            resident_offset,
+            resident_accepted,
+            outcome,
+        );
     }
 }

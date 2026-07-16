@@ -24,9 +24,14 @@ pub struct Render {
     pub property_ticks: usize,
     pub changed_property_values: usize,
     pub property_upload_bytes: usize,
+    pub viewport_property_upload_bytes: usize,
+    pub node_property_upload_bytes: usize,
+    pub scroll_property_upload_bytes: usize,
+    pub text_property_upload_bytes: usize,
     pub candidate_property_serial: u64,
-    pub sampled_property_serial: u64,
-    pub visible_property_serial: u64,
+    pub attempted_property_serial: u64,
+    pub gpu_submitted_property_serial: u64,
+    pub present_submitted_property_serial: u64,
     pub skipped_property_attempts: usize,
     pub virtual_guard_crossings: usize,
     pub replenishment_commits: usize,
@@ -172,7 +177,7 @@ impl Render {
     ) {
         let serial = properties.serial().value();
         self.candidate_property_serial = serial;
-        self.sampled_property_serial = serial;
+        self.attempted_property_serial = serial;
         if property_only {
             self.property_ticks += 1;
             self.changed_property_values += properties.changed().len();
@@ -181,7 +186,8 @@ impl Render {
             }
         }
         if presented {
-            self.visible_property_serial = serial;
+            self.gpu_submitted_property_serial = serial;
+            self.present_submitted_property_serial = serial;
         }
     }
 
@@ -259,6 +265,10 @@ impl Render {
         self.content_upload_bytes = report.draw_stats.content_upload_bytes;
         self.content_upload_bytes_total += report.draw_stats.content_upload_bytes;
         self.property_upload_bytes += report.draw_stats.property_upload_bytes;
+        self.viewport_property_upload_bytes += report.draw_stats.viewport_property_upload_bytes;
+        self.node_property_upload_bytes += report.draw_stats.node_property_upload_bytes;
+        self.scroll_property_upload_bytes += report.draw_stats.scroll_property_upload_bytes;
+        self.text_property_upload_bytes += report.draw_stats.text_property_upload_bytes;
         self.geometry_buffer_creations = report.draw_stats.geometry_buffer_creations;
         self.geometry_buffer_creations_total += report.draw_stats.geometry_buffer_creations;
         self.retained_gpu_resource_count = report.draw_stats.retained_gpu_resource_count;
@@ -717,18 +727,54 @@ impl Render {
         );
         let _ = writeln!(
             receipt,
+            "viewport_property_upload_bytes={}",
+            self.viewport_property_upload_bytes
+        );
+        let _ = writeln!(
+            receipt,
+            "node_property_upload_bytes={}",
+            self.node_property_upload_bytes
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_property_upload_bytes={}",
+            self.scroll_property_upload_bytes
+        );
+        let _ = writeln!(
+            receipt,
+            "text_property_upload_bytes={}",
+            self.text_property_upload_bytes
+        );
+        let attributed_property_upload_bytes = self
+            .viewport_property_upload_bytes
+            .saturating_add(self.node_property_upload_bytes)
+            .saturating_add(self.scroll_property_upload_bytes)
+            .saturating_add(self.text_property_upload_bytes);
+        let _ = writeln!(
+            receipt,
+            "unattributed_property_upload_bytes={}",
+            self.property_upload_bytes
+                .saturating_sub(attributed_property_upload_bytes)
+        );
+        let _ = writeln!(
+            receipt,
             "candidate_property_serial={}",
             self.candidate_property_serial
         );
         let _ = writeln!(
             receipt,
-            "sampled_property_serial={}",
-            self.sampled_property_serial
+            "attempted_property_serial={}",
+            self.attempted_property_serial
         );
         let _ = writeln!(
             receipt,
-            "visible_property_serial={}",
-            self.visible_property_serial
+            "gpu_submitted_property_serial={}",
+            self.gpu_submitted_property_serial
+        );
+        let _ = writeln!(
+            receipt,
+            "present_submitted_property_serial={}",
+            self.present_submitted_property_serial
         );
         let _ = writeln!(
             receipt,
@@ -1102,9 +1148,14 @@ impl Default for Render {
             property_ticks: 0,
             changed_property_values: 0,
             property_upload_bytes: 0,
+            viewport_property_upload_bytes: 0,
+            node_property_upload_bytes: 0,
+            scroll_property_upload_bytes: 0,
+            text_property_upload_bytes: 0,
             candidate_property_serial: 0,
-            sampled_property_serial: 0,
-            visible_property_serial: 0,
+            attempted_property_serial: 0,
+            gpu_submitted_property_serial: 0,
+            present_submitted_property_serial: 0,
             skipped_property_attempts: 0,
             virtual_guard_crossings: 0,
             replenishment_commits: 0,
@@ -1378,9 +1429,9 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
 }
 
 #[cfg(feature = "renderer-debug")]
-pub async fn compare_control_gallery_horizontal_table_scroll(
+pub async fn measure_control_gallery_horizontal_table_scroll(
     scale_factor: f32,
-) -> Result<(), String> {
+) -> Result<crate::renderer_debug::Work, String> {
     const DELTA: i32 = 70;
 
     let mut app = crate::control_gallery::app(crate::control_gallery::State::default());
@@ -1503,6 +1554,14 @@ pub async fn compare_control_gallery_horizontal_table_scroll(
         &initial_properties,
         tick.properties(),
     )?;
+    Ok(work)
+}
+
+#[cfg(feature = "renderer-debug")]
+pub async fn compare_control_gallery_horizontal_table_scroll(
+    scale_factor: f32,
+) -> Result<(), String> {
+    let work = measure_control_gallery_horizontal_table_scroll(scale_factor).await?;
     require_zero_semantic_property_work("horizontal table property tick", work)
 }
 
@@ -2205,6 +2264,11 @@ mod tests {
             "geometry_upload_bytes_total=0",
             "content_upload_bytes_total=0",
             "property_upload_bytes=0",
+            "node_property_upload_bytes=0",
+            "scroll_property_upload_bytes=0",
+            "text_property_upload_bytes=0",
+            "unattributed_property_upload_bytes=0",
+            "present_submitted_property_serial=0",
             "retained_gpu_resource_count_high_water=0",
             "opacity_unclassified_nodes_latest=0",
         ] {

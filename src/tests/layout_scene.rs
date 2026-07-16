@@ -7237,7 +7237,7 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
     assert_eq!(render.scene_nodes_rebuilt, 0);
     assert_eq!(render.scene_paint_calls, 0);
     assert_eq!(
-        render.visible_property_serial,
+        render.present_submitted_property_serial,
         tick.properties().serial().value()
     );
     let scroll_metrics = &app.diagnostics(window).expect("window diagnostics").scroll;
@@ -7247,6 +7247,20 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
     assert_eq!(scroll_metrics.scroll_property_ticks, 4);
     assert_eq!(scroll_metrics.scroll_needs_residency, 0);
     assert_eq!(scroll_metrics.scroll_unchanged, 0);
+    let receipt = app
+        .diagnostics(window)
+        .expect("window diagnostics")
+        .renderer_receipt_text("property-scroll-trace");
+    assert!(receipt.contains("scroll_trace_count=4"));
+    assert!(receipt.contains("outcome=property-tick"));
+    assert!(receipt.contains(&format!(
+        "candidate_property_serial={}",
+        tick.properties().serial().value()
+    )));
+    assert!(receipt.contains(&format!(
+        "present_submitted_property_serial={}",
+        tick.properties().serial().value()
+    )));
 }
 
 #[test]

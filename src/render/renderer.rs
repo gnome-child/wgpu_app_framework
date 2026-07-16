@@ -1061,6 +1061,10 @@ impl DrawStats {
         self.geometry_upload_bytes += other.geometry_upload_bytes;
         self.content_upload_bytes += other.content_upload_bytes;
         self.property_upload_bytes += other.property_upload_bytes;
+        self.viewport_property_upload_bytes += other.viewport_property_upload_bytes;
+        self.node_property_upload_bytes += other.node_property_upload_bytes;
+        self.scroll_property_upload_bytes += other.scroll_property_upload_bytes;
+        self.text_property_upload_bytes += other.text_property_upload_bytes;
         self.geometry_buffer_creations += other.geometry_buffer_creations;
         self.retained_gpu_resource_count += other.retained_gpu_resource_count;
         self.retained_gpu_resource_bytes += other.retained_gpu_resource_bytes;

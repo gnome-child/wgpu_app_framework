@@ -189,6 +189,10 @@ pub struct Work {
     text_shape_calls: usize,
     content_upload_bytes: usize,
     property_upload_bytes: usize,
+    viewport_property_upload_bytes: usize,
+    node_property_upload_bytes: usize,
+    scroll_property_upload_bytes: usize,
+    text_property_upload_bytes: usize,
     gpu_resource_count: usize,
     gpu_resource_bytes: usize,
     gpu_resource_creations: usize,
@@ -241,6 +245,31 @@ impl Work {
 
     pub fn property_upload_bytes(self) -> usize {
         self.property_upload_bytes
+    }
+
+    pub fn viewport_property_upload_bytes(self) -> usize {
+        self.viewport_property_upload_bytes
+    }
+
+    pub fn node_property_upload_bytes(self) -> usize {
+        self.node_property_upload_bytes
+    }
+
+    pub fn scroll_property_upload_bytes(self) -> usize {
+        self.scroll_property_upload_bytes
+    }
+
+    pub fn text_property_upload_bytes(self) -> usize {
+        self.text_property_upload_bytes
+    }
+
+    pub fn unattributed_property_upload_bytes(self) -> usize {
+        self.property_upload_bytes.saturating_sub(
+            self.viewport_property_upload_bytes
+                .saturating_add(self.node_property_upload_bytes)
+                .saturating_add(self.scroll_property_upload_bytes)
+                .saturating_add(self.text_property_upload_bytes),
+        )
     }
 
     pub fn gpu_resource_count(self) -> usize {
@@ -361,6 +390,10 @@ impl From<render::DrawStats> for Work {
             text_shape_calls: stats.inline_text_shape_calls + stats.inline_icon_shape_calls,
             content_upload_bytes: stats.content_upload_bytes,
             property_upload_bytes: stats.property_upload_bytes,
+            viewport_property_upload_bytes: stats.viewport_property_upload_bytes,
+            node_property_upload_bytes: stats.node_property_upload_bytes,
+            scroll_property_upload_bytes: stats.scroll_property_upload_bytes,
+            text_property_upload_bytes: stats.text_property_upload_bytes,
             gpu_resource_count: stats.retained_gpu_resource_count,
             gpu_resource_bytes: stats.retained_gpu_resource_bytes,
             gpu_resource_creations: stats.retained_gpu_resource_creations,

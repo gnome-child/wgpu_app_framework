@@ -181,11 +181,30 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 .map_err(|_| "scroll-bench samples must be a positive integer".to_owned())?;
             run_scroll_bench(workload, warmup, samples)
         }
+        [command] if command == "table-scroll-work" => run_table_scroll_work(1.0),
+        [command, scale] if command == "table-scroll-work" => {
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            if !scale.is_finite() || scale <= 0.0 {
+                return Err("scale must be a positive number".to_owned());
+            }
+            run_table_scroll_work(scale)
+        }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples]"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale]"
                 .to_owned(),
         ),
     }
+}
+
+fn run_table_scroll_work(scale: f32) -> Result<(), String> {
+    let work = pollster::block_on(
+        wgpu_l3::diagnostics::measure_control_gallery_horizontal_table_scroll(scale),
+    )?;
+    println!("workload=control-gallery-horizontal-table-scroll scale={scale}");
+    print_work("property-hit", work);
+    Ok(())
 }
 
 fn run_scroll_bench(workload: &str, warmup: usize, samples: usize) -> Result<(), String> {
@@ -210,13 +229,18 @@ fn git_commit() -> String {
 
 fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
     println!(
-        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
+        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
         work.scene_node_realization_rebuilds(),
         work.primitive_prepare_calls(),
         work.text_prepare_calls(),
         work.text_shape_calls(),
         work.content_upload_bytes(),
         work.property_upload_bytes(),
+        work.viewport_property_upload_bytes(),
+        work.node_property_upload_bytes(),
+        work.scroll_property_upload_bytes(),
+        work.text_property_upload_bytes(),
+        work.unattributed_property_upload_bytes(),
         work.gpu_resource_count(),
         work.gpu_resource_bytes(),
         work.gpu_resource_creations(),

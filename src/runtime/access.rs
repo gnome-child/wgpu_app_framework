@@ -126,10 +126,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         else {
             return;
         };
-        self.diagnostics
-            .get_mut(window)
-            .render
-            .record_input(epoch, started_at);
+        let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics.render.record_input(epoch, started_at);
+        diagnostics.scroll.record_input(epoch, started_at);
+    }
+
+    pub(crate) fn desired_presentation_epoch(
+        &self,
+        window: window::Id,
+    ) -> Option<window::PresentationEpoch> {
+        self.session
+            .window(window)
+            .map(session::Window::desired_presentation_epoch)
     }
 
     pub(crate) fn record_native_translation(
@@ -235,8 +243,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let property_only = kind.property_only();
         let refreshes_active = kind.refreshes_active();
         let presented = report.presented();
+        let presented_at = report.presented_at();
         let properties = stack.base().properties();
+        let property_serial = properties.serial().value();
         let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics.scroll.record_candidate(epoch, property_serial);
+        if presented {
+            diagnostics
+                .scroll
+                .record_present_submitted(epoch, property_serial, presented_at);
+        }
         diagnostics
             .render
             .record_property_attempt(properties, property_only, presented);

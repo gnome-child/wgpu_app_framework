@@ -1,6 +1,6 @@
 # Payload-neutral scrolling architecture audit and campaign
 
-Status: **EXECUTION AUTHORIZED; SC-000 READY; NO PRODUCTION CAMPAIGN LOOP CLOSED**
+Status: **EXECUTION AUTHORIZED; SC-000 CLOSED; SC-001 READY**
 
 Date: 2026-07-16
 
@@ -401,8 +401,8 @@ Update this table first whenever a loop changes state. `PENDING` means intention
 
 | Loop | State at revision | Depends on | Durable note |
 |---|---|---|---|
-| SC-000 | READY | — | Begin with inherited five-file U-002 diff present at `d4909a8d`. |
-| SC-001 | PENDING | SC-000 vocabulary/receipts | Inherited independent fixture exists but is not connected or proven. |
+| SC-000 | CLOSED | — | Baseline, generation vocabulary, bounded trace, property attribution, source census, and deterministic Tier B manifest are recorded at the SC-000 boundary on `master`. |
+| SC-001 | READY | SC-000 vocabulary/receipts | Inherited independent fixture exists but is not connected or proven. |
 | SC-002 | PENDING | SC-001 red oracle | Spatial-semantics rewrite begins here; candidate/semantic/drawable/compatibility ownership is in scope. |
 | SC-003 | PENDING | SC-000 property receipts | Independent property-economics track; current 11,072-byte receipt is a baseline, not a budget. |
 | SC-004 | PENDING | SC-000 generation trace | Independent state contract; separate resident acceptance from `present_submitted`. |
@@ -417,12 +417,17 @@ Initial evidence ledger:
 
 | Evidence | State | Receipt |
 |---|---|---|
-| E-000 repository provenance | RECORDED | Branch `codex/scroll-truth-campaign`, HEAD `d4909a8d`, five inherited modified source/tool files plus this new audit document. |
-| E-001 warm table property tick | RECORDED | Release `table-scroll-work`, scales 1.0/1.25/1.5/2.0: zero semantic/content preparation, zero resource churn, one plan reuse, 11,072 property-upload bytes. |
+| E-000 repository provenance | RECORDED | The only divergent campaign branch was a linear 33-commit descendant of `master`; it was fast-forwarded into `master`. Campaign formulation was pushed at `cd00554d`. The inherited U-002 correction and independent fixture remain uncommitted SC-001 provenance. |
+| E-001 warm table property tick | RECORDED | Release `table-scroll-work`, scales 1.0/1.25/1.5/1.75/2.0: zero semantic/content preparation, zero resource churn, one plan reuse, 11,072 property-upload bytes split as node 11,008, scroll 32, text 32, viewport/unattributed 0. |
 | E-002 grouped first-tick oracle | INCOMPLETE | Static expected fixture exists; renderer connection, per-object samples, all scales, and old-binding negative control are absent. |
 | E-003 unwrapped edit locality | RECORDED/PRIOR | Pushed `d4909a8d`; 4 MiB and synthetic 64 MiB sharing receipts are summarized in section 2. |
 | E-004 cold glyph admission | OPEN | Roughly 24 GiB observed for a synthetic 64 MiB path; bounded scaling receipt still required. |
 | E-005 independent campaign/patch review | RECORDED | Review found the inherited group binding locally coherent; its structural test and legacy visual test passed, release property bytes reproduced, and the unused fixture still emitted dead-code evidence. This does not close E-002. |
+| E-006 bounded causal trace | RECORDED | `wgpu_l3.scroll_trace.v1` retains at most 32 transition records. Monotonic request serial ranges, target identity, request/clamp/resident values, outcome, candidate attempts, candidate/GPU/present-submitted serials, supersession, and latency are correlated by presentation epoch. One candidate selects the latest pending request per target; only earlier requests for the same target are superseded. |
+| E-007 native scroll trace | RECORDED | Release control gallery, 136 px viewport, eight wheel events: six bounded records account for all requests through two coalesced pairs; five property transitions and three residency transitions all reach matching candidate/GPU/present-submitted serials. Frames 52/52, skipped 0; key-to-present-submitted p50/p95/p99/max 6,523/26,034/26,034/26,034 microseconds; unattributed property bytes 0. |
+| E-008 deterministic Tier B manifest | RECORDED | Generator version 1, seed 20260716, 87 cases under the 128-case cap, explicit diagonal constraint, all valid pairs covered, cases SHA-256 `1265b5ec68cccbffbb042e5ee38fbb7e8f723932650971d0084f44368c2a660f`. |
+| E-009 source census | RECORDED | `docs/audits/2026-07-16-scroll-source-census.md` records fact owners, six production spatial interpreters, payload adapters, property-write sites, scheduling, diagnostics, and repeatable census commands. |
+| E-010 large-text rail | RECORDED | Current official release `text-horizontal-edit-4m` 64/1,024 receipt: p50/p95/p99/max 399/526/558/698 microseconds, 1,024 incremental updates, zero full index builds/full-width visits, maximum index residency 3,540,660 bytes, bounded 1,432 by 640 render window. The synthetic 64 MiB block-sharing test remains green; cold 64 MiB glyph admission remains E-004 open. |
 
 Append evidence; do not silently rewrite a failed receipt. When superseding a conclusion, add the new receipt and identify which prior inference it invalidates.
 
@@ -445,6 +450,34 @@ Closure:
 - Existing behavior and resource counts are captured at the five required scales.
 - Diagnostics themselves perform no semantic work and have bounded overhead.
 - The Tier B manifest satisfies its bounded deterministic coverage rules.
+
+#### SC-000 closeout — falsifiable baseline and vocabulary
+
+The generation vocabulary frozen at this boundary is:
+
+| Term | Receipt representation | Meaning |
+|---|---|---|
+| Scroll request | `first_request_serial` through `last_request_serial`, `target_key` | Monotonic diagnostic identity for one request or an epoch-coalesced range of requests to one interaction target. It does not claim candidate selection. |
+| Coalesced desired intent | `coalesced_inputs`, `requested_x/y` | Latest desired offset for that target within the recorded request epoch; the serial range preserves how many requests contributed. |
+| Clamped value | `clamped_x/y` | Offset resolved against the current legal range. |
+| Resident-accepted value | `resident_offset_x/y`, `resident_accepted`, `outcome` | Value supported by the current presented residency declaration. `property-tick` means the warm path accepted it; `needs-residency` preserves desired intent while the prior resident value remains authoritative. |
+| Candidate property snapshot | `candidate_epoch`, `candidate_attempts`, `candidate_property_serial` | Optional frame selection. Repeated attempts at one epoch update the recorded candidate serial; requests may be superseded before this stage. |
+| GPU-submitted frame | `gpu_submitted_property_serial` | Property snapshot whose command buffers were successfully submitted. |
+| Present-submitted frame | `present_submitted_property_serial`, `input_to_present_submitted_us` | The same submitted property snapshot after the surface present call. It is not scanout feedback. |
+
+The bounded trace keeps 32 records and selects the latest pending request independently for every target represented by one candidate. Older pending requests are marked superseded only by a later request for the same target. Unit witnesses cover single-target correlation, request ranges, coalescing, same-target supersession, multiple targets selected into one candidate, a residency request linked to a later semantic epoch, repeated candidate attempts, unchanged input isolation, and the storage bound.
+
+The release `table-scroll-work` receipt is identical at scales 1.0, 1.25, 1.5, 1.75, and 2.0: zero node rebuilds, primitive/text preparation, text shaping, content upload, resource churn, and plan rebuilds; one plan reuse; 11,072 property bytes split as node 11,008, scroll 32, text 32, viewport/unattributed 0. This records the full-node upload as an SC-003 baseline rather than accepting it as a warm-tick budget.
+
+The final native 136 px control-gallery trace recorded eight wheel requests as six records with two coalesced ranges, five property transitions, and three residency transitions. All selected records report matching candidate, GPU-submitted, and present-submitted property serials; frames attempted/presented/skipped were 52/52/0; key-to-present-submitted p50/p95/p99/max was 6,523/26,034/26,034/26,034 microseconds. Aggregate property attribution was viewport 16, node 450,560, scroll 928, text 944, unattributed 0. Manual pauses and residency work make this an observability witness, not an SC-006 cadence conclusion.
+
+The checked-in Tier B manifest is generated by version 1 with seed 20260716. It contains 87 cases, explicitly rejects 2,310 invalid diagonal combinations, covers every valid pair, remains under the 128-case cap, and has cases SHA-256 `1265b5ec68cccbffbb042e5ee38fbb7e8f723932650971d0084f44368c2a660f`. The generator check and three manifest invariants are executable in `tools/test_scroll_pairwise_manifest.py`.
+
+Large-text locality remains a campaign rail: the current official release 64-warmup/1,024-sample 4 MiB edit receipt reports p50/p95/p99/max 399/526/558/698 microseconds, 1,024 incremental updates, zero full index builds or full-width source visits, 3,540,660 maximum index residency, and a bounded 1,432 by 640 render window. The synthetic 64 MiB sharing witness passes. The separate roughly 24 GiB cold glyph-admission path remains open; it was deliberately not executed or represented as fixed here.
+
+The durable source census is `docs/audits/2026-07-16-scroll-source-census.md`; the deterministic manifest is `docs/audits/fixtures/scroll-pairwise-manifest-v1.json`. This loop changes diagnostics and attribution only. It does not close the inherited group-binding hypothesis, change scroll semantics, or claim a pacing cause.
+
+Verification at the isolated boundary: formatter and diff checks passed; the manifest regeneration check passed; 18 Python manifest/receipt/census tests passed; and `cargo test --workspace --all-targets --all-features` passed with 1,244 library tests, three renderer-debug tests, and two example tests, with the existing hardware-dependent tests ignored. The first broad execution exposed one failed architecture assertion because it searched only `diagnostics/render.rs` for the scroll-owned schema. The assertion was corrected to require the schema in `diagnostics/scroll.rs` and its assembly through `diagnostics/mod.rs`; the targeted test and complete suite then passed. The inherited unused SC-001 fixture remains the only new dead-code warning at this boundary.
 
 ### SC-001 — Build the independent payload-neutral first-tick oracle
 
@@ -674,6 +707,6 @@ Do not:
 
 ## 11. Immediate next action
 
-Resume at **SC-000**, preserving the inherited U-002 files. The first implementation-authorized task should finish the generation vocabulary, diagnostic receipt, and deterministic Tier B manifest, then connect the independent generic first-tick oracle in **SC-001**. The local group-binding correction must remain a hypothesis until the specified Tier A negative control fails under the old behavior and all required Tier A cases pass under the correction.
+Resume at **SC-001**, preserving the inherited U-002 correction and fixture provenance. Connect the independent generic first-tick oracle, prove the inherited old group binding fails for the intended per-object reason at all five scales, and complete the fixed Tier A positive/negative execution set. The local group-binding correction remains a hypothesis until those gates pass; SC-001 may establish the oracle but must not claim the production fix.
 
-No production implementation was performed as part of this audit.
+SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. No scrolling semantic correction is closed yet.

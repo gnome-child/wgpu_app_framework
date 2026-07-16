@@ -295,6 +295,10 @@ pub(in crate::render) struct SyncStats {
     pub(in crate::render) primitive_prepare_calls: usize,
     pub(in crate::render) content_upload_bytes: usize,
     pub(in crate::render) property_upload_bytes: usize,
+    pub(in crate::render) viewport_property_upload_bytes: usize,
+    pub(in crate::render) node_property_upload_bytes: usize,
+    pub(in crate::render) scroll_property_upload_bytes: usize,
+    pub(in crate::render) text_property_upload_bytes: usize,
     pub(in crate::render) resource_creations: usize,
     pub(in crate::render) resource_replacements: usize,
     pub(in crate::render) resource_removals: usize,
@@ -1088,6 +1092,7 @@ fn prepare_text_transforms(
         text_renderer.prepare_retained_transforms(render_context, viewport, commit, &transforms);
     SyncStats {
         property_upload_bytes: report.property_upload_bytes,
+        text_property_upload_bytes: report.property_upload_bytes,
         resource_creations: report.resource_creations,
         resource_removals: report.resource_removals,
         ..SyncStats::default()
@@ -2092,6 +2097,10 @@ fn apply_sync_stats(stats: &mut render::DrawStats, sync: SyncStats) {
     stats.quad_prepare_calls += sync.primitive_prepare_calls;
     stats.content_upload_bytes += sync.content_upload_bytes;
     stats.property_upload_bytes += sync.property_upload_bytes;
+    stats.viewport_property_upload_bytes += sync.viewport_property_upload_bytes;
+    stats.node_property_upload_bytes += sync.node_property_upload_bytes;
+    stats.scroll_property_upload_bytes += sync.scroll_property_upload_bytes;
+    stats.text_property_upload_bytes += sync.text_property_upload_bytes;
     stats.retained_gpu_resource_creations += sync.resource_creations;
     stats.retained_gpu_resource_replacements += sync.resource_replacements;
     stats.retained_gpu_resource_removals += sync.resource_removals;
@@ -2606,6 +2615,7 @@ impl Shapes {
                 bytemuck::bytes_of(&viewport_uniform),
             );
             stats.property_upload_bytes += std::mem::size_of::<ViewportUniform>();
+            stats.viewport_property_upload_bytes += std::mem::size_of::<ViewportUniform>();
         }
 
         if buffer_recreated || property_slot.bytes != bytes {
@@ -2613,6 +2623,7 @@ impl Shapes {
                 .queue()
                 .write_buffer(&property_slot.property_buffer, 0, &bytes);
             stats.property_upload_bytes += bytes.len();
+            stats.node_property_upload_bytes += bytes.len();
         }
         property_slot.owners.clear();
         property_slot.owners.push(Arc::downgrade(commit));
@@ -2756,6 +2767,7 @@ impl Shapes {
                 .queue()
                 .write_buffer(&scroll_slot.buffer, 0, &bytes);
             stats.property_upload_bytes += bytes.len();
+            stats.scroll_property_upload_bytes += bytes.len();
         } else {
             let property_size = std::mem::size_of::<ScrollProperty>();
             for index in 0..required {
@@ -2768,6 +2780,7 @@ impl Shapes {
                         &bytes[range],
                     );
                     stats.property_upload_bytes += property_size;
+                    stats.scroll_property_upload_bytes += property_size;
                 }
             }
         }

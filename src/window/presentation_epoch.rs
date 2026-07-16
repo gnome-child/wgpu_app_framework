@@ -9,4 +9,8 @@ impl PresentationEpoch {
     pub(crate) fn next(self) -> Self {
         Self(self.0 + 1)
     }
+
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
 }

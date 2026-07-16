@@ -217,7 +217,13 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 point,
                 delta,
             } => {
-                self.scroll(window, point, delta)?;
+                let epoch_before = self.runtime.desired_presentation_epoch(window);
+                let outcome = self.scroll(window, point, delta)?;
+                if outcome.is_handled()
+                    && self.runtime.desired_presentation_epoch(window) > epoch_before
+                {
+                    self.runtime.record_input_latency_sample(window, started_at);
+                }
                 Ok(())
             }
             Event::PopupScrolled {
@@ -226,7 +232,13 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 point,
                 delta,
             } => {
-                self.scroll_popup(window, popup, point, delta)?;
+                let epoch_before = self.runtime.desired_presentation_epoch(window);
+                let outcome = self.scroll_popup(window, popup, point, delta)?;
+                if outcome.is_handled()
+                    && self.runtime.desired_presentation_epoch(window) > epoch_before
+                {
+                    self.runtime.record_input_latency_sample(window, started_at);
+                }
                 Ok(())
             }
             Event::KeyDown {
