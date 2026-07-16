@@ -16,6 +16,7 @@ pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
 const LONG_LINE_BYTES: usize = 1_048_576;
 const EXACT_LONG_LINE_BYTES: usize = 4 * 1_048_576;
+const ASCII_64_MIB_LONG_LINE_BYTES: usize = 64 * 1_048_576;
 const VERTICAL_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
 const VIEWPORT_WIDTH: f32 = 920.0;
 const VIEWPORT_HEIGHT: f32 = 640.0;
@@ -24,13 +25,15 @@ const VIEWPORT_HEIGHT: f32 = 640.0;
 pub enum ScrollBenchWorkload {
     TextHorizontalLongLine,
     TextHorizontalExactLongLine,
+    TextHorizontalAscii64MiB,
     TextVerticalVariableHeight,
 }
 
 impl ScrollBenchWorkload {
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Self::TextHorizontalLongLine,
         Self::TextHorizontalExactLongLine,
+        Self::TextHorizontalAscii64MiB,
         Self::TextVerticalVariableHeight,
     ];
 
@@ -38,6 +41,7 @@ impl ScrollBenchWorkload {
         match self {
             Self::TextHorizontalLongLine => "text-horizontal-1m",
             Self::TextHorizontalExactLongLine => "text-horizontal-4m-exact",
+            Self::TextHorizontalAscii64MiB => "text-horizontal-64m-ascii",
             Self::TextVerticalVariableHeight => "text-vertical-8m",
         }
     }
@@ -46,6 +50,7 @@ impl ScrollBenchWorkload {
         match self {
             Self::TextHorizontalLongLine => "ResidencyCrossing",
             Self::TextHorizontalExactLongLine => "ResidencyCrossing",
+            Self::TextHorizontalAscii64MiB => "ResidencyCrossing",
             Self::TextVerticalVariableHeight => "ResidencyCrossing",
         }
     }
@@ -54,6 +59,13 @@ impl ScrollBenchWorkload {
         Self::ALL
             .into_iter()
             .find(|workload| workload.name() == name)
+    }
+
+    fn requires_precision_offsets(self) -> bool {
+        matches!(
+            self,
+            Self::TextHorizontalExactLongLine | Self::TextHorizontalAscii64MiB
+        )
     }
 }
 
@@ -247,6 +259,12 @@ pub fn run_scroll_bench(
             warmup,
             samples,
         ),
+        ScrollBenchWorkload::TextHorizontalAscii64MiB => run_text_horizontal_long_line(
+            ScrollBenchWorkload::TextHorizontalAscii64MiB,
+            ASCII_64_MIB_LONG_LINE_BYTES,
+            warmup,
+            samples,
+        ),
         ScrollBenchWorkload::TextVerticalVariableHeight => {
             run_text_vertical_variable_height(warmup, samples)
         }
@@ -285,7 +303,7 @@ fn run_text_horizontal_long_line(
         .ok_or_else(|| format!("{} produced no cold render surface", workload.name()))?;
     let maximum_offset = logical_width.saturating_sub(VIEWPORT_WIDTH as usize);
     let offset_x = maximum_offset.saturating_mul(3) / 4;
-    let precision_offsets_required = workload == ScrollBenchWorkload::TextHorizontalExactLongLine;
+    let precision_offsets_required = workload.requires_precision_offsets();
     let precision_offsets_checked = if precision_offsets_required {
         verify_exact_horizontal_offsets(
             &mut engine,
@@ -497,7 +515,7 @@ fn horizontal_streamed_offset(
     index: usize,
     maximum: usize,
 ) -> usize {
-    if workload == ScrollBenchWorkload::TextHorizontalExactLongLine {
+    if workload.requires_precision_offsets() {
         match index % 257 {
             0 => return 16_777_215.min(maximum),
             1 => return 16_777_216.min(maximum),
