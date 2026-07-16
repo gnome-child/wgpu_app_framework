@@ -135,6 +135,7 @@ impl Engine {
                 .line_layout_identity(0)
                 .map(|identity| identity.id),
             source_start: 0,
+            source_line_byte_start: 0,
             source_text_len,
             buffer: prepared,
             default_color: style.color(),

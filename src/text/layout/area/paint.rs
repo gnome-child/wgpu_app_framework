@@ -217,6 +217,7 @@ impl Engine {
                 local_cursor_range_for_source_line(
                     range,
                     surface.source_line,
+                    surface.source_line_byte_start,
                     surface.source_text_len,
                 )
             });
@@ -224,6 +225,7 @@ impl Engine {
                 local_cursor_range_for_source_line(
                     range,
                     surface.source_line,
+                    surface.source_line_byte_start,
                     surface.source_text_len,
                 )
             });
@@ -231,6 +233,7 @@ impl Engine {
                 local_cursor_range_for_source_line(
                     range,
                     surface.source_line,
+                    surface.source_line_byte_start,
                     surface.source_text_len,
                 )
             });
@@ -240,7 +243,7 @@ impl Engine {
                 preedit_underline,
                 preedit_selection,
                 surface.y,
-                -surface.x,
+                -surface.text_x,
                 0.0,
             );
             spans.selection.extend(line_spans.selection);
@@ -258,13 +261,27 @@ impl Engine {
                 && projection.cursor().line == surface.source_line
             {
                 let source_cursor = projection.cursor();
-                let cursor =
-                    Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity);
+                if source_cursor.index < surface.source_line_byte_start
+                    || source_cursor.index
+                        > surface
+                            .source_line_byte_start
+                            .saturating_add(surface.source_text_len)
+                {
+                    continue;
+                }
+                let cursor = Cursor::new_with_affinity(
+                    0,
+                    source_cursor
+                        .index
+                        .saturating_sub(surface.source_line_byte_start)
+                        .min(surface.source_text_len),
+                    source_cursor.affinity,
+                );
                 let (position, run_scans, glyph_scans) = cursor_position_observed(&buffer, cursor);
                 self.diagnostics.text_area_caret_run_scans += run_scans;
                 self.diagnostics.text_area_caret_glyph_scans += glyph_scans;
                 caret = position.map(|(x, y)| Caret {
-                    x: x as f32 + surface.x,
+                    x: x as f32 + surface.text_x,
                     y: surface.y + y as f32,
                     height: buffer.metrics().line_height,
                 });
@@ -376,6 +393,7 @@ impl Engine {
                 local_cursor_range_for_source_line(
                     range,
                     segment.display.source_line,
+                    segment.display.source_line_byte_start,
                     segment.display.source_text_len,
                 )
             });
@@ -383,6 +401,7 @@ impl Engine {
                 local_cursor_range_for_source_line(
                     range,
                     segment.display.source_line,
+                    segment.display.source_line_byte_start,
                     segment.display.source_text_len,
                 )
             });
@@ -390,6 +409,7 @@ impl Engine {
                 local_cursor_range_for_source_line(
                     range,
                     segment.display.source_line,
+                    segment.display.source_line_byte_start,
                     segment.display.source_text_len,
                 )
             });
@@ -399,7 +419,7 @@ impl Engine {
                 preedit_underline,
                 preedit_selection,
                 segment.y,
-                request.state.scroll_x(),
+                -segment.display.text_x,
                 0.0,
             );
             spans.selection.extend(line_spans.selection);
@@ -417,13 +437,28 @@ impl Engine {
                 && request.projection.cursor().line == segment.display.source_line
             {
                 let source_cursor = request.projection.cursor();
-                let cursor =
-                    Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity);
+                if source_cursor.index < segment.display.source_line_byte_start
+                    || source_cursor.index
+                        > segment
+                            .display
+                            .source_line_byte_start
+                            .saturating_add(segment.display.source_text_len)
+                {
+                    continue;
+                }
+                let cursor = Cursor::new_with_affinity(
+                    0,
+                    source_cursor
+                        .index
+                        .saturating_sub(segment.display.source_line_byte_start)
+                        .min(segment.display.source_text_len),
+                    source_cursor.affinity,
+                );
                 let (position, run_scans, glyph_scans) = cursor_position_observed(&buffer, cursor);
                 self.diagnostics.text_area_caret_run_scans += run_scans;
                 self.diagnostics.text_area_caret_glyph_scans += glyph_scans;
                 caret = position.map(|(x, y)| Caret {
-                    x: x as f32 - request.state.scroll_x(),
+                    x: x as f32 + segment.display.text_x,
                     y: segment.y + y as f32,
                     height: buffer.metrics().line_height,
                 });
@@ -506,10 +541,14 @@ fn complete_observed_width(
     observed_width: f32,
 ) -> Option<f32> {
     let line_count = source.logical_line_count();
-    (segments.len() == line_count
-        && segments
-            .iter()
-            .enumerate()
-            .all(|(line, segment)| segment.display.source_line == line))
-    .then_some(observed_width)
+    let mut next_line = 0_usize;
+    for segment in segments {
+        let line = segment.display.source_line;
+        if line == next_line {
+            next_line += 1;
+        } else if line != next_line.saturating_sub(1) {
+            return None;
+        }
+    }
+    (next_line == line_count).then_some(observed_width)
 }

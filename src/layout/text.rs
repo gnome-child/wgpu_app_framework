@@ -24,6 +24,17 @@ pub struct Text {
     pub text_area_shaped_logical_lines: usize,
     pub text_area_shaped_visual_lines: usize,
     pub text_area_line_shape_calls: usize,
+    pub text_area_horizontal_index_builds: usize,
+    pub text_area_horizontal_index_source_bytes: usize,
+    pub text_area_horizontal_index_glyphs: usize,
+    pub text_area_horizontal_index_checkpoints: usize,
+    pub text_area_horizontal_index_resident_bytes_max: usize,
+    pub text_area_horizontal_window_shapes: usize,
+    pub text_area_horizontal_window_source_bytes: usize,
+    pub text_area_horizontal_resident_source_bytes_max: usize,
+    pub text_area_horizontal_resident_glyphs_max: usize,
+    pub text_area_horizontal_resident_bytes_max: usize,
+    pub text_area_line_cache_resident_bytes_max: usize,
     pub text_area_layout_segments: usize,
     pub text_area_overscan_segments: usize,
     pub text_area_interaction_surfaces: usize,
@@ -371,11 +382,28 @@ impl Service {
 
 impl Area {
     pub(super) fn resident_bounds(&self, viewport: Rect) -> Option<Rect> {
-        let [surface] = self.render_surfaces.as_slice() else {
-            return None;
-        };
-        let rect = surface.pixel_rect(viewport);
-        (rect.width() > 0 && rect.height() > 0).then_some(rect)
+        let mut rects = self
+            .render_surfaces
+            .iter()
+            .map(|surface| surface.pixel_rect(viewport))
+            .filter(|rect| rect.width() > 0 && rect.height() > 0)
+            .collect::<Vec<_>>();
+        rects.sort_unstable_by_key(|rect| (rect.y(), rect.x(), rect.width(), rect.height()));
+        rects.dedup();
+        let first = *rects.first()?;
+        let mut bottom = first.y().saturating_add(first.height());
+        for rect in &rects[1..] {
+            if rect.x() != first.x() || rect.width() != first.width() || rect.y() > bottom {
+                return None;
+            }
+            bottom = bottom.max(rect.y().saturating_add(rect.height()));
+        }
+        Some(Rect::new(
+            first.x(),
+            first.y(),
+            first.width(),
+            bottom.saturating_sub(first.y()),
+        ))
     }
 }
 
@@ -388,6 +416,30 @@ impl Text {
         self.text_area_shaped_logical_lines += diagnostics.text_area_shaped_logical_lines;
         self.text_area_shaped_visual_lines += diagnostics.text_area_shaped_visual_lines;
         self.text_area_line_shape_calls += diagnostics.text_area_line_shape_calls;
+        self.text_area_horizontal_index_builds += diagnostics.text_area_horizontal_index_builds;
+        self.text_area_horizontal_index_source_bytes +=
+            diagnostics.text_area_horizontal_index_source_bytes;
+        self.text_area_horizontal_index_glyphs += diagnostics.text_area_horizontal_index_glyphs;
+        self.text_area_horizontal_index_checkpoints +=
+            diagnostics.text_area_horizontal_index_checkpoints;
+        self.text_area_horizontal_index_resident_bytes_max = self
+            .text_area_horizontal_index_resident_bytes_max
+            .max(diagnostics.text_area_horizontal_index_resident_bytes_max);
+        self.text_area_horizontal_window_shapes += diagnostics.text_area_horizontal_window_shapes;
+        self.text_area_horizontal_window_source_bytes +=
+            diagnostics.text_area_horizontal_window_source_bytes;
+        self.text_area_horizontal_resident_source_bytes_max = self
+            .text_area_horizontal_resident_source_bytes_max
+            .max(diagnostics.text_area_horizontal_resident_source_bytes_max);
+        self.text_area_horizontal_resident_glyphs_max = self
+            .text_area_horizontal_resident_glyphs_max
+            .max(diagnostics.text_area_horizontal_resident_glyphs_max);
+        self.text_area_horizontal_resident_bytes_max = self
+            .text_area_horizontal_resident_bytes_max
+            .max(diagnostics.text_area_horizontal_resident_bytes_max);
+        self.text_area_line_cache_resident_bytes_max = self
+            .text_area_line_cache_resident_bytes_max
+            .max(diagnostics.text_area_line_cache_resident_bytes_max);
         self.text_area_layout_segments += diagnostics.text_area_layout_segments;
         self.text_area_overscan_segments += diagnostics.text_area_overscan_segments;
         self.text_area_interaction_surfaces += diagnostics.text_area_interaction_surfaces;
@@ -448,6 +500,30 @@ impl Text {
         self.text_area_shaped_logical_lines += diagnostics.text_area_shaped_logical_lines;
         self.text_area_shaped_visual_lines += diagnostics.text_area_shaped_visual_lines;
         self.text_area_line_shape_calls += diagnostics.text_area_line_shape_calls;
+        self.text_area_horizontal_index_builds += diagnostics.text_area_horizontal_index_builds;
+        self.text_area_horizontal_index_source_bytes +=
+            diagnostics.text_area_horizontal_index_source_bytes;
+        self.text_area_horizontal_index_glyphs += diagnostics.text_area_horizontal_index_glyphs;
+        self.text_area_horizontal_index_checkpoints +=
+            diagnostics.text_area_horizontal_index_checkpoints;
+        self.text_area_horizontal_index_resident_bytes_max = self
+            .text_area_horizontal_index_resident_bytes_max
+            .max(diagnostics.text_area_horizontal_index_resident_bytes_max);
+        self.text_area_horizontal_window_shapes += diagnostics.text_area_horizontal_window_shapes;
+        self.text_area_horizontal_window_source_bytes +=
+            diagnostics.text_area_horizontal_window_source_bytes;
+        self.text_area_horizontal_resident_source_bytes_max = self
+            .text_area_horizontal_resident_source_bytes_max
+            .max(diagnostics.text_area_horizontal_resident_source_bytes_max);
+        self.text_area_horizontal_resident_glyphs_max = self
+            .text_area_horizontal_resident_glyphs_max
+            .max(diagnostics.text_area_horizontal_resident_glyphs_max);
+        self.text_area_horizontal_resident_bytes_max = self
+            .text_area_horizontal_resident_bytes_max
+            .max(diagnostics.text_area_horizontal_resident_bytes_max);
+        self.text_area_line_cache_resident_bytes_max = self
+            .text_area_line_cache_resident_bytes_max
+            .max(diagnostics.text_area_line_cache_resident_bytes_max);
         self.text_area_layout_segments += diagnostics.text_area_layout_segments;
         self.text_area_overscan_segments += diagnostics.text_area_overscan_segments;
         self.text_area_interaction_surfaces += diagnostics.text_area_interaction_surfaces;

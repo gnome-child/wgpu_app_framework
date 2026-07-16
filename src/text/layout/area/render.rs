@@ -10,18 +10,22 @@ use super::super::super::{
     view::ViewState,
 };
 use super::super::{
-    constants::TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN,
     content::text_area_estimated_line_height,
     engine::Engine,
     glyph::{glyph_wrap, set_cosmic_buffer_text, text_area_shaping_for_text},
     height::{TextAreaHeightIndex, TextAreaHeightKey},
+    horizontal::prepared_window as horizontal_render_window,
     output::TextAreaSurface,
     system, text_area,
     text_area::{
         CachedRenderBuffer as CachedTextAreaRenderBuffer, LineDisplayKey as TextAreaLineDisplayKey,
-        RenderAnchor as TextAreaRenderAnchor, RenderBufferKey as TextAreaRenderBufferKey,
+        LineWindowKey as TextAreaLineWindowKey, RenderAnchor as TextAreaRenderAnchor,
+        RenderBufferKey as TextAreaRenderBufferKey,
     },
 };
+
+#[cfg(test)]
+use super::super::constants::TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
 
 impl Engine {
     pub(super) fn text_area_render_surfaces(
@@ -74,6 +78,60 @@ impl Engine {
             .diagnostics
             .text_area_render_window_area_max
             .max(surface_width_px.saturating_mul(surface_height_px));
+        if area_model.wrap() == AreaWrap::None {
+            let mut y = anchor.y;
+            let mut surfaces =
+                Vec::with_capacity(anchor.source_line_end.saturating_sub(anchor.source_line));
+            for source_line in anchor.source_line..anchor.source_line_end {
+                let displays = self.text_area_line_displays_at(
+                    area_model,
+                    source,
+                    committed,
+                    style,
+                    viewport,
+                    state,
+                    source_line,
+                );
+                let line_height = displays
+                    .iter()
+                    .map(|display| display.height.max(1.0))
+                    .max_by(f32::total_cmp)
+                    .unwrap_or_else(|| text_area_estimated_line_height(style));
+                let resident_height = if source_line + 1 == anchor.source_line_end {
+                    line_height.max(anchor.y + surface_height - y)
+                } else {
+                    line_height
+                };
+                for display in displays {
+                    if display.cache_hit {
+                        self.diagnostics.text_area_render_surface_cache_hits += 1;
+                    } else {
+                        self.diagnostics.text_area_render_surface_cache_misses += 1;
+                        self.diagnostics.text_area_render_surface_source_lines += 1;
+                        self.diagnostics.text_area_render_surface_source_bytes +=
+                            display.source_text_len;
+                    }
+                    self.diagnostics.text_area_render_surface_line_reuses += 1;
+                    surfaces.push(TextAreaSurface {
+                        x: window_origin_x - scroll_x,
+                        y,
+                        text_x: display.text_x,
+                        width: surface_width,
+                        height: resident_height,
+                        source_line,
+                        source_line_id: display.source_line_id,
+                        source_start: display.source_start,
+                        source_line_byte_start: display.source_line_byte_start,
+                        source_text_len: display.source_text_len,
+                        buffer: display.buffer,
+                        default_color: style.color(),
+                    });
+                }
+                y += line_height;
+            }
+            self.diagnostics.text_area_render_surface_total_us += elapsed_micros(total_started);
+            return surfaces;
+        }
         let layout_width = match area_model.wrap() {
             AreaWrap::None => None,
             AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
@@ -106,15 +164,18 @@ impl Engine {
         } else {
             self.diagnostics.text_area_render_surface_cache_misses += 1;
             let line_buffer = if committed && source_lines == 1 {
-                TextAreaLineDisplayKey::new(
+                let line_key = TextAreaLineDisplayKey::new(
                     area_model,
                     source,
                     style,
                     viewport.width().max(0.0),
                     anchor.source_line,
-                )
-                .and_then(|key| self.text_area_line_displays.get(&key))
-                .map(|cached| cached.buffer)
+                );
+                let source_text_len = source.inner.document.line_text_len(anchor.source_line);
+                line_key
+                    .map(|key| TextAreaLineWindowKey::new(key, 0, source_text_len))
+                    .and_then(|key| self.text_area_line_displays.get(&key))
+                    .map(|cached| cached.buffer)
             } else {
                 None
             };
@@ -229,6 +290,7 @@ impl Engine {
                 .line_layout_identity(anchor.source_line)
                 .map(|identity| identity.id),
             source_start,
+            source_line_byte_start: 0,
             source_text_len,
             buffer,
             default_color: style.color(),
@@ -315,15 +377,6 @@ fn elapsed_micros(start: Instant) -> u128 {
 
 fn ceil_to_usize(value: f32) -> usize {
     value.ceil().clamp(0.0, usize::MAX as f32) as usize
-}
-
-fn horizontal_render_window(viewport_width: f32, scroll_x: f32) -> (f32, f32) {
-    let viewport_width = viewport_width.max(1.0);
-    let overscan = TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN.max(1.0);
-    let width = viewport_width + overscan * 2.0;
-    let desired_origin = (scroll_x - overscan).max(0.0);
-    let origin = (desired_origin / overscan).floor() * overscan;
-    (origin, width)
 }
 
 #[cfg(test)]

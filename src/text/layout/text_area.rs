@@ -11,9 +11,11 @@ use super::super::{
     view::ViewState,
 };
 use super::constants::{
-    TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY, TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY,
-    TEXT_AREA_RENDER_GUARD_LINES, TEXT_AREA_RENDER_MAX_WINDOW_LINES,
+    TEXT_AREA_HORIZONTAL_INDEX_CACHE_CAPACITY, TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
+    TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES,
+    TEXT_AREA_RENDER_MAX_WINDOW_LINES,
 };
+use super::horizontal::LineIndex as HorizontalLineIndex;
 use super::key::{StyleKey, finite_bits};
 use super::output::TextAreaSurface;
 use super::shaping_cache::ShapingCache;
@@ -37,6 +39,11 @@ pub(in crate::text) struct CachedLineDisplay {
     pub(in crate::text) buffer: Rc<RefCell<glyphon::Buffer>>,
     pub(in crate::text) height: f32,
     pub(in crate::text) width: f32,
+    pub(in crate::text) source_byte_start: usize,
+    pub(in crate::text) source_text_len: usize,
+    pub(in crate::text) source_x: f32,
+    pub(in crate::text) glyph_count: usize,
+    pub(in crate::text) resident_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -45,9 +52,14 @@ pub(in crate::text) struct LineDisplay {
     pub(in crate::text) source_line: usize,
     pub(in crate::text) source_line_id: Option<LineId>,
     pub(in crate::text) source_start: usize,
+    pub(in crate::text) source_line_byte_start: usize,
     pub(in crate::text) source_text_len: usize,
     pub(in crate::text) height: f32,
     pub(in crate::text) width: f32,
+    pub(in crate::text) surface_x: f32,
+    pub(in crate::text) surface_width: f32,
+    pub(in crate::text) text_x: f32,
+    pub(in crate::text) cache_hit: bool,
 }
 
 #[derive(Clone)]
@@ -77,6 +89,13 @@ pub(in crate::text) struct LineDisplayKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(in crate::text) struct LineWindowKey {
+    line: LineDisplayKey,
+    source_start: usize,
+    source_end: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::text) struct RenderBufferKey {
     lines: Vec<LineLayoutIdentity>,
     style: StyleKey,
@@ -100,6 +119,16 @@ impl LineDisplayKey {
             wrap: area_model.wrap(),
             direction: style.direction(),
         })
+    }
+}
+
+impl LineWindowKey {
+    pub(super) fn new(line: LineDisplayKey, source_start: usize, source_end: usize) -> Self {
+        Self {
+            line,
+            source_start,
+            source_end,
+        }
     }
 }
 
@@ -132,8 +161,12 @@ impl LineDisplay {
         source: &Buffer,
         source_line: usize,
         cached: CachedLineDisplay,
+        surface_x: f32,
+        surface_width: f32,
+        scroll_x: f32,
+        cache_hit: bool,
     ) -> Self {
-        let (source_start, source_text_len) = line_source_metrics(source, source_line);
+        let (line_start, _) = line_source_metrics(source, source_line);
         let source_line_id = source
             .line_layout_identity(source_line)
             .map(|identity| identity.id);
@@ -141,16 +174,25 @@ impl LineDisplay {
             buffer: cached.buffer,
             source_line,
             source_line_id,
-            source_start,
-            source_text_len,
+            source_start: line_start.saturating_add(cached.source_byte_start),
+            source_line_byte_start: cached.source_byte_start,
+            source_text_len: cached.source_text_len,
             height: cached.height,
             width: cached.width,
+            surface_x: surface_x - scroll_x,
+            surface_width,
+            text_x: cached.source_x - scroll_x,
+            cache_hit,
         }
     }
 }
 
-pub(super) fn line_display_cache() -> ShapingCache<LineDisplayKey, CachedLineDisplay> {
+pub(super) fn line_display_cache() -> ShapingCache<LineWindowKey, CachedLineDisplay> {
     ShapingCache::new(TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY)
+}
+
+pub(super) fn horizontal_index_cache() -> LruCache<LineDisplayKey, Rc<HorizontalLineIndex>> {
+    LruCache::new(TEXT_AREA_HORIZONTAL_INDEX_CACHE_CAPACITY)
 }
 
 pub(super) fn render_buffer_cache() -> LruCache<RenderBufferKey, CachedRenderBuffer> {
@@ -168,18 +210,19 @@ pub(super) fn render_line_window(
 pub(super) fn surface_for_segment(
     segment: &DisplaySegment,
     style: Style,
-    viewport: area::Logical,
-    state: &ViewState,
+    _viewport: area::Logical,
+    _state: &ViewState,
 ) -> TextAreaSurface {
     TextAreaSurface {
-        x: -state.scroll_x(),
+        x: segment.display.surface_x,
         y: segment.y,
-        text_x: -state.scroll_x(),
-        width: segment.display.width.max(viewport.width()) + state.scroll_x().max(0.0),
+        text_x: segment.display.text_x,
+        width: segment.display.surface_width,
         height: segment.display.height.max(1.0),
         source_line: segment.display.source_line,
         source_line_id: segment.display.source_line_id,
         source_start: segment.display.source_start,
+        source_line_byte_start: segment.display.source_line_byte_start,
         source_text_len: segment.display.source_text_len,
         buffer: segment.display.buffer.clone(),
         default_color: style.color(),

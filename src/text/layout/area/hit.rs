@@ -97,26 +97,27 @@ impl Engine {
         &mut self,
         segments: &[TextAreaDisplaySegment],
         position: point::Logical,
-        scroll_x: f32,
+        _scroll_x: f32,
         text_len: usize,
     ) -> Option<Position> {
         if segments.is_empty() {
             return Some(Position::new(0));
         }
 
-        let mut nearest = None::<(f32, &TextAreaDisplaySegment)>;
+        let mut nearest = None::<((f32, f32), &TextAreaDisplaySegment)>;
         for segment in segments {
-            let top = segment.y;
-            let bottom = segment.y + segment.display.height.max(1.0);
-            if position.y() >= top && position.y() <= bottom {
-                nearest = Some((0.0, segment));
-                break;
-            }
-            let distance = if position.y() < top {
-                top - position.y()
-            } else {
-                position.y() - bottom
-            };
+            let distance = (
+                axis_distance(
+                    segment.y,
+                    segment.y + segment.display.height.max(1.0),
+                    position.y(),
+                ),
+                text_buffer_x_distance(
+                    &segment.display.buffer.borrow(),
+                    segment.display.text_x,
+                    position.x(),
+                ),
+            );
             if nearest
                 .as_ref()
                 .is_none_or(|(best_distance, _)| distance < *best_distance)
@@ -130,7 +131,7 @@ impl Engine {
         self.text_area_position_in_line_buffer(
             &buffer,
             segment.display.source_start,
-            position.x() + scroll_x,
+            position.x() - segment.display.text_x,
             position.y() - segment.y,
             text_len,
         )
@@ -140,26 +141,19 @@ impl Engine {
         &mut self,
         surfaces: &[TextAreaSurface],
         position: point::Logical,
-        scroll_x: f32,
+        _scroll_x: f32,
         text_len: usize,
     ) -> Option<Position> {
         if surfaces.is_empty() {
             return Some(Position::new(0));
         }
 
-        let mut nearest = None::<(f32, &TextAreaSurface)>;
+        let mut nearest = None::<((f32, f32), &TextAreaSurface)>;
         for surface in surfaces {
-            let top = surface.y;
-            let bottom = surface.y + surface.height.max(1.0);
-            if position.y() >= top && position.y() <= bottom {
-                nearest = Some((0.0, surface));
-                break;
-            }
-            let distance = if position.y() < top {
-                top - position.y()
-            } else {
-                position.y() - bottom
-            };
+            let distance = (
+                axis_distance(surface.y, surface.y + surface.height.max(1.0), position.y()),
+                text_buffer_x_distance(&surface.buffer.borrow(), surface.text_x, position.x()),
+            );
             if nearest
                 .as_ref()
                 .is_none_or(|(best_distance, _)| distance < *best_distance)
@@ -173,7 +167,7 @@ impl Engine {
         self.text_area_position_in_line_buffer(
             &buffer,
             surface.source_start,
-            position.x() + scroll_x,
+            position.x() - surface.text_x,
             position.y() - surface.y,
             text_len,
         )
@@ -200,4 +194,29 @@ impl Engine {
             local.affinity,
         ))
     }
+}
+
+fn axis_distance(start: f32, end: f32, value: f32) -> f32 {
+    if value < start {
+        start - value
+    } else if value > end {
+        value - end
+    } else {
+        0.0
+    }
+}
+
+fn text_buffer_x_distance(buffer: &glyphon::Buffer, text_x: f32, x: f32) -> f32 {
+    let mut left = f32::INFINITY;
+    let mut right = f32::NEG_INFINITY;
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs {
+            left = left.min(text_x + glyph.x);
+            right = right.max(text_x + glyph.x + glyph.w);
+        }
+    }
+    if !left.is_finite() || !right.is_finite() {
+        return (x - text_x).abs();
+    }
+    axis_distance(left, right, x)
 }

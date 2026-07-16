@@ -10,7 +10,7 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 2;
+pub const SCROLL_BENCH_VERSION: u32 = 3;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
@@ -71,8 +71,10 @@ impl ScrollBenchReceipt {
                 "warmup={} samples={} official_matrix={} cold_us={} p50_us={} p95_us={} p99_us={} max_us={} ",
                 "near_window_width={} far_window_width={} render_window_width_max={} render_window_height_max={} render_window_area_max={} bounded_window={} ",
                 "paint_layout_calls={} visible_lines={} shaped_lines={} line_shape_calls={} render_surface_calls={} render_cache_hits={} render_cache_misses={} render_line_reuses={} ",
+                "horizontal_index_builds={} horizontal_index_source_bytes={} horizontal_index_glyphs={} horizontal_index_checkpoints={} horizontal_index_resident_bytes_max={} horizontal_window_shapes={} horizontal_window_source_bytes={} horizontal_resident_source_bytes_max={} horizontal_resident_glyphs_max={} horizontal_resident_bytes_max={} line_cache_resident_bytes_max={} ",
                 "render_source_lines={} render_source_bytes={} render_total_us={} render_shape_us={} ",
                 "width_cache_hits={} width_cache_misses={} width_observed_updates={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
+                "cold_horizontal_index_builds={} cold_horizontal_index_source_bytes={} cold_horizontal_index_glyphs={} cold_horizontal_index_checkpoints={} cold_horizontal_index_resident_bytes_max={} cold_horizontal_window_shapes={} cold_horizontal_window_source_bytes={} cold_horizontal_resident_source_bytes_max={} cold_horizontal_resident_glyphs_max={} cold_horizontal_resident_bytes_max={} cold_line_cache_resident_bytes_max={} ",
                 "cold_render_line_reuses={} cold_render_source_bytes={} cold_render_shape_us={} cold_width_observed_updates={} cold_width_source_bytes={} cold_width_measure_us={}"
             ),
             SCROLL_BENCH_VERSION,
@@ -115,6 +117,19 @@ impl ScrollBenchReceipt {
             self.diagnostics.text_area_render_surface_cache_hits,
             self.diagnostics.text_area_render_surface_cache_misses,
             self.diagnostics.text_area_render_surface_line_reuses,
+            self.diagnostics.text_area_horizontal_index_builds,
+            self.diagnostics.text_area_horizontal_index_source_bytes,
+            self.diagnostics.text_area_horizontal_index_glyphs,
+            self.diagnostics.text_area_horizontal_index_checkpoints,
+            self.diagnostics
+                .text_area_horizontal_index_resident_bytes_max,
+            self.diagnostics.text_area_horizontal_window_shapes,
+            self.diagnostics.text_area_horizontal_window_source_bytes,
+            self.diagnostics
+                .text_area_horizontal_resident_source_bytes_max,
+            self.diagnostics.text_area_horizontal_resident_glyphs_max,
+            self.diagnostics.text_area_horizontal_resident_bytes_max,
+            self.diagnostics.text_area_line_cache_resident_bytes_max,
             self.diagnostics.text_area_render_surface_source_lines,
             self.diagnostics.text_area_render_surface_source_bytes,
             self.diagnostics.text_area_render_surface_total_us,
@@ -128,6 +143,24 @@ impl ScrollBenchReceipt {
             self.diagnostics.text_area_caret_run_scans,
             self.diagnostics.text_area_caret_glyph_scans,
             self.diagnostics.highlight_run_scans,
+            self.cold_diagnostics.text_area_horizontal_index_builds,
+            self.cold_diagnostics
+                .text_area_horizontal_index_source_bytes,
+            self.cold_diagnostics.text_area_horizontal_index_glyphs,
+            self.cold_diagnostics.text_area_horizontal_index_checkpoints,
+            self.cold_diagnostics
+                .text_area_horizontal_index_resident_bytes_max,
+            self.cold_diagnostics.text_area_horizontal_window_shapes,
+            self.cold_diagnostics
+                .text_area_horizontal_window_source_bytes,
+            self.cold_diagnostics
+                .text_area_horizontal_resident_source_bytes_max,
+            self.cold_diagnostics
+                .text_area_horizontal_resident_glyphs_max,
+            self.cold_diagnostics
+                .text_area_horizontal_resident_bytes_max,
+            self.cold_diagnostics
+                .text_area_line_cache_resident_bytes_max,
             self.cold_diagnostics.text_area_render_surface_line_reuses,
             self.cold_diagnostics.text_area_render_surface_source_bytes,
             self.cold_diagnostics.text_area_render_surface_shape_us,

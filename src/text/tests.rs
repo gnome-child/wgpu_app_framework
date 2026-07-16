@@ -1060,7 +1060,6 @@ fn one_line_text_area_reuses_its_observed_shape_for_width_and_render() {
         ViewState::default(),
         Instant::now(),
     );
-
     assert!(layout.layout().content_area().width() > viewport.width());
     assert!(
         (layout.layout().content_area().width() - measured.content_area().width()).abs() < 0.01,
@@ -1068,22 +1067,239 @@ fn one_line_text_area_reuses_its_observed_shape_for_width_and_render() {
         layout.layout().content_area().width(),
         measured.content_area().width()
     );
-    assert_eq!(diagnostics.text_area_line_shape_calls, 1);
+    assert_eq!(
+        diagnostics.text_area_line_shape_calls,
+        diagnostics.text_area_horizontal_window_shapes + 1,
+        "one full index build plus only the resident word fragments may shape"
+    );
+    assert_eq!(diagnostics.text_area_horizontal_index_builds, 1);
+    assert!(diagnostics.text_area_horizontal_window_shapes > 0);
+    assert!(diagnostics.text_area_horizontal_window_source_bytes < source_len);
+    assert!(diagnostics.text_area_horizontal_resident_source_bytes_max < source_len);
     assert_eq!(diagnostics.text_area_width_cache_misses, 1);
     assert_eq!(diagnostics.text_area_width_observed_updates, 1);
     assert_eq!(diagnostics.text_area_width_source_lines, 0);
     assert_eq!(diagnostics.text_area_width_source_bytes, 0);
     assert_eq!(diagnostics.text_area_width_measure_us, 0);
-    assert_eq!(diagnostics.text_area_render_surface_cache_misses, 1);
-    assert_eq!(diagnostics.text_area_render_surface_line_reuses, 1);
+    assert_eq!(
+        diagnostics.text_area_render_surface_cache_hits,
+        layout.render_surfaces().len()
+    );
+    assert_eq!(diagnostics.text_area_render_surface_cache_misses, 0);
+    assert_eq!(
+        diagnostics.text_area_render_surface_line_reuses,
+        layout.render_surfaces().len()
+    );
     assert_eq!(diagnostics.text_area_render_surface_source_lines, 0);
     assert_eq!(diagnostics.text_area_render_surface_source_bytes, 0);
     assert_eq!(diagnostics.text_area_render_surface_shape_us, 0);
-    assert_eq!(
-        layout.render_surfaces()[0].source_text_len(),
-        source_len,
-        "the last logical line must retain its complete source metadata"
+    let render_surface = &layout.render_surfaces()[0];
+    assert!(render_surface.source_text_len() < source_len);
+    assert!(
+        render_surface.source_start() + render_surface.source_text_len() <= source_len,
+        "the bounded slice metadata must remain inside the terminal logical line"
     );
+}
+
+#[test]
+fn unwindowed_last_line_retains_complete_source_metadata() {
+    let mut engine = engine();
+    let source = "short terminal line";
+    let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default(),
+        area::logical(320.0, 80.0),
+        ViewState::default(),
+        Instant::now(),
+    );
+    assert_eq!(layout.render_surfaces()[0].source_start(), 0);
+    assert_eq!(layout.render_surfaces()[0].source_text_len(), source.len());
+}
+
+#[test]
+fn far_ascii_window_matches_independent_full_line_glyphs() {
+    let mut engine = engine();
+    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(4_096);
+    let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
+    let viewport = area::logical(920.0, 80.0);
+    let style = Style::default().with_size(13.0);
+    let near = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let far = ((near.layout().content_area().width() - viewport.width()).max(0.0) * 0.75).floor();
+    let observed = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        ViewState::default().with_scroll_x(far),
+        Instant::now(),
+    );
+    let surfaces = observed.render_surfaces();
+    assert!(
+        surfaces
+            .first()
+            .is_some_and(|surface| surface.source_start() > 0)
+    );
+    assert!(
+        surfaces
+            .iter()
+            .map(TextAreaSurface::source_text_len)
+            .sum::<usize>()
+            < area_model.buffer().len()
+    );
+    let (click_x, expected_hit) = surfaces
+        .iter()
+        .find_map(|surface| {
+            let buffer = surface.buffer.borrow();
+            buffer.layout_runs().find_map(|run| {
+                run.glyphs.iter().find_map(|glyph| {
+                    let left = surface.text_x + glyph.x;
+                    let right = left + glyph.w;
+                    (left >= 32.0 && right <= viewport.width() - 32.0)
+                        .then_some((left + glyph.w * 0.25, surface.source_start() + glyph.start))
+                })
+            })
+        })
+        .expect("far resident fragments should cover a clickable glyph");
+    let hit = engine
+        .text_area_position_at_for_paint_layout(
+            &area_model,
+            point::logical(click_x, 10.0),
+            ViewState::default().with_scroll_x(far),
+            &observed,
+        )
+        .expect("far resident glyph should remain hittable");
+    assert_eq!(hit.index, expected_hit);
+
+    let full = engine.text_area_unwindowed_line_display_for_test(
+        &area_model,
+        area_model.buffer(),
+        style,
+        viewport,
+        0,
+    );
+    let expected = full
+        .buffer
+        .borrow()
+        .layout_runs()
+        .flat_map(|run| run.glyphs.iter())
+        .filter_map(|glyph| {
+            let x = glyph.x;
+            (x + glyph.w >= far && x <= far + viewport.width()).then_some((
+                glyph.start,
+                glyph.end,
+                glyph.glyph_id,
+                x,
+                glyph.w,
+            ))
+        })
+        .collect::<Vec<_>>();
+    let mut actual = Vec::new();
+    for surface in surfaces {
+        let buffer = surface.buffer.borrow();
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs {
+                let x = glyph.x + surface.text_x + far;
+                if x + glyph.w >= far && x <= far + viewport.width() {
+                    actual.push((
+                        surface.source_start() + glyph.start,
+                        surface.source_start() + glyph.end,
+                        glyph.glyph_id,
+                        x,
+                        glyph.w,
+                    ));
+                }
+            }
+        }
+    }
+
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "actual first/last={:?}/{:?}, expected first/last={:?}/{:?}",
+        actual.first(),
+        actual.last(),
+        expected.first(),
+        expected.last(),
+    );
+    for (actual, expected) in actual.iter().zip(&expected) {
+        assert_eq!(actual.0, expected.0);
+        assert_eq!(actual.1, expected.1);
+        assert_eq!(actual.2, expected.2);
+        assert!((actual.4 - expected.4).abs() < 0.05);
+    }
+    assert!(
+        surfaces
+            .iter()
+            .all(|surface| surface.text_x.abs() <= 4_096.0),
+        "far glyph buffers must enter the renderer in runway-local coordinates"
+    );
+}
+
+#[test]
+fn far_ascii_caret_reveal_uses_its_resident_fragment() {
+    let mut engine = engine();
+    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(4_096);
+    let buffer = Buffer::from_multiline_text(source.clone());
+    let mut edit_state = buffer.initial_state();
+    let cursor_index = source.len() * 3 / 4;
+    apply_selection(
+        &buffer,
+        &mut edit_state,
+        selection::Operation::set_position(Position::new(cursor_index)),
+    );
+    let area_model = Area::new(buffer).with_state(edit_state).no_wrap();
+    let viewport = area::logical(920.0, 80.0);
+    let style = Style::default().with_size(13.0);
+    let revealed = engine.ensure_caret_visible_for_area(
+        &area_model,
+        style,
+        viewport,
+        ViewState::default(),
+        None,
+    );
+    assert!(revealed.scroll_x() > 0.0);
+
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        revealed,
+        Instant::now(),
+    );
+    let caret = layout
+        .layout()
+        .caret()
+        .expect("far resident fragment should project the caret");
+    assert!(caret.x() >= -TEXT_FIELD_CARET_MARGIN);
+    assert!(caret.x() <= viewport.width() + TEXT_FIELD_CARET_MARGIN);
+}
+
+#[test]
+fn unbreakable_ascii_line_keeps_the_exact_full_line_fallback() {
+    let mut engine = engine();
+    let source = "x".repeat(8_192);
+    let area_model = Area::new(Buffer::from_multiline_text(source.clone())).no_wrap();
+    engine.reset_diagnostics();
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default().with_size(13.0),
+        area::logical(320.0, 80.0),
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+
+    assert_eq!(diagnostics.text_area_horizontal_index_builds, 0);
+    assert_eq!(diagnostics.text_area_horizontal_window_shapes, 0);
+    assert_eq!(layout.render_surfaces().len(), 1);
+    assert_eq!(layout.render_surfaces()[0].source_start(), 0);
+    assert_eq!(layout.render_surfaces()[0].source_text_len(), source.len());
 }
 #[test]
 fn large_text_area_scroll_and_highlight_work_are_viewport_bounded() {

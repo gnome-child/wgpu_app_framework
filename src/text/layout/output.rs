@@ -51,6 +51,7 @@ pub struct TextAreaSurface {
     pub(in crate::text) source_line: usize,
     pub(in crate::text) source_line_id: Option<LineId>,
     pub(in crate::text) source_start: usize,
+    pub(in crate::text) source_line_byte_start: usize,
     pub(in crate::text) source_text_len: usize,
     pub(in crate::text) buffer: Rc<RefCell<glyphon::Buffer>>,
     pub(in crate::text) default_color: Color,
@@ -70,6 +71,7 @@ impl fmt::Debug for TextAreaSurface {
             .field("source_line", &self.source_line)
             .field("source_line_id", &self.source_line_id)
             .field("source_start", &self.source_start)
+            .field("source_line_byte_start", &self.source_line_byte_start)
             .field("source_text_len", &self.source_text_len)
             .field("default_color", &self.default_color)
             .finish_non_exhaustive()
@@ -285,6 +287,7 @@ mod tests {
             source_line: 0,
             source_line_id: None,
             source_start: 0,
+            source_line_byte_start: 0,
             source_text_len: 0,
             buffer: Rc::new(RefCell::new(glyphon::Buffer::new_empty(
                 glyphon::Metrics::new(14.0, 17.5),
@@ -309,6 +312,7 @@ mod tests {
             source_line: 0,
             source_line_id: None,
             source_start: 0,
+            source_line_byte_start: 0,
             source_text_len: 0,
             buffer: Rc::new(RefCell::new(glyphon::Buffer::new_empty(
                 glyphon::Metrics::new(14.0, 18.0),

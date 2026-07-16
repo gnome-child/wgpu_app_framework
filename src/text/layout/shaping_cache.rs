@@ -28,6 +28,25 @@ where
         self.entries.get(key).cloned()
     }
 
+    pub(super) fn remove(&mut self, key: &K) -> Option<V> {
+        self.entries.pop(key)
+    }
+
+    pub(super) fn total_by(&self, weight: impl Fn(&V) -> usize) -> usize {
+        self.entries
+            .iter()
+            .map(|(_, value)| weight(value))
+            .fold(0_usize, usize::saturating_add)
+    }
+
+    pub(super) fn trim_to_weight(&mut self, maximum: usize, weight: impl Fn(&V) -> usize) {
+        while self.total_by(&weight) > maximum {
+            if self.entries.pop_lru().is_none() {
+                break;
+            }
+        }
+    }
+
     pub(super) fn shape_required(
         &mut self,
         font_system: &mut FontSystem,
@@ -107,7 +126,9 @@ mod tests {
                 "{name} cache must use the text-layout shaping cache owner"
             );
         }
-        assert!(!include_str!("text_area.rs").contains("LruCache<LineDisplayKey"));
+        assert!(
+            !include_str!("text_area.rs").contains("LruCache<LineDisplayKey, CachedLineDisplay")
+        );
         assert!(!include_str!("field.rs").contains("use lru::LruCache"));
         assert!(!include_str!("inline.rs").contains("use lru::LruCache"));
     }
@@ -140,5 +161,18 @@ mod tests {
             .expect("cached optional preparation remains present");
         assert_eq!(cached.value, 3);
         assert!(cached.cache_hit);
+    }
+
+    #[test]
+    fn shaping_cache_enforces_a_resident_weight_ceiling() {
+        let mut font_system = glyphon::FontSystem::new();
+        let mut cache = ShapingCache::new(NonZeroUsize::new(4).unwrap());
+        for key in 0..4 {
+            cache.shape_required(&mut font_system, key, true, |_, key| *key + 1);
+        }
+        assert_eq!(cache.total_by(|value| *value), 10);
+        cache.trim_to_weight(5, |value| *value);
+        assert!(cache.total_by(|value| *value) <= 5);
+        assert!(cache.len() < 4);
     }
 }

@@ -183,6 +183,54 @@ impl Diagnostics {
             "text_area_line_cache_misses={}",
             self.text.text_area_line_cache_misses
         );
+        for (name, value) in [
+            (
+                "text_area_horizontal_index_builds",
+                self.text.text_area_horizontal_index_builds,
+            ),
+            (
+                "text_area_horizontal_index_source_bytes",
+                self.text.text_area_horizontal_index_source_bytes,
+            ),
+            (
+                "text_area_horizontal_index_glyphs",
+                self.text.text_area_horizontal_index_glyphs,
+            ),
+            (
+                "text_area_horizontal_index_checkpoints",
+                self.text.text_area_horizontal_index_checkpoints,
+            ),
+            (
+                "text_area_horizontal_index_resident_bytes_max",
+                self.text.text_area_horizontal_index_resident_bytes_max,
+            ),
+            (
+                "text_area_horizontal_window_shapes",
+                self.text.text_area_horizontal_window_shapes,
+            ),
+            (
+                "text_area_horizontal_window_source_bytes",
+                self.text.text_area_horizontal_window_source_bytes,
+            ),
+            (
+                "text_area_horizontal_resident_source_bytes_max",
+                self.text.text_area_horizontal_resident_source_bytes_max,
+            ),
+            (
+                "text_area_horizontal_resident_glyphs_max",
+                self.text.text_area_horizontal_resident_glyphs_max,
+            ),
+            (
+                "text_area_horizontal_resident_bytes_max",
+                self.text.text_area_horizontal_resident_bytes_max,
+            ),
+            (
+                "text_area_line_cache_resident_bytes_max",
+                self.text.text_area_line_cache_resident_bytes_max,
+            ),
+        ] {
+            let _ = writeln!(receipt, "{name}={value}");
+        }
         let _ = writeln!(
             receipt,
             "text_area_render_surface_calls={}",
@@ -320,6 +368,8 @@ mod tests {
             "scroll_request_p95_us=0",
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",
+            "text_area_horizontal_index_builds=0",
+            "text_area_horizontal_resident_bytes_max=0",
             "text_area_render_surface_calls=0",
             "text_area_render_surface_line_reuses=0",
             "text_area_render_window_area_max=0",

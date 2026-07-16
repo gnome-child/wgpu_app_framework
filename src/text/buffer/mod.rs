@@ -296,21 +296,25 @@ impl Buffer {
 pub(crate) fn local_cursor_range_for_source_line(
     range: (Cursor, Cursor),
     source_line: usize,
+    source_byte_start: usize,
     source_text_len: usize,
 ) -> Option<(Cursor, Cursor)> {
     if range.1.line < source_line || range.0.line > source_line {
         return None;
     }
-    let start = if range.0.line < source_line {
+    let line_start = if range.0.line < source_line {
         0
     } else {
-        range.0.index.min(source_text_len)
+        range.0.index
     };
-    let end = if range.1.line > source_line {
-        source_text_len
+    let line_end = if range.1.line > source_line {
+        usize::MAX
     } else {
-        range.1.index.min(source_text_len)
+        range.1.index
     };
+    let source_byte_end = source_byte_start.saturating_add(source_text_len);
+    let start = line_start.max(source_byte_start).min(source_byte_end) - source_byte_start;
+    let end = line_end.max(source_byte_start).min(source_byte_end) - source_byte_start;
     (start < end).then(|| (Cursor::new(0, start), Cursor::new(0, end)))
 }
 
