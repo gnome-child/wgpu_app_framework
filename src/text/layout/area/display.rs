@@ -11,6 +11,7 @@ use super::super::super::{
 use super::super::{
     constants::{
         TEXT_AREA_FRAME_MAX_LOGICAL_LINES, TEXT_AREA_FRAME_MIN_OVERSCAN_LINES,
+        TEXT_AREA_HORIZONTAL_INDEX_CACHE_MAX_RESIDENT_BYTES,
         TEXT_AREA_LINE_DISPLAY_CACHE_MAX_RESIDENT_BYTES,
     },
     content::{buffer_content_area, text_area_estimated_line_height},
@@ -168,9 +169,15 @@ impl Engine {
         );
         let scroll_x = state.exact_scroll_x().max(0.0);
         let (surface_x, surface_width) = prepared_window(viewport.width(), scroll_x);
-        let horizontal = line_key
-            .as_ref()
-            .and_then(|key| self.text_area_horizontal_indices.get(key).cloned());
+        let horizontal = line_key.as_ref().and_then(|key| {
+            if let Some(index) = self.text_area_horizontal_indices.get(key).cloned() {
+                self.diagnostics.text_area_horizontal_index_hits += 1;
+                Some(index)
+            } else {
+                self.diagnostics.text_area_horizontal_index_misses += 1;
+                None
+            }
+        });
         self.diagnostics
             .text_area_horizontal_index_resident_bytes_max = self
             .diagnostics
@@ -422,11 +429,21 @@ impl Engine {
         let index_resident_bytes = index.resident_bytes();
         self.text_area_horizontal_indices
             .put(line_key, Rc::new(index));
-        self.text_area_horizontal_index_resident_bytes = self
+        let mut resident_bytes = self
             .text_area_horizontal_indices
             .iter()
             .map(|(_, index)| index.resident_bytes())
             .sum::<usize>();
+        while resident_bytes > TEXT_AREA_HORIZONTAL_INDEX_CACHE_MAX_RESIDENT_BYTES
+            && self.text_area_horizontal_indices.len() > 1
+        {
+            let Some((_, removed)) = self.text_area_horizontal_indices.pop_lru() else {
+                break;
+            };
+            resident_bytes = resident_bytes.saturating_sub(removed.resident_bytes());
+            self.diagnostics.text_area_horizontal_index_evictions += 1;
+        }
+        self.text_area_horizontal_index_resident_bytes = resident_bytes;
         self.diagnostics
             .text_area_horizontal_index_resident_bytes_max = self
             .diagnostics

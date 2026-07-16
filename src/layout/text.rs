@@ -31,6 +31,9 @@ pub struct Text {
     pub text_area_shaped_visual_lines: usize,
     pub text_area_line_shape_calls: usize,
     pub text_area_horizontal_index_builds: usize,
+    pub text_area_horizontal_index_hits: usize,
+    pub text_area_horizontal_index_misses: usize,
+    pub text_area_horizontal_index_evictions: usize,
     pub text_area_horizontal_index_source_bytes: usize,
     pub text_area_horizontal_index_glyphs: usize,
     pub text_area_horizontal_index_checkpoints: usize,
@@ -528,6 +531,10 @@ impl Text {
         self.text_area_shaped_visual_lines += diagnostics.text_area_shaped_visual_lines;
         self.text_area_line_shape_calls += diagnostics.text_area_line_shape_calls;
         self.text_area_horizontal_index_builds += diagnostics.text_area_horizontal_index_builds;
+        self.text_area_horizontal_index_hits += diagnostics.text_area_horizontal_index_hits;
+        self.text_area_horizontal_index_misses += diagnostics.text_area_horizontal_index_misses;
+        self.text_area_horizontal_index_evictions +=
+            diagnostics.text_area_horizontal_index_evictions;
         self.text_area_horizontal_index_source_bytes +=
             diagnostics.text_area_horizontal_index_source_bytes;
         self.text_area_horizontal_index_glyphs += diagnostics.text_area_horizontal_index_glyphs;
@@ -626,6 +633,10 @@ impl Text {
         self.text_area_shaped_visual_lines += diagnostics.text_area_shaped_visual_lines;
         self.text_area_line_shape_calls += diagnostics.text_area_line_shape_calls;
         self.text_area_horizontal_index_builds += diagnostics.text_area_horizontal_index_builds;
+        self.text_area_horizontal_index_hits += diagnostics.text_area_horizontal_index_hits;
+        self.text_area_horizontal_index_misses += diagnostics.text_area_horizontal_index_misses;
+        self.text_area_horizontal_index_evictions +=
+            diagnostics.text_area_horizontal_index_evictions;
         self.text_area_horizontal_index_source_bytes +=
             diagnostics.text_area_horizontal_index_source_bytes;
         self.text_area_horizontal_index_glyphs += diagnostics.text_area_horizontal_index_glyphs;

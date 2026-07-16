@@ -6,6 +6,7 @@ pub(in crate::text) const TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY: NonZeroUsize =
 pub(super) const TEXT_AREA_LINE_DISPLAY_CACHE_MAX_RESIDENT_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const TEXT_AREA_HORIZONTAL_INDEX_CACHE_CAPACITY: NonZeroUsize =
     NonZeroUsize::new(64).unwrap();
+pub(super) const TEXT_AREA_HORIZONTAL_INDEX_CACHE_MAX_RESIDENT_BYTES: usize = 64 * 1024 * 1024;
 pub(super) const TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY: NonZeroUsize =
     NonZeroUsize::new(128).unwrap();
 pub(super) const TEXT_AREA_WIDTH_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).unwrap();

@@ -189,6 +189,18 @@ impl Diagnostics {
                 self.text.text_area_horizontal_index_builds,
             ),
             (
+                "text_area_horizontal_index_hits",
+                self.text.text_area_horizontal_index_hits,
+            ),
+            (
+                "text_area_horizontal_index_misses",
+                self.text.text_area_horizontal_index_misses,
+            ),
+            (
+                "text_area_horizontal_index_evictions",
+                self.text.text_area_horizontal_index_evictions,
+            ),
+            (
                 "text_area_horizontal_index_source_bytes",
                 self.text.text_area_horizontal_index_source_bytes,
             ),
