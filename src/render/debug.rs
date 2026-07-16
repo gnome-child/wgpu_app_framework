@@ -1920,7 +1920,7 @@ impl Harness {
         tick: &scene::Properties,
     ) -> Result<Work, String> {
         let (width, height) = self.physical_extent(commit.size());
-        self.candidate.draw_commit_offscreen_debug(
+        let (initial_pixels, _) = self.candidate.draw_commit_offscreen_debug(
             &self.context,
             commit,
             initial,
@@ -1957,6 +1957,18 @@ impl Harness {
             return Err(format!(
                 "retained property transition differs from independent realization at {differing} pixels"
             ));
+        }
+        if tick.changed().iter().any(|property| {
+            matches!(
+                tick.value(*property),
+                Some(scene::PropertyValue::Caret { .. })
+            )
+        }) && candidate == initial_pixels
+        {
+            return Err(
+                "retained caret property transition changed state without changing pixels"
+                    .to_owned(),
+            );
         }
         Ok(work.into())
     }

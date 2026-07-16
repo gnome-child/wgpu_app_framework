@@ -1836,7 +1836,7 @@ impl PlanBuilder<'_> {
                 realization,
                 content::Shape::Rule(value),
                 None,
-                scene::ContentProjection::Normal,
+                projection,
                 space,
                 target,
             ),

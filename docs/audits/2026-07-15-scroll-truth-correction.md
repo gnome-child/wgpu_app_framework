@@ -527,6 +527,20 @@ delta, and the cells exposed by re-census.
   visible/hidden/visible projection with literal-zero semantic retained work. A
   freshly rebuilt release Control Gallery also showed the caret present after
   focus, absent at the 500 ms phase, and restored at the 1,000 ms phase.
+- **Post-closure resistance correction.** User observation exposed that the
+  preceding native conclusion and GPU oracle were false-green. `PlanBuilder`
+  preserved content projection for quads but replaced every retained `Rule`
+  projection with `Normal`; because the caret is a rule, its property serial and
+  compatibility scene changed while the production GPU batch stayed permanently
+  visible. Both sides of the old GPU comparison shared that plan-builder defect,
+  and the oracle never required a pixel delta. Retained rules now preserve their
+  declared projection. The GPU transition witness additionally rejects any caret
+  property change whose before/after pixels are identical. The ignored GPU tier
+  passes with this ratchet, and a newly rebuilt release gallery shows
+  present-at-focus, absent-at-500-ms, present-at-1,000-ms output. This correction
+  re-establishes R-002; S-010 remains open because Windows capture can still
+  sample a partially composed deadline frame even while the caret pixel itself
+  follows the three expected phases.
 - **Configuration and re-census result.** The closure suite reports 1,194 passed
   and four intentional ignores; renderer-debug's pure tier reports three passed
   and seventeen intentional GPU ignores; the workspace all-target/all-feature
