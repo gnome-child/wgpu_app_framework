@@ -47,6 +47,8 @@ pub struct Diagnostics {
     pub text_area_width_source_lines: usize,
     pub text_area_width_source_bytes: usize,
     pub text_area_width_measure_us: u128,
+    pub text_area_caret_run_scans: usize,
+    pub text_area_caret_glyph_scans: usize,
     pub highlight_run_scans: usize,
     pub highlight_spans: usize,
     pub highlight_skips: usize,

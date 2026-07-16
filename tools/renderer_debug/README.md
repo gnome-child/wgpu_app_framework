@@ -77,6 +77,8 @@ renderer_debug retention <case>
 renderer_debug partial-update
 renderer_debug churn <iterations>
 renderer_debug bench <case> <iterations>
+renderer_debug scroll-bench-list
+renderer_debug scroll-bench <workload> [warmup samples]
 ```
 
 Use `cargo run --release -p renderer_debug -- <arguments>` to invoke them.
@@ -84,6 +86,13 @@ Use `cargo run --release -p renderer_debug -- <arguments>` to invoke them.
 adapter, backend, operating system, architecture, p50, p95, and maximum. A
 receipt is meaningful only when its case, scale, warmup, samples, environment,
 and acceptance currency are preserved with the result.
+
+`scroll-bench` is the scrolling correction's versioned production-layout
+driver. With no explicit counts it runs the official 64 warmups and 1,024
+measured transitions; smaller counts are useful only for development and are
+marked `official_matrix=false` in the receipt. `text-horizontal-1m` records cold
+and warm timing, source work, cache work, absolute offset, and near/far render-
+window bounds for a one-MiB unwrapped line. Run it in release mode.
 
 `work`, `retention`, `partial-update`, and `churn` expose semantic work rather
 than elapsed time alone: node realization, primitive and text preparation,

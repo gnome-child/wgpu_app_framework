@@ -56,6 +56,8 @@ pub struct Text {
     pub text_area_width_source_lines: usize,
     pub text_area_width_source_bytes: usize,
     pub text_area_width_measure_us: u128,
+    pub text_area_caret_run_scans: usize,
+    pub text_area_caret_glyph_scans: usize,
 }
 
 #[derive(Clone)]
@@ -430,6 +432,8 @@ impl Text {
         self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
         self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
         self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;
+        self.text_area_caret_run_scans += diagnostics.text_area_caret_run_scans;
+        self.text_area_caret_glyph_scans += diagnostics.text_area_caret_glyph_scans;
     }
 
     fn add_text_layout(&mut self, diagnostics: text_engine::layout::Diagnostics) {
@@ -485,6 +489,8 @@ impl Text {
         self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
         self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
         self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;
+        self.text_area_caret_run_scans += diagnostics.text_area_caret_run_scans;
+        self.text_area_caret_glyph_scans += diagnostics.text_area_caret_glyph_scans;
     }
 }
 

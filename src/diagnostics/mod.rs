@@ -3,6 +3,8 @@ mod pipeline;
 mod render;
 mod samples;
 mod scroll;
+#[cfg(feature = "renderer-debug")]
+mod scroll_bench;
 mod store;
 
 pub use crate::layout::Text;
@@ -20,6 +22,12 @@ pub use render::{
     compare_control_gallery_property_tick, compare_control_gallery_slow_scroll,
 };
 pub use scroll::Scroll;
+#[cfg(feature = "renderer-debug")]
+#[doc(hidden)]
+pub use scroll_bench::{
+    OFFICIAL_PROPERTY_SAMPLES, OFFICIAL_PROPERTY_WARMUP, SCROLL_BENCH_VERSION, ScrollBenchReceipt,
+    ScrollBenchWorkload, run_scroll_bench,
+};
 
 pub(crate) use store::Store;
 
@@ -269,6 +277,16 @@ impl Diagnostics {
             receipt,
             "text_area_width_measure_us={}",
             self.text.text_area_width_measure_us
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_caret_run_scans={}",
+            self.text.text_area_caret_run_scans
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_caret_glyph_scans={}",
+            self.text.text_area_caret_glyph_scans
         );
         receipt
     }

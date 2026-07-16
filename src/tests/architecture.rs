@@ -6164,6 +6164,26 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
 }
 
 #[test]
+fn caret_geometry_borrows_shaped_text_without_cloning_the_document_buffer() {
+    let glyph = include_str!("../text/layout/glyph.rs");
+    let start = glyph
+        .find("pub(crate) fn cursor_position(")
+        .expect("text layout must retain one caret geometry query");
+    let end = glyph[start..]
+        .find("\n}")
+        .map(|offset| start + offset)
+        .expect("caret geometry query must have a bounded body");
+    let query = &glyph[start..end];
+
+    assert!(
+        query.contains("cursor_position_observed(buffer, cursor).0")
+            && !query.contains("buffer.clone()")
+            && glyph.contains("for run in buffer.layout_runs()"),
+        "caret geometry must query immutable shaped runs without cloning the complete glyph buffer"
+    );
+}
+
+#[test]
 fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() {
     let chrome = include_str!("../layout/chrome.rs");
     let algorithm = include_str!("../layout/algorithm.rs");

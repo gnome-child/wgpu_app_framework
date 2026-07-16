@@ -13,7 +13,7 @@ use super::super::{
     content::text_area_content_width,
     diagnostics::HighlightStats,
     engine::Engine,
-    glyph::cursor_position,
+    glyph::cursor_position_observed,
     highlight::{HighlightSpans, spans_for_ranges as highlight_spans_for_ranges},
     output::{TextAreaPaintLayout, TextAreaSurface, TextFieldLayout},
     text_area,
@@ -257,7 +257,10 @@ impl Engine {
                 let source_cursor = projection.cursor();
                 let cursor =
                     Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity);
-                caret = cursor_position(&buffer, cursor).map(|(x, y)| Caret {
+                let (position, run_scans, glyph_scans) = cursor_position_observed(&buffer, cursor);
+                self.diagnostics.text_area_caret_run_scans += run_scans;
+                self.diagnostics.text_area_caret_glyph_scans += glyph_scans;
+                caret = position.map(|(x, y)| Caret {
                     x: x as f32 + surface.x,
                     y: surface.y + y as f32,
                     height: buffer.metrics().line_height,
@@ -413,7 +416,10 @@ impl Engine {
                 let source_cursor = request.projection.cursor();
                 let cursor =
                     Cursor::new_with_affinity(0, source_cursor.index, source_cursor.affinity);
-                caret = cursor_position(&buffer, cursor).map(|(x, y)| Caret {
+                let (position, run_scans, glyph_scans) = cursor_position_observed(&buffer, cursor);
+                self.diagnostics.text_area_caret_run_scans += run_scans;
+                self.diagnostics.text_area_caret_glyph_scans += glyph_scans;
+                caret = position.map(|(x, y)| Caret {
                     x: x as f32 - request.state.scroll_x(),
                     y: segment.y + y as f32,
                     height: buffer.metrics().line_height,

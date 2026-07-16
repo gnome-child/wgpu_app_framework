@@ -161,11 +161,51 @@ fn run(args: Vec<String>) -> Result<(), String> {
             );
             Ok(())
         }
+        [command] if command == "scroll-bench-list" => {
+            for workload in wgpu_l3::diagnostics::ScrollBenchWorkload::ALL {
+                println!("{}", workload.name());
+            }
+            Ok(())
+        }
+        [command, workload] if command == "scroll-bench" => run_scroll_bench(
+            workload,
+            wgpu_l3::diagnostics::OFFICIAL_PROPERTY_WARMUP,
+            wgpu_l3::diagnostics::OFFICIAL_PROPERTY_SAMPLES,
+        ),
+        [command, workload, warmup, samples] if command == "scroll-bench" => {
+            let warmup = warmup
+                .parse::<usize>()
+                .map_err(|_| "scroll-bench warmup must be a non-negative integer".to_owned())?;
+            let samples = samples
+                .parse::<usize>()
+                .map_err(|_| "scroll-bench samples must be a positive integer".to_owned())?;
+            run_scroll_bench(workload, warmup, samples)
+        }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations>"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples]"
                 .to_owned(),
         ),
     }
+}
+
+fn run_scroll_bench(workload: &str, warmup: usize, samples: usize) -> Result<(), String> {
+    let workload = wgpu_l3::diagnostics::ScrollBenchWorkload::from_name(workload)
+        .ok_or_else(|| format!("unknown scroll-bench workload: {workload}"))?;
+    let receipt = wgpu_l3::diagnostics::run_scroll_bench(workload, warmup, samples)?;
+    println!("{}", receipt.receipt_text(&git_commit()));
+    Ok(())
+}
+
+fn git_commit() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "--short=12", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|commit| commit.trim().to_owned())
+        .filter(|commit| !commit.is_empty())
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {

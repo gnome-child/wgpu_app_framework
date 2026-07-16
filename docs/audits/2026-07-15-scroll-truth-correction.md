@@ -734,6 +734,34 @@ delta, and the cells exposed by re-census.
   remain red owners, and the versioned release `scroll-bench` matrix plus baseline
   receipts remain required before timing claims.
 
+### S-004/S-009 checkpoint B — versioned long-line driver and false caret work
+
+- **Code-owned workload.** `renderer_debug scroll-bench text-horizontal-1m`
+  now drives the production text layout engine with a one-MiB editable unwrapped
+  line and emits `scroll-bench-version=1`. The receipt names transition class,
+  commit/profile/timer/OS/architecture, viewport, source shape, logical and
+  absolute offset, official-matrix conformance, cold and warm p50/p95/p99/max,
+  render-window high-water, width/render/cache/source/shape work, and caret run
+  and glyph scans. The official defaults are 64 warmups and 1,024 samples;
+  development sample counts are explicitly marked non-official.
+- **Measured owner and correction.** The first five-sample release probe on the
+  reference machine reported a warm median near 108 ms despite literal width and
+  render-buffer cache hits. The owner was `cursor_position`: it cloned the entire
+  shaped `glyphon::Buffer` only to construct a mutable editor for an immutable
+  caret query. Borrowed layout-run projection removed that clone; a semantics
+  witness matches cosmic-text's editor result across LTR, RTL, combining-cluster,
+  and empty text. The ordinary end-of-line case now inspects one glyph rather
+  than scanning all 1,048,576 glyphs. A following five-sample development probe
+  reported a 2 us median, five caret runs, and five glyph inspections total.
+  These small probes identify structural ownership and are not accepted as the
+  campaign's three-trial official timing receipt.
+- **Still-red structural fact.** The same receipt records a 1,176 px window at
+  x=0 and a 5,159,085 px window around x=5,157,889, with 3,301,814,400 logical
+  pixel area and `bounded_window=false`. Thus removing the caret clone does not
+  normalize the absolute-offset-sized surface; bounded horizontal residency,
+  entering-strip preparation, exact far-offset pixels, and GPU/storage high-water
+  remain required for S-004.
+
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a
 new `S-*` cell before continuing. New cells are not deferred merely because the

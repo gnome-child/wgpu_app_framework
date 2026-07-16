@@ -2,6 +2,7 @@ use super::super::buffer::{Affinity, Cursor, CursorSelection, Position};
 use super::super::document::Style;
 use super::super::unicode::floor_grapheme_boundary;
 use super::super::{selection::Motion, surface::AreaWrap};
+use unicode_segmentation::UnicodeSegmentation;
 
 pub(super) fn text_area_shaping_for_text(_style: Style, _text: &str) -> glyphon::Shaping {
     glyphon::Shaping::Advanced
@@ -178,9 +179,127 @@ pub(crate) fn clamp_cursor_in_buffer(buffer: &glyphon::Buffer, cursor: Cursor) -
 }
 
 pub(crate) fn cursor_position(buffer: &glyphon::Buffer, cursor: Cursor) -> Option<(i32, i32)> {
-    let mut buffer = buffer.clone();
-    let mut editor = glyphon::Editor::new(&mut buffer);
-    glyphon::Edit::set_cursor(&mut editor, glyph_cursor(cursor));
+    cursor_position_observed(buffer, cursor).0
+}
 
-    glyphon::Edit::cursor_position(&editor)
+pub(super) fn cursor_position_observed(
+    buffer: &glyphon::Buffer,
+    cursor: Cursor,
+) -> (Option<(i32, i32)>, usize, usize) {
+    let mut run_scans = 0_usize;
+    let mut glyph_scans = 0_usize;
+
+    // This is the immutable query performed by cosmic-text's Editor cursor
+    // projection. Keeping it over borrowed layout runs avoids cloning the
+    // complete shaped buffer merely to satisfy Editor's mutable BufferRef API.
+    for run in buffer.layout_runs() {
+        run_scans += 1;
+        if cursor.line != run.line_i {
+            continue;
+        }
+
+        let mut cursor_glyph = run.glyphs.last().and_then(|glyph| {
+            (cursor.index == run.text.len() && cursor.index == glyph.end)
+                .then_some((run.glyphs.len(), 0.0))
+        });
+        if cursor_glyph.is_some() {
+            glyph_scans += 1;
+        } else {
+            for (glyph_index, glyph) in run.glyphs.iter().enumerate() {
+                glyph_scans += 1;
+                if cursor.index == glyph.start {
+                    cursor_glyph = Some((glyph_index, 0.0));
+                    break;
+                }
+                if cursor.index > glyph.start && cursor.index < glyph.end {
+                    let cluster = &run.text[glyph.start..glyph.end];
+                    let mut before = 0_usize;
+                    let mut total = 0_usize;
+                    for (index, _) in cluster.grapheme_indices(true) {
+                        before += usize::from(glyph.start + index < cursor.index);
+                        total += 1;
+                    }
+                    let offset = if total == 0 {
+                        0.0
+                    } else {
+                        glyph.w * before as f32 / total as f32
+                    };
+                    cursor_glyph = Some((glyph_index, offset));
+                    break;
+                }
+            }
+        }
+
+        if cursor_glyph.is_none() {
+            cursor_glyph = match run.glyphs.last() {
+                Some(glyph) if cursor.index == glyph.end => Some((run.glyphs.len(), 0.0)),
+                None => Some((0, 0.0)),
+                _ => None,
+            };
+        }
+        let Some((glyph_index, glyph_offset)) = cursor_glyph else {
+            continue;
+        };
+        let x = run.glyphs.get(glyph_index).map_or_else(
+            || {
+                run.glyphs.last().map_or(0, |glyph| {
+                    if glyph.level.is_rtl() {
+                        glyph.x as i32
+                    } else {
+                        (glyph.x + glyph.w) as i32
+                    }
+                })
+            },
+            |glyph| {
+                if glyph.level.is_rtl() {
+                    (glyph.x + glyph.w - glyph_offset) as i32
+                } else {
+                    (glyph.x + glyph_offset) as i32
+                }
+            },
+        );
+        return (Some((x, run.line_top as i32)), run_scans, glyph_scans);
+    }
+
+    (None, run_scans, glyph_scans)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_cursor_geometry_matches_cosmic_editor_for_ltr_rtl_and_clusters() {
+        let mut font_system = super::super::system::font_system();
+        for text in ["hello world", "שלום עולם", "office e\u{301}lan", ""] {
+            let mut buffer = glyphon::Buffer::new_empty(glyphon::Metrics::relative(13.0, 1.25));
+            set_cosmic_buffer_text(
+                &mut buffer,
+                text,
+                glyphon::AttrsList::new(&glyphon::Attrs::new()),
+                glyphon::Shaping::Advanced,
+            );
+            buffer.set_wrap(&mut font_system, glyphon::Wrap::None);
+            buffer.shape_until_scroll(&mut font_system, false);
+
+            for index in text
+                .grapheme_indices(true)
+                .map(|(index, _)| index)
+                .chain(std::iter::once(text.len()))
+            {
+                let cursor = Cursor::new(0, index);
+                let expected = {
+                    let mut clone = buffer.clone();
+                    let mut editor = glyphon::Editor::new(&mut clone);
+                    glyphon::Edit::set_cursor(&mut editor, glyph_cursor(cursor));
+                    glyphon::Edit::cursor_position(&editor)
+                };
+                assert_eq!(
+                    cursor_position(&buffer, cursor),
+                    expected,
+                    "cursor geometry differs for {text:?} at byte {index}"
+                );
+            }
+        }
+    }
 }
