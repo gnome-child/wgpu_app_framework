@@ -120,6 +120,16 @@ impl TextArea {
         self.caret_epoch
     }
 
+    pub(in crate::view) fn same_scene_state(&self, other: &Self) -> bool {
+        self.buffer == other.buffer
+            && self.state == other.state
+            && self.wrap == other.wrap
+            && self.mode == other.mode
+            && self.focus == other.focus
+            && self.focus_presentation == other.focus_presentation
+            && self.preedit == other.preedit
+    }
+
     pub(crate) fn scroll_reveal_requested(&self) -> bool {
         self.reveal
     }
@@ -232,5 +242,23 @@ impl TextArea {
         } else {
             focus::Presentation::default()
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn scroll_reveal_and_blink_epoch_are_not_scene_content_state() {
+        let first = TextArea::new("one\ntwo");
+        let mut second = first.clone();
+        second.scroll = interaction::ScrollOffset::new(31, 47);
+        second.reveal = true;
+        second.caret_epoch = Some(Instant::now() + Duration::from_secs(1));
+
+        assert!(first.same_scene_state(&second));
+        assert_ne!(first, second, "full model equality remains diagnostic");
     }
 }

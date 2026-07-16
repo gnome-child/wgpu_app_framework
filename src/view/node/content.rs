@@ -78,13 +78,13 @@ impl Content {
             | (Self::Panel, Self::Panel)
             | (Self::SectionHeader, Self::SectionHeader)
             | (Self::Label, Self::Label) => true,
-            (Self::TextArea(left), Self::TextArea(right)) => left == right,
+            (Self::TextArea(left), Self::TextArea(right)) => left.same_scene_state(right),
             (Self::Button(left), Self::Button(right)) => left == right,
             (Self::Checkbox(left), Self::Checkbox(right)) => left == right,
             (Self::Radio(left), Self::Radio(right)) => left == right,
             (Self::Slider(left), Self::Slider(right)) => left == right,
             (Self::TextBox { model: left, .. }, Self::TextBox { model: right, .. }) => {
-                left == right
+                left.same_scene_state(right)
             }
             (Self::Scroll(Scroll::Ordinary { .. }), Self::Scroll(Scroll::Ordinary { .. })) => true,
             (

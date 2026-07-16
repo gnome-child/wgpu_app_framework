@@ -131,6 +131,20 @@ impl TextBox {
         self.caret_epoch
     }
 
+    pub(in crate::view) fn same_scene_state(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.placeholder == other.placeholder
+            && self.input == other.input
+            && self.mode == other.mode
+            && self.focus == other.focus
+            && self.active == other.active
+            && self.inactive_display == other.inactive_display
+            && self.focus_presentation == other.focus_presentation
+            && self.caret == other.caret
+            && self.preedit == other.preedit
+            && self.indicator_hint == other.indicator_hint
+    }
+
     pub(crate) fn indicator_hint(&self) -> Option<&Hint> {
         self.indicator_hint.as_ref()
     }
@@ -256,5 +270,21 @@ impl TextBox {
             self.preedit = None;
             self.caret_epoch = None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn blink_epoch_is_not_scene_content_state() {
+        let first = TextBox::new("query");
+        let mut second = first.clone();
+        second.caret_epoch = Some(Instant::now() + Duration::from_secs(1));
+
+        assert!(first.same_scene_state(&second));
+        assert_ne!(first, second, "full model equality remains diagnostic");
     }
 }
