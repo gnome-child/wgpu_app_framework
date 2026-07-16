@@ -342,7 +342,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.animation_schedules
             .iter()
             .filter(|(window, _)| self.session.contains(**window))
-            .map(|(_, schedule)| *schedule)
+            .map(|(_, schedules)| schedules.combined())
             .fold(animation::Schedule::Idle, animation::Schedule::merge)
     }
 
@@ -350,27 +350,39 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let due = self
             .animation_schedules
             .iter()
-            .filter(|(window, schedule)| self.session.contains(**window) && schedule.is_due(now))
-            .map(|(window, _)| *window)
+            .filter(|(window, _)| self.session.contains(**window))
+            .filter_map(|(window, schedules)| {
+                let paint = schedules.paint.is_due(now);
+                let properties = schedules.properties.is_due(now);
+                (paint || properties).then_some((*window, paint, properties))
+            })
             .collect::<Vec<_>>();
 
-        for window in due {
+        for (window, paint_due, properties_due) in due {
             let hover_delay = std::time::Duration::from_millis(
                 self.active_theme().auxiliary_panel().hover_delay_ms,
             );
-            let hover_tip_due = self.session.promote_hover_tip(window, now, hover_delay);
-            log::debug!(
-                "animation frame due for window {window:?}; requesting {}",
-                if hover_tip_due { "rebuild" } else { "paint" }
-            );
-            self.session.request_invalidation(
-                window,
-                if hover_tip_due {
-                    response::effect::Invalidation::Rebuild
-                } else {
-                    response::effect::Invalidation::Paint
-                },
-            );
+            let hover_tip_due =
+                paint_due && self.session.promote_hover_tip(window, now, hover_delay);
+            if paint_due {
+                log::debug!(
+                    "animation frame due for window {window:?}; requesting {}",
+                    if hover_tip_due { "rebuild" } else { "paint" }
+                );
+                self.session.request_invalidation(
+                    window,
+                    if hover_tip_due {
+                        response::effect::Invalidation::Rebuild
+                    } else {
+                        response::effect::Invalidation::Paint
+                    },
+                );
+            } else if properties_due {
+                log::debug!(
+                    "property animation frame due for window {window:?}; requesting property tick"
+                );
+                self.session.request_property_tick(window);
+            }
         }
     }
 
@@ -404,11 +416,17 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
-    fn set_animation_schedule(&mut self, window: window::Id, schedule: animation::Schedule) {
-        if schedule == animation::Schedule::Idle {
+    fn set_animation_schedule(
+        &mut self,
+        window: window::Id,
+        paint: animation::Schedule,
+        properties: animation::Schedule,
+    ) {
+        let schedules = super::AnimationSchedules { paint, properties };
+        if schedules.is_idle() {
             self.animation_schedules.remove(&window);
         } else {
-            self.animation_schedules.insert(window, schedule);
+            self.animation_schedules.insert(window, schedules);
         }
     }
 }
@@ -1176,19 +1194,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             self.overlays
                 .update_window(window, entries, theme.overlay(), capabilities, now);
         let (layers, overlay_schedule) = overlay_update.into_parts();
-        let schedule = caret_animation_schedule(&layout, now)
-            .merge(visual_schedule)
-            .merge(overlay_schedule)
-            .merge(
-                self.session
-                    .hover_tip_deadline(
-                        window,
-                        std::time::Duration::from_millis(theme.auxiliary_panel().hover_delay_ms),
-                    )
-                    .map(animation::Schedule::At)
-                    .unwrap_or(animation::Schedule::Idle),
-            );
-        self.set_animation_schedule(window, schedule);
+        let property_schedule = caret_animation_schedule(&layout, now);
+        let paint_schedule = visual_schedule.merge(overlay_schedule).merge(
+            self.session
+                .hover_tip_deadline(
+                    window,
+                    std::time::Duration::from_millis(theme.auxiliary_panel().hover_delay_ms),
+                )
+                .map(animation::Schedule::At)
+                .unwrap_or(animation::Schedule::Idle),
+        );
+        self.set_animation_schedule(window, paint_schedule, property_schedule);
         let assembly_elapsed = assembly_started_at.elapsed();
         for layer in layers
             .iter()

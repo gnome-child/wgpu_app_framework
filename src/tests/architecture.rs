@@ -4161,7 +4161,7 @@ fn ime_caret_geometry_follows_the_physical_text_host() {
 
     assert!(
         frame.contains("pub(crate) fn text_caret_rect(&self) -> Option<Rect>")
-            && paint.matches("frame.text_caret_rect()").count() == 2,
+            && paint.matches(".text_caret_rect()").count() == 2,
         "caret paint and IME projection must consume one layout-owned rectangle"
     );
     assert!(
@@ -4200,6 +4200,48 @@ fn ime_caret_geometry_follows_the_physical_text_host() {
             && master.contains("caret paint and IME placement")
             && master.contains("popup-local coordinates for a native floating panel"),
         "master design must retain IME geometry and host ownership"
+    );
+}
+
+#[test]
+fn caret_blink_is_one_projected_property_with_a_property_only_deadline() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let commit = std::fs::read_to_string(root.join("src").join("scene").join("commit.rs"))
+        .expect("scene commit source should read");
+    let paint =
+        std::fs::read_to_string(root.join("src").join("scene").join("paint").join("mod.rs"))
+            .expect("scene paint source should read");
+    let retained = std::fs::read_to_string(root.join("src").join("render").join("retained.rs"))
+        .expect("retained renderer source should read");
+    let presentation =
+        std::fs::read_to_string(root.join("src").join("runtime").join("presentation.rs"))
+            .expect("runtime presentation source should read");
+    let visual = std::fs::read_to_string(root.join("src").join("scene").join("visual.rs"))
+        .expect("scene visual source should read");
+
+    assert!(
+        commit.contains("ContentProjection::Caret")
+            && commit.contains("PropertyKind::Caret")
+            && commit.contains("PropertyValue::Caret { visible: false, .. }) => None")
+            && paint.contains("super::ContentProjection::Caret")
+            && retained.contains("scene::ContentProjection::Caret")
+            && retained.contains("property.opacity = f32::from(visible)"),
+        "caret geometry must stay retained content while visibility projects through one property"
+    );
+    assert!(
+        !visual
+            .split("pub(super) struct NodeState")
+            .nth(1)
+            .and_then(|source| source.split("pub(super) struct Target").next())
+            .is_some_and(|node_state| node_state.contains("caret_visible")),
+        "caret visibility must not participate in the retained frame paint-cache key"
+    );
+    assert!(
+        presentation.contains("let property_schedule = caret_animation_schedule(&layout, now)")
+            && presentation.contains("request_property_tick(window)")
+            && presentation
+                .contains("set_animation_schedule(window, paint_schedule, property_schedule)"),
+        "caret deadlines must request property ticks independently of paint animation deadlines"
     );
 }
 

@@ -1,6 +1,6 @@
 use crate::{layout, theme::Theme};
 
-use super::super::{Quad, Scene, TextViewport, Visuals};
+use super::super::{Quad, Rule, Scene, TextViewport};
 use super::text_surface;
 
 pub(super) fn paint_text(frame: &layout::Frame, scene: &mut Scene) -> bool {
@@ -42,23 +42,12 @@ pub(super) fn paint_selection(frame: &layout::Frame, scene: &mut Scene, theme: &
     }
 }
 
-pub(super) fn paint_caret(
-    frame: &layout::Frame,
-    scene: &mut Scene,
-    theme: &Theme,
-    visuals: &Visuals,
-) {
+pub(super) fn caret(frame: &layout::Frame, theme: &Theme) -> Option<Rule> {
     if !frame.is_focused() {
-        return;
-    }
-    if frame
-        .target()
-        .is_some_and(|target| !visuals.caret_visible(target))
-    {
-        return;
+        return None;
     }
 
-    if let Some(caret) = frame.text_caret_rect() {
-        scene.push_rule(text_surface::caret_rule(caret, theme));
-    }
+    frame
+        .text_caret_rect()
+        .map(|caret| text_surface::caret_rule(caret, theme))
 }

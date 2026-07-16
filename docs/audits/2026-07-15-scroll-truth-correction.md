@@ -440,7 +440,7 @@ delta, and the cells exposed by re-census.
 |---|---|---|---|---|
 | S-000 | Whole-system scroll census | Three controls and several input paths exhibit different ownership/economics | Open | Every required lens has an entrance-to-receipt map; unknowns become cells |
 | S-001 | Sole requested/admitted owner | Layout feedback and presentation receipts can restore an older offset | **Complete; R-001** | Only interaction mutates desired/admitted state; stale feedback cannot regress it |
-| S-002 | Semantic versus transient text identity | `TextArea` property movement participates in semantic equality | Open | Scroll/reveal/blink property ticks mint zero content, geometry, or topology revisions |
+| S-002 | Semantic versus transient text identity | `TextArea` property movement participates in semantic equality | **Complete; R-002** | Scroll/reveal/blink property ticks mint zero content, geometry, or topology revisions |
 | S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **Complete; R-003** | Admission and prepared pixels name the same integral region for every descendant |
 | S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
 | S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Open | One line/block anchor plus within-line displacement resolves through `ScrollUpdate` |
@@ -448,6 +448,7 @@ delta, and the cells exposed by re-census.
 | S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | Open | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
 | S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
+| S-010 | Native presentation atomicity | Fresh release capture intermittently observed a partially composed deadline frame | Open | Native property, residency, and semantic redraws expose only complete receipted frames; capture artifact versus presentation defect is resolved |
 
 ### R-001 — sole requested/admitted owner
 
@@ -490,6 +491,50 @@ delta, and the cells exposed by re-census.
   Compatible forward projection and cancellation across changing residencies
   remains S-008. Exact drawable coverage remains S-003. No additional desired
   or admitted authority was found.
+
+### R-002 — semantic versus transient text identity
+
+- **Bounded question and trace.** Multi-line scroll/reveal/caret epochs and
+  single-line caret epochs were traced from interaction projection through
+  `view::SceneKey`, composition content revisions, layout, retained frame keys,
+  scene content/properties, animation deadlines, renderer bindings, compatibility
+  output, and the native runner. Selection, focus, preedit, text, and caret
+  geometry remain semantic; position requests and blink phase do not.
+- **Displaced identity and scheduling.** `TextArea::same_scene_state` excludes
+  scroll, reveal, and caret epoch, while `TextBox::same_scene_state` excludes its
+  caret epoch. Full model equality remains available for diagnostics. Caret
+  visibility was removed from the retained paint-cache key and from conditional
+  scene painting. The stable caret rule now declares one `Caret` content
+  projection/property; compatibility output omits it when hidden and the retained
+  renderer projects the same rule through per-content opacity. Caret deadlines
+  have a property schedule distinct from paint/overlay/hover deadlines, so a due
+  blink requests `FrameNeed::Properties` without weakening other animations.
+- **Structural performance delta.** A resident text scroll retains the same
+  semantic and drawable commit. Visible-to-hidden-to-visible blink advances only
+  the property serial and exactly one caret property. The release GPU receipt
+  reports zero scene-node realization rebuilds, primitive/text prepare or shape
+  calls, content upload bytes, retained resource creates/replacements/removals,
+  and render-plan rebuilds for both transitions. Only the bounded property upload
+  and ordinary draw remain.
+- **Witnesses.** `scroll_reveal_and_blink_epoch_are_not_scene_content_state`,
+  `blink_epoch_is_not_scene_content_state`,
+  `runtime_host_scroll_coordinates_route_to_scroll_target`,
+  `focused_text_area_caret_blinks_and_schedules_next_deadline`,
+  `text_box_caret_blinks_from_interaction_epoch`, and
+  `caret_blink_is_one_projected_property_with_a_property_only_deadline` cover
+  identity, revision reuse, scheduling, and both text controls. The release GPU
+  witness `control_gallery_caret_blink_preserves_complete_output` passes exact
+  visible/hidden/visible projection with literal-zero semantic retained work. A
+  freshly rebuilt release Control Gallery also showed the caret present after
+  focus, absent at the 500 ms phase, and restored at the 1,000 ms phase.
+- **Configuration and re-census result.** The closure suite reports 1,194 passed
+  and four intentional ignores; renderer-debug's pure tier reports three passed
+  and seventeen intentional GPU ignores; the workspace all-target/all-feature
+  check is green. Native capture intermittently exposed a partially composed
+  deadline frame, which is admitted as S-010 until capture artifact versus real
+  presentation defect is proved. Bounded text layout/storage remains S-004,
+  variable-height anchoring remains S-005, and broader clock/activation races
+  remain S-008. No second text presentation identity was found.
 
 ### R-003 — exact drawable residency
 

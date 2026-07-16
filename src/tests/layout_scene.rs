@@ -9563,6 +9563,8 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("text area should expose a scroll target")
         .clone();
     let point = geometry::Point::new(text_area.rect().x() + 4, text_area.rect().y() + 4);
+    let semantic_commit = std::sync::Arc::clone(presentation.commit());
+    let drawable_commit = std::sync::Arc::clone(presentation.stack().base().drawable_commit());
 
     let outcome = app
         .scroll_at(window, size, point, interaction::ScrollDelta::vertical(96))
@@ -9588,6 +9590,11 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .show_scene(window, size)
         .expect("scrolled scene should render");
     assert!(scrolled.property_only());
+    assert!(std::sync::Arc::ptr_eq(&semantic_commit, scrolled.commit()));
+    assert!(std::sync::Arc::ptr_eq(
+        &drawable_commit,
+        scrolled.stack().base().drawable_commit()
+    ));
     let projection = scrolled
         .layout()
         .scroll_projections()

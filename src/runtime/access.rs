@@ -347,15 +347,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         self.active_theme().auxiliary_panel().hover_delay_ms,
                     ),
                 ) {
-                    let current = self
-                        .animation_schedules
-                        .get(&window)
-                        .copied()
-                        .unwrap_or(crate::animation::Schedule::Idle);
-                    self.animation_schedules.insert(
-                        window,
-                        current.merge(crate::animation::Schedule::At(deadline)),
-                    );
+                    let schedules = self.animation_schedules.entry(window).or_default();
+                    schedules.paint = schedules
+                        .paint
+                        .merge(crate::animation::Schedule::At(deadline));
                 }
                 let modifiers = self
                     .session

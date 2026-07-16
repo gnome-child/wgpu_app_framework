@@ -15,7 +15,7 @@ use crate::icon as icons;
 
 use super::super::{composition, geometry, keymap, layout, overlay, theme::Theme, view};
 use super::{
-    Brush, Clip, Icon, Material, Offset, Outline, Pane, Quad, Scene, Shadow, Style, Text,
+    Brush, Clip, Icon, Material, Offset, Outline, Pane, Quad, Rule, Scene, Shadow, Style, Text,
     TextAlign, TextStyle, TextWrap, Visuals,
 };
 
@@ -67,7 +67,9 @@ struct CachedFrame {
     key: layout::FrameSceneKey,
     visual: super::visual::NodeState,
     body: Scene,
+    body_caret: Option<Rule>,
     scrolled: Option<Scene>,
+    scrolled_caret: Option<Rule>,
     late: Vec<viewport_chrome::Projection>,
 }
 
@@ -108,6 +110,7 @@ struct Fragment {
     clip: Option<Clip>,
     scrolls: Vec<composition::tree::NodeId>,
     body: Scene,
+    caret: Option<Rule>,
 }
 
 impl Default for Retained {
@@ -373,6 +376,21 @@ impl Retained {
                 thickness,
             });
         }
+        let mut caret_nodes = HashSet::new();
+        for frame in layout.frames() {
+            let node = frame.node_id();
+            if !caret_nodes.insert(node)
+                || !commit.nodes().iter().any(|candidate| {
+                    candidate.id() == node && candidate.declares(super::PropertyKind::Caret)
+                })
+            {
+                continue;
+            }
+            let visible = frame
+                .target()
+                .is_none_or(|target| visuals.caret_visible(target));
+            values.push(super::PropertyValue::Caret { node, visible });
+        }
         let previous = self.properties.get(&key);
         let (properties, advanced) =
             super::Properties::snapshot(commit, previous, self.next_property_serial, values)?;
@@ -418,8 +436,8 @@ impl Retained {
                 let clip = frame
                     .clip()
                     .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-                let scrolled = if frame.text_area_layout().is_some() {
-                    paint_frame(
+                let (body_caret, scrolled, scrolled_caret) = if frame.text_area_layout().is_some() {
+                    let body_caret = paint_frame(
                         frame,
                         &mut body,
                         theme,
@@ -430,10 +448,10 @@ impl Retained {
                     );
                     let mut scrolled =
                         Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
-                    text_area::paint(frame, &mut scrolled, theme, visuals);
-                    Some(scrolled)
+                    let scrolled_caret = text_area::paint(frame, &mut scrolled, theme);
+                    (body_caret, Some(scrolled), scrolled_caret)
                 } else {
-                    paint_frame(
+                    let body_caret = paint_frame(
                         frame,
                         &mut body,
                         theme,
@@ -442,13 +460,15 @@ impl Retained {
                         clip,
                         true,
                     );
-                    None
+                    (body_caret, None, None)
                 };
                 let cached = CachedFrame {
                     key,
                     visual,
                     body,
+                    body_caret,
                     scrolled,
+                    scrolled_caret,
                     late: frame_late,
                 };
                 self.frames.insert(frame.node_id(), cached.clone());
@@ -463,6 +483,7 @@ impl Retained {
                 clip,
                 scrolls: layout.scroll_ancestry(frame.node_id()).to_vec(),
                 body: cached.body,
+                caret: cached.body_caret,
             });
             if let Some(body) = cached.scrolled {
                 let mut scrolls = layout.scroll_ancestry(frame.node_id()).to_vec();
@@ -472,6 +493,7 @@ impl Retained {
                     clip,
                     scrolls,
                     body,
+                    caret: cached.scrolled_caret,
                 });
             }
             late.extend(cached.late);
@@ -512,6 +534,7 @@ impl Retained {
                 clip,
                 scrolls: layout.scroll_ancestry(track.owner_node()).to_vec(),
                 body: cached.body,
+                caret: None,
             });
         }
 
@@ -645,6 +668,13 @@ fn append_scoped_fragments(target: &mut super::CommitBuilder, fragments: Vec<Fra
             }
         }
         target.append_fragment(fragment.owner, &fragment.body);
+        if let Some(caret) = fragment.caret {
+            target.push_projected_content(
+                fragment.owner,
+                super::Content::Rule(caret),
+                super::ContentProjection::Caret,
+            );
+        }
     }
     for _ in 0..active_scrolls.len() {
         target.pop_scroll();
@@ -861,7 +891,8 @@ fn paint_frames_with_shared_clip<'a>(
             .clip()
             .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
         switch_clip_scope(scene, &mut active_clip, clip);
-        paint_frame(frame, scene, theme, visuals, late_chrome, clip, true);
+        let caret = paint_frame(frame, scene, theme, visuals, late_chrome, clip, true);
+        push_compatibility_caret(frame, scene, visuals, caret);
     }
     switch_clip_scope(scene, &mut active_clip, None);
 }
@@ -948,7 +979,7 @@ fn paint_frame(
     late_chrome: &mut Vec<viewport_chrome::Projection>,
     clip: Option<Clip>,
     paint_text_area: bool,
-) {
+) -> Option<Rule> {
     if is_floating_panel_role(frame.role()) {
         paint_floating_panel_shadow(frame, scene, theme);
     }
@@ -974,6 +1005,7 @@ fn paint_frame(
     if frame.table_row().is_some_and(|row| row.index() % 2 == 1) {
         scene.push_quad(Quad::new(frame.rect(), theme.table().alternate_row_tint));
     }
+    let mut caret = None;
     match frame.role() {
         view::Role::Binding if frame.is_menu_row() => paint_menu_row(frame, scene, theme),
         _ if frame.is_palette_row() => paint_palette_row(frame, scene, theme),
@@ -990,11 +1022,11 @@ fn paint_frame(
             slider::paint(frame, scene, theme, visuals);
         }
         view::Role::TextArea if paint_text_area => {
-            text_area::paint(frame, scene, theme, visuals);
+            caret = text_area::paint(frame, scene, theme);
         }
         view::Role::TextBox if paint_text_area => {
             if frame.text_area_layout().is_some() {
-                text_area::paint(frame, scene, theme, visuals);
+                caret = text_area::paint(frame, scene, theme);
             } else {
                 text_box::paint_selection(frame, scene, theme);
             }
@@ -1041,7 +1073,9 @@ fn paint_frame(
         {
             indicator::paint(rect, hint, scene, theme);
         }
-        text_box::paint_caret(frame, scene, theme, visuals);
+        if caret.is_none() {
+            caret = text_box::caret(frame, theme);
+        }
     }
 
     if let Some(color) = focus_outline_color_for(frame, theme) {
@@ -1059,6 +1093,24 @@ fn paint_frame(
                 .with_width(theme.focus().width as f32)
                 .with_rounding(focus_outline_rounding_for(frame, rounding, theme)),
         );
+    }
+
+    caret
+}
+
+#[cfg(test)]
+fn push_compatibility_caret(
+    frame: &layout::Frame,
+    scene: &mut Scene,
+    visuals: &Visuals,
+    caret: Option<Rule>,
+) {
+    if frame
+        .target()
+        .is_none_or(|target| visuals.caret_visible(target))
+        && let Some(caret) = caret
+    {
+        scene.push_rule(caret);
     }
 }
 

@@ -147,6 +147,7 @@ pub(crate) enum Content {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ContentProjection {
     Normal,
+    Caret,
     ScrollbarTrack {
         axis: interaction::ScrollbarAxis,
         edge: i32,
@@ -173,6 +174,7 @@ pub(crate) enum PropertyKind {
     Opacity,
     Clip,
     Blur,
+    Caret,
     Scrollbar,
 }
 
@@ -215,6 +217,10 @@ pub(crate) enum PropertyValue {
     Blur {
         node: composition::tree::NodeId,
         sigma: f32,
+    },
+    Caret {
+        node: composition::tree::NodeId,
+        visible: bool,
     },
     Scrollbar {
         node: composition::tree::NodeId,
@@ -525,11 +531,11 @@ impl Commit {
                     else {
                         continue;
                     };
-                    target.push(projection.project_primitive(
-                        content.as_primitive(None),
-                        *node,
-                        properties,
-                    ));
+                    if let Some(primitive) =
+                        projection.project_primitive(content.as_primitive(None), *node, properties)
+                    {
+                        target.push(primitive);
+                    }
                 }
                 Draw::PushClip { clip, .. } => target.push(Primitive::Clip(*clip)),
                 Draw::PopClip => target.push(Primitive::PopClip),
@@ -777,7 +783,7 @@ impl Content {
 impl ContentProjection {
     fn maximum_thickness(self) -> Option<i32> {
         match self {
-            Self::Normal => None,
+            Self::Normal | Self::Caret => None,
             Self::ScrollbarTrack {
                 maximum_thickness, ..
             }
@@ -822,9 +828,16 @@ impl ContentProjection {
         primitive: Primitive,
         node: composition::tree::NodeId,
         properties: &Properties,
-    ) -> Primitive {
+    ) -> Option<Primitive> {
         let (axis, edge, base_thickness, maximum_thickness) = match self {
-            Self::Normal => return primitive,
+            Self::Normal => return Some(primitive),
+            Self::Caret => {
+                return match properties.value(PropertyRef::new(node, PropertyKind::Caret)) {
+                    Some(PropertyValue::Caret { visible: true, .. }) => Some(primitive),
+                    Some(PropertyValue::Caret { visible: false, .. }) => None,
+                    _ => Some(primitive),
+                };
+            }
             Self::ScrollbarTrack {
                 axis,
                 edge,
@@ -843,10 +856,10 @@ impl ContentProjection {
             opacity, thickness, ..
         }) = properties.value(PropertyRef::new(node, PropertyKind::Scrollbar))
         else {
-            return primitive;
+            return Some(primitive);
         };
         let Primitive::Quad(quad) = primitive else {
-            return primitive;
+            return Some(primitive);
         };
         let thickness = (thickness.round() as i32).clamp(
             base_thickness.max(1),
@@ -893,7 +906,7 @@ impl ContentProjection {
                 rect.height(),
             );
         }
-        Primitive::Quad(quad.with_rect(rect).with_opacity(opacity))
+        Some(Primitive::Quad(quad.with_rect(rect).with_opacity(opacity)))
     }
 }
 
@@ -1018,14 +1031,17 @@ impl Builder {
         let Some(node_index) = self.node_indices.get(&owner).copied() else {
             return;
         };
-        if projection != ContentProjection::Normal
-            && !self.nodes[node_index]
-                .properties
-                .contains(&PropertyKind::Scrollbar)
+        let property = match projection {
+            ContentProjection::Normal => None,
+            ContentProjection::Caret => Some(PropertyKind::Caret),
+            ContentProjection::ScrollbarTrack { .. } | ContentProjection::ScrollbarThumb { .. } => {
+                Some(PropertyKind::Scrollbar)
+            }
+        };
+        if let Some(property) = property
+            && !self.nodes[node_index].properties.contains(&property)
         {
-            self.nodes[node_index]
-                .properties
-                .push(PropertyKind::Scrollbar);
+            self.nodes[node_index].properties.push(property);
         }
         let index = self.nodes[node_index].content.len();
         self.nodes[node_index].content.push(content);
@@ -1500,6 +1516,7 @@ impl PropertyValue {
             Self::Opacity { node, .. } => PropertyRef::new(node, PropertyKind::Opacity),
             Self::Clip { node, .. } => PropertyRef::new(node, PropertyKind::Clip),
             Self::Blur { node, .. } => PropertyRef::new(node, PropertyKind::Blur),
+            Self::Caret { node, .. } => PropertyRef::new(node, PropertyKind::Caret),
             Self::Scrollbar { node, .. } => PropertyRef::new(node, PropertyKind::Scrollbar),
         }
     }
@@ -1532,6 +1549,18 @@ impl PropertyValue {
                 }
                 _ => false,
             },
+            Self::Caret { .. } => commit.order.as_deref().is_some_and(|order| {
+                order.iter().any(|draw| {
+                    matches!(
+                        draw,
+                        Draw::Content {
+                            node: owner,
+                            projection: ContentProjection::Caret,
+                            ..
+                        } if *owner == node.id
+                    )
+                })
+            }),
             Self::Scrollbar {
                 opacity, thickness, ..
             } => {

@@ -354,6 +354,8 @@ fn focused_text_area_caret_blinks_and_schedules_next_deadline() {
     let visible = app
         .render_scene_at(window, size, epoch)
         .expect("focused text area should render");
+    let visible_commit = std::sync::Arc::clone(visible.stack().base().drawable_commit());
+    let visible_properties = visible.properties().clone();
     assert!(text_area_caret_visible(&visible));
     assert_text_area_caret_rasterization(&visible);
     assert_eq!(
@@ -391,6 +393,24 @@ fn focused_text_area_caret_blinks_and_schedules_next_deadline() {
         .frame
         .clone();
     assert!(!text_area_caret_visible(&hidden));
+    assert!(hidden.property_only());
+    assert!(std::sync::Arc::ptr_eq(
+        &visible_commit,
+        hidden.stack().base().drawable_commit()
+    ));
+    assert!(hidden.properties().serial() > visible_properties.serial());
+    assert_eq!(
+        hidden
+            .properties()
+            .changed()
+            .iter()
+            .filter(|property| matches!(
+                hidden.properties().value(**property),
+                Some(crate::scene::PropertyValue::Caret { .. })
+            ))
+            .count(),
+        1
+    );
     assert_eq!(after_blink.view_rebuilds, before_blink.view_rebuilds);
     assert_eq!(
         after_blink.layout_recomposes,

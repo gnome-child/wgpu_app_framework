@@ -1528,8 +1528,6 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     let initial = app
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce its initial caret scene".to_owned())?;
-    let initial_commit = std::sync::Arc::clone(initial.stack().base().drawable_commit());
-    let initial_properties = initial.properties().clone();
     app.finish_render_report(
         window,
         initial.epoch(),
@@ -1559,7 +1557,8 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
         .ok_or_else(|| "control gallery did not produce its visible caret scene".to_owned())?;
     let visible_commit = std::sync::Arc::clone(visible.stack().base().drawable_commit());
     let visible_properties = visible.properties().clone();
-    let visible_chrome = caret_blink_content_counts(&visible_commit);
+    let visible_chrome = caret_blink_content_counts(visible.scene());
+    let visible_commit_chrome = caret_blink_commit_content_counts(&visible_commit);
     app.finish_render_report(
         window,
         visible.epoch(),
@@ -1571,12 +1570,20 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     );
     drop(visible);
 
+    app.invalidate_due_animation_frames(epoch + Duration::from_millis(500));
     let hidden = app
         .render_scene_at(window, size, epoch + Duration::from_millis(500))
         .ok_or_else(|| "control gallery did not produce its hidden caret scene".to_owned())?;
     let hidden_commit = std::sync::Arc::clone(hidden.stack().base().drawable_commit());
     let hidden_properties = hidden.properties().clone();
-    let hidden_chrome = caret_blink_content_counts(&hidden_commit);
+    let hidden_chrome = caret_blink_content_counts(hidden.scene());
+    let hidden_commit_chrome = caret_blink_commit_content_counts(&hidden_commit);
+    if !hidden.property_only() {
+        return Err(format!(
+            "caret hide must be a property-only frame, got invalidation {:?}",
+            hidden.invalidation()
+        ));
+    }
     app.finish_render_report(
         window,
         hidden.epoch(),
@@ -1588,6 +1595,7 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
     );
     drop(hidden);
 
+    app.invalidate_due_animation_frames(epoch + Duration::from_millis(1_000));
     let visible_again = app
         .render_scene_at(window, size, epoch + Duration::from_millis(1_000))
         .ok_or_else(|| {
@@ -1595,13 +1603,21 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
         })?;
     let visible_again_commit =
         std::sync::Arc::clone(visible_again.stack().base().drawable_commit());
-    let visible_again_chrome = caret_blink_content_counts(&visible_again_commit);
+    let visible_again_properties = visible_again.properties().clone();
+    let visible_again_chrome = caret_blink_content_counts(visible_again.scene());
+    let visible_again_commit_chrome = caret_blink_commit_content_counts(&visible_again_commit);
+    if !visible_again.property_only() {
+        return Err(format!(
+            "caret show must be a property-only frame, got invalidation {:?}",
+            visible_again.invalidation()
+        ));
+    }
 
     if visible_chrome.0 != hidden_chrome.0.saturating_add(1)
         || visible_again_chrome.0 != visible_chrome.0
     {
         return Err(format!(
-            "caret blink must remove and restore exactly one rule: visible={}, hidden={}, visible_again={}",
+            "caret property projection must hide and restore exactly one compatibility rule: visible={}, hidden={}, visible_again={}",
             visible_chrome.0, hidden_chrome.0, visible_again_chrome.0,
         ));
     }
@@ -1611,37 +1627,55 @@ pub async fn compare_control_gallery_caret_blink(scale_factor: f32) -> Result<()
             visible_chrome.1, hidden_chrome.1, visible_again_chrome.1,
         ));
     }
-    let (changed_nodes, stale_revisions) =
-        caret_blink_changed_node_revisions(&visible_commit, &hidden_commit);
-    if changed_nodes != 1 || stale_revisions != 0 {
+    if visible_commit_chrome != hidden_commit_chrome
+        || visible_again_commit_chrome != visible_commit_chrome
+    {
         return Err(format!(
-            "caret blink must advance the one changed node revision: changed_nodes={changed_nodes}, stale_revisions={stale_revisions}",
+            "caret blink changed retained content: visible={visible_commit_chrome:?}, hidden={hidden_commit_chrome:?}, visible_again={visible_again_commit_chrome:?}"
+        ));
+    }
+    if !std::sync::Arc::ptr_eq(&visible_commit, &hidden_commit)
+        || !std::sync::Arc::ptr_eq(&visible_commit, &visible_again_commit)
+    {
+        return Err("caret blink minted a semantic or drawable commit".to_owned());
+    }
+    if hidden_properties.serial() <= visible_properties.serial()
+        || visible_again_properties.serial() <= hidden_properties.serial()
+        || caret_property_change_count(&hidden_properties) != 1
+        || caret_property_change_count(&visible_again_properties) != 1
+    {
+        return Err(format!(
+            "caret blink must advance exactly one caret property: serials={}/{}/{} caret_changes={}/{}",
+            visible_properties.serial().value(),
+            hidden_properties.serial().value(),
+            visible_again_properties.serial().value(),
+            caret_property_change_count(&hidden_properties),
+            caret_property_change_count(&visible_again_properties),
         ));
     }
 
     let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
-    harness.compare_pending_transition_preserves_active(
-        &initial_commit,
-        &initial_properties,
+    let hidden_work = harness.compare_retained_property_transition(
         &visible_commit,
         &visible_properties,
+        &hidden_properties,
     )?;
-    harness.compare_pending_transition_preserves_active(
+    require_zero_semantic_property_work("caret hide", hidden_work)?;
+    let visible_work = harness.compare_retained_property_transition(
         &visible_commit,
-        &visible_properties,
-        &hidden_commit,
         &hidden_properties,
+        &visible_again_properties,
     )?;
-    harness.compare_pending_transition_preserves_active(
-        &hidden_commit,
-        &hidden_properties,
-        &visible_again_commit,
-        visible_again.properties(),
-    )
+    require_zero_semantic_property_work("caret show", visible_work)
 }
 
 #[cfg(feature = "renderer-debug")]
-fn caret_blink_content_counts(commit: &crate::scene::Commit) -> (usize, usize) {
+fn caret_blink_content_counts(scene: &crate::scene::Scene) -> (usize, usize) {
+    (scene.rules().len(), scene.outlines().len())
+}
+
+#[cfg(feature = "renderer-debug")]
+fn caret_blink_commit_content_counts(commit: &crate::scene::Commit) -> (usize, usize) {
     commit.nodes().iter().flat_map(|node| node.content()).fold(
         (0_usize, 0_usize),
         |(rules, outlines), content| match content {
@@ -1653,24 +1687,39 @@ fn caret_blink_content_counts(commit: &crate::scene::Commit) -> (usize, usize) {
 }
 
 #[cfg(feature = "renderer-debug")]
-fn caret_blink_changed_node_revisions(
-    before: &crate::scene::Commit,
-    after: &crate::scene::Commit,
-) -> (usize, usize) {
-    let mut changed = 0_usize;
-    let mut stale = 0_usize;
-    for before in before.nodes() {
-        let Some(after) = after.nodes().iter().find(|after| after.id() == before.id()) else {
-            continue;
-        };
-        if before.content() != after.content() {
-            changed = changed.saturating_add(1);
-            stale = stale.saturating_add(usize::from(
-                before.content_revision() == after.content_revision(),
-            ));
-        }
+fn caret_property_change_count(properties: &crate::scene::Properties) -> usize {
+    properties
+        .changed()
+        .iter()
+        .filter(|property| {
+            matches!(
+                properties.value(**property),
+                Some(crate::scene::PropertyValue::Caret { .. })
+            )
+        })
+        .count()
+}
+
+#[cfg(feature = "renderer-debug")]
+fn require_zero_semantic_property_work(
+    context: &str,
+    work: crate::render::debug::Work,
+) -> Result<(), String> {
+    let forbidden = work.scene_node_realization_rebuilds()
+        + work.primitive_prepare_calls()
+        + work.text_prepare_calls()
+        + work.text_shape_calls()
+        + work.content_upload_bytes()
+        + work.gpu_resource_creations()
+        + work.gpu_resource_replacements()
+        + work.gpu_resource_removals()
+        + work.render_plan_rebuilds();
+    if forbidden != 0 {
+        return Err(format!(
+            "{context} performed semantic retained work: {work:?}"
+        ));
     }
-    (changed, stale)
+    Ok(())
 }
 
 #[cfg(feature = "renderer-debug")]

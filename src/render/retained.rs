@@ -104,7 +104,7 @@ fn project_scrollbar_property(
     scale_factor: f32,
 ) {
     let (axis, edge, base_thickness, maximum_thickness, thumb) = match projection {
-        scene::ContentProjection::Normal => return,
+        scene::ContentProjection::Normal | scene::ContentProjection::Caret => return,
         scene::ContentProjection::ScrollbarTrack {
             axis,
             edge,
@@ -2509,6 +2509,13 @@ impl Shapes {
                         property.translate = [value.translate_x(), value.translate_y()];
                         property.scale = [value.scale_x(), value.scale_y()];
                         property.grid[1] = 1.0;
+                    }
+                }
+                scene::ContentProjection::Caret => {
+                    if let Some(scene::PropertyValue::Caret { visible, .. }) = properties.value(
+                        scene::PropertyRef::new(node.id(), scene::PropertyKind::Caret),
+                    ) {
+                        property.opacity = f32::from(visible);
                     }
                 }
                 projection => project_scrollbar_property(

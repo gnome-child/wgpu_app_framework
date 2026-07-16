@@ -15,7 +15,6 @@ pub(crate) struct Visuals {
 pub(super) struct NodeState {
     target: Target,
     slider_track_scale_y: Scalar,
-    caret_visible: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -53,7 +52,6 @@ impl Visuals {
         NodeState {
             target: target.map_or_else(Target::default, |target| self.target(target)),
             slider_track_scale_y: self.slider_track_scale_y(target),
-            caret_visible: target.is_none_or(|target| self.caret_visible(target)),
         }
     }
 

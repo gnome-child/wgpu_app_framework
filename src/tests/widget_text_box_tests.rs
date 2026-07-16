@@ -1504,9 +1504,14 @@ fn text_box_caret_blinks_from_interaction_epoch() {
     let visible = app
         .show_scene_at(window, size, epoch)
         .expect("epoch frame should render");
+    let visible_commit = std::sync::Arc::clone(visible.stack().base().drawable_commit());
+    let visible_properties = visible.properties().clone();
+    app.invalidate_due_animation_frames(epoch + Duration::from_millis(500));
     let hidden = app
         .show_scene_at(window, size, epoch + Duration::from_millis(500))
         .expect("hidden blink frame should render");
+    let hidden_properties = hidden.properties().clone();
+    app.invalidate_due_animation_frames(epoch + Duration::from_millis(1000));
     let visible_again = app
         .show_scene_at(window, size, epoch + Duration::from_millis(1000))
         .expect("second visible blink frame should render");
@@ -1514,6 +1519,18 @@ fn text_box_caret_blinks_from_interaction_epoch() {
     assert!(text_box_caret_visible(&visible));
     assert!(!text_box_caret_visible(&hidden));
     assert!(text_box_caret_visible(&visible_again));
+    assert!(hidden.property_only());
+    assert!(visible_again.property_only());
+    assert!(std::sync::Arc::ptr_eq(
+        &visible_commit,
+        hidden.stack().base().drawable_commit()
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &visible_commit,
+        visible_again.stack().base().drawable_commit()
+    ));
+    assert!(hidden_properties.serial() > visible_properties.serial());
+    assert!(visible_again.properties().serial() > hidden_properties.serial());
 }
 
 #[test]

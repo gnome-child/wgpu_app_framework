@@ -1851,6 +1851,54 @@ impl Harness {
             (size.height() as f32 * self.scale_factor).round() as u32,
         )
     }
+
+    pub(crate) fn compare_retained_property_transition(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        initial: &scene::Properties,
+        tick: &scene::Properties,
+    ) -> Result<Work, String> {
+        let (width, height) = self.physical_extent(commit.size());
+        self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            initial,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (candidate, work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            tick,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected, _) = render_commit_image(
+            &self.context,
+            &mut self.witness,
+            commit,
+            tick,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if candidate.as_slice() != expected.pixels() {
+            let differing = candidate
+                .iter()
+                .zip(expected.pixels())
+                .filter(|(candidate, expected)| candidate != expected)
+                .count();
+            return Err(format!(
+                "retained property transition differs from independent realization at {differing} pixels"
+            ));
+        }
+        Ok(work.into())
+    }
 }
 
 fn render_commit_image(

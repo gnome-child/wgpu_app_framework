@@ -1,11 +1,11 @@
 use crate::{layout, theme::Theme};
 
-use super::super::{Quad, Scene, TextViewport, Visuals};
+use super::super::{Quad, Rule, Scene, TextViewport};
 use super::text_surface;
 
-pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, visuals: &Visuals) {
+pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme) -> Option<Rule> {
     let Some(text_area) = frame.text_area_layout() else {
-        return;
+        return None;
     };
     let rect = frame.text_area_text_rect();
     for span in text_area.layout().selection_spans() {
@@ -25,10 +25,7 @@ pub(super) fn paint(frame: &layout::Frame, scene: &mut Scene, theme: &Theme, vis
             .collect(),
     ));
 
-    let caret_visible = frame
-        .target()
-        .is_none_or(|target| visuals.caret_visible(target));
-    if caret_visible && let Some(caret) = frame.text_caret_rect() {
-        scene.push_rule(text_surface::caret_rule(caret, theme));
-    }
+    frame
+        .text_caret_rect()
+        .map(|caret| text_surface::caret_rule(caret, theme))
 }

@@ -200,6 +200,22 @@ type VirtualMaterializations =
     HashMap<crate::interaction::Id, crate::virtual_list::Materialization>;
 type VirtualMeasurements = HashMap<crate::interaction::Id, crate::virtual_list::Measurements>;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct AnimationSchedules {
+    paint: animation::Schedule,
+    properties: animation::Schedule,
+}
+
+impl AnimationSchedules {
+    fn combined(self) -> animation::Schedule {
+        self.paint.merge(self.properties)
+    }
+
+    fn is_idle(self) -> bool {
+        self.paint == animation::Schedule::Idle && self.properties == animation::Schedule::Idle
+    }
+}
+
 pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     store: Store<M>,
     timeline: Timeline<M>,
@@ -221,7 +237,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     theme: Option<ThemeCallback<M>>,
     view: Option<ViewCallback<M, V>>,
     started_ran: bool,
-    animation_schedules: departed::WindowMap<animation::Schedule>,
+    animation_schedules: departed::WindowMap<AnimationSchedules>,
     visual_animations: visual::Animations,
     overlays: overlay::Store,
     overlay_capabilities: overlay::Capabilities,

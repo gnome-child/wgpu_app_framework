@@ -434,7 +434,9 @@ mod tests {
         pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_caret_blink(
             1.0,
         ))
-        .expect("caret blink commits must preserve complete active and candidate output");
+        .expect(
+            "caret property ticks must preserve complete retained output with zero semantic work",
+        );
     }
 
     #[test]
