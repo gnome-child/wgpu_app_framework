@@ -1033,6 +1033,71 @@ delta, and the cells exposed by re-census.
   exact GPU pixel/readback at these offsets, GPU resident glyph-byte high-water,
   and the 64-MiB mixed-long-line matrix remain unproved.
 
+### S-004/S-009 checkpoint G — streamed sparse indices and 64-MiB ASCII scale
+
+- **Displaced cold whole-line owner.** Checkpoint F still materialized and shaped
+  the complete line once before splitting it into exact bands. For long admitted
+  LTR ASCII lines, index construction now reads at most 262,144 source bytes at
+  a time from the span tree, chooses a word-safe boundary, shapes that bounded
+  band, and merges its local coordinates directly into the exact index. No
+  whole-line `String` or glyph buffer exists on this path. If ASCII, direction,
+  safe-boundary, or 4,096-byte context validation fails, the engine returns to
+  the named exact fallback rather than approximating complex output.
+- **Sparse safe checkpoints.** The prior index recorded every word start, even
+  though residency needs only enough safe boundaries to bound one independently
+  shaped fragment. The builder now targets a safe checkpoint every 256 source
+  bytes and retains 4,096 bytes as a hard maximum. It remembers the preceding
+  safe boundary so a long legal word cannot make the selected interval exceed
+  the cap. The far-glyph oracle was expanded across a real band boundary and
+  still matches the independent complete cosmic-text layout in cluster, glyph,
+  advance, source position, and x-aware hit output.
+- **Cache budget and attribution.** The horizontal-index LRU keeps its 64-entry
+  identity cap and now also trims to 64 MiB of resident checkpoint arrays, except
+  that one newly required oversize index may remain as the sole entry. Hits,
+  misses, evictions, exact-band work, and resident bytes are code-owned receipt
+  fields. A warm 1,024-transition trace records 2,048 index hits, zero misses,
+  and zero evictions; cold construction records one miss followed by two hits.
+- **Four-MiB optimization receipt.** Version 6 at exact commit `0fe86c5c2ed9`
+  produced cold times 1,092,850, 1,018,481, and 1,064,432 us for
+  `text-horizontal-4m-exact`; the median is 1,064,432 us, 44.2% below checkpoint
+  F's 1,907,691 us. The median trial's warm p50/p95/p99/max are 3/4/5/72 us.
+  Checkpoint count falls from 215,094 to 15,379 and index residency from
+  2,581,128 to 184,548 bytes, a 92.9% reduction. Exact width remains 27,538,192
+  px and all four precision positions remain checked. The explicit trade is a
+  larger but still bounded warm fragment high-water: 1,092 source bytes/glyphs,
+  202,020 estimated active bytes, and 663,780 weighted cache bytes.
+- **One-MiB optimization receipt.** The same commit reports cold times 268,617,
+  254,636, and 253,160 us; the median is 254,636 us, 6.9% below checkpoint F's
+  273,367 us. Median-trial warm p50/p95/p99/max are 3/3/4/12 us. The index holds
+  3,846 checkpoints in 46,152 bytes rather than 645,300 bytes, while warm
+  movement performs zero fragment shapes and retains the same fixed surface.
+- **New 64-MiB ASCII receipt.** Three official
+  `text-horizontal-64m-ascii` trials report cold times 15,586,456, 15,844,615,
+  and 15,523,888 us; the median is 15,586,456 us. Median-trial warm
+  p50/p95/p99/max are 3/3/5/54 us across 1,024 transitions. All trials preserve
+  exact logical width 440,610,925 px, check the four precision offsets, and keep
+  near/far surfaces at 1,432x640. Cold construction visits and shapes the
+  67,108,864 source bytes once in 257 bounded bands, producing 246,041
+  checkpoints in 2,952,492 bytes. Warm work performs one entering-fragment shape
+  over 273 bytes, with 1,092 source bytes/glyphs, 202,020 estimated active bytes,
+  and 757,575 weighted cache bytes at high water. The 15.6-second cold owner is
+  still material and remains in the optimization queue; document length no
+  longer affects warm movement or resident surface/glyph bounds.
+- **Industry and closure ruling.** This now meets Qt's large-plain-text
+  block/index expectation and the Chromium/Firefox visible-region economics for
+  the admitted ASCII species, while preserving GTK's one adjustment-derived
+  extent and Iced/COSMIC's one position beneath a fixed clip. Flutter's finite
+  cache-extent model remains the comparison for bounded resident work. The local
+  implementation is stronger where it keeps an exact integral position and
+  rejects incomplete pixels, but it is not stronger for complex shaping yet.
+  The suite reports 1,227 passed and four intentional ignores; renderer-debug
+  CPU tests and workspace all-target/all-feature checks are green.
+- **Remaining red paths.** This is an ASCII scale receipt, not the required
+  64-MiB mixed-long-line closure. Complex scripts, bidi, and unbreakable long
+  lines still take the whole-line fallback; edit-time index reuse is absent;
+  vertical coordinates beyond `2^24`, exact GPU readback, GPU glyph-byte
+  high-water, native cadence, and cold-index profiling/reduction remain open.
+
 ### R-005 — stable variable-height anchor and sole line geometry
 
 - **Bounded question and trace.** Property-only text movement, width/style
