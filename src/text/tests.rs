@@ -1119,6 +1119,48 @@ fn one_line_text_area_reuses_its_observed_shape_for_width_and_render() {
 }
 
 #[test]
+fn long_ascii_index_streams_bounded_bands_without_whole_line_materialization() {
+    let mut engine = engine();
+    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(8_192);
+    let source_len = source.len();
+    let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
+    let viewport = area::logical(320.0, 80.0);
+    area_model.buffer().reset_document_stats();
+
+    engine.reset_diagnostics();
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default().with_size(13.0),
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+
+    assert!(layout.layout().content_width_exact() > f64::from(viewport.width()));
+    assert_eq!(
+        area_model.buffer().document_stats().full_materializations,
+        0
+    );
+    assert_eq!(diagnostics.text_area_horizontal_index_builds, 1);
+    assert_eq!(
+        diagnostics.text_area_horizontal_index_source_bytes,
+        source_len
+    );
+    assert_eq!(
+        diagnostics.text_area_horizontal_exact_band_source_bytes,
+        source_len
+    );
+    assert!(diagnostics.text_area_horizontal_exact_band_shapes >= 2);
+    assert_eq!(
+        diagnostics.text_area_line_shape_calls,
+        diagnostics.text_area_horizontal_exact_band_shapes
+            + diagnostics.text_area_horizontal_window_shapes
+    );
+    assert_eq!(diagnostics.text_area_width_source_bytes, 0);
+}
+
+#[test]
 fn unwindowed_last_line_retains_complete_source_metadata() {
     let mut engine = engine();
     let source = "short terminal line";
@@ -1137,7 +1179,7 @@ fn unwindowed_last_line_retains_complete_source_metadata() {
 #[test]
 fn far_ascii_window_matches_independent_full_line_glyphs() {
     let mut engine = engine();
-    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(4_096);
+    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(8_192);
     let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
     let viewport = area::logical(920.0, 80.0);
     let style = Style::default().with_size(13.0);

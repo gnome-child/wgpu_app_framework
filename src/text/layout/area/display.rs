@@ -17,7 +17,11 @@ use super::super::{
     engine::Engine,
     glyph::{glyph_wrap, set_cosmic_buffer_text, text_area_shaping_for_text},
     height::{TextAreaHeightIndex, TextAreaHeightKey},
-    horizontal::{LineIndex as HorizontalLineIndex, Window as HorizontalWindow, prepared_window},
+    horizontal::{
+        LineIndex as HorizontalLineIndex, LineIndexBuilder as HorizontalLineIndexBuilder,
+        TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN, Window as HorizontalWindow,
+        prepared_window,
+    },
     shaping_cache::Shaped,
     system,
     text_area::{
@@ -180,6 +184,48 @@ impl Engine {
         });
         let source_text_len = source.inner.document.line_text_len(source_line);
         if horizontal.is_none() {
+            if committed
+                && area_model.wrap() == AreaWrap::None
+                && source_text_len > TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN
+                && let Some(line_key) = line_key.clone()
+                && let Some((index, band_shapes, glyphs)) = prepare_streamed_ascii_line_index(
+                    &mut self.font_system,
+                    source,
+                    style,
+                    source_line,
+                )
+                && index.width() > f64::from(surface_width)
+            {
+                self.diagnostics.text_area_line_shape_calls += band_shapes;
+                self.diagnostics.text_area_shaped_logical_lines += 1;
+                self.diagnostics.text_area_shaped_visual_lines += band_shapes;
+                #[cfg(test)]
+                {
+                    self.interaction_stats.text_area_frame_cache_misses += 1;
+                    self.interaction_stats.text_area_frame_shape_calls += band_shapes;
+                    self.interaction_stats.text_area_frame_shaped_logical_lines += 1;
+                    self.interaction_stats.text_area_frame_shaped_visual_lines += band_shapes;
+                }
+                self.diagnostics.text_area_horizontal_index_builds += 1;
+                self.diagnostics.text_area_horizontal_index_source_bytes += source_text_len;
+                self.diagnostics.text_area_horizontal_index_glyphs += glyphs;
+                self.diagnostics.text_area_horizontal_index_checkpoints += index.checkpoint_count();
+                self.diagnostics.text_area_horizontal_exact_band_shapes += band_shapes;
+                self.diagnostics
+                    .text_area_horizontal_exact_band_source_bytes += source_text_len;
+                self.install_text_area_horizontal_index(line_key, index);
+                self.font_system.shape_run_cache = Default::default();
+                return self.text_area_line_displays_for_demand(
+                    area_model,
+                    source,
+                    committed,
+                    style,
+                    viewport,
+                    state,
+                    source_line,
+                    source_byte,
+                );
+            }
             let full_key = line_key
                 .clone()
                 .map(|key| TextAreaLineWindowKey::new(key, 0, source_text_len));
@@ -245,22 +291,10 @@ impl Engine {
                 self.diagnostics
                     .text_area_horizontal_exact_band_source_bytes +=
                     usize::from(exact_band_shapes > 0).saturating_mul(text.len());
-                let index_resident_bytes = index.resident_bytes();
                 if let Some(full_key) = full_key.as_ref() {
                     self.text_area_line_displays.remove(full_key);
                 }
-                self.text_area_horizontal_indices
-                    .put(line_key, Rc::new(index));
-                self.text_area_horizontal_index_resident_bytes = self
-                    .text_area_horizontal_indices
-                    .iter()
-                    .map(|(_, index)| index.resident_bytes())
-                    .sum::<usize>();
-                self.diagnostics
-                    .text_area_horizontal_index_resident_bytes_max = self
-                    .diagnostics
-                    .text_area_horizontal_index_resident_bytes_max
-                    .max(index_resident_bytes.max(self.text_area_horizontal_index_resident_bytes));
+                self.install_text_area_horizontal_index(line_key, index);
                 self.font_system.shape_run_cache = Default::default();
                 return self.text_area_line_displays_for_demand(
                     area_model,
@@ -378,6 +412,26 @@ impl Engine {
             .max(resident_bytes);
         self.trim_text_area_line_cache();
         displays
+    }
+
+    fn install_text_area_horizontal_index(
+        &mut self,
+        line_key: TextAreaLineDisplayKey,
+        index: HorizontalLineIndex,
+    ) {
+        let index_resident_bytes = index.resident_bytes();
+        self.text_area_horizontal_indices
+            .put(line_key, Rc::new(index));
+        self.text_area_horizontal_index_resident_bytes = self
+            .text_area_horizontal_indices
+            .iter()
+            .map(|(_, index)| index.resident_bytes())
+            .sum::<usize>();
+        self.diagnostics
+            .text_area_horizontal_index_resident_bytes_max = self
+            .diagnostics
+            .text_area_horizontal_index_resident_bytes_max
+            .max(index_resident_bytes.max(self.text_area_horizontal_index_resident_bytes));
     }
 
     fn record_text_area_line_shape(
@@ -689,6 +743,15 @@ fn prepare_text_area_exact_horizontal_band(
     style: Style,
     text: &str,
 ) -> Option<HorizontalLineIndex> {
+    prepare_text_area_exact_horizontal_band_with_glyphs(font_system, style, text)
+        .map(|(index, _)| index)
+}
+
+fn prepare_text_area_exact_horizontal_band_with_glyphs(
+    font_system: &mut glyphon::FontSystem,
+    style: Style,
+    text: &str,
+) -> Option<(HorizontalLineIndex, usize)> {
     let metrics = glyphon::Metrics::relative(style.size().max(1.0), 1.25);
     let attrs = system::attrs_for_style(style);
     let mut buffer = glyphon::Buffer::new_empty(metrics);
@@ -697,7 +760,54 @@ fn prepare_text_area_exact_horizontal_band(
     let shaping = text_area_shaping_for_text(style, text);
     set_cosmic_buffer_text(&mut buffer, text, glyphon::AttrsList::new(&attrs), shaping);
     buffer.shape_until_scroll(font_system, false);
-    HorizontalLineIndex::from_ascii_fragment_buffer(text, &buffer)
+    let glyphs = buffer_glyph_count(&buffer);
+    HorizontalLineIndex::from_ascii_fragment_buffer(text, &buffer).map(|index| (index, glyphs))
+}
+
+fn prepare_streamed_ascii_line_index(
+    font_system: &mut glyphon::FontSystem,
+    source: &Buffer,
+    style: Style,
+    source_line: usize,
+) -> Option<(HorizontalLineIndex, usize, usize)> {
+    let line_start = source.inner.document.line_start(source_line);
+    let source_len = source.inner.document.line_text_len(source_line);
+    let mut source_offset = 0_usize;
+    let mut builder = HorizontalLineIndexBuilder::new();
+    let mut glyphs = 0_usize;
+
+    while source_offset < source_len {
+        let requested_end = source_offset
+            .saturating_add(TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN)
+            .min(source_len);
+        let mut text = source
+            .inner
+            .document
+            .text_for_range(line_start + source_offset..line_start + requested_end);
+        if !text.is_ascii() {
+            return None;
+        }
+        if requested_end < source_len {
+            let boundary = text
+                .as_bytes()
+                .windows(2)
+                .rposition(|pair| pair[0].is_ascii_whitespace() && !pair[1].is_ascii_whitespace())
+                .map(|index| index + 1)?;
+            text.truncate(boundary);
+        }
+        if text.is_empty() {
+            return None;
+        }
+        let band_len = text.len();
+        let (band, band_glyphs) =
+            prepare_text_area_exact_horizontal_band_with_glyphs(font_system, style, &text)?;
+        builder.push(band)?;
+        glyphs = glyphs.saturating_add(band_glyphs);
+        source_offset = source_offset.checked_add(band_len)?;
+    }
+
+    let (index, band_shapes) = builder.finish(source_len)?;
+    Some((index, band_shapes, glyphs))
 }
 
 fn buffer_glyph_count(buffer: &glyphon::Buffer) -> usize {

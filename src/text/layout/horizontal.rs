@@ -3,7 +3,8 @@ use std::ops::Range;
 use super::constants::TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
 
 pub(super) const TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN: u32 = 4_096;
-const TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN: u32 = 262_144;
+const TEXT_AREA_HORIZONTAL_INDEX_TARGET_SOURCE_SPAN: u32 = 256;
+pub(super) const TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN: usize = 262_144;
 const F32_EXACT_INTEGRAL_LIMIT: f64 = 16_777_216.0;
 
 pub(super) fn prepared_window(viewport_width: f32, scroll_x: f64) -> (f64, f32) {
@@ -38,6 +39,75 @@ pub(super) struct LineIndex {
     height: f32,
 }
 
+pub(super) struct LineIndexBuilder {
+    source_bytes: Vec<u32>,
+    xs: Vec<f64>,
+    source_len: usize,
+    width: f64,
+    height: f32,
+    band_count: usize,
+}
+
+impl LineIndexBuilder {
+    pub(super) fn new() -> Self {
+        Self {
+            source_bytes: Vec::new(),
+            xs: Vec::new(),
+            source_len: 0,
+            width: 0.0,
+            height: 1.0,
+            band_count: 0,
+        }
+    }
+
+    pub(super) fn push(&mut self, band: LineIndex) -> Option<()> {
+        let band_source_len = u32::try_from(band.source_len).ok()?;
+        if band.source_bytes.first().copied() != Some(0)
+            || band.source_bytes.last().copied() != Some(band_source_len)
+            || band.source_bytes.len() != band.xs.len()
+        {
+            return None;
+        }
+        let source_start = u32::try_from(self.source_len).ok()?;
+        for (index, (source_byte, x)) in band.source_bytes.into_iter().zip(band.xs).enumerate() {
+            if self.band_count > 0 && index == 0 {
+                continue;
+            }
+            self.source_bytes
+                .push(source_start.checked_add(source_byte)?);
+            self.xs.push(self.width + x);
+        }
+        self.source_len = self.source_len.checked_add(band.source_len)?;
+        self.width += band.width;
+        self.height = self.height.max(band.height);
+        self.band_count += 1;
+        Some(())
+    }
+
+    pub(super) fn finish(self, expected_source_len: usize) -> Option<(LineIndex, usize)> {
+        if self.source_len != expected_source_len
+            || self.source_bytes.len() < 3
+            || self.source_bytes.len() != self.xs.len()
+            || self.source_bytes.windows(2).any(|pair| {
+                pair[0] >= pair[1] || pair[1] - pair[0] > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+            })
+            || self.xs.windows(2).any(|pair| pair[0] > pair[1])
+        {
+            return None;
+        }
+        Some((
+            LineIndex {
+                source_bytes: self.source_bytes,
+                xs: self.xs,
+                source_len: self.source_len,
+                width: self.width,
+                height: self.height,
+            },
+            self.band_count,
+        ))
+    }
+}
+
 impl LineIndex {
     pub(super) fn from_ascii_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
         Self::from_ascii_buffer_inner(text, buffer, true)
@@ -70,6 +140,7 @@ impl LineIndex {
         let mut last_x = 0.0_f32;
         let mut terminal_x = run.line_w;
         let mut pending_boundary = false;
+        let mut previous_boundary = None::<Checkpoint>;
         for glyph in run.glyphs {
             if glyph.end < glyph.start || glyph.end > text.len() || glyph.x < last_x {
                 return None;
@@ -78,15 +149,31 @@ impl LineIndex {
             let whitespace = cluster.chars().all(char::is_whitespace);
             if pending_boundary && !whitespace {
                 let glyph_start = u32::try_from(glyph.start).ok()?;
-                if checkpoints
-                    .last()
-                    .is_none_or(|checkpoint| checkpoint.source_byte != glyph_start)
+                let boundary = Checkpoint {
+                    source_byte: glyph_start,
+                    x: f64::from(glyph.x),
+                };
+                let last = *checkpoints.last()?;
+                if boundary.source_byte.saturating_sub(last.source_byte)
+                    > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
                 {
-                    checkpoints.push(Checkpoint {
-                        source_byte: glyph_start,
-                        x: f64::from(glyph.x),
-                    });
+                    let candidate = previous_boundary?;
+                    if candidate.source_byte <= last.source_byte
+                        || boundary.source_byte.saturating_sub(candidate.source_byte)
+                            > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+                    {
+                        return None;
+                    }
+                    checkpoints.push(candidate);
                 }
+                if boundary
+                    .source_byte
+                    .saturating_sub(checkpoints.last()?.source_byte)
+                    >= TEXT_AREA_HORIZONTAL_INDEX_TARGET_SOURCE_SPAN
+                {
+                    checkpoints.push(boundary);
+                }
+                previous_boundary = Some(boundary);
                 pending_boundary = false;
             }
             if whitespace {
@@ -100,6 +187,20 @@ impl LineIndex {
             source_byte: source_len,
             x: f64::from(terminal_x).max(checkpoints.last()?.x),
         };
+        if terminal
+            .source_byte
+            .saturating_sub(checkpoints.last()?.source_byte)
+            > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+        {
+            let candidate = previous_boundary?;
+            if candidate.source_byte <= checkpoints.last()?.source_byte
+                || terminal.source_byte.saturating_sub(candidate.source_byte)
+                    > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+            {
+                return None;
+            }
+            checkpoints.push(candidate);
+        }
         if checkpoints
             .last()
             .is_none_or(|last| last.source_byte != terminal.source_byte || last.x != terminal.x)
@@ -147,7 +248,7 @@ impl LineIndex {
             let mut band_end = band_start + 1;
             while band_end < terminal
                 && self.source_bytes[band_end + 1].saturating_sub(source_start)
-                    <= TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN
+                    <= TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN as u32
             {
                 band_end += 1;
             }
