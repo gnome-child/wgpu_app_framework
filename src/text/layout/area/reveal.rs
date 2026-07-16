@@ -66,7 +66,7 @@ impl Engine {
                 state.clone(),
                 viewport,
                 caret_layout,
-                Some(layout.content_area()),
+                Some((layout.content_width_exact(), layout.content_height_exact())),
             )
         {
             return next;
@@ -161,26 +161,27 @@ impl Engine {
             })
         });
 
-        let content_width = displays.first().map_or(viewport.width(), |display| {
-            display.width.max(viewport.width())
-        });
-        let content_area = area::logical(content_width, content_height);
+        let content_width_exact = displays
+            .first()
+            .map_or(f64::from(viewport.width()), |display| {
+                display.logical_width.max(f64::from(viewport.width()))
+            });
         if let Some(caret_layout) = caret_layout
             && let Some(next) = ensure_caret_visible_from_layout(
                 state.clone(),
                 viewport,
                 caret_layout,
-                Some(content_area),
+                Some((content_width_exact, f64::from(content_height))),
             )
         {
             return next;
         }
 
-        let max_scroll_x = (content_area.width() - viewport.width()).max(0.0);
-        let max_scroll_y = (content_area.height() - viewport.height()).max(0.0);
-        let scroll_x = state.scroll_x().clamp(0.0, max_scroll_x);
-        let scroll_y = state.scroll_y().clamp(0.0, max_scroll_y);
-        state.with_scroll(scroll_x, scroll_y)
+        let max_scroll_x = (content_width_exact - f64::from(viewport.width())).max(0.0);
+        let max_scroll_y = (f64::from(content_height) - f64::from(viewport.height())).max(0.0);
+        let scroll_x = state.exact_scroll_x().clamp(0.0, max_scroll_x);
+        let scroll_y = state.exact_scroll_y().clamp(0.0, max_scroll_y);
+        state.with_exact_scroll(scroll_x, scroll_y)
     }
 
     pub fn text_area_scroll_y_for_anchor(

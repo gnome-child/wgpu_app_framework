@@ -342,8 +342,8 @@ impl View {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ViewState {
-    scroll_x: f32,
-    scroll_y: f32,
+    scroll_x: f64,
+    scroll_y: f64,
     caret_epoch: Instant,
     reveal_intent: RevealIntent,
     preferred_caret_x: Option<f32>,
@@ -356,7 +356,7 @@ impl ViewState {
 
     pub fn new_at(scroll_x: f32, caret_epoch: Instant) -> Self {
         Self {
-            scroll_x: scroll_x.max(0.0),
+            scroll_x: f64::from(scroll_x.max(0.0)),
             scroll_y: 0.0,
             caret_epoch,
             reveal_intent: RevealIntent::None,
@@ -365,35 +365,53 @@ impl ViewState {
     }
 
     pub fn scroll_x(&self) -> f32 {
-        self.scroll_x
+        self.scroll_x.min(f32::MAX as f64) as f32
     }
 
     pub fn scroll_y(&self) -> f32 {
+        self.scroll_y.min(f32::MAX as f64) as f32
+    }
+
+    pub(crate) fn exact_scroll_x(&self) -> f64 {
+        self.scroll_x
+    }
+
+    pub(crate) fn exact_scroll_y(&self) -> f64 {
         self.scroll_y
     }
 
     pub fn field_scroll_x(&self) -> f32 {
-        self.scroll_x
+        self.scroll_x()
     }
 
     pub fn field_scroll_y(&self) -> f32 {
-        self.scroll_y
+        self.scroll_y()
     }
 
     pub fn with_scroll_x(mut self, scroll_x: f32) -> Self {
-        self.scroll_x = scroll_x.max(0.0);
+        self.scroll_x = f64::from(scroll_x.max(0.0));
         self
     }
 
     pub fn with_scroll_y(mut self, scroll_y: f32) -> Self {
-        self.scroll_y = scroll_y.max(0.0);
+        self.scroll_y = f64::from(scroll_y.max(0.0));
         self
     }
 
     pub fn with_scroll(mut self, scroll_x: f32, scroll_y: f32) -> Self {
-        self.scroll_x = scroll_x.max(0.0);
-        self.scroll_y = scroll_y.max(0.0);
+        self.scroll_x = f64::from(scroll_x.max(0.0));
+        self.scroll_y = f64::from(scroll_y.max(0.0));
         self
+    }
+
+    pub(crate) fn with_exact_scroll(mut self, scroll_x: f64, scroll_y: f64) -> Self {
+        self.scroll_x = finite_scroll(scroll_x);
+        self.scroll_y = finite_scroll(scroll_y);
+        self
+    }
+
+    pub(crate) fn with_integral_scroll(self, scroll_x: i32, scroll_y: i32) -> Self {
+        self.with_exact_scroll(f64::from(scroll_x.max(0)), f64::from(scroll_y.max(0)))
     }
 
     pub fn with_field_scroll_x(self, scroll_x: f32) -> Self {
@@ -457,6 +475,14 @@ impl ViewState {
 
         now.checked_add(Duration::from_millis(wait_ms.min(u64::MAX as u128) as u64))
             .unwrap_or(now)
+    }
+}
+
+fn finite_scroll(value: f64) -> f64 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
     }
 }
 

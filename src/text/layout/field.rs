@@ -150,6 +150,8 @@ impl Engine {
                 scroll_x: state.field_scroll_x(),
                 scroll_y: 0.0,
                 content_area,
+                content_width_exact: f64::from(content_area.width()),
+                content_height_exact: f64::from(content_area.height()),
             },
             surface,
         }
@@ -337,8 +339,16 @@ impl Engine {
             vertical_offset + caret_y as f32,
             prepared.metrics().line_height,
         ));
-        ensure_visible_from_layout(state.clone(), area, caret_layout, Some(content_area))
-            .unwrap_or(state)
+        ensure_visible_from_layout(
+            state.clone(),
+            area,
+            caret_layout,
+            Some((
+                f64::from(content_area.width()),
+                f64::from(content_area.height()),
+            )),
+        )
+        .unwrap_or(state)
     }
 
     pub fn ensure_caret_visible_for_field(

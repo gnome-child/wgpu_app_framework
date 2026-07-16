@@ -3,39 +3,54 @@ use std::ops::Range;
 use super::constants::TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
 
 pub(super) const TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN: u32 = 4_096;
+const TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN: u32 = 262_144;
+const F32_EXACT_INTEGRAL_LIMIT: f64 = 16_777_216.0;
 
-pub(super) fn prepared_window(viewport_width: f32, scroll_x: f32) -> (f32, f32) {
+pub(super) fn prepared_window(viewport_width: f32, scroll_x: f64) -> (f64, f32) {
     let viewport_width = viewport_width.max(1.0);
     let overscan = TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN.max(1.0);
     let width = viewport_width + overscan * 2.0;
-    let desired_origin = (scroll_x - overscan).max(0.0);
-    let origin = (desired_origin / overscan).floor() * overscan;
+    let overscan_exact = f64::from(overscan);
+    let desired_origin = (scroll_x - overscan_exact).max(0.0);
+    let origin = (desired_origin / overscan_exact).floor() * overscan_exact;
     (origin, width)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Checkpoint {
     source_byte: u32,
-    x: f32,
+    x: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Window {
     pub(super) source: Range<usize>,
-    pub(super) x: f32,
-    pub(super) width: f32,
+    pub(super) x: f64,
+    pub(super) width: f64,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct LineIndex {
     checkpoints: Vec<Checkpoint>,
     source_len: usize,
-    width: f32,
+    width: f64,
     height: f32,
 }
 
 impl LineIndex {
     pub(super) fn from_ascii_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
+        Self::from_ascii_buffer_inner(text, buffer, true)
+    }
+
+    pub(super) fn from_ascii_fragment_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
+        Self::from_ascii_buffer_inner(text, buffer, false)
+    }
+
+    fn from_ascii_buffer_inner(
+        text: &str,
+        buffer: &glyphon::Buffer,
+        require_multiple_windows: bool,
+    ) -> Option<Self> {
         if !text.is_ascii() || text.is_empty() {
             return None;
         }
@@ -68,7 +83,7 @@ impl LineIndex {
                 {
                     checkpoints.push(Checkpoint {
                         source_byte: glyph_start,
-                        x: glyph.x,
+                        x: f64::from(glyph.x),
                     });
                 }
                 pending_boundary = false;
@@ -82,7 +97,7 @@ impl LineIndex {
 
         let terminal = Checkpoint {
             source_byte: source_len,
-            x: terminal_x.max(checkpoints.last()?.x),
+            x: f64::from(terminal_x).max(checkpoints.last()?.x),
         };
         if checkpoints
             .last()
@@ -90,7 +105,7 @@ impl LineIndex {
         {
             checkpoints.push(terminal);
         }
-        if checkpoints.len() < 3
+        if checkpoints.len() < if require_multiple_windows { 3 } else { 2 }
             || checkpoints.windows(2).any(|pair| {
                 pair[0].source_byte >= pair[1].source_byte
                     || pair[0].x > pair[1].x
@@ -104,12 +119,82 @@ impl LineIndex {
         Some(Self {
             checkpoints,
             source_len: text.len(),
-            width: run.line_w,
+            width: f64::from(run.line_w),
             height: run.line_height.max(1.0),
         })
     }
 
-    pub(super) fn width(&self) -> f32 {
+    pub(super) fn refine_exact_bands<F>(self, text: &str, mut shape: F) -> Option<(Self, usize)>
+    where
+        F: FnMut(&str) -> Option<Self>,
+    {
+        if self.width < F32_EXACT_INTEGRAL_LIMIT {
+            return Some((self, 0));
+        }
+
+        let mut checkpoints = Vec::with_capacity(self.checkpoints.len());
+        let mut band_start = 0_usize;
+        let terminal = self.checkpoints.len().saturating_sub(1);
+        let mut exact_x = 0.0_f64;
+        let mut height = self.height;
+        let mut band_count = 0_usize;
+
+        while band_start < terminal {
+            let source_start = self.checkpoints[band_start].source_byte;
+            let mut band_end = band_start + 1;
+            while band_end < terminal
+                && self.checkpoints[band_end + 1]
+                    .source_byte
+                    .saturating_sub(source_start)
+                    <= TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN
+            {
+                band_end += 1;
+            }
+            let source_end = self.checkpoints[band_end].source_byte;
+            let range = source_start as usize..source_end as usize;
+            let band = shape(text.get(range.clone())?)?;
+            if band.source_len != range.len() {
+                return None;
+            }
+
+            for (index, checkpoint) in band.checkpoints.into_iter().enumerate() {
+                if band_count > 0 && index == 0 {
+                    continue;
+                }
+                checkpoints.push(Checkpoint {
+                    source_byte: source_start.checked_add(checkpoint.source_byte)?,
+                    x: exact_x + checkpoint.x,
+                });
+            }
+            exact_x += band.width;
+            height = height.max(band.height);
+            band_count += 1;
+            band_start = band_end;
+        }
+
+        if checkpoints.len() != self.checkpoints.len()
+            || checkpoints
+                .last()
+                .is_none_or(|checkpoint| checkpoint.source_byte as usize != text.len())
+            || checkpoints
+                .windows(2)
+                .any(|pair| pair[0].source_byte >= pair[1].source_byte || pair[0].x > pair[1].x)
+        {
+            return None;
+        }
+
+        Some((
+            Self {
+                checkpoints,
+                source_len: text.len(),
+                width: exact_x,
+                height,
+            },
+            band_count,
+        ))
+    }
+
+    pub(super) fn width(&self) -> f64 {
         self.width
     }
 
@@ -127,9 +212,9 @@ impl LineIndex {
             .saturating_mul(std::mem::size_of::<Checkpoint>())
     }
 
-    pub(super) fn windows_for_x(&self, origin: f32, width: f32) -> Vec<Window> {
+    pub(super) fn windows_for_x(&self, origin: f64, width: f32) -> Vec<Window> {
         let origin = origin.max(0.0).min(self.width);
-        let end = (origin + width.max(1.0)).min(self.width);
+        let end = (origin + f64::from(width.max(1.0))).min(self.width);
         let start_index = self
             .checkpoints
             .partition_point(|checkpoint| checkpoint.x <= origin)
@@ -227,5 +312,105 @@ mod tests {
         assert_eq!(windows.len(), 3);
         assert_eq!(windows[0].source, 100..200);
         assert_eq!(windows[2].source, 300..400);
+    }
+
+    #[test]
+    fn prepared_window_retains_unit_deltas_across_f32_precision_boundary() {
+        let viewport = 920.0;
+        let values = [16_777_215_u32, 16_777_216, 16_777_217, 24_000_001];
+        let local_origins = values.map(|value| {
+            let scroll = f64::from(value);
+            let (origin, _) = prepared_window(viewport, scroll);
+            (origin, origin - scroll)
+        });
+
+        for ((left_origin, left_local), (right_origin, right_local)) in local_origins
+            .into_iter()
+            .zip(local_origins.into_iter().skip(1))
+        {
+            assert!(right_origin >= left_origin);
+            assert_ne!(
+                (left_origin, left_local),
+                (right_origin, right_local),
+                "adjacent or odd integral offsets must not collapse before local projection"
+            );
+        }
+        assert_eq!(local_origins[1].1 - local_origins[2].1, 1.0);
+    }
+
+    #[test]
+    fn index_windows_keep_exact_checkpoint_coordinates_past_two_to_the_24th() {
+        let index = LineIndex {
+            checkpoints: vec![
+                Checkpoint {
+                    source_byte: 0,
+                    x: 0.0,
+                },
+                Checkpoint {
+                    source_byte: 100,
+                    x: 16_777_215.0,
+                },
+                Checkpoint {
+                    source_byte: 200,
+                    x: 16_777_216.0,
+                },
+                Checkpoint {
+                    source_byte: 300,
+                    x: 16_777_217.0,
+                },
+                Checkpoint {
+                    source_byte: 400,
+                    x: 24_000_001.0,
+                },
+            ],
+            source_len: 400,
+            width: 24_000_001.0,
+            height: 20.0,
+        };
+
+        let windows = index.windows_for_x(16_777_217.0, 1.0);
+        assert!(windows.iter().any(|window| window.x == 16_777_217.0));
+        assert_eq!(index.width(), 24_000_001.0);
+    }
+
+    #[test]
+    fn exact_band_refinement_accumulates_local_widths_without_losing_units() {
+        const SOURCE_LEN: usize = 600_000;
+        const STEP: usize = 4_000;
+        const ADVANCE: f64 = 42.000_001;
+        let checkpoints = (0..=SOURCE_LEN / STEP)
+            .map(|index| Checkpoint {
+                source_byte: (index * STEP) as u32,
+                x: ((index * STEP) as f32 * ADVANCE as f32) as f64,
+            })
+            .collect::<Vec<_>>();
+        let rounded = LineIndex {
+            checkpoints,
+            source_len: SOURCE_LEN,
+            width: (SOURCE_LEN as f32 * ADVANCE as f32) as f64,
+            height: 20.0,
+        };
+        let source = "x".repeat(SOURCE_LEN);
+        let (exact, bands) = rounded
+            .refine_exact_bands(&source, |band| {
+                let checkpoints = (0..=band.len() / STEP)
+                    .map(|index| Checkpoint {
+                        source_byte: (index * STEP) as u32,
+                        x: index as f64 * STEP as f64 * ADVANCE,
+                    })
+                    .collect::<Vec<_>>();
+                Some(LineIndex {
+                    checkpoints,
+                    source_len: band.len(),
+                    width: band.len() as f64 * ADVANCE,
+                    height: 20.0,
+                })
+            })
+            .expect("bounded exact bands should merge");
+
+        assert_eq!(bands, 3);
+        assert_eq!(exact.width(), SOURCE_LEN as f64 * ADVANCE);
+        assert_ne!(exact.width(), (SOURCE_LEN as f32 * ADVANCE as f32) as f64);
+        assert_eq!(exact.checkpoint_count(), SOURCE_LEN / STEP + 1);
     }
 }

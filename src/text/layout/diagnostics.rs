@@ -38,6 +38,8 @@ pub struct Diagnostics {
     pub text_area_horizontal_index_source_bytes: usize,
     pub text_area_horizontal_index_glyphs: usize,
     pub text_area_horizontal_index_checkpoints: usize,
+    pub text_area_horizontal_exact_band_shapes: usize,
+    pub text_area_horizontal_exact_band_source_bytes: usize,
     pub text_area_horizontal_index_resident_bytes_max: usize,
     pub text_area_horizontal_window_shapes: usize,
     pub text_area_horizontal_window_source_bytes: usize,

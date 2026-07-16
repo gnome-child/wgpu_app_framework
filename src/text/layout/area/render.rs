@@ -89,7 +89,7 @@ impl Engine {
         let resident_height = (resident_bottom - window_y).max(1.0);
         let mut surfaces = Vec::new();
         let mut resident_width = 0.0_f32;
-        let mut window_origin_x = 0.0_f32;
+        let mut window_origin_x = 0.0_f64;
 
         for source_line in final_window.start..final_window.end {
             let Some(index) = prepared.iter().position(|(line, _)| *line == source_line) else {
@@ -104,7 +104,8 @@ impl Engine {
             };
             for display in line.displays {
                 resident_width = resident_width.max(display.surface_width);
-                window_origin_x = window_origin_x.max(display.surface_x + state.scroll_x());
+                window_origin_x =
+                    window_origin_x.max(f64::from(display.surface_x) + state.exact_scroll_x());
                 surfaces.push(TextAreaSurface {
                     x: display.surface_x,
                     y,
@@ -125,7 +126,7 @@ impl Engine {
         self.diagnostics.text_area_render_window_origin_x_max = self
             .diagnostics
             .text_area_render_window_origin_x_max
-            .max(ceil_to_usize(window_origin_x));
+            .max(ceil_f64_to_usize(window_origin_x));
         self.diagnostics.text_area_render_window_origin_y_max = self
             .diagnostics
             .text_area_render_window_origin_y_max
@@ -221,4 +222,8 @@ fn elapsed_micros(start: Instant) -> u128 {
 
 fn ceil_to_usize(value: f32) -> usize {
     value.ceil().max(0.0).min(usize::MAX as f32) as usize
+}
+
+fn ceil_f64_to_usize(value: f64) -> usize {
+    value.ceil().max(0.0).min(usize::MAX as f64) as usize
 }

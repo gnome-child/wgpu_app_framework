@@ -162,7 +162,7 @@ impl Engine {
             viewport.width().max(0.0),
             source_line,
         );
-        let scroll_x = state.scroll_x().max(0.0);
+        let scroll_x = state.exact_scroll_x().max(0.0);
         let (surface_x, surface_width) = prepared_window(viewport.width(), scroll_x);
         let horizontal = line_key
             .as_ref()
@@ -217,9 +217,14 @@ impl Engine {
             if area_model.wrap() == AreaWrap::None
                 && !shaped.cache_hit
                 && let Some(line_key) = line_key
-                && let Some(index) =
-                    HorizontalLineIndex::from_ascii_buffer(&text, &shaped.value.buffer.borrow())
-                && index.width() > surface_width
+                && let Some(index) = {
+                    let buffer = shaped.value.buffer.borrow();
+                    HorizontalLineIndex::from_ascii_buffer(&text, &buffer)
+                }
+                && let Some((index, exact_band_shapes)) = index.refine_exact_bands(&text, |band| {
+                    prepare_text_area_exact_horizontal_band(&mut self.font_system, style, band)
+                })
+                && index.width() > f64::from(surface_width)
             {
                 let visual_runs = shaped.value.buffer.borrow().layout_runs().count();
                 self.diagnostics.text_area_line_shape_calls += 1;
@@ -236,6 +241,10 @@ impl Engine {
                 self.diagnostics.text_area_horizontal_index_source_bytes += text.len();
                 self.diagnostics.text_area_horizontal_index_glyphs += full_glyphs;
                 self.diagnostics.text_area_horizontal_index_checkpoints += index.checkpoint_count();
+                self.diagnostics.text_area_horizontal_exact_band_shapes += exact_band_shapes;
+                self.diagnostics
+                    .text_area_horizontal_exact_band_source_bytes +=
+                    usize::from(exact_band_shapes > 0).saturating_mul(text.len());
                 let index_resident_bytes = index.resident_bytes();
                 if let Some(full_key) = full_key.as_ref() {
                     self.text_area_line_displays.remove(full_key);
@@ -435,7 +444,7 @@ impl Engine {
             viewport.width().max(0.0),
             source_line,
         )?;
-        let scroll_x = state.scroll_x().max(0.0);
+        let scroll_x = state.exact_scroll_x().max(0.0);
         let (surface_x, surface_width) = prepared_window(viewport.width(), scroll_x);
         let horizontal = self.text_area_horizontal_indices.get(&line_key).cloned();
         let windows = horizontal
@@ -628,7 +637,7 @@ fn prepare_text_area_line_display(
     CachedTextAreaLineDisplay {
         buffer: Rc::new(RefCell::new(buffer)),
         height: content.height(),
-        width: content.width(),
+        logical_width: f64::from(content.width()),
         source_byte_start: 0,
         source_text_len: text.len(),
         source_x: 0.0,
@@ -666,13 +675,29 @@ fn prepare_text_area_line_window(
     CachedTextAreaLineDisplay {
         buffer: Rc::new(RefCell::new(buffer)),
         height: index.height().max(content.height()),
-        width: index.width(),
+        logical_width: index.width(),
         source_byte_start: window.source.start,
         source_text_len: text.len(),
         source_x: window.x,
         glyph_count,
         resident_bytes: buffer_resident_bytes(text.len(), glyph_count),
     }
+}
+
+fn prepare_text_area_exact_horizontal_band(
+    font_system: &mut glyphon::FontSystem,
+    style: Style,
+    text: &str,
+) -> Option<HorizontalLineIndex> {
+    let metrics = glyphon::Metrics::relative(style.size().max(1.0), 1.25);
+    let attrs = system::attrs_for_style(style);
+    let mut buffer = glyphon::Buffer::new_empty(metrics);
+    buffer.set_wrap(font_system, glyphon::Wrap::None);
+    buffer.set_size(font_system, None, None);
+    let shaping = text_area_shaping_for_text(style, text);
+    set_cosmic_buffer_text(&mut buffer, text, glyphon::AttrsList::new(&attrs), shaping);
+    buffer.shape_until_scroll(font_system, false);
+    HorizontalLineIndex::from_ascii_fragment_buffer(text, &buffer)
 }
 
 fn buffer_glyph_count(buffer: &glyphon::Buffer) -> usize {

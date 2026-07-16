@@ -29,10 +29,10 @@ pub(super) enum Observation {
 pub(in crate::text) struct CachedLineDisplay {
     pub(in crate::text) buffer: Rc<RefCell<glyphon::Buffer>>,
     pub(in crate::text) height: f32,
-    pub(in crate::text) width: f32,
+    pub(in crate::text) logical_width: f64,
     pub(in crate::text) source_byte_start: usize,
     pub(in crate::text) source_text_len: usize,
-    pub(in crate::text) source_x: f32,
+    pub(in crate::text) source_x: f64,
     pub(in crate::text) glyph_count: usize,
     pub(in crate::text) resident_bytes: usize,
 }
@@ -46,7 +46,7 @@ pub(in crate::text) struct LineDisplay {
     pub(in crate::text) source_line_byte_start: usize,
     pub(in crate::text) source_text_len: usize,
     pub(in crate::text) height: f32,
-    pub(in crate::text) width: f32,
+    pub(in crate::text) logical_width: f64,
     pub(in crate::text) surface_x: f32,
     pub(in crate::text) surface_width: f32,
     pub(in crate::text) text_x: f32,
@@ -114,9 +114,9 @@ impl LineDisplay {
         source: &Buffer,
         source_line: usize,
         cached: CachedLineDisplay,
-        surface_x: f32,
+        surface_x: f64,
         surface_width: f32,
-        scroll_x: f32,
+        scroll_x: f64,
         cache_hit: bool,
     ) -> Self {
         let (line_start, _) = line_source_metrics(source, source_line);
@@ -131,13 +131,17 @@ impl LineDisplay {
             source_line_byte_start: cached.source_byte_start,
             source_text_len: cached.source_text_len,
             height: cached.height,
-            width: cached.width,
-            surface_x: surface_x - scroll_x,
+            logical_width: cached.logical_width,
+            surface_x: bounded_delta(surface_x, scroll_x),
             surface_width,
-            text_x: cached.source_x - scroll_x,
+            text_x: bounded_delta(cached.source_x, scroll_x),
             cache_hit,
         }
     }
+}
+
+fn bounded_delta(value: f64, origin: f64) -> f32 {
+    (value - origin).clamp(f32::MIN as f64, f32::MAX as f64) as f32
 }
 
 pub(super) fn line_display_cache() -> ShapingCache<LineWindowKey, CachedLineDisplay> {
@@ -146,6 +150,20 @@ pub(super) fn line_display_cache() -> ShapingCache<LineWindowKey, CachedLineDisp
 
 pub(super) fn horizontal_index_cache() -> LruCache<LineDisplayKey, Rc<HorizontalLineIndex>> {
     LruCache::new(TEXT_AREA_HORIZONTAL_INDEX_CACHE_CAPACITY)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bounded_delta;
+
+    #[test]
+    fn renderer_local_delta_distinguishes_exact_large_scroll_positions() {
+        let resident_origin = 16_777_088.0_f64;
+        assert_eq!(bounded_delta(resident_origin, 16_777_215.0), -127.0);
+        assert_eq!(bounded_delta(resident_origin, 16_777_216.0), -128.0);
+        assert_eq!(bounded_delta(resident_origin, 16_777_217.0), -129.0);
+        assert_eq!(bounded_delta(24_000_000.0, 24_000_001.0), -1.0);
+    }
 }
 
 pub(super) fn render_line_window(

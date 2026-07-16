@@ -29,7 +29,7 @@ pub struct Engine {
     pub(super) text_area_horizontal_index_resident_bytes: usize,
     pub(super) text_field_surfaces: ShapingCache<FieldSurfaceKey, CachedFieldSurface>,
     pub(super) text_area_height_indices: LruCache<TextAreaHeightKey, TextAreaHeightIndex>,
-    pub(super) text_area_widths: LruCache<width::Key, f32>,
+    pub(super) text_area_widths: LruCache<width::Key, f64>,
     pub(super) diagnostics: Diagnostics,
     #[cfg(test)]
     pub(super) highlight_stats: HighlightStats,

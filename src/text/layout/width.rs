@@ -21,7 +21,7 @@ impl Key {
     }
 }
 
-pub(super) fn measure(font_system: &mut glyphon::FontSystem, source: &Buffer, style: Style) -> f32 {
+pub(super) fn measure(font_system: &mut glyphon::FontSystem, source: &Buffer, style: Style) -> f64 {
     let mut block = Block::new(Align::Start);
     block.push_run(Run::new(source.text(), style));
     system::measure_document(
@@ -30,9 +30,10 @@ pub(super) fn measure(font_system: &mut glyphon::FontSystem, source: &Buffer, st
         Measure::unbounded(),
     )
     .width()
+    .into()
 }
 
-pub(super) fn cache() -> LruCache<Key, f32> {
+pub(super) fn cache() -> LruCache<Key, f64> {
     LruCache::new(TEXT_AREA_WIDTH_CACHE_CAPACITY)
 }
 

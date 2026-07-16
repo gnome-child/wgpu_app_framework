@@ -34,6 +34,8 @@ pub struct Text {
     pub text_area_horizontal_index_source_bytes: usize,
     pub text_area_horizontal_index_glyphs: usize,
     pub text_area_horizontal_index_checkpoints: usize,
+    pub text_area_horizontal_exact_band_shapes: usize,
+    pub text_area_horizontal_exact_band_source_bytes: usize,
     pub text_area_horizontal_index_resident_bytes_max: usize,
     pub text_area_horizontal_window_shapes: usize,
     pub text_area_horizontal_window_source_bytes: usize,
@@ -297,8 +299,8 @@ impl Service {
             );
             let clamped_state =
                 clamp_text_area_scroll_state(&state, paint_layout.layout(), logical_viewport);
-            if clamped_state.scroll_x() != state.scroll_x()
-                || clamped_state.scroll_y() != state.scroll_y()
+            if clamped_state.exact_scroll_x() != state.exact_scroll_x()
+                || clamped_state.exact_scroll_y() != state.exact_scroll_y()
             {
                 state = clamped_state;
                 paint_layout = engine.text_area_paint_layout_for_area_with_preedit_at(
@@ -311,7 +313,7 @@ impl Service {
                 );
             }
             if let Some(anchor) = observed_anchor {
-                let before = scroll_component(state.scroll_y());
+                let before = scroll_component(state.exact_scroll_y());
                 for _ in 0..4 {
                     let Some(scroll_y) = engine.text_area_scroll_y_for_anchor(
                         &area_model,
@@ -327,8 +329,8 @@ impl Service {
                         paint_layout.layout(),
                         logical_viewport,
                     );
-                    if scroll_component(anchored_state.scroll_y())
-                        == scroll_component(state.scroll_y())
+                    if scroll_component(anchored_state.exact_scroll_y())
+                        == scroll_component(state.exact_scroll_y())
                     {
                         break;
                     }
@@ -346,8 +348,8 @@ impl Service {
                         paint_layout.layout(),
                         logical_viewport,
                     );
-                    if clamped_state.scroll_x() != state.scroll_x()
-                        || clamped_state.scroll_y() != state.scroll_y()
+                    if clamped_state.exact_scroll_x() != state.exact_scroll_x()
+                        || clamped_state.exact_scroll_y() != state.exact_scroll_y()
                     {
                         state = clamped_state;
                         paint_layout = engine.text_area_paint_layout_for_area_with_preedit_at(
@@ -360,7 +362,7 @@ impl Service {
                         );
                     }
                 }
-                let after = scroll_component(state.scroll_y());
+                let after = scroll_component(state.exact_scroll_y());
                 if after != before {
                     engine.record_text_area_anchor_correction(before.abs_diff(after) as usize);
                     resolved_scroll_correction = Some(scroll_offset_for_text_state(&state));
@@ -531,6 +533,10 @@ impl Text {
         self.text_area_horizontal_index_glyphs += diagnostics.text_area_horizontal_index_glyphs;
         self.text_area_horizontal_index_checkpoints +=
             diagnostics.text_area_horizontal_index_checkpoints;
+        self.text_area_horizontal_exact_band_shapes +=
+            diagnostics.text_area_horizontal_exact_band_shapes;
+        self.text_area_horizontal_exact_band_source_bytes +=
+            diagnostics.text_area_horizontal_exact_band_source_bytes;
         self.text_area_horizontal_index_resident_bytes_max = self
             .text_area_horizontal_index_resident_bytes_max
             .max(diagnostics.text_area_horizontal_index_resident_bytes_max);
@@ -625,6 +631,10 @@ impl Text {
         self.text_area_horizontal_index_glyphs += diagnostics.text_area_horizontal_index_glyphs;
         self.text_area_horizontal_index_checkpoints +=
             diagnostics.text_area_horizontal_index_checkpoints;
+        self.text_area_horizontal_exact_band_shapes +=
+            diagnostics.text_area_horizontal_exact_band_shapes;
+        self.text_area_horizontal_exact_band_source_bytes +=
+            diagnostics.text_area_horizontal_exact_band_source_bytes;
         self.text_area_horizontal_index_resident_bytes_max = self
             .text_area_horizontal_index_resident_bytes_max
             .max(diagnostics.text_area_horizontal_index_resident_bytes_max);
@@ -816,8 +826,8 @@ fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
 
 fn scroll_offset_for_text_state(state: &text_engine::view::ViewState) -> interaction::ScrollOffset {
     interaction::ScrollOffset::new(
-        scroll_component(state.scroll_x()),
-        scroll_component(state.scroll_y()),
+        scroll_component(state.exact_scroll_x()),
+        scroll_component(state.exact_scroll_y()),
     )
 }
 
@@ -826,10 +836,9 @@ fn viewport_for_text_area(
     layout: &text_engine::layout::TextFieldLayout,
     state: &text_engine::view::ViewState,
 ) -> Viewport {
-    let content_area = layout.content_area();
     let content = Size::new(
-        content_area.width().ceil().max(0.0) as i32,
-        content_area.height().ceil().max(0.0) as i32,
+        extent_component(layout.content_width_exact()),
+        extent_component(layout.content_height_exact()),
     );
 
     Viewport::new(rect, content, scroll_offset_for_text_state(state))
@@ -840,16 +849,35 @@ fn clamp_text_area_scroll_state(
     layout: &text_engine::layout::TextFieldLayout,
     viewport: area::Logical,
 ) -> text_engine::view::ViewState {
-    let content_area = layout.content_area();
-    let max_scroll_x = (content_area.width() - viewport.width()).max(0.0);
-    let max_scroll_y = (content_area.height() - viewport.height()).max(0.0);
+    let max_scroll_x = (layout.content_width_exact() - f64::from(viewport.width())).max(0.0);
+    let max_scroll_y = (layout.content_height_exact() - f64::from(viewport.height())).max(0.0);
 
-    state.clone().with_scroll(
-        state.scroll_x().clamp(0.0, max_scroll_x),
-        state.scroll_y().clamp(0.0, max_scroll_y),
+    state.clone().with_exact_scroll(
+        state.exact_scroll_x().clamp(0.0, max_scroll_x),
+        state.exact_scroll_y().clamp(0.0, max_scroll_y),
     )
 }
 
-fn scroll_component(value: f32) -> i32 {
-    value.round().clamp(0.0, i32::MAX as f32) as i32
+fn scroll_component(value: f64) -> i32 {
+    value.round().clamp(0.0, f64::from(i32::MAX)) as i32
+}
+
+fn extent_component(value: f64) -> i32 {
+    value.ceil().clamp(0.0, f64::from(i32::MAX)) as i32
+}
+
+#[cfg(test)]
+mod precision_tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn text_state_round_trips_integral_session_offsets_without_f32_narrowing() {
+        for value in [16_777_215, 16_777_216, 16_777_217, 24_000_001, i32::MAX] {
+            let state = text_engine::view::ViewState::new_at(0.0, Instant::now())
+                .with_integral_scroll(value, value);
+            let projected = scroll_offset_for_text_state(&state);
+            assert_eq!(projected, interaction::ScrollOffset::new(value, value));
+        }
+    }
 }

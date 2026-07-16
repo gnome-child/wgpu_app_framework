@@ -28,6 +28,8 @@ pub struct TextFieldLayout {
     pub(in crate::text) scroll_x: f32,
     pub(in crate::text) scroll_y: f32,
     pub(in crate::text) content_area: area::Logical,
+    pub(in crate::text) content_width_exact: f64,
+    pub(in crate::text) content_height_exact: f64,
 }
 
 pub struct TextAreaPaintLayout {
@@ -130,6 +132,8 @@ impl TextFieldLayout {
             scroll_x: 0.0,
             scroll_y: 0.0,
             content_area: area::logical(0.0, 0.0),
+            content_width_exact: 0.0,
+            content_height_exact: 0.0,
         }
     }
 
@@ -163,6 +167,14 @@ impl TextFieldLayout {
 
     pub fn content_area(&self) -> area::Logical {
         self.content_area
+    }
+
+    pub(crate) fn content_width_exact(&self) -> f64 {
+        self.content_width_exact
+    }
+
+    pub(crate) fn content_height_exact(&self) -> f64 {
+        self.content_height_exact
     }
 }
 

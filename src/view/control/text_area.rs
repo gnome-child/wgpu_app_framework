@@ -107,7 +107,7 @@ impl TextArea {
     pub(crate) fn view_state_at(&self, now: Instant) -> text::view::ViewState {
         let epoch = self.caret_epoch.unwrap_or(now);
         let state = text::view::ViewState::new_at(0.0, epoch)
-            .with_scroll(self.scroll.x() as f32, self.scroll.y() as f32);
+            .with_integral_scroll(self.scroll.x(), self.scroll.y());
 
         if self.reveal {
             state.ensure_caret_visible(now)
@@ -260,5 +260,16 @@ mod tests {
 
         assert!(first.same_scene_state(&second));
         assert_ne!(first, second, "full model equality remains diagnostic");
+    }
+
+    #[test]
+    fn projected_text_scroll_preserves_integral_values_past_f32_precision() {
+        for value in [16_777_215, 16_777_216, 16_777_217, 24_000_001] {
+            let mut area = TextArea::new("precision");
+            area.scroll = interaction::ScrollOffset::new(value, value);
+            let state = area.view_state_at(Instant::now());
+            assert_eq!(state.exact_scroll_x(), f64::from(value));
+            assert_eq!(state.exact_scroll_y(), f64::from(value));
+        }
     }
 }

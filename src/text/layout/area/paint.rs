@@ -59,16 +59,19 @@ impl Engine {
             style,
             viewport,
         );
-        let content_width = match area_model.wrap() {
+        let content_width_exact = match area_model.wrap() {
             AreaWrap::None => self.text_area_logical_width(
                 &projection.buffer,
                 style,
-                viewport.width().max(0.0),
+                f64::from(viewport.width().max(0.0)),
                 None,
             ),
-            AreaWrap::WordOrGlyph => viewport.width().max(0.0),
+            AreaWrap::WordOrGlyph => f64::from(viewport.width().max(0.0)),
         };
-        let content_area = area::logical(content_width, content_height);
+        let content_area = area::logical(
+            content_width_exact.min(f32::MAX as f64) as f32,
+            content_height,
+        );
         TextFieldLayout {
             selection_spans: Vec::new(),
             preedit_underline_spans: Vec::new(),
@@ -77,6 +80,8 @@ impl Engine {
             scroll_x: state.scroll_x(),
             scroll_y: state.scroll_y(),
             content_area,
+            content_width_exact,
+            content_height_exact: f64::from(content_height),
         }
     }
 
@@ -298,6 +303,8 @@ impl Engine {
             scroll_x: state.scroll_x(),
             scroll_y: state.scroll_y(),
             content_area,
+            content_width_exact: f64::from(content_area.width()),
+            content_height_exact: f64::from(content_area.height()),
         }
     }
 
@@ -381,10 +388,10 @@ impl Engine {
         let selection = request.projection.selection_bounds();
         let (preedit_underline, preedit_selection) = request.projection.highlight_ranges();
         let mut caret = None;
-        let mut observed_width: f32 = 0.0;
+        let mut observed_width = 0.0_f64;
 
         for segment in request.segments {
-            observed_width = observed_width.max(segment.display.width);
+            observed_width = observed_width.max(segment.display.logical_width);
             let buffer = segment.display.buffer.borrow();
             let selection = selection.and_then(|range| {
                 local_cursor_range_for_source_line(
@@ -465,31 +472,43 @@ impl Engine {
         self.add_highlight_stats(combined_stats);
         let observed_document_width =
             complete_observed_width(&request.projection.buffer, request.segments, observed_width);
-        let content_area = request.content_area.unwrap_or_else(|| {
-            let content_width = match request.area_model.wrap() {
-                AreaWrap::None => self.text_area_logical_width(
-                    &request.projection.buffer,
-                    request.style,
-                    request.viewport.width().max(observed_width),
-                    observed_document_width,
-                ),
-                AreaWrap::WordOrGlyph => text_area_content_width(
-                    request.area_model.wrap(),
-                    request.viewport,
-                    observed_width,
-                ),
-            };
-            area::logical(
-                content_width,
-                self.text_area_content_height(
+        let (content_area, content_width_exact, content_height_exact) =
+            if let Some(content_area) = request.content_area {
+                (
+                    content_area,
+                    f64::from(content_area.width()),
+                    f64::from(content_area.height()),
+                )
+            } else {
+                let content_width_exact = match request.area_model.wrap() {
+                    AreaWrap::None => self.text_area_logical_width(
+                        &request.projection.buffer,
+                        request.style,
+                        f64::from(request.viewport.width()).max(observed_width),
+                        observed_document_width,
+                    ),
+                    AreaWrap::WordOrGlyph => f64::from(text_area_content_width(
+                        request.area_model.wrap(),
+                        request.viewport,
+                        observed_width.min(f32::MAX as f64) as f32,
+                    )),
+                };
+                let content_height = self.text_area_content_height(
                     request.area_model,
                     &request.projection.buffer,
                     !request.projection.has_preedit(),
                     request.style,
                     request.viewport,
-                ),
-            )
-        });
+                );
+                (
+                    area::logical(
+                        content_width_exact.min(f32::MAX as f64) as f32,
+                        content_height,
+                    ),
+                    content_width_exact,
+                    f64::from(content_height),
+                )
+            };
         TextFieldLayout {
             selection_spans: spans.selection,
             preedit_underline_spans: spans.preedit_underline,
@@ -498,6 +517,8 @@ impl Engine {
             scroll_x: request.state.scroll_x(),
             scroll_y: request.state.scroll_y(),
             content_area,
+            content_width_exact,
+            content_height_exact,
         }
     }
 
@@ -505,9 +526,9 @@ impl Engine {
         &mut self,
         source: &super::super::super::buffer::Buffer,
         style: Style,
-        minimum: f32,
-        observed_document_width: Option<f32>,
-    ) -> f32 {
+        minimum: f64,
+        observed_document_width: Option<f64>,
+    ) -> f64 {
         let key = super::super::width::Key::new(source, style);
         let width = if let Some(width) = self.text_area_widths.get(&key).copied() {
             self.diagnostics.text_area_width_cache_hits += 1;
@@ -535,8 +556,8 @@ impl Engine {
 fn complete_observed_width(
     source: &super::super::super::buffer::Buffer,
     segments: &[TextAreaDisplaySegment],
-    observed_width: f32,
-) -> Option<f32> {
+    observed_width: f64,
+) -> Option<f64> {
     let line_count = source.logical_line_count();
     let mut next_line = 0_usize;
     for segment in segments {

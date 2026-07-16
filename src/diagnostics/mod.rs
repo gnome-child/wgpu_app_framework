@@ -201,6 +201,14 @@ impl Diagnostics {
                 self.text.text_area_horizontal_index_checkpoints,
             ),
             (
+                "text_area_horizontal_exact_band_shapes",
+                self.text.text_area_horizontal_exact_band_shapes,
+            ),
+            (
+                "text_area_horizontal_exact_band_source_bytes",
+                self.text.text_area_horizontal_exact_band_source_bytes,
+            ),
+            (
                 "text_area_horizontal_index_resident_bytes_max",
                 self.text.text_area_horizontal_index_resident_bytes_max,
             ),

@@ -50,7 +50,7 @@ pub(super) fn ensure_visible_from_layout(
     state: ViewState,
     viewport: area::Logical,
     caret_layout: CaretLayout,
-    content_area: Option<area::Logical>,
+    content_extent: Option<(f64, f64)>,
 ) -> Option<ViewState> {
     let viewport_state =
         Viewport::new(viewport, point::logical(state.scroll_x(), state.scroll_y()));
@@ -63,31 +63,50 @@ pub(super) fn ensure_visible_from_layout(
     }
 
     let caret = caret_layout.caret();
-    let mut scroll_x = state.scroll_x();
-    let mut scroll_y = state.scroll_y();
+    let mut scroll_x = state.exact_scroll_x();
+    let mut scroll_y = state.exact_scroll_y();
     match visibility {
         Visibility::Above => {
-            scroll_y = scroll_y + caret.y() - TEXT_FIELD_CARET_MARGIN;
+            scroll_y += f64::from(caret.y() - TEXT_FIELD_CARET_MARGIN);
         }
         Visibility::Below => {
-            scroll_y =
-                scroll_y + caret.y() + caret.height() + TEXT_FIELD_CARET_MARGIN - viewport.height();
+            scroll_y +=
+                f64::from(caret.y() + caret.height() + TEXT_FIELD_CARET_MARGIN - viewport.height());
         }
         Visibility::Before => {
-            scroll_x = scroll_x + caret.x() - TEXT_FIELD_CARET_MARGIN;
+            scroll_x += f64::from(caret.x() - TEXT_FIELD_CARET_MARGIN);
         }
         Visibility::After => {
-            scroll_x = scroll_x + caret.x() + 1.0 + TEXT_FIELD_CARET_MARGIN - viewport.width();
+            scroll_x += f64::from(caret.x() + 1.0 + TEXT_FIELD_CARET_MARGIN - viewport.width());
         }
         Visibility::Visible | Visibility::Unknown => {}
     }
 
-    if let Some(content_area) = content_area {
-        let max_scroll_x = (content_area.width() - viewport.width()).max(0.0);
-        let max_scroll_y = (content_area.height() - viewport.height()).max(0.0);
+    if let Some((content_width, content_height)) = content_extent {
+        let max_scroll_x = (content_width - f64::from(viewport.width())).max(0.0);
+        let max_scroll_y = (content_height - f64::from(viewport.height())).max(0.0);
         scroll_x = scroll_x.clamp(0.0, max_scroll_x);
         scroll_y = scroll_y.clamp(0.0, max_scroll_y);
     }
 
-    Some(state.with_scroll(scroll_x, scroll_y))
+    Some(state.with_exact_scroll(scroll_x, scroll_y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn caret_reveal_accumulates_against_exact_large_scroll_truth() {
+        let state = ViewState::new_at(0.0, Instant::now()).with_integral_scroll(16_777_217, 0);
+        let viewport = area::logical(100.0, 40.0);
+        let caret = CaretLayout::new(Caret::new(140.0, 4.0, 18.0));
+        let revealed =
+            ensure_visible_from_layout(state, viewport, caret, Some((24_000_001.0, 40.0)))
+                .expect("large exact extent should admit caret reveal");
+        let expected_delta = f64::from(140.0 + 1.0 + TEXT_FIELD_CARET_MARGIN - 100.0);
+
+        assert_eq!(revealed.exact_scroll_x(), 16_777_217.0 + expected_delta);
+    }
 }
