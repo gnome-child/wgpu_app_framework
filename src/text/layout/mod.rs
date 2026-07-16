@@ -199,6 +199,7 @@ impl Engine {
         self.cache = MeasureCache::new(constants::MEASURE_CACHE_CAPACITY);
         self.text_area_line_displays = text_area::line_display_cache();
         self.text_area_horizontal_indices = text_area::horizontal_index_cache();
+        self.text_area_horizontal_index_resident_bytes = 0;
         self.text_area_render_buffers = text_area::render_buffer_cache();
         self.text_field_surfaces = field::surface_cache();
         self.text_area_height_indices = height::cache();

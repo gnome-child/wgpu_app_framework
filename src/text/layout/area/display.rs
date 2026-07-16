@@ -166,6 +166,11 @@ impl Engine {
         let horizontal = line_key
             .as_ref()
             .and_then(|key| self.text_area_horizontal_indices.get(key).cloned());
+        self.diagnostics
+            .text_area_horizontal_index_resident_bytes_max = self
+            .diagnostics
+            .text_area_horizontal_index_resident_bytes_max
+            .max(self.text_area_horizontal_index_resident_bytes);
         let horizontal_windows = horizontal.as_ref().map(|index| {
             source_byte.map_or_else(
                 || index.windows_for_x(surface_x, surface_width),
@@ -236,7 +241,7 @@ impl Engine {
                 }
                 self.text_area_horizontal_indices
                     .put(line_key, Rc::new(index));
-                let index_cache_resident_bytes = self
+                self.text_area_horizontal_index_resident_bytes = self
                     .text_area_horizontal_indices
                     .iter()
                     .map(|(_, index)| index.resident_bytes())
@@ -245,7 +250,7 @@ impl Engine {
                     .text_area_horizontal_index_resident_bytes_max = self
                     .diagnostics
                     .text_area_horizontal_index_resident_bytes_max
-                    .max(index_resident_bytes.max(index_cache_resident_bytes));
+                    .max(index_resident_bytes.max(self.text_area_horizontal_index_resident_bytes));
                 self.font_system.shape_run_cache = Default::default();
                 return self.text_area_line_displays_for_demand(
                     area_model,
