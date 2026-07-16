@@ -63,6 +63,21 @@ the campaign:
 - table rules and fixed viewport clips have lacked a pixel-level transition
   witness even where their layout rectangles and property values look correct.
 
+Field disposition after the 2026-07-16 correction checkpoints:
+
+- [x] Text-document scrolling now behaves consistently with table scrolling.
+- [x] An unwrapped text document exposes its horizontal scrollbar at the proper
+  content width.
+- [ ] Character input in a large unwrapped document remains slow. S-004/S-009
+  checkpoint I bounds shaping but still copies the complete sparse checkpoint
+  arrays on each edit.
+- [ ] Table rules can travel ahead of cell/background/text geometry during
+  scrolling. This reopens S-006's same-property/same-frame claim.
+- [ ] Horizontal table scrolling can leave content geometry stationary until
+  the following update, when it snaps to the requested position. This reopens
+  S-006's immediate entering-side-pixel claim and challenges S-008/S-010's
+  pending/active atomicity path.
+
 The first re-census begins with these cells but is required to search beyond
 them. A newly discovered defect is admitted by evidence and ownership impact,
 not by resemblance to this list.
@@ -442,9 +457,9 @@ delta, and the cells exposed by re-census.
 | S-001 | Sole requested/admitted owner | Layout feedback and presentation receipts can restore an older offset | **Complete; R-001** | Only interaction mutates desired/admitted state; stale feedback cannot regress it |
 | S-002 | Semantic versus transient text identity | `TextArea` property movement participates in semantic equality | **Complete; R-002** | Scroll/reveal/blink property ticks mint zero content, geometry, or topology revisions |
 | S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **Complete; R-003** | Admission and prepared pixels name the same integral region for every descendant |
-| S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
+| S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length; large unwrapped character input still copies the complete sparse index | Open | Warm movement is property-only; replenishment, edit maintenance, and storage are viewport/runway bounded |
 | S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Complete | R-005: one bounded resident line-anchor band plus within-line displacement resolves through `ScrollUpdate::Geometry` |
-| S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | **Complete; R-006** | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
+| S-006 | Table content/rule/clip unity | Field reconfirmation shows rules leading cells and horizontal geometry applying one update late | **Reopened after R-006** | Cells, backgrounds, rules, text, fixed clip, and entering side pixels move on the same receipted update in the native gallery and deterministic pixel witness |
 | S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | **Complete; R-007** | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
 | S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
@@ -656,6 +671,14 @@ delta, and the cells exposed by re-census.
   are green. No additional table offset, clip, track, or overflow repaint
   authority was found. Bounded large-text economics and anchor stability remain
   S-004/S-005; activation races and quantitative fixed-point work remain S-008/S-009.
+- **Post-closure field rejection (2026-07-16).** Native gallery observation
+  falsifies the closure claim above: table rules can lead the rest of the table,
+  and a horizontal side scroll can leave geometry stationary until the next
+  update snaps it into place. The existing compatibility/offscreen witnesses
+  therefore do not cover the practiced native pending/active handoff strongly
+  enough. S-006 is reopened; its checkboxes remain open until one native update
+  proves synchronized rule/cell/background/text displacement and immediate
+  entering-side pixels without borrowing a later redraw.
 
 ### R-007 — one two-axis viewport and chrome policy
 
@@ -721,6 +744,11 @@ delta, and the cells exposed by re-census.
   intentional GPU ignores; the workspace all-target/all-feature check is green.
   Table rule/cell pixel unity remains S-006, bounded text economics and stable
   anchoring remain S-004/S-005, and quantitative fixed-point work remains S-009.
+- **Post-correction field confirmation (2026-07-16).** Text scrolling now
+  behaves consistently with table scrolling, and disabling wrap exposes the
+  horizontal text scrollbar at the correct content width. Those two field
+  checks corroborate S-007's shared two-axis policy; they do not override the
+  separately reopened S-006 table-presentation defects.
 
 ### S-004/S-009 checkpoint A — attributable input and text-window economics
 
