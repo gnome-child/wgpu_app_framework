@@ -6051,6 +6051,7 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     let scene = include_str!("../scene/commit.rs");
     let paint = include_str!("../scene/paint/mod.rs");
     let retained = include_str!("../render/retained.rs");
+    let text_renderer = include_str!("../render/text_renderer.rs");
 
     assert!(
         interaction.contains("enum ScrollUpdate {")
@@ -6094,6 +6095,27 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
             && layout.contains("fn exact_virtual_residency(")
             && paint.contains("scene painting requires a complete scroll residency proof"),
         "scene painting must remain downstream of an exact complete virtual-residency proof"
+    );
+    let clip_change = paint
+        .find("if active_clip != fragment.clip")
+        .expect("retained paint must compare fixed fragment clips");
+    let clip_scope = &paint[clip_change..];
+    let close_scroll = clip_scope
+        .find("target.pop_scroll();")
+        .expect("retained paint must close moving scroll scopes");
+    let switch_clip = clip_scope
+        .find("switch_commit_clip_scope(target, &mut active_clip, fragment.clip);")
+        .expect("retained paint must switch its fixed clip scope");
+    assert!(
+        close_scroll < switch_clip,
+        "viewport clips must switch only after every moving scroll scope is closed"
+    );
+    assert!(
+        text_renderer.contains("if resident { surface } else { viewport }")
+            && text_renderer.contains(
+                "text_viewport_preparation_bounds(viewport.rect, surface.rect, resident)",
+            ),
+        "retained scroll text must prepare the complete resident surface while ordinary text remains viewport bounded"
     );
 }
 

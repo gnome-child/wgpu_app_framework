@@ -441,7 +441,7 @@ delta, and the cells exposed by re-census.
 | S-000 | Whole-system scroll census | Three controls and several input paths exhibit different ownership/economics | Open | Every required lens has an entrance-to-receipt map; unknowns become cells |
 | S-001 | Sole requested/admitted owner | Layout feedback and presentation receipts can restore an older offset | **Complete; R-001** | Only interaction mutates desired/admitted state; stale feedback cannot regress it |
 | S-002 | Semantic versus transient text identity | `TextArea` property movement participates in semantic equality | Open | Scroll/reveal/blink property ticks mint zero content, geometry, or topology revisions |
-| S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **In progress** | Admission and prepared pixels name the same integral region for every descendant |
+| S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **Complete; R-003** | Admission and prepared pixels name the same integral region for every descendant |
 | S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
 | S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Open | One line/block anchor plus within-line displacement resolves through `ScrollUpdate` |
 | S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | Open | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
@@ -491,27 +491,57 @@ delta, and the cells exposed by re-census.
   remains S-008. Exact drawable coverage remains S-003. No additional desired
   or admitted authority was found.
 
-### S-003 checkpoint — exact proof and drawable ownership
+### R-003 — exact drawable residency
 
-- Virtual proof now binds every requested index to the provider's current stable
-  key in the same layout snapshot; missing, duplicate, reordered, stale-key, and
-  gap-producing material cannot create complete residency.
-- A layer owns one explicit drawable commit beside its semantic commit. Local
-  `Residency` objects no longer select a shared drawable by incidental vector
-  order. The independent-two-list witness proves one residency may be reused
-  while another advances and the new rows still become the layer drawable.
-- Text paint and residency use one integral surface rectangle conversion. Text
-  no longer unions the viewport into an unproved prepared region, and an
-  unmodelled zero- or multi-surface result is rejected instead of reduced to a
-  union rectangle.
-- Retained text preparation uses the whole resident surface as its glyph bound;
-  the fixed scene clip, not current-surface glyph culling, controls visible
-  output as properties move through the accepted interval.
-- Production and test configurations are both compiled: the active-refresh
-  epoch accessor is no longer test-only, and
-  `cargo check --workspace --all-targets --all-features --quiet` is green.
-  Remaining S-003 closure work is the renderer/native pixel oracle across the
-  residency boundary and a final descendant/clip re-census.
+- **Bounded question and trace.** Virtual requests, provider keys, realized row
+  roots and descendants, text surfaces, table tracks, scene draw order, local
+  residencies, explicit layer drawable selection, retained preparation, fixed
+  clips, pending activation, and exact GPU output were traced from layout through
+  the production retained renderer. The re-census covers ordinary and nested
+  scroll scopes, distant pins, independently changing lists, property hits, and
+  actual residency crossings.
+- **Exact proof and rejection.** A virtual proof binds every requested index to
+  the provider's current stable key in the same immutable layout snapshot.
+  Missing, duplicate, reordered, stale-key, gap-producing, non-positive, zero-
+  surface, and unmodelled multi-surface candidates cannot create drawable
+  residency. Pins remain retained material but cannot extend contiguous proof.
+- **One drawable and complete membership.** Each layer owns one explicit shared
+  drawable commit beside its semantic commit; local `Residency` objects no
+  longer select the drawable by incidental vector order. Membership contains
+  exactly requested row roots and their nearest-scroll descendants, while a
+  nested scroll carries its own local descendant proof. Residency draw order
+  binds every member that actually paints. Thus one list may reuse its revision
+  while another advances without selecting an obsolete shared drawable.
+- **Integral pixels, glyphs, and clips.** Text paint and layout residency use one
+  integral surface-rectangle conversion. Retained glyph preparation covers the
+  complete resident surface, while a fixed target-space viewport clip encloses
+  every moving scroll scope. Clip changes first close the moving scopes, so
+  neither table rows nor text can translate the viewport clip and expose an
+  unprepared edge band.
+- **Structural performance delta.** Ordinary movement inside accepted residency
+  remains a property-only retained-plan reuse; a boundary crossing advances a
+  local residency and the explicit drawable while minting zero semantic commits.
+  Quantitative latency, allocation, and memory comparison remains S-009 rather
+  than being inferred from correctness-test elapsed time.
+- **Witnesses.** The direct proof rejects missing, duplicate, reordered, stale-
+  key, and gapped rows. `virtual_scroll_residency_does_not_bridge_a_distant_focus_pin`,
+  `control_gallery_keeps_viewport_clips_outside_repeated_nested_scroll_scopes`,
+  `one_scroll_residency_can_advance_while_an_independent_one_stays_reusable`, and
+  the architecture ratchets cover membership, clocks, explicit drawable
+  ownership, fixed-clip ordering, and full-runway text preparation. The release
+  GPU witnesses `retained_scroll_tick_realizes_text_entering_from_the_runway`
+  and `control_gallery_slow_scroll_never_exposes_unprepared_output` pass exact
+  readback; the latter crosses at least one real residency boundary across 64
+  consecutive four-pixel inputs and compares both pending active and activated
+  output against independent realization.
+- **Configuration and re-census result.** Production and test configurations
+  compile with the presentation-epoch accessor available outside `cfg(test)`.
+  The closure suite reports 1,191 passed and four intentional ignores, and the
+  workspace all-target/all-feature check is green.
+  Dedicated table rule/cell transition coverage remains S-006, bounded text
+  storage and incremental width/height work remain S-004/S-005, and activation
+  races beyond this slow-forward trace remain S-008. No additional drawable-
+  residency owner, descendant class, or clip entrance was found.
 
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a

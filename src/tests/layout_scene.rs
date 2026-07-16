@@ -7135,6 +7135,73 @@ fn control_gallery_keeps_viewport_clips_outside_repeated_nested_scroll_scopes() 
     assert!(outer.len() >= 2 && outer.iter().all(|node| *node == outer[0]));
     assert!(nested.len() >= 2 && nested.iter().all(|node| *node == nested[0]));
     assert_ne!(outer[0], nested[0]);
+
+    let layout = rendered.layout();
+    let owner = layout
+        .frames()
+        .iter()
+        .find(|frame| {
+            table_scrolls.contains(&frame.node_id()) && frame.virtual_list_request().is_some()
+        })
+        .expect("the gallery table must expose its virtual residency owner");
+    let request = owner
+        .virtual_list_request()
+        .expect("the table residency owner must name its contiguous request");
+    let requested_roots = layout
+        .frames()
+        .iter()
+        .filter(|frame| {
+            frame.provided_row().is_some_and(|row| {
+                row.list() == request.id() && request.range().contains(&row.index())
+            })
+        })
+        .collect::<Vec<_>>();
+    assert!(!requested_roots.is_empty());
+    let expected = layout
+        .frames()
+        .iter()
+        .filter(|frame| {
+            if frame.node_id() == owner.node_id() {
+                return true;
+            }
+            layout.scroll_ancestry(frame.node_id()).last() == Some(&owner.node_id())
+                && requested_roots
+                    .iter()
+                    .any(|root| frame.node_id() == root.node_id() || frame.is_descendant_of(root))
+        })
+        .map(layout::Frame::node_id)
+        .collect::<std::collections::HashSet<_>>();
+    let residency = rendered
+        .stack()
+        .base()
+        .residencies()
+        .iter()
+        .find(|residency| residency.scroll() == owner.node_id())
+        .expect("the complete virtual table must carry local scene residency");
+    let actual = residency
+        .node_ids()
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        actual, expected,
+        "virtual table residency must contain exactly its requested row roots and nearest-scroll descendants"
+    );
+
+    let drawable = rendered.stack().base().drawable_commit();
+    let painted_expected = drawable
+        .nodes()
+        .iter()
+        .filter(|node| expected.contains(&node.id()) && !node.content().is_empty())
+        .map(|node| node.id())
+        .collect::<std::collections::HashSet<_>>();
+    let painted_actual = residency
+        .draw_order()
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        painted_actual, painted_expected,
+        "every painted descendant in the admitted row range must be bound into the residency draw order"
+    );
 }
 
 #[test]
