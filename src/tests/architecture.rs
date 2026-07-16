@@ -824,7 +824,7 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
         );
     }
     assert!(
-        scroll_diagnostics.contains("scroll_trace_schema=wgpu_l3.scroll_trace.v1")
+        scroll_diagnostics.contains("scroll_trace_schema=wgpu_l3.scroll_trace.v2")
             && diagnostics_boundary.contains("self.scroll.trace_receipt_text()"),
         "the assembled renderer receipt must consume the scroll-owned causal trace"
     );
@@ -6356,6 +6356,60 @@ fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
     assert_eq!(
         suite_cases, 20,
         "the Tier C input-precision suite is an exact twenty-case contract"
+    );
+}
+
+#[test]
+fn pacing_contract_has_one_redraw_ledger_full_timeline_and_exact_twelve_case_suite() {
+    let platform = include_str!("../platform/mod.rs");
+    let runner = include_str!("../platform/runner/mod.rs");
+    let runner_native = include_str!("../platform/runner/native.rs");
+    let runner_handler = include_str!("../platform/runner/handler.rs");
+    let surface = include_str!("../render/surface.rs");
+    let scroll_trace = include_str!("../diagnostics/scroll.rs");
+
+    assert!(
+        platform.contains("struct RedrawRequests {")
+            && platform.contains("fn request_backend_redraw(")
+            && platform.contains("if !self.redraw_requests.begin(window)")
+            && platform.contains("self.redraw_requests.delivered(window);")
+            && platform
+                .matches("self.backend.request_redraw(context, window)")
+                .count()
+                == 1
+            && !runner.contains("PresentationPulse")
+            && !runner.contains("frame_demands")
+            && !runner.contains("issued_frame_redraws")
+            && !runner_native.contains("present_due_interaction_frame")
+            && !runner_handler.contains("is_due(now, refresh)"),
+        "one platform-owned in-flight ledger must issue redraws immediately and deduplicate without a completion-anchored runner clock"
+    );
+    for stage in [
+        "redraw_requested_at",
+        "redraw_delivered_at",
+        "candidate_constructed_at",
+        "acquire_started_at",
+        "acquire_finished_at",
+        "queue_submitted_at",
+        "surface_present_called_at",
+        "input_to_present_submitted_us",
+    ] {
+        assert!(
+            scroll_trace.contains(stage),
+            "causal scroll trace must retain {stage}"
+        );
+    }
+    assert!(
+        surface.contains("let acquire_started = Instant::now();")
+            && surface.contains("let queue_submitted_at = Instant::now();")
+            && surface.contains("frame.present();")
+            && surface.contains("let surface_present_called_at = Instant::now();"),
+        "surface timing must bracket acquire, queue submit, and the surface present call in production"
+    );
+    assert_eq!(
+        runner_native.matches("fn pacing_case_").count(),
+        12,
+        "the Tier C pacing suite is an exact twelve-case contract"
     );
 }
 

@@ -1,6 +1,6 @@
 # Payload-neutral scrolling architecture audit and campaign
 
-Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-005 CLOSED; SC-006 READY**
+Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-006 CLOSED; SC-007 READY**
 
 Date: 2026-07-16
 
@@ -407,8 +407,8 @@ Update this table first whenever a loop changes state. `PENDING` means intention
 | SC-003 | CLOSED | SC-000 property receipts | Stable property indices, dirty-source deltas, compiled dependents, shared sparse/dense transfer planning, and the exact 13-case economics suite are recorded. |
 | SC-004 | CLOSED | SC-000 generation trace | Requested intent, resident acceptance, candidate property generations, and `present_submitted` now have distinct owners/names; skipped property generations resynchronize explicitly. |
 | SC-005 | CLOSED | SC-000 input traces | Pixel/fractional-line input stays precise through routing; one per-target interaction accumulator owns compensated fractions and integral visual quantization. |
-| SC-006 | READY | SC-000 causal trace | Independent pacing track; `PresentationPulse` remains a hypothesis pending negative controls. |
-| SC-007 | PENDING | SC-000 residency receipts, SC-004 state contract | Independent residency track; includes the open 64 MiB cold glyph-admission defect. |
+| SC-006 | CLOSED | SC-000 causal trace | One platform redraw ledger issues immediately and deduplicates in flight; the completion-anchored runner clock is deleted and causal trace v2 records every submission stage. |
+| SC-007 | READY | SC-000 residency receipts, SC-004 state contract | Independent residency track; includes the open 64 MiB cold glyph-admission defect. |
 | SC-008 | PENDING | SC-002 topology, SC-004 terminology | Spatial track resumes to replace independent runtime-presented hit-test ancestry. |
 | SC-009 | PENDING | SC-003/SC-007 | Preserve U-001 and add typing/scroll locality rails. |
 | SC-010 | PENDING | SC-001 through SC-009 | Source deletion and bounded native closure. |
@@ -442,6 +442,8 @@ Initial evidence ledger:
 | E-022 post-state scroll regression | RECORDED | Release Tier A remains 40/40 with all 10 mutation controls discriminating. At all five scales the table payload remains at 464 warm property bytes and zero generation resynchronizations. Scale 1.0 to 1.25 selects one topology/viewport replacement totaling 65,552 property bytes. No receipt claims scanout. |
 | E-023 high-resolution input | RECORDED/CLOSED | The negative control mapped five 0.4-logical-pixel events to zero instead of their 2.0-pixel sum. The final exact 20-case suite passes tiny, reversal, and burst/coalesced traces at all five scales plus fractional line, thumb, keyboard, reveal, and programmatic absolute paths. Fractions are target-local; visual offsets remain integral. |
 | E-024 post-input scroll regression | RECORDED | Release Tier A remains 40/40, all 10 mutation controls remain discriminating, all 13 property-economics cases pass, skipped-generation recovery remains explicit, and the table payload remains at 464 warm property bytes at all five scales. |
+| E-025 presentation cadence | RECORDED/CLOSED | The negative control rejected a demand arriving 1 ms after a 60 Hz present until the completion-anchored interval expired. One platform-owned in-flight ledger now issues immediately and coalesces duplicates; exact steady/burst/delayed cases pass at 60/90/120/144 Hz. Scroll trace v2 correlates redraw request/delivery, candidate, acquire, queue submit, surface present call, and present-submitted receipt. |
+| E-026 post-cadence scroll regression | RECORDED | Release Tier A remains 40/40 with all 10 mutation controls, all 13 property-economics cases, skipped-generation recovery, and the five-scale 464-byte warm table receipt green. The complete suite passes after deleting the runner cadence owner. |
 
 Append evidence; do not silently rewrite a failed receipt. When superseding a conclusion, add the new receipt and identify which prior inference it invalidates.
 
@@ -739,6 +741,24 @@ Closure:
 - The selected policy behaves at 60/90/120/144 Hz and under delayed frames without busy polling or duplicate redraws.
 - The pacing change is independently revertible and does not depend on input-precision, residency, or spatial-topology changes.
 
+#### SC-006 closeout — immediate deduplicated redraw demand, platform-owned cadence
+
+SC-006 closes scheduler ownership without changing input accumulation, scene/property work, spatial topology, or residency policy. The old native runner kept one `PresentationPulse` per window, anchored its next deadline at the last present-submitted completion, deferred both redraw issuance and an already delivered redraw until that deadline, and independently reissued demands that `Platform::apply_work` had already sent to the backend. A demand arriving 1 ms after a 60 Hz present was therefore rejected for the remaining roughly 15.7 ms software interval before the platform could align it with its own redraw/present cadence. That deterministic failure is retained as the negative control.
+
+The completion clock, `frame_demands`, `issued_frame_redraws`, due-frame pass, and pulse-derived event-loop deadline are deleted. `Platform` now owns one `RedrawRequests` ledger for every backend. A semantic/property demand immediately enters the ledger and calls the backend exactly once; additional demand while that request is in flight coalesces; delivery clears the entry before candidate construction; backend failure also clears it; close and continuation/retry paths use the same owner. The event loop returns to its animation/task schedule and never polls merely to satisfy a software presentation interval. Native surface present mode and the OS/window system own delivery/vsync alignment.
+
+High-rate integration sends 1,000 pointer moves plus 20 button events, mutates every command immediately, emits exactly one backend redraw request while in flight, and presents the latest state once on delivery. Failed acquisition reopens the same ledger through the ordinary retry path. A separately delivered redraw with no pending presentation increments `redraw_no_progress`; renderer receipts now expose redraw requests, deliveries, and no-progress count, with external validation requiring no-progress not exceed deliveries.
+
+The exact 12-case Tier C suite is source-counted by an architecture gate: steady, burst, and delayed delivery at 60, 90, 120, and 144 Hz. Steady demand issues immediately and remains at most one refresh from the next modeled platform opportunity. Bursts collapse to one in-flight request and allow a new request immediately after delivery. Delayed delivery remains coalesced while in flight, then permits the next demand immediately instead of adding another completion-relative interval. The suite does not simulate scanout; it proves scheduler issuance/coalescing policy against refresh-relative opportunities.
+
+`wgpu_l3.scroll_trace.v2` now correlates the complete production path by epoch/property serial: input, backend redraw request, redraw delivery, candidate construction, acquire start/finish, queue submission, `frame.present()` call, and present-submitted receipt. Each receipt reports input-relative stage latencies plus acquire wait. Surface timing is captured at the actual calls. `present_submitted_at` now uses the surface-present-call timestamp rather than a later timestamp after post-present candidate preparation. Existing renderer receipts continue to expose event-to-present-submitted p50/p95/p99/max, frame intervals/submission cadence, CPU stage distributions, acquire/encode timing, missed refresh opportunities, skipped frames, and no-progress redraws. These are field measurements, not scanout feedback.
+
+Payload-neutral rendering and property economics did not regress. Release Tier A remains 40/40 at all five scales and all 10 mutation controls remain discriminating. `table-scroll-work` remains 464 warm property bytes at every scale with one dirty index, seven visits/lookups, two ranges, zero semantic/content/shaping/resource/plan-rebuild work, zero generation resynchronizations, and one plan reuse. The exact 13-case property-economics suite and skipped-generation recovery witness remain green.
+
+Verification at this boundary: the old policy failed the 1 ms post-present red witness before production edits; the legacy negative control, exact 12-case suite, source architecture gate, causal trace test, high-rate dedupe, failed-acquire retry, no-progress accounting, formatter, diff check, 18 Python receipt/census/manifest tests, all-target/all-feature check, release GPU/property witnesses, and complete all-target/all-feature suite passed. The broad run first exposed one stale v1 schema assertion; it was updated to v2 and the complete suite reran green with 1,298 library tests passed, four intentional hardware ignores, three renderer-debug non-hardware tests passed with 24 hardware ignores, and two example tests passed.
+
+SC-006 does not claim that every field machine/display will have identical latency, and it does not claim scanout timing. Cold residency and the roughly 24 GiB 64 MiB glyph-admission defect are now the ready SC-007 boundary.
+
 ### SC-007 — Bound residency crossings for every payload
 
 Goal: keep a property scroll cheap until a deliberate, bounded residency handoff.
@@ -834,6 +854,6 @@ Do not:
 
 ## 11. Immediate next action
 
-Resume at **SC-006**. Start from the bounded SC-000 transition trace and add timestamps/serial correlation for redraw request, redraw delivery, acquire, queue submit, surface present call, and present-submitted receipt. Build the exact 12-case 60/90/120/144 Hz pacing suite and reproduce the completion-anchored `PresentationPulse` policy as the controlled negative path before changing scheduler behavior. Do not alter input accumulation, residency, spatial topology, or property economics in this loop.
+Resume at **SC-007**. Freeze the exact 18-case residency suite before production edits: text/table/virtual-list crossed with resident interior, guard edge, forward crossing, reverse crossing, and large jump at scale 1.0, plus one fractional-scale crossing per payload. Reproduce and bound the 64 MiB cold glyph-admission defect, attribute every crossing stage to its selected generation, and preserve the 464-byte property-only interior path. Do not change scheduler, input, spatial topology, or present-submitted geometry projection in this loop.
 
-SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. SC-003 closed indexed dirty property production and sparse/dense transfer economics. SC-004 separated requested intent, resident acceptance, candidate property generations, and `present_submitted`, including explicit renderer recovery across skipped generations. SC-005 closed target-local high-resolution input accumulation while keeping all visual state integral. Pacing, residency, present-submitted geometry consumers, and locality remain separate open loops.
+SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. SC-003 closed indexed dirty property production and sparse/dense transfer economics. SC-004 separated requested intent, resident acceptance, candidate property generations, and `present_submitted`, including explicit renderer recovery across skipped generations. SC-005 closed target-local high-resolution input accumulation while keeping all visual state integral. SC-006 deleted the completion-anchored software cadence owner and unified immediate deduplicated redraw issuance with a full causal trace. Residency, present-submitted geometry consumers, and locality remain separate open loops.

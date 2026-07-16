@@ -52,47 +52,10 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
         event: WinitWindowEvent,
     ) {
         let native_started_at = Instant::now();
-        let redraw_window = matches!(event, WinitWindowEvent::RedrawRequested)
-            .then(|| self.platform.backend().window_for_raw(raw_window))
-            .flatten();
-        if let Some(window) = redraw_window {
-            self.issued_frame_redraws.remove(&window);
-        }
-        if let Some(window) = redraw_window
-            && self
-                .platform
-                .host()
-                .shell()
-                .runtime()
-                .session()
-                .window(window)
-                .is_some_and(crate::session::Window::redraw_requested)
-        {
-            let now = Instant::now();
-            let refresh = self.platform.backend().display_refresh_millihertz(window);
-            if !self
-                .presentation_pulses
-                .entry(window)
-                .or_default()
-                .is_due(now, refresh)
-            {
-                self.frame_demands.insert(window);
-                self.finish_native_pass(event_loop);
-                return;
-            }
-            self.frame_demands.remove(&window);
-        }
         let translation_started_at = Instant::now();
         let Some(event) = self.translate_window_event(raw_window, &event) else {
             return;
         };
-        let redraw_requested = matches!(
-            event,
-            crate::host::Event::Window {
-                event: crate::host::WindowEvent::RedrawRequested,
-                ..
-            }
-        );
         let translation_duration = translation_started_at.elapsed();
         let window = event.window_id();
 
@@ -117,17 +80,6 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
                 .runtime_mut()
                 .record_native_event_pass(window, native_started_at.elapsed());
         }
-        if redraw_requested {
-            if let Some(window) = window
-                && self.platform.take_presented(window)
-            {
-                self.presentation_pulses
-                    .entry(window)
-                    .or_default()
-                    .mark_present_submitted(Instant::now());
-            }
-        }
-
         self.finish_native_pass(event_loop);
     }
 

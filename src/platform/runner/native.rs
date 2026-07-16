@@ -5,7 +5,7 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
 };
 
-use super::super::{Backend, Error, Native, NativeError, Platform, RunError};
+use super::super::{Error, Native, NativeError, Platform, RunError};
 use super::{Runner, RunnerEvent};
 use crate::animation;
 use crate::{host, shell, state::State, task};
@@ -80,23 +80,6 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
 
         self.events
             .retain_windows(|window| windows.contains(&window));
-        self.presentation_pulses
-            .retain(|window, _| windows.contains(window));
-        self.frame_demands.retain(|window| windows.contains(window));
-        self.issued_frame_redraws
-            .retain(|window| windows.contains(window));
-
-        self.frame_demands.extend(
-            self.platform
-                .host()
-                .shell()
-                .runtime()
-                .session()
-                .windows()
-                .iter()
-                .filter(|window| window.redraw_requested())
-                .map(crate::session::Window::id),
-        );
 
         for window in windows {
             if let Some(scale_factor) = self.platform.backend().scale_factor(window) {
@@ -115,46 +98,9 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
 
         self.dispatch_pending_tasks();
 
-        if let Err(error) = self.present_due_interaction_frame(event_loop) {
-            self.fail(event_loop, error);
-            return;
-        }
-
         if !self.exit_if_finished(event_loop) {
             self.sync_control_flow(event_loop);
         }
-    }
-
-    fn present_due_interaction_frame(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-    ) -> Result<(), Error<NativeError>> {
-        let now = Instant::now();
-        let due = self
-            .frame_demands
-            .iter()
-            .copied()
-            .filter(|window| !self.issued_frame_redraws.contains(window))
-            .filter(|window| {
-                let refresh = self.platform.backend().display_refresh_millihertz(*window);
-                self.presentation_pulses
-                    .get(window)
-                    .is_none_or(|pulse| pulse.is_due(now, refresh))
-            })
-            .collect::<Vec<_>>();
-        if due.is_empty() {
-            return Ok(());
-        }
-
-        let mut context = super::super::NativeContext::new(event_loop);
-        for window in due {
-            self.platform
-                .backend_mut()
-                .request_redraw(&mut context, window)
-                .map_err(Error::Backend)?;
-            self.issued_frame_redraws.insert(window);
-        }
-        Ok(())
     }
 
     fn dispatch_pending_tasks(&mut self) {
@@ -205,24 +151,7 @@ impl<M: State, E: Send + 'static> Runner<M, E, Native> {
         } else {
             self.platform.animation_schedule()
         };
-        let pulse_schedule =
-            self.frame_demands
-                .iter()
-                .fold(animation::Schedule::Idle, |schedule, window| {
-                    if self.issued_frame_redraws.contains(window) {
-                        return schedule;
-                    }
-                    let refresh = self.platform.backend().display_refresh_millihertz(*window);
-                    let due = self
-                        .presentation_pulses
-                        .get(window)
-                        .and_then(|pulse| pulse.deadline(refresh));
-                    schedule.merge(
-                        due.map(animation::Schedule::At)
-                            .unwrap_or(animation::Schedule::NextFrame),
-                    )
-                });
-        let control_flow = control_flow(schedule.merge(pulse_schedule), now);
+        let control_flow = control_flow(schedule, now);
         event_loop.set_control_flow(control_flow);
     }
 
@@ -255,7 +184,14 @@ mod tests {
 
     use super::control_flow;
     use crate::animation::Schedule;
-    use crate::platform::runner::PresentationPulse;
+    use crate::{platform::RedrawRequests, window};
+
+    #[derive(Clone, Copy)]
+    enum PacingTrace {
+        Steady,
+        Burst,
+        Delayed,
+    }
 
     #[test]
     fn event_loop_projection_preserves_every_schedule_outcome() {
@@ -271,25 +207,147 @@ mod tests {
         assert_eq!(control_flow(Schedule::NextFrame, now), ControlFlow::Poll);
     }
 
+    fn legacy_completion_anchor_is_not_due(
+        presented: Instant,
+        demand: Instant,
+        refresh_hz: u32,
+    ) -> bool {
+        demand
+            >= presented
+                .checked_add(Duration::from_secs_f64(1.0 / f64::from(refresh_hz)))
+                .expect("test refresh deadline")
+    }
+
     #[test]
-    fn presentation_pulses_are_window_local_refresh_clocks() {
-        let mut slow = PresentationPulse::default();
-        let mut fast = PresentationPulse::default();
-        let now = Instant::now();
+    fn legacy_completion_anchor_delays_demand_after_present_submission() {
+        let presented = Instant::now();
+        let demand = presented + Duration::from_millis(1);
 
-        assert!(slow.is_due(now, Some(60_000)));
-        assert!(fast.is_due(now, Some(144_000)));
-        slow.mark_present_submitted(now);
-        fast.mark_present_submitted(now);
-        assert!(!slow.is_due(now + Duration::from_millis(8), Some(60_000)));
-        assert!(fast.is_due(now + Duration::from_millis(8), Some(144_000)));
-        assert!(slow.is_due(now + Duration::from_millis(17), Some(60_000)));
+        assert!(!legacy_completion_anchor_is_not_due(presented, demand, 60));
+    }
 
-        fast.mark_present_submitted(now + Duration::from_millis(8));
-        assert_eq!(
-            slow.deadline(Some(60_000)),
-            now.checked_add(Duration::from_secs_f64(1.0 / 60.0))
-        );
+    fn next_refresh_after(origin: Instant, demand: Instant, interval: Duration) -> Instant {
+        let mut refresh = origin + interval;
+        while refresh < demand {
+            refresh += interval;
+        }
+        refresh
+    }
+
+    fn require_pacing_trace(refresh_hz: u32, trace: PacingTrace) {
+        let interval = Duration::from_secs_f64(1.0 / f64::from(refresh_hz));
+        let origin = Instant::now();
+        let window = window::Id::new(u64::from(refresh_hz));
+        let mut requests = RedrawRequests::default();
+
+        match trace {
+            PacingTrace::Steady => {
+                let mut presented = origin;
+                for _ in 0..3 {
+                    let demand = presented + Duration::from_millis(1);
+                    assert!(requests.begin(window));
+                    assert!(
+                        !requests.begin(window),
+                        "duplicate steady redraw escaped dedupe"
+                    );
+                    let delivered = next_refresh_after(origin, demand, interval);
+                    assert!(delivered.saturating_duration_since(demand) <= interval);
+                    requests.delivered(window);
+                    presented = delivered;
+                }
+            }
+            PacingTrace::Burst => {
+                let demands = [
+                    origin + Duration::from_millis(1),
+                    origin + Duration::from_millis(2),
+                    origin + Duration::from_millis(3),
+                ];
+                assert!(requests.begin(window));
+                assert!(!requests.begin(window));
+                assert!(!requests.begin(window));
+                let delivered = next_refresh_after(origin, demands[0], interval);
+                assert!(delivered.saturating_duration_since(demands[0]) <= interval);
+                requests.delivered(window);
+                assert!(
+                    requests.begin(window),
+                    "post-delivery demand must issue once"
+                );
+            }
+            PacingTrace::Delayed => {
+                let demand = origin + Duration::from_millis(1);
+                assert!(requests.begin(window));
+                let nominal = next_refresh_after(origin, demand, interval);
+                let delivered = nominal + interval + interval;
+                assert!(
+                    !requests.begin(window),
+                    "delayed delivery must remain coalesced"
+                );
+                requests.delivered(window);
+                let next_demand = delivered + Duration::from_millis(1);
+                assert!(requests.begin(window));
+                assert!(next_demand < delivered + interval);
+            }
+        }
+    }
+
+    #[test]
+    fn pacing_case_steady_60hz() {
+        require_pacing_trace(60, PacingTrace::Steady);
+    }
+
+    #[test]
+    fn pacing_case_burst_60hz() {
+        require_pacing_trace(60, PacingTrace::Burst);
+    }
+
+    #[test]
+    fn pacing_case_delayed_60hz() {
+        require_pacing_trace(60, PacingTrace::Delayed);
+    }
+
+    #[test]
+    fn pacing_case_steady_90hz() {
+        require_pacing_trace(90, PacingTrace::Steady);
+    }
+
+    #[test]
+    fn pacing_case_burst_90hz() {
+        require_pacing_trace(90, PacingTrace::Burst);
+    }
+
+    #[test]
+    fn pacing_case_delayed_90hz() {
+        require_pacing_trace(90, PacingTrace::Delayed);
+    }
+
+    #[test]
+    fn pacing_case_steady_120hz() {
+        require_pacing_trace(120, PacingTrace::Steady);
+    }
+
+    #[test]
+    fn pacing_case_burst_120hz() {
+        require_pacing_trace(120, PacingTrace::Burst);
+    }
+
+    #[test]
+    fn pacing_case_delayed_120hz() {
+        require_pacing_trace(120, PacingTrace::Delayed);
+    }
+
+    #[test]
+    fn pacing_case_steady_144hz() {
+        require_pacing_trace(144, PacingTrace::Steady);
+    }
+
+    #[test]
+    fn pacing_case_burst_144hz() {
+        require_pacing_trace(144, PacingTrace::Burst);
+    }
+
+    #[test]
+    fn pacing_case_delayed_144hz() {
+        require_pacing_trace(144, PacingTrace::Delayed);
     }
 }
 

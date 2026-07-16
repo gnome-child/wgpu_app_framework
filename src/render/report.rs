@@ -146,6 +146,46 @@ pub(crate) struct DrawStats {
     pub(crate) popup_surface_pack_bytes: u64,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct FrameTimeline {
+    acquire_started_at: Option<Instant>,
+    acquire_finished_at: Option<Instant>,
+    queue_submitted_at: Option<Instant>,
+    surface_present_called_at: Option<Instant>,
+}
+
+impl FrameTimeline {
+    pub(crate) fn new(
+        acquire_started_at: Instant,
+        acquire_finished_at: Instant,
+        queue_submitted_at: Option<Instant>,
+        surface_present_called_at: Option<Instant>,
+    ) -> Self {
+        Self {
+            acquire_started_at: Some(acquire_started_at),
+            acquire_finished_at: Some(acquire_finished_at),
+            queue_submitted_at,
+            surface_present_called_at,
+        }
+    }
+
+    pub(crate) fn acquire_started_at(self) -> Option<Instant> {
+        self.acquire_started_at
+    }
+
+    pub(crate) fn acquire_finished_at(self) -> Option<Instant> {
+        self.acquire_finished_at
+    }
+
+    pub(crate) fn queue_submitted_at(self) -> Option<Instant> {
+        self.queue_submitted_at
+    }
+
+    pub(crate) fn surface_present_called_at(self) -> Option<Instant> {
+        self.surface_present_called_at
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderReport {
     pub(crate) acquire_wait: Duration,
@@ -155,6 +195,7 @@ pub struct RenderReport {
     pub(crate) draw_stats: DrawStats,
     pub(crate) present_submitted: bool,
     pub(crate) present_submitted_at: Instant,
+    pub(crate) frame_timeline: FrameTimeline,
     pub(crate) group_composites: usize,
     pub(crate) filter_layer_pool_entries: usize,
     pub(crate) filter_scratch_pool_entries: usize,
@@ -172,6 +213,7 @@ impl RenderReport {
             draw_stats: DrawStats::default(),
             present_submitted: true,
             present_submitted_at,
+            frame_timeline: FrameTimeline::default(),
             group_composites: 0,
             filter_layer_pool_entries: 0,
             filter_scratch_pool_entries: 0,
@@ -228,6 +270,11 @@ impl RenderReport {
         self
     }
 
+    pub(crate) fn with_frame_timeline(mut self, frame_timeline: FrameTimeline) -> Self {
+        self.frame_timeline = frame_timeline;
+        self
+    }
+
     pub fn acquire_wait(&self) -> Duration {
         self.acquire_wait
     }
@@ -242,5 +289,9 @@ impl RenderReport {
 
     pub(crate) fn present_submitted(&self) -> bool {
         self.present_submitted
+    }
+
+    pub(crate) fn frame_timeline(&self) -> FrameTimeline {
+        self.frame_timeline
     }
 }

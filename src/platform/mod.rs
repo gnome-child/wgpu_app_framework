@@ -1,6 +1,7 @@
 use super::{host, pointer, runtime, session, shell, state::State, view};
 use crate::{animation, window};
 use std::collections::HashSet;
+use std::time::Instant;
 
 mod backend;
 mod error;
@@ -39,8 +40,23 @@ pub struct Platform<M: State, E: Send + 'static = (), B = ()> {
     active_cursors: Vec<pointer::Update>,
     poll_scheduled: bool,
     presentation_continuations: HashSet<window::Id>,
-    presented_windows: HashSet<window::Id>,
+    redraw_requests: RedrawRequests,
     animation_schedule: animation::Schedule,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct RedrawRequests {
+    in_flight: HashSet<window::Id>,
+}
+
+impl RedrawRequests {
+    fn begin(&mut self, window: window::Id) -> bool {
+        self.in_flight.insert(window)
+    }
+
+    fn delivered(&mut self, window: window::Id) {
+        self.in_flight.remove(&window);
+    }
 }
 
 impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
@@ -56,7 +72,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             active_cursors: Vec::new(),
             poll_scheduled: false,
             presentation_continuations: HashSet::new(),
-            presented_windows: HashSet::new(),
+            redraw_requests: RedrawRequests::default(),
             animation_schedule: animation::Schedule::Idle,
         }
     }
@@ -87,10 +103,6 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
     pub(crate) fn runtime_poll_scheduled(&self) -> bool {
         self.poll_scheduled
-    }
-
-    pub(in crate::platform) fn take_presented(&mut self, window: window::Id) -> bool {
-        self.presented_windows.remove(&window)
     }
 
     pub fn start(&mut self) -> Result<(), Error<B::Error>>
@@ -196,6 +208,22 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             } => Some(*window),
             _ => None,
         };
+        if let Some(window) = redraw {
+            self.redraw_requests.delivered(window);
+            let progress_expected = self.presentation_continuations.contains(&window)
+                || self
+                    .host
+                    .shell()
+                    .runtime()
+                    .session()
+                    .window(window)
+                    .is_some_and(crate::session::Window::redraw_requested);
+            self.host.shell_mut().runtime_mut().record_redraw_delivered(
+                window,
+                Instant::now(),
+                progress_expected,
+            );
+        }
         if let Some(window) = redraw
             && self.presentation_continuations.contains(&window)
         {
@@ -218,7 +246,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
     ) -> Result<(), B::Error> {
         for window in work.closed_windows() {
             self.presentation_continuations.remove(window);
-            self.presented_windows.remove(window);
+            self.redraw_requests.delivered(*window);
             log::debug!("closing backend window: {window:?}");
             self.backend.close_window(context, *window)?;
         }
@@ -237,7 +265,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         }
 
         for window in work.redraw_windows() {
-            self.backend.request_redraw(context, *window)?;
+            self.request_backend_redraw(context, *window)?;
         }
 
         let synchronized_popup_parents = work
@@ -284,7 +312,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 let window = presented.window();
                 self.presentation_continuations.remove(&window);
                 if self.finish_presented(presented, false) {
-                    self.backend.request_redraw(context, window)?;
+                    self.request_backend_redraw(context, window)?;
                 }
             }
             PresentResult::PresentedAndDeferred(presented) => {
@@ -306,9 +334,6 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
     fn finish_presented(&mut self, presented: Presented, refreshes_active: bool) -> bool {
         let (presented, report) = presented.into_parts();
-        if report.present_submitted() {
-            self.presented_windows.insert(presented.window());
-        }
         if refreshes_active {
             self.host.shell_mut().runtime_mut().finish_active_refresh(
                 presented.window(),
@@ -340,7 +365,26 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             return Ok(());
         }
 
-        self.backend.request_redraw(context, window)
+        self.request_backend_redraw(context, window)
+    }
+
+    fn request_backend_redraw(
+        &mut self,
+        context: &mut B::Context<'_>,
+        window: window::Id,
+    ) -> Result<(), B::Error> {
+        if !self.redraw_requests.begin(window) {
+            return Ok(());
+        }
+        self.host
+            .shell_mut()
+            .runtime_mut()
+            .record_redraw_requested(window, Instant::now());
+        if let Err(error) = self.backend.request_redraw(context, window) {
+            self.redraw_requests.delivered(window);
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn sync_overlay_capabilities(&mut self) {

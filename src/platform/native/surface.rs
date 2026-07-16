@@ -286,6 +286,20 @@ impl Native {
             .present_timing
             .map(surface::PresentTiming::encode_submit_present)
             .unwrap_or_default();
+        let present_submitted_at = report
+            .present_timing
+            .map(surface::PresentTiming::surface_present_called_at)
+            .unwrap_or_else(Instant::now);
+        let frame_timeline = render::FrameTimeline::new(
+            report.acquire_started_at,
+            report.acquire_finished_at,
+            report
+                .present_timing
+                .map(surface::PresentTiming::queue_submitted_at),
+            report
+                .present_timing
+                .map(surface::PresentTiming::surface_present_called_at),
+        );
         let group_composites = report.stats.group_composites;
         let filter_layer_pool_entries = report.stats.filter_layer_pool_entries;
         let filter_scratch_pool_entries = report.stats.filter_scratch_pool_entries;
@@ -332,8 +346,9 @@ impl Native {
             self.active_presentations.insert(window, actual.clone());
         }
 
-        let report = diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
+        let report = diagnostics::RenderReport::new(acquire_wait, draw, present_submitted_at)
             .with_present_submitted(present_submitted)
+            .with_frame_timeline(frame_timeline)
             .with_acquire_outcome(report.acquire_outcome)
             .with_pipeline_timings(report.batch_prepare, encode_submit_present)
             .with_draw_stats(report.stats)

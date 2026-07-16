@@ -11,9 +11,6 @@ impl<M: State, E: Send + 'static, B: Backend> Runner<M, E, B> {
             error: None,
             executor: None,
             task_proxy: None,
-            presentation_pulses: Default::default(),
-            frame_demands: Default::default(),
-            issued_frame_redraws: Default::default(),
         }
     }
 

@@ -38,12 +38,19 @@ struct FrameTrace {
     resident_accepted: bool,
     outcome: TransitionOutcome,
     input_started_at: Option<Instant>,
+    redraw_requested_at: Option<Instant>,
+    redraw_delivered_at: Option<Instant>,
+    candidate_constructed_at: Option<Instant>,
     candidate_epoch: Option<crate::window::PresentationEpoch>,
     candidate_attempts: usize,
     candidate_property_serial: Option<u64>,
     gpu_submitted_property_serial: Option<u64>,
     present_submitted_property_serial: Option<u64>,
     superseded_by_epoch: Option<crate::window::PresentationEpoch>,
+    acquire_started_at: Option<Instant>,
+    acquire_finished_at: Option<Instant>,
+    queue_submitted_at: Option<Instant>,
+    surface_present_called_at: Option<Instant>,
     input_to_present_submitted_us: Option<u128>,
 }
 
@@ -166,12 +173,19 @@ impl Scroll {
             resident_accepted,
             outcome,
             input_started_at: None,
+            redraw_requested_at: None,
+            redraw_delivered_at: None,
+            candidate_constructed_at: None,
             candidate_epoch: None,
             candidate_attempts: 0,
             candidate_property_serial: None,
             gpu_submitted_property_serial: None,
             present_submitted_property_serial: None,
             superseded_by_epoch: None,
+            acquire_started_at: None,
+            acquire_finished_at: None,
+            queue_submitted_at: None,
+            surface_present_called_at: None,
             input_to_present_submitted_us: None,
         });
     }
@@ -246,6 +260,69 @@ impl Scroll {
         }
     }
 
+    pub(crate) fn record_redraw_requested(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        requested_at: Instant,
+    ) {
+        for trace in self.traces.iter_mut().rev().filter(|trace| {
+            trace.epoch <= epoch
+                && trace.outcome != TransitionOutcome::Unchanged
+                && trace.candidate_property_serial.is_none()
+                && trace.superseded_by_epoch.is_none()
+        }) {
+            trace.redraw_requested_at.get_or_insert(requested_at);
+        }
+    }
+
+    pub(crate) fn record_redraw_delivered(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        delivered_at: Instant,
+    ) {
+        for trace in self.traces.iter_mut().rev().filter(|trace| {
+            trace.epoch <= epoch
+                && trace.redraw_requested_at.is_some()
+                && trace.redraw_delivered_at.is_none()
+                && trace.superseded_by_epoch.is_none()
+        }) {
+            trace.redraw_delivered_at = Some(delivered_at);
+        }
+    }
+
+    pub(crate) fn record_candidate_constructed(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        property_serial: u64,
+        constructed_at: Instant,
+    ) {
+        self.record_candidate(epoch, property_serial);
+        for trace in self
+            .traces
+            .iter_mut()
+            .filter(|trace| trace.candidate_epoch == Some(epoch))
+        {
+            trace.candidate_constructed_at = Some(constructed_at);
+        }
+    }
+
+    pub(crate) fn record_frame_timeline(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        timeline: crate::render::FrameTimeline,
+    ) {
+        for trace in self
+            .traces
+            .iter_mut()
+            .filter(|trace| trace.candidate_epoch == Some(epoch))
+        {
+            trace.acquire_started_at = timeline.acquire_started_at();
+            trace.acquire_finished_at = timeline.acquire_finished_at();
+            trace.queue_submitted_at = timeline.queue_submitted_at();
+            trace.surface_present_called_at = timeline.surface_present_called_at();
+        }
+    }
+
     pub(crate) fn record_present_submitted(
         &mut self,
         epoch: crate::window::PresentationEpoch,
@@ -270,7 +347,7 @@ impl Scroll {
 
     pub(crate) fn trace_receipt_text(&self) -> String {
         let mut receipt = String::new();
-        let _ = writeln!(receipt, "scroll_trace_schema=wgpu_l3.scroll_trace.v1");
+        let _ = writeln!(receipt, "scroll_trace_schema=wgpu_l3.scroll_trace.v2");
         let _ = writeln!(receipt, "scroll_trace_limit={TRACE_LIMIT}");
         let _ = writeln!(receipt, "scroll_trace_count={}", self.traces.len());
         for (index, trace) in self.traces.iter().enumerate() {
@@ -280,9 +357,32 @@ impl Scroll {
             let latency = trace
                 .input_to_present_submitted_us
                 .map_or_else(|| "none".to_owned(), |value| value.to_string());
+            let stage_latency = |stage: Option<Instant>| {
+                trace.input_started_at.zip(stage).map_or_else(
+                    || "none".to_owned(),
+                    |(input, stage)| {
+                        stage
+                            .saturating_duration_since(input)
+                            .as_micros()
+                            .to_string()
+                    },
+                )
+            };
+            let acquire_wait = trace
+                .acquire_started_at
+                .zip(trace.acquire_finished_at)
+                .map_or_else(
+                    || "none".to_owned(),
+                    |(started, finished)| {
+                        finished
+                            .saturating_duration_since(started)
+                            .as_micros()
+                            .to_string()
+                    },
+                );
             let _ = writeln!(
                 receipt,
-                "scroll_trace_{index:02}=epoch={},target_key={},first_request_serial={},last_request_serial={},coalesced_inputs={},requested_x={},requested_y={},clamped_x={},clamped_y={},resident_offset_x={},resident_offset_y={},resident_accepted={},outcome={},candidate_epoch={},candidate_attempts={},candidate_property_serial={},gpu_submitted_property_serial={},present_submitted_property_serial={},superseded_by_epoch={},input_to_present_submitted_us={}",
+                "scroll_trace_{index:02}=epoch={},target_key={},first_request_serial={},last_request_serial={},coalesced_inputs={},requested_x={},requested_y={},clamped_x={},clamped_y={},resident_offset_x={},resident_offset_y={},resident_accepted={},outcome={},candidate_epoch={},candidate_attempts={},candidate_property_serial={},gpu_submitted_property_serial={},present_submitted_property_serial={},superseded_by_epoch={},input_to_redraw_request_us={},input_to_redraw_delivery_us={},input_to_candidate_us={},input_to_acquire_start_us={},acquire_wait_us={},input_to_queue_submit_us={},input_to_surface_present_call_us={},input_to_present_submitted_us={}",
                 trace.epoch.value(),
                 trace.target_key,
                 trace.first_request_serial,
@@ -310,6 +410,13 @@ impl Scroll {
                         .superseded_by_epoch
                         .map(crate::window::PresentationEpoch::value)
                 ),
+                stage_latency(trace.redraw_requested_at),
+                stage_latency(trace.redraw_delivered_at),
+                stage_latency(trace.candidate_constructed_at),
+                stage_latency(trace.acquire_started_at),
+                acquire_wait,
+                stage_latency(trace.queue_submitted_at),
+                stage_latency(trace.surface_present_called_at),
                 latency,
             );
         }
@@ -350,6 +457,50 @@ mod tests {
         assert!(receipt.contains("candidate_property_serial=7"));
         assert!(receipt.contains("present_submitted_property_serial=7"));
         assert!(receipt.contains("input_to_present_submitted_us=350"));
+    }
+
+    #[test]
+    fn trace_correlates_every_pacing_stage_without_log_order() {
+        let mut scroll = Scroll::default();
+        let epoch = PresentationEpoch::initial().next();
+        let input = Instant::now();
+        scroll.record_transition(
+            epoch,
+            44,
+            ScrollOffset::new(0, 20),
+            ScrollOffset::new(0, 20),
+            ScrollOffset::new(0, 20),
+            true,
+            "property-tick",
+        );
+        scroll.record_input(epoch, input);
+        scroll.record_redraw_requested(epoch, input + Duration::from_micros(10));
+        scroll.record_redraw_delivered(epoch, input + Duration::from_micros(20));
+        scroll.record_candidate_constructed(epoch, 13, input + Duration::from_micros(30));
+        scroll.record_frame_timeline(
+            epoch,
+            crate::render::FrameTimeline::new(
+                input + Duration::from_micros(40),
+                input + Duration::from_micros(45),
+                Some(input + Duration::from_micros(50)),
+                Some(input + Duration::from_micros(55)),
+            ),
+        );
+        scroll.record_present_submitted(epoch, 13, input + Duration::from_micros(55));
+
+        let receipt = scroll.trace_receipt_text();
+        for field in [
+            "input_to_redraw_request_us=10",
+            "input_to_redraw_delivery_us=20",
+            "input_to_candidate_us=30",
+            "input_to_acquire_start_us=40",
+            "acquire_wait_us=5",
+            "input_to_queue_submit_us=50",
+            "input_to_surface_present_call_us=55",
+            "input_to_present_submitted_us=55",
+        ] {
+            assert!(receipt.contains(field), "missing causal field {field}");
+        }
     }
 
     #[test]

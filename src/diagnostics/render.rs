@@ -46,6 +46,9 @@ pub struct Render {
     pub replenishment_commits: usize,
     pub frames_attempted: usize,
     pub frames_present_submitted: usize,
+    pub redraw_requests_issued: usize,
+    pub redraw_deliveries: usize,
+    pub redraw_no_progress: usize,
     pub property_frames_attempted: usize,
     pub property_frames_present_submitted: usize,
     pub semantic_frames_attempted: usize,
@@ -178,6 +181,17 @@ struct InputSample {
 }
 
 impl Render {
+    pub(crate) fn record_redraw_requested(&mut self) {
+        self.redraw_requests_issued = self.redraw_requests_issued.saturating_add(1);
+    }
+
+    pub(crate) fn record_redraw_delivered(&mut self, progress_expected: bool) {
+        self.redraw_deliveries = self.redraw_deliveries.saturating_add(1);
+        if !progress_expected {
+            self.redraw_no_progress = self.redraw_no_progress.saturating_add(1);
+        }
+    }
+
     pub(crate) fn record_property_attempt(
         &mut self,
         properties: &crate::scene::Properties,
@@ -664,6 +678,13 @@ impl Render {
             self.frames_present_submitted
         );
         let _ = writeln!(receipt, "frames_skipped={}", self.frames_skipped());
+        let _ = writeln!(
+            receipt,
+            "redraw_requests_issued={}",
+            self.redraw_requests_issued
+        );
+        let _ = writeln!(receipt, "redraw_deliveries={}", self.redraw_deliveries);
+        let _ = writeln!(receipt, "redraw_no_progress={}", self.redraw_no_progress);
         let _ = writeln!(
             receipt,
             "property_frames_attempted={}",
@@ -1246,6 +1267,9 @@ impl Default for Render {
             replenishment_commits: 0,
             frames_attempted: 0,
             frames_present_submitted: 0,
+            redraw_requests_issued: 0,
+            redraw_deliveries: 0,
+            redraw_no_progress: 0,
             property_frames_attempted: 0,
             property_frames_present_submitted: 0,
             semantic_frames_attempted: 0,

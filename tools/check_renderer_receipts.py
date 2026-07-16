@@ -46,6 +46,9 @@ REQUIRED_INTEGER_KEYS = (
     "frames_attempted",
     "frames_present_submitted",
     "frames_skipped",
+    "redraw_requests_issued",
+    "redraw_deliveries",
+    "redraw_no_progress",
     "missed_refresh_opportunities",
     "renderer_deadline_misses",
     "virtual_guard_crossings",
@@ -208,6 +211,11 @@ def _validate_common(
         receipt.integer("frame_interval_us_sample_count") >= MIN_PRESENT_SUBMITTED_FRAMES - 1,
         f"{label}: too few frame-interval samples",
     )
+    _require(
+        errors,
+        receipt.integer("redraw_no_progress") <= receipt.integer("redraw_deliveries"),
+        f"{label}: no-progress redraws exceed delivered redraws",
+    )
 
 
 def validate_pair(
@@ -295,6 +303,9 @@ def validate_pair(
             "frames_attempted": receipt.integer("frames_attempted"),
             "frames_present_submitted": receipt.integer("frames_present_submitted"),
             "frames_skipped": receipt.integer("frames_skipped"),
+            "redraw_requests_issued": receipt.integer("redraw_requests_issued"),
+            "redraw_deliveries": receipt.integer("redraw_deliveries"),
+            "redraw_no_progress": receipt.integer("redraw_no_progress"),
             "frame_interval_us_p95": receipt.integer("frame_interval_us_p95"),
             "frame_interval_us_p99": receipt.integer("frame_interval_us_p99"),
             "frame_interval_us_max": receipt.integer("frame_interval_us_max"),

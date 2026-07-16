@@ -438,7 +438,7 @@ mod tests {
             "scroll_property_ticks=0",
             "scroll_needs_residency=0",
             "scroll_request_p95_us=0",
-            "scroll_trace_schema=wgpu_l3.scroll_trace.v1",
+            "scroll_trace_schema=wgpu_l3.scroll_trace.v2",
             "scroll_trace_count=0",
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",

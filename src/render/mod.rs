@@ -5,7 +5,7 @@ pub(crate) use canvas::Canvas;
 pub(crate) use context::Context;
 pub(crate) use frame::Frame;
 pub(crate) use renderer::{CommitReadiness, Renderer};
-pub(crate) use report::DrawStats;
+pub(crate) use report::{DrawStats, FrameTimeline};
 pub use report::{RenderReport, RendererEnvironment};
 pub(crate) use surface::Surface;
 

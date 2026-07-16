@@ -1232,6 +1232,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         diagnostics.pipeline.record_scene_assembly(assembly_elapsed);
         diagnostics.pipeline.record_frame_prepared();
         diagnostics.render.record_scene_projection(scene_stats);
+        diagnostics.scroll.record_candidate_constructed(
+            epoch,
+            properties.serial().value(),
+            Instant::now(),
+        );
 
         Some(PreparedFrame {
             window,

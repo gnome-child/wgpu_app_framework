@@ -10,6 +10,7 @@ use super::super::{
     window,
 };
 use super::Runtime;
+use std::time::Instant;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FinishKind {
@@ -155,6 +156,47 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .record_native_translation(duration);
     }
 
+    pub(crate) fn record_redraw_requested(&mut self, window: window::Id, requested_at: Instant) {
+        let Some(epoch) = self
+            .session
+            .window(window)
+            .map(session::Window::requested_presentation_epoch)
+        else {
+            return;
+        };
+        self.diagnostics
+            .get_mut(window)
+            .scroll
+            .record_redraw_requested(epoch, requested_at);
+        self.diagnostics
+            .get_mut(window)
+            .render
+            .record_redraw_requested();
+    }
+
+    pub(crate) fn record_redraw_delivered(
+        &mut self,
+        window: window::Id,
+        delivered_at: Instant,
+        progress_expected: bool,
+    ) {
+        let Some(epoch) = self
+            .session
+            .window(window)
+            .map(session::Window::requested_presentation_epoch)
+        else {
+            return;
+        };
+        self.diagnostics
+            .get_mut(window)
+            .scroll
+            .record_redraw_delivered(epoch, delivered_at);
+        self.diagnostics
+            .get_mut(window)
+            .render
+            .record_redraw_delivered(progress_expected);
+    }
+
     pub(crate) fn record_event_handling(
         &mut self,
         window: window::Id,
@@ -244,10 +286,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let refreshes_active = kind.refreshes_active();
         let present_submitted = report.present_submitted();
         let present_submitted_at = report.present_submitted_at();
+        let frame_timeline = report.frame_timeline();
         let properties = stack.base().properties();
         let property_serial = properties.serial().value();
         let diagnostics = self.diagnostics.get_mut(window);
-        diagnostics.scroll.record_candidate(epoch, property_serial);
+        diagnostics
+            .scroll
+            .record_frame_timeline(epoch, frame_timeline);
         if present_submitted {
             diagnostics.scroll.record_present_submitted(
                 epoch,

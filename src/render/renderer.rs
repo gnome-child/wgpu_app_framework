@@ -9,6 +9,8 @@ pub(crate) struct DrawReport {
     pub(crate) stats: DrawStats,
     pub(crate) batch_prepare: std::time::Duration,
     pub(crate) acquire_outcome: render::surface::AcquireOutcome,
+    pub(crate) acquire_started_at: std::time::Instant,
+    pub(crate) acquire_finished_at: std::time::Instant,
     pub(crate) present_timing: Option<render::surface::PresentTiming>,
 }
 
@@ -715,6 +717,8 @@ impl Renderer {
             stats,
             batch_prepare,
             acquire_outcome: surface_report.acquire(),
+            acquire_started_at: surface_report.acquire_started_at(),
+            acquire_finished_at: surface_report.acquire_finished_at(),
             present_timing: surface_report.present_timing(),
         })
     }

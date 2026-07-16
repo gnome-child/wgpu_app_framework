@@ -1116,6 +1116,16 @@ fn high_rate_events_mutate_immediately_but_present_once_at_redraw() {
     );
     assert_eq!(
         platform
+            .backend()
+            .events()
+            .iter()
+            .filter(|event| matches!(event, BackendEvent::RequestRedraw { .. }))
+            .count(),
+        1,
+        "all in-flight high-rate demand must share one backend redraw request"
+    );
+    assert_eq!(
+        platform
             .host()
             .shell()
             .runtime()
@@ -1141,6 +1151,47 @@ fn high_rate_events_mutate_immediately_but_present_once_at_redraw() {
             .count(),
         1
     );
+}
+
+#[test]
+fn unsolicited_redraw_delivery_is_counted_as_no_progress() {
+    let mut platform = Platform::new(
+        Shell::new(control_gallery::app(control_gallery::State::default())),
+        FakeBackend::default(),
+    );
+    platform.start().expect("platform should start");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("initial redraw should present");
+    let before = platform
+        .host()
+        .shell()
+        .runtime()
+        .diagnostics(window)
+        .expect("window diagnostics")
+        .render
+        .redraw_no_progress;
+
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("unsolicited redraw should remain a valid no-op");
+
+    let render = &platform
+        .host()
+        .shell()
+        .runtime()
+        .diagnostics(window)
+        .expect("window diagnostics")
+        .render;
+    assert_eq!(render.redraw_no_progress, before + 1);
+    assert!(render.redraw_no_progress <= render.redraw_deliveries);
 }
 
 #[test]

@@ -56,6 +56,8 @@ const PRESENT_MODE_PRIORITY: [wgpu::PresentMode; 4] = [
 pub(crate) struct PresentTiming {
     acquire_wait: Duration,
     encode_submit_present: Duration,
+    queue_submitted_at: Instant,
+    surface_present_called_at: Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +74,8 @@ pub(crate) enum AcquireOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SurfaceReport {
     acquire: AcquireOutcome,
+    acquire_started_at: Instant,
+    acquire_finished_at: Instant,
     present_timing: Option<PresentTiming>,
 }
 
@@ -269,12 +273,20 @@ impl Surface {
     ) -> Result<SurfaceReport> {
         let acquire_started = Instant::now();
         let (outcome, acquire) = self.acquire_frame(render_context)?;
-        let acquire_wait = acquire_started.elapsed();
+        let acquire_finished = Instant::now();
+        let acquire_wait = acquire_finished.saturating_duration_since(acquire_started);
 
         use render::frame::Outcome::*;
         let frame = match outcome {
             Acquired(frame) => frame,
-            Skipped => return Ok(SurfaceReport::new(acquire, None)),
+            Skipped => {
+                return Ok(SurfaceReport::new(
+                    acquire,
+                    acquire_started,
+                    acquire_finished,
+                    None,
+                ));
+            }
         };
 
         let present_started = Instant::now();
@@ -287,7 +299,9 @@ impl Surface {
 
         encode(&mut encoder, &frame);
         render_context.queue().submit([encoder.finish()]);
+        let queue_submitted_at = Instant::now();
         frame.present();
+        let surface_present_called_at = Instant::now();
         let encode_submit_present = present_started.elapsed();
         if self.reconfigure_after_present {
             self.reconfigure(render_context);
@@ -295,9 +309,13 @@ impl Surface {
 
         Ok(SurfaceReport::new(
             acquire,
+            acquire_started,
+            acquire_finished,
             Some(PresentTiming {
                 acquire_wait,
                 encode_submit_present,
+                queue_submitted_at,
+                surface_present_called_at,
             }),
         ))
     }
@@ -363,12 +381,27 @@ impl PresentTiming {
     pub(crate) fn encode_submit_present(self) -> Duration {
         self.encode_submit_present
     }
+
+    pub(crate) fn queue_submitted_at(self) -> Instant {
+        self.queue_submitted_at
+    }
+
+    pub(crate) fn surface_present_called_at(self) -> Instant {
+        self.surface_present_called_at
+    }
 }
 
 impl SurfaceReport {
-    fn new(acquire: AcquireOutcome, present_timing: Option<PresentTiming>) -> Self {
+    fn new(
+        acquire: AcquireOutcome,
+        acquire_started_at: Instant,
+        acquire_finished_at: Instant,
+        present_timing: Option<PresentTiming>,
+    ) -> Self {
         Self {
             acquire,
+            acquire_started_at,
+            acquire_finished_at,
             present_timing,
         }
     }
@@ -379,6 +412,14 @@ impl SurfaceReport {
 
     pub(crate) fn present_timing(self) -> Option<PresentTiming> {
         self.present_timing
+    }
+
+    pub(crate) fn acquire_started_at(self) -> Instant {
+        self.acquire_started_at
+    }
+
+    pub(crate) fn acquire_finished_at(self) -> Instant {
+        self.acquire_finished_at
     }
 }
 

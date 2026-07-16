@@ -1,6 +1,6 @@
 # Scroll source census
 
-Status: **SC-005 HIGH-RESOLUTION INPUT OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
+Status: **SC-006 PRESENTATION-CADENCE OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
 
 Date: 2026-07-16
 
@@ -24,8 +24,8 @@ This is a production-path census, not a claim that every listed path is wrong. I
 | Requested and present-submitted presentation epochs | private `src/session/window.rs::PresentationState` | runtime candidate selection and successful render feedback | SC-004 closed one owner. Requests advance requested state; retry does not; stale, duplicate, and future receipts cannot advance present-submitted state. |
 | Installed GPU property generation | retained node/scroll `PropertySlot::property_serial` derived from `scene::Properties::{serial, predecessor}` | sparse property preparation and explicit full resynchronization | SC-004 closed skipped-generation recovery. Sparse mutation requires the direct predecessor and exclusive commit ownership. |
 | Runtime-presented geometry | `src/runtime/access.rs::finish_render_report_with_kind` | `src/runtime/mod.rs::PresentedGeometry`, pointer/routing/context menu | SC-004 names the boundary `present_submitted`; SC-008 consumes normalized topology. |
-| Surface submission/present call | `src/render/surface.rs` | runtime report, diagnostics, runner pulse | No scanout claim. SC-006 audits cadence separately. |
-| Redraw throttling | `src/platform/runner/mod.rs::PresentationPulse` | `handler.rs`, `native.rs` | Independent SC-006 evidence track. |
+| Surface acquire, queue submit, and present call | `src/render/surface.rs` | runtime report and scroll/render diagnostics | SC-006 records actual call boundaries. `present_submitted` remains a submit/present-call fact with no scanout claim. |
+| Redraw demand and in-flight deduplication | `src/platform/mod.rs::RedrawRequests` | all backend request, delivery, retry, continuation, and close paths | SC-006 closed one immediate issuance owner. Native runner completion clocks and duplicate demand sets are deleted. |
 
 ## 2. Scope/spatial interpreter census
 
@@ -176,6 +176,15 @@ SC-005 input-precision ownership changes:
 - Absolute thumb/programmatic and geometry/reveal requests reset remainder; fraction-only updates persist without advancing source revision or scheduling a candidate.
 - `ScrollOffset`, scene properties, spatial topology, renderer bindings, chrome, and present-submitted geometry remain integral. The exact 20-case suite and source architecture gate enforce this boundary.
 
+SC-006 presentation-cadence ownership changes:
+
+- `Platform::request_backend_redraw` is the only framework call site for `backend.request_redraw`. `RedrawRequests` deduplicates one in-flight request per window; delivery/failure/close clears it.
+- Native runner `PresentationPulse`, `frame_demands`, `issued_frame_redraws`, due-frame execution, and pulse-derived control-flow deadlines are deleted. The runner retains only application animation/task polling policy.
+- Scroll trace schema v2 records input-relative redraw request/delivery, candidate construction, acquire start, queue submit, surface present call, and present-submitted receipt plus acquire duration.
+- `render::surface` timestamps acquire start/finish, queue submission, and the completed `frame.present()` call. Runtime `present_submitted_at` uses that present-call timestamp rather than later post-present work.
+- Renderer diagnostics and external receipt validation expose redraw requests issued, redraw deliveries, and no-progress redraws in addition to event latency, frame intervals, missed opportunities, CPU stages, acquire, encode/submit/present, and skipped frames.
+- The exact 12-case suite covers steady/burst/delayed demand at 60/90/120/144 Hz. A retained test model proves the deleted completion anchor rejects demand immediately after a present.
+
 ## 4. Property work census
 
 Current warm property uploads are emitted by:
@@ -249,7 +258,8 @@ rg -l 'TargetSpace|ScrollBinding|PropertyBinding' src tools
 rg -l 'project_semantic_order|emit_compatibility_until|PendingPlan|PlanBuilder|PlanEncoder' src tools
 rg -l 'SpatialTopology|SpatialBinding|SurfaceRoot|AxisOwnership|ScrollTarget' src tools
 rg -l 'project_point|presented_geometry|record_present_submitted|present_submitted_epoch' src tools
-rg -l 'PresentationPulse|request_redraw|RedrawRequested' src tools
+rg -l 'RedrawRequests|request_backend_redraw|request_redraw|RedrawRequested|redraw_no_progress' src tools
+rg -l 'redraw_requested_at|redraw_delivered_at|candidate_constructed_at|acquire_started_at|queue_submitted_at|surface_present_called_at' src tools
 rg -l 'property_upload_bytes|prepare_node_properties|prepare_scroll_properties' src tools
 rg -l 'PropertyIndex|apply_updates|property_dependents|scroll_dependents|plan_property_transfer' src tools
 rg -l 'predecessor_serial|property_serial|property_slot_exclusively_owned_by' src tools
