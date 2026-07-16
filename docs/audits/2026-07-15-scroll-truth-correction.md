@@ -443,7 +443,7 @@ delta, and the cells exposed by re-census.
 | S-002 | Semantic versus transient text identity | `TextArea` property movement participates in semantic equality | **Complete; R-002** | Scroll/reveal/blink property ticks mint zero content, geometry, or topology revisions |
 | S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **Complete; R-003** | Admission and prepared pixels name the same integral region for every descendant |
 | S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
-| S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Open | One line/block anchor plus within-line displacement resolves through `ScrollUpdate` |
+| S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Complete | R-005: one bounded resident line-anchor band plus within-line displacement resolves through `ScrollUpdate::Geometry` |
 | S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | **Complete; R-006** | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
 | S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | **Complete; R-007** | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
@@ -960,6 +960,86 @@ delta, and the cells exposed by re-census.
   complex/bidi/unbreakable resident glyph storage is not yet bounded, exact
   `2^24`/maximum pixel output, GPU resident glyph bytes, the 64-MiB matrix, and
   edit-time incremental index maintenance remain unproved.
+
+### R-005 — stable variable-height anchor and sole line geometry
+
+- **Bounded question and trace.** Property-only text movement, width/style
+  reflow, persistent line marks, height-index lookup/refinement, wrapped visual
+  rows, interaction surfaces, render residency, caret pins, layout feedback,
+  session desired/admitted state, and the next scene property were traced in
+  both directions. The existing `scroll_anchor_for_text_area` and
+  `text_area_scroll_y_for_anchor` functions had no production caller. More
+  seriously, wrapped paint built a second aggregate multi-line glyph buffer:
+  its actual row heights could place source line 0 across the viewport while
+  the height index and interaction surfaces claimed source line 2. The visible
+  chop was therefore not merely absent feedback; paint and hit geometry had
+  distinct height truths.
+- **One bounded resolution path.** The layout text service retains a 128-entry
+  LRU keyed by retained composition `NodeId`. Each entry contains only stable
+  source-line marks and compact `(y, height)` samples for the bounded resident
+  runway; it retains no glyph buffer and no authoritative offset. A property-
+  only offset inside that runway resolves the current top source line and its
+  within-line displacement even when the semantic layout was reused. Reflow
+  resolves the same mark against the refined height index, rebuilds at the
+  proposed integral value until stable, and attaches one geometry correction.
+  `Frame::resolved_scroll_correction` feeds that proposal into runtime's
+  existing `ScrollUpdate::Geometry` request/admission path. Explicit caret
+  reveal and preedit bypass anchoring, so a semantic reveal cannot be canceled
+  by stale viewport stability.
+- **Sole line geometry and structural work removal.** Wrapped and unwrapped
+  paint now use the same bounded per-logical-line display cache as hit testing,
+  selection, caret, and interaction. Render residency refines those line
+  heights first; interaction projection consumes the resulting index. The
+  independent aggregate render-buffer cache, whole-range source flatten,
+  shape, key, capacity, and reset path were deleted. A distant pending caret is
+  one explicit non-contiguous pin and cannot extend resident coverage. The
+  guarded render window is capped at 128 logical lines and its refinement loop
+  at four passes. Its transient preparation registry uses one pre-sized
+  contiguous vector rather than one B-tree allocation per resident line.
+- **Metrics and official receipt.** `scroll-bench-version=4` adds
+  `text-vertical-8m` plus logical height/y offset, near/far window height,
+  height-index queries/updates/refined pixels, and anchor candidate/correction
+  count and distance. Exact commit `d5edc49b6765` produced three release
+  64-warmup/1,024-sample trials. Cold times were 6,371, 6,232, and 6,193 us
+  (median 6,232 us). Median warm p50/p95/p99/max were
+  1,107/1,164/1,207/1,966 us. All trials retained the same 1,432 by 1,154 px
+  far window (1,652,528 px area) at y=772,780 in an 8,388,608-byte,
+  63,431-line document. Across every 1,024-transition trial, only 12 entering
+  lines totaling 1,575 source bytes shaped, 57,850 render accesses hit, and
+  three height updates refined 51 px. Line-cache high-water was 3,494,686
+  bytes; aggregate render shape time remained literal zero. Cold preparation
+  visited 8,400 resident source bytes, performed 16 refinements totaling 272
+  px, and retained 1,551,056 cache bytes.
+- **Measured optimization ruling.** Before replacing the per-line B-tree with
+  the contiguous registry, exact commit `4e2f1ba312bf` produced median warm
+  p50/p95/p99/max of 1,196/1,258/1,295/2,006 us with identical semantic work,
+  window, and memory counts. The accepted path improves those distributions by
+  7.4%, 7.5%, 6.8%, and 2.0%, respectively; median cold time is statistically
+  unchanged (6,223 versus 6,232 us). A hash-table challenge measured a 1,277 us
+  p50 and was rejected. These comparisons isolate container overhead rather
+  than presenting unit-test elapsed time as scroll performance.
+- **Industry comparison.** The result meets GTK's one-adjustment-per-axis rule
+  by returning geometry through the sole owner, Qt's block-oriented large-text
+  line by preparing indexed logical lines rather than a document surface, and
+  Iced/COSMIC's fixed viewport/state contract by moving one property under one
+  clip. Chromium's pending/active separation and Firefox's bounded displayport
+  challenge the retained runway and uninterrupted active state; neither
+  justifies a second layout offset or incomplete pixels here. Flutter's named
+  layout-correction contract is the closest direct comparison: this repository
+  keeps the same explicit correction property while adding stable document
+  marks, integral request/admission, and complete-pixel gating. The named
+  frameworks remain the floor, not copied widget/process topology.
+- **Witnesses and closure.** `resident_anchor_band_preserves_source_line_and_within_line_offset_across_reflow`
+  proves the text-engine line mark, displacement, real numeric drift, and
+  corrected surface. `wrapped_text_resize_preserves_the_presented_source_anchor_through_geometry_feedback`
+  proves property-only movement, reflow, session desired truth, and non-zero
+  correction metrics across layout/runtime. `variable_height_text_has_one_bounded_anchor_feedback_path`
+  ratchets sole feedback, bounded storage, render-before-interaction ordering,
+  and absence of aggregate shaping. The library suite reports 1,219 passed and
+  four intentional ignores; workspace all-target/all-feature checks are green.
+  S-004's complex/64-MiB/edit-index work, S-008 activation/clock races, S-009's
+  remaining matrix, and S-010 native deadline capture remain open; no second
+  variable-height position or render-height owner remains.
 
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a
