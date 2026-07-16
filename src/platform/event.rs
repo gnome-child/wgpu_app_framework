@@ -277,16 +277,12 @@ pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::
     const LINE_SCROLL_LOGICAL_PIXELS: f64 = 28.0;
 
     match delta {
-        MouseScrollDelta::LineDelta(x, y) => interaction::ScrollDelta::new(
-            logical_i32(x as f64 * LINE_SCROLL_LOGICAL_PIXELS),
-            logical_i32(-(y as f64) * LINE_SCROLL_LOGICAL_PIXELS),
+        MouseScrollDelta::LineDelta(x, y) => interaction::ScrollDelta::from_logical_pixels(
+            x as f64 * LINE_SCROLL_LOGICAL_PIXELS,
+            -(y as f64) * LINE_SCROLL_LOGICAL_PIXELS,
         ),
         MouseScrollDelta::PixelDelta(position) => {
-            let scale_factor = normalized_scale_factor(scale_factor);
-            interaction::ScrollDelta::new(
-                logical_i32(position.x / scale_factor),
-                logical_i32(-position.y / scale_factor),
-            )
+            interaction::ScrollDelta::from_physical_pixels(position.x, -position.y, scale_factor)
         }
     }
 }

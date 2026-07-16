@@ -87,10 +87,10 @@ impl Viewport {
 
     pub(crate) fn can_consume_from(self, offset: ScrollOffset, delta: ScrollDelta) -> bool {
         let resolved = self.resolve(offset);
-        (delta.x() < 0 && resolved.x() > 0)
-            || (delta.x() > 0 && resolved.x() < self.max.x())
-            || (delta.y() < 0 && resolved.y() > 0)
-            || (delta.y() > 0 && resolved.y() < self.max.y())
+        (delta.x() < 0.0 && resolved.x() > 0)
+            || (delta.x() > 0.0 && resolved.x() < self.max.x())
+            || (delta.y() < 0.0 && resolved.y() > 0)
+            || (delta.y() > 0.0 && resolved.y() < self.max.y())
     }
 
     pub(crate) fn is_scrollable(self) -> bool {

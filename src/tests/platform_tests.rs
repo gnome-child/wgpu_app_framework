@@ -309,6 +309,49 @@ fn platform_events_keep_pointer_and_scale_per_window() {
     assert_eq!(events.scale_factor(second), 1.0);
 }
 
+#[test]
+fn pixel_scroll_trace_preserves_sum_before_visual_quantization() {
+    use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+
+    let actual = (0..5)
+        .map(|_| {
+            f64::from(
+                platform::scroll_delta(
+                    MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -0.4)),
+                    1.0,
+                )
+                .y(),
+            )
+        })
+        .sum::<f64>();
+
+    assert!(
+        (actual - 2.0).abs() < f64::EPSILON,
+        "five 0.4-logical-pixel inputs must preserve their 2.0-pixel sum before the interaction owner quantizes visual motion; actual={actual}"
+    );
+}
+
+#[test]
+fn legacy_per_event_rounding_loses_fractional_pixel_sum() {
+    let legacy_visual_sum = (0..5).map(|_| 0.4_f64.round() as i32).sum::<i32>();
+    let aggregate_visual_sum = (5.0_f64 * 0.4).trunc() as i32;
+
+    assert_eq!(legacy_visual_sum, 0);
+    assert_eq!(aggregate_visual_sum, 2);
+    assert_ne!(legacy_visual_sum, aggregate_visual_sum);
+}
+
+#[test]
+fn input_precision_case_fractional_line_wheel_preserves_line_scale() {
+    use winit::event::MouseScrollDelta;
+
+    let delta = platform::scroll_delta(MouseScrollDelta::LineDelta(0.0, -0.25), 1.75);
+    assert_eq!(
+        delta,
+        interaction::ScrollDelta::from_logical_pixels(0.0, 7.0)
+    );
+}
+
 fn test_popup_realization(
     parent: window::Id,
     bounds: geometry::Rect,

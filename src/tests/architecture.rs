@@ -6316,6 +6316,50 @@ fn generation_state_contract_has_one_owner_and_exact_eight_case_suite() {
 }
 
 #[test]
+fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
+    let platform = include_str!("../platform/event.rs");
+    let interaction = include_str!("../interaction/scroll.rs");
+    let interaction_tests = include_str!("../interaction/scroll.rs");
+    let platform_tests = include_str!("platform_tests.rs");
+
+    let scroll_delta = platform
+        .split_once("pub fn scroll_delta(")
+        .and_then(|(_, suffix)| suffix.split_once("pub fn pointer_button("))
+        .map(|(body, _)| body)
+        .expect("platform scroll-delta adapter should retain a bounded source body");
+    let quantization = interaction
+        .split_once("fn quantize_scroll_axis(")
+        .and_then(|(_, suffix)| suffix.split_once("fn normalized_zero("))
+        .map(|(body, _)| body)
+        .expect("interaction scroll quantization should retain a bounded source body");
+    assert!(
+        scroll_delta.contains("ScrollDelta::from_logical_pixels(")
+            && scroll_delta.contains("ScrollDelta::from_physical_pixels(")
+            && !scroll_delta.contains("logical_i32("),
+        "pixel and fractional-line input must cross the platform boundary without per-event integer rounding"
+    );
+    assert!(
+        interaction.contains("struct ScrollRemainder {")
+            && interaction.contains("x: f64")
+            && interaction.contains("y: f64")
+            && interaction.contains("previous_remainder.accumulate(delta)")
+            && interaction.contains("ScrollRemainder::default()")
+            && quantization.contains(".trunc()")
+            && quantization.contains("boundary_tolerance")
+            && quantization.contains("f64::EPSILON * 8.0"),
+        "one per-target interaction owner must retain signed fractions and apply the named whole-pixel truncation policy"
+    );
+    let suite_cases = interaction_tests
+        .matches("fn input_precision_case_")
+        .count()
+        + platform_tests.matches("fn input_precision_case_").count();
+    assert_eq!(
+        suite_cases, 20,
+        "the Tier C input-precision suite is an exact twenty-case contract"
+    );
+}
+
+#[test]
 fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     let interaction = include_str!("../interaction/scroll.rs");
     let dispatch = include_str!("../runtime/input/dispatch.rs");

@@ -14,7 +14,18 @@ pub(crate) struct Scroll {
 struct ScrollEntry {
     target: Target,
     position: Position,
+    remainder: ScrollRemainder,
 }
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct ScrollRemainder {
+    x: f64,
+    y: f64,
+    compensation_x: f64,
+    compensation_y: f64,
+}
+
+impl Eq for ScrollRemainder {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Position {
@@ -37,11 +48,13 @@ pub struct ScrollOffset {
     y: i32,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ScrollDelta {
-    x: i32,
-    y: i32,
+    x: f64,
+    y: f64,
 }
+
+impl Eq for ScrollDelta {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollUpdate {
@@ -93,31 +106,43 @@ impl Scroll {
     }
 
     pub(super) fn request(&mut self, target: Target, update: ScrollUpdate) -> Option<ScrollOffset> {
-        let before = self.desired_offset(&target);
-        let desired = match update {
-            ScrollUpdate::Relative(delta) => before.scrolled_by(delta),
-            ScrollUpdate::Absolute(offset) | ScrollUpdate::Geometry(offset) => offset,
-        };
-        if before == desired {
-            return None;
-        }
-
         let index = self.offsets.iter().position(|entry| entry.target == target);
+        let before = index
+            .map(|index| self.offsets[index].position.desired())
+            .unwrap_or_default();
         let resident_accepted = index
             .map(|index| self.offsets[index].position.resident_accepted())
             .unwrap_or_default();
+        let previous_remainder = index
+            .map(|index| self.offsets[index].remainder)
+            .unwrap_or_default();
+        let (desired, remainder) = match update {
+            ScrollUpdate::Relative(delta) => {
+                let (visual, remainder) = previous_remainder.accumulate(delta);
+                (before.scrolled_by(visual), remainder)
+            }
+            ScrollUpdate::Absolute(offset) | ScrollUpdate::Geometry(offset) => {
+                (offset, ScrollRemainder::default())
+            }
+        };
+
         let position = Position::new(resident_accepted, desired);
-        if position.is_zero() {
+        if position.is_zero() && remainder.is_zero() {
             if let Some(index) = index {
                 self.offsets.remove(index);
             }
         } else if let Some(index) = index {
             self.offsets[index].position = position;
+            self.offsets[index].remainder = remainder;
         } else {
             self.offsets.push(ScrollEntry {
                 target: target.clone(),
                 position,
+                remainder,
             });
+        }
+        if before == desired {
+            return None;
         }
         self.mark_changed(target);
         Some(desired)
@@ -137,8 +162,11 @@ impl Scroll {
         let desired = index
             .map(|index| self.offsets[index].position.desired())
             .unwrap_or(resident_accepted);
+        let remainder = index
+            .map(|index| self.offsets[index].remainder)
+            .unwrap_or_default();
         let position = Position::new(resident_accepted, desired);
-        if position.is_zero() {
+        if position.is_zero() && remainder.is_zero() {
             if let Some(index) = index {
                 self.offsets.remove(index);
             }
@@ -148,6 +176,7 @@ impl Scroll {
             self.offsets.push(ScrollEntry {
                 target: target.clone(),
                 position,
+                remainder,
             });
         }
         self.mark_changed(target);
@@ -269,6 +298,42 @@ impl Position {
     }
 }
 
+impl ScrollRemainder {
+    // Whole logical pixels remain exact. Only fractional components enter this
+    // compensated accumulator; they cross a visual pixel by truncation toward
+    // zero, with an 8-ULP snap solely at a computed integral boundary.
+    fn accumulate(self, delta: ScrollDelta) -> (VisualScrollDelta, Self) {
+        let (integral_x, fractional_x) = split_scroll_component(delta.x);
+        let (integral_y, fractional_y) = split_scroll_component(delta.y);
+        let (fractional_visual_x, remainder_x, compensation_x) =
+            quantize_scroll_axis(self.x, self.compensation_x, fractional_x);
+        let (fractional_visual_y, remainder_y, compensation_y) =
+            quantize_scroll_axis(self.y, self.compensation_y, fractional_y);
+        (
+            VisualScrollDelta {
+                x: integral_x.saturating_add(fractional_visual_x),
+                y: integral_y.saturating_add(fractional_visual_y),
+            },
+            Self {
+                x: remainder_x,
+                y: remainder_y,
+                compensation_x,
+                compensation_y,
+            },
+        )
+    }
+
+    fn is_zero(self) -> bool {
+        self.x == 0.0 && self.y == 0.0 && self.compensation_x == 0.0 && self.compensation_y == 0.0
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct VisualScrollDelta {
+    x: i32,
+    y: i32,
+}
+
 impl Reveal {
     fn viewport(&self) -> &Target {
         match self {
@@ -290,7 +355,7 @@ impl ScrollOffset {
         self.y
     }
 
-    fn scrolled_by(self, delta: ScrollDelta) -> Self {
+    fn scrolled_by(self, delta: VisualScrollDelta) -> Self {
         Self {
             x: self.x.saturating_add(delta.x),
             y: self.y.saturating_add(delta.y),
@@ -304,24 +369,80 @@ impl ScrollOffset {
 
 impl ScrollDelta {
     pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
+        Self::from_logical_pixels(f64::from(x), f64::from(y))
     }
 
     pub fn horizontal(x: i32) -> Self {
-        Self { x, y: 0 }
+        Self::new(x, 0)
     }
 
     pub fn vertical(y: i32) -> Self {
-        Self { x: 0, y }
+        Self::new(0, y)
     }
 
-    pub fn x(self) -> i32 {
+    pub(crate) fn from_logical_pixels(x: f64, y: f64) -> Self {
+        Self {
+            x: normalized_scroll_component(x),
+            y: normalized_scroll_component(y),
+        }
+    }
+
+    pub(crate) fn from_physical_pixels(x: f64, y: f64, scale_factor: f64) -> Self {
+        let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
+            scale_factor
+        } else {
+            1.0
+        };
+        Self::from_logical_pixels(x / scale_factor, y / scale_factor)
+    }
+
+    pub fn x(self) -> f64 {
         self.x
     }
 
-    pub fn y(self) -> i32 {
+    pub fn y(self) -> f64 {
         self.y
     }
+}
+
+fn normalized_scroll_component(value: f64) -> f64 {
+    if !value.is_finite() || value == 0.0 {
+        return 0.0;
+    }
+    value.clamp(f64::from(i32::MIN), f64::from(i32::MAX))
+}
+
+fn split_scroll_component(value: f64) -> (i32, f64) {
+    let integral = value.trunc() as i32;
+    (integral, normalized_zero(value - f64::from(integral)))
+}
+
+fn quantize_scroll_axis(remainder: f64, compensation: f64, delta: f64) -> (i32, f64, f64) {
+    let adjusted = delta - compensation;
+    let total = remainder + adjusted;
+    let compensation = (total - remainder) - adjusted;
+    let nearest = total.round();
+    let boundary_tolerance = f64::EPSILON * 8.0 * total.abs().max(1.0);
+    let at_visual_boundary = (total - nearest).abs() <= boundary_tolerance;
+    let total = if at_visual_boundary { nearest } else { total };
+    let compensation = if at_visual_boundary {
+        0.0
+    } else {
+        compensation
+    };
+    let visual = total
+        .trunc()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
+    let remainder = total - f64::from(visual);
+    (
+        visual,
+        normalized_zero(remainder),
+        normalized_zero(compensation),
+    )
+}
+
+fn normalized_zero(value: f64) -> f64 {
+    if value == 0.0 { 0.0 } else { value }
 }
 
 #[cfg(test)]
@@ -495,5 +616,249 @@ mod tests {
         projection.project_desired();
         assert!(projection.revision(&first) > pending);
         assert_eq!(scroll.revision(&first), pending);
+    }
+
+    fn apply_physical_trace(scale: f64, physical_y: &[f64]) -> (Scroll, Target, usize) {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("precision.trace", "Precision Trace");
+        let mut visual_updates = 0;
+        for physical_y in physical_y {
+            visual_updates += usize::from(
+                scroll
+                    .request(
+                        target.clone(),
+                        ScrollUpdate::Relative(ScrollDelta::from_physical_pixels(
+                            0.0,
+                            *physical_y,
+                            scale,
+                        )),
+                    )
+                    .is_some(),
+            );
+        }
+        (scroll, target, visual_updates)
+    }
+
+    fn remainder(scroll: &Scroll, target: &Target) -> ScrollRemainder {
+        scroll
+            .offsets
+            .iter()
+            .find(|entry| &entry.target == target)
+            .map(|entry| entry.remainder)
+            .unwrap_or_default()
+    }
+
+    fn require_sum_preserved(scale: f64, physical_y: &[f64]) -> (Scroll, Target, usize) {
+        let (scroll, target, visual_updates) = apply_physical_trace(scale, physical_y);
+        let logical_total = physical_y.iter().sum::<f64>() / scale;
+        let desired = scroll.desired_offset(&target);
+        let remainder = remainder(&scroll, &target);
+        assert_eq!(desired.y(), logical_total.trunc() as i32);
+        assert!(
+            (f64::from(desired.y()) + remainder.y - logical_total).abs() < 1.0e-12,
+            "scale={scale} desired={desired:?} remainder={remainder:?} logical_total={logical_total}"
+        );
+        (scroll, target, visual_updates)
+    }
+
+    fn require_tiny_trace(scale: f64) {
+        let (_, _, visual_updates) = require_sum_preserved(scale, &[0.4; 5]);
+        assert!(visual_updates > 0 && visual_updates < 5);
+    }
+
+    fn require_reversal_trace(scale: f64) {
+        let physical = [1.2, 1.2, -0.6, -0.6, -1.2];
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("precision.reversal", "Precision Reversal");
+        let mut maximum = 0;
+        for physical_y in physical {
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::from_physical_pixels(0.0, physical_y, scale)),
+            );
+            maximum = maximum.max(scroll.desired_offset(&target).y());
+        }
+        let desired = scroll.desired_offset(&target);
+        let remainder = remainder(&scroll, &target);
+        assert!(maximum > 0, "scale={scale} reversal never moved visually");
+        assert_eq!(desired, ScrollOffset::default());
+        assert!(
+            remainder.y.abs() < 1.0e-12,
+            "scale={scale} reversal drifted by {:?}",
+            remainder.y
+        );
+    }
+
+    fn require_burst_trace(scale: f64) {
+        let physical = [0.3, 0.3, 0.3, 4.1, 0.2, 0.2, 0.2, 0.4];
+        let (scroll, target, visual_updates) = require_sum_preserved(scale, &physical);
+        assert!(visual_updates > 0 && visual_updates < physical.len());
+        assert_eq!(scroll.revision(&target), visual_updates as u64);
+    }
+
+    #[test]
+    fn input_precision_case_tiny_scale_100() {
+        require_tiny_trace(1.0);
+    }
+
+    #[test]
+    fn input_precision_case_tiny_scale_125() {
+        require_tiny_trace(1.25);
+    }
+
+    #[test]
+    fn input_precision_case_tiny_scale_150() {
+        require_tiny_trace(1.5);
+    }
+
+    #[test]
+    fn input_precision_case_tiny_scale_175() {
+        require_tiny_trace(1.75);
+    }
+
+    #[test]
+    fn input_precision_case_tiny_scale_200() {
+        require_tiny_trace(2.0);
+    }
+
+    #[test]
+    fn input_precision_case_reversal_scale_100() {
+        require_reversal_trace(1.0);
+    }
+
+    #[test]
+    fn input_precision_case_reversal_scale_125() {
+        require_reversal_trace(1.25);
+    }
+
+    #[test]
+    fn input_precision_case_reversal_scale_150() {
+        require_reversal_trace(1.5);
+    }
+
+    #[test]
+    fn input_precision_case_reversal_scale_175() {
+        require_reversal_trace(1.75);
+    }
+
+    #[test]
+    fn input_precision_case_reversal_scale_200() {
+        require_reversal_trace(2.0);
+    }
+
+    #[test]
+    fn input_precision_case_burst_coalescing_scale_100() {
+        require_burst_trace(1.0);
+    }
+
+    #[test]
+    fn input_precision_case_burst_coalescing_scale_125() {
+        require_burst_trace(1.25);
+    }
+
+    #[test]
+    fn input_precision_case_burst_coalescing_scale_150() {
+        require_burst_trace(1.5);
+    }
+
+    #[test]
+    fn input_precision_case_burst_coalescing_scale_175() {
+        require_burst_trace(1.75);
+    }
+
+    #[test]
+    fn input_precision_case_burst_coalescing_scale_200() {
+        require_burst_trace(2.0);
+    }
+
+    #[test]
+    fn input_precision_case_thumb_absolute_resets_fractional_remainder() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("precision.thumb", "Precision Thumb");
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.75)),
+            ),
+            None
+        );
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Absolute(ScrollOffset::new(0, 40)),
+            ),
+            Some(ScrollOffset::new(0, 40))
+        );
+        assert_eq!(remainder(&scroll, &target), ScrollRemainder::default());
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.5)),
+            ),
+            None
+        );
+        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 40));
+    }
+
+    #[test]
+    fn input_precision_case_keyboard_integral_delta_preserves_fractional_remainder() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("precision.keyboard", "Precision Keyboard");
+        scroll.request(
+            target.clone(),
+            ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, -0.4)),
+        );
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::vertical(28)),
+            ),
+            Some(ScrollOffset::new(0, 28))
+        );
+        assert!((remainder(&scroll, &target).y + 0.4).abs() < 1.0e-12);
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 1.4)),
+            ),
+            Some(ScrollOffset::new(0, 29))
+        );
+    }
+
+    #[test]
+    fn input_precision_case_reveal_geometry_resets_fractional_remainder() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("precision.reveal", "Precision Reveal");
+        scroll.request(
+            target.clone(),
+            ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.75)),
+        );
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Geometry(ScrollOffset::new(0, 72)),
+            ),
+            Some(ScrollOffset::new(0, 72))
+        );
+        assert_eq!(remainder(&scroll, &target), ScrollRemainder::default());
+    }
+
+    #[test]
+    fn input_precision_case_programmatic_absolute_is_exact_after_reverse_fraction() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("precision.programmatic", "Precision Programmatic");
+        scroll.request(
+            target.clone(),
+            ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, -0.75)),
+        );
+        assert_eq!(
+            scroll.request(
+                target.clone(),
+                ScrollUpdate::Absolute(ScrollOffset::new(36, 84)),
+            ),
+            Some(ScrollOffset::new(36, 84))
+        );
+        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(36, 84));
+        assert_eq!(remainder(&scroll, &target), ScrollRemainder::default());
     }
 }

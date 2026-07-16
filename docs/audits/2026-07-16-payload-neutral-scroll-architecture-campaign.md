@@ -1,6 +1,6 @@
 # Payload-neutral scrolling architecture audit and campaign
 
-Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-004 CLOSED; SC-005 READY**
+Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-005 CLOSED; SC-006 READY**
 
 Date: 2026-07-16
 
@@ -406,8 +406,8 @@ Update this table first whenever a loop changes state. `PENDING` means intention
 | SC-002 | CLOSED | SC-001 red oracle | One immutable candidate-owned spatial topology now supplies candidate, semantic/drawable, compatibility, retained-planning, shape, text, clip, pane, viewport, and surface adapters. Tier A is 40/40 green with all 10 negative controls preserved. |
 | SC-003 | CLOSED | SC-000 property receipts | Stable property indices, dirty-source deltas, compiled dependents, shared sparse/dense transfer planning, and the exact 13-case economics suite are recorded. |
 | SC-004 | CLOSED | SC-000 generation trace | Requested intent, resident acceptance, candidate property generations, and `present_submitted` now have distinct owners/names; skipped property generations resynchronize explicitly. |
-| SC-005 | READY | SC-000 input traces | Independent input-precision track; rounding remains a hypothesis pending sum-preservation controls. |
-| SC-006 | PENDING | SC-000 causal trace | Independent pacing track; `PresentationPulse` remains a hypothesis pending negative controls. |
+| SC-005 | CLOSED | SC-000 input traces | Pixel/fractional-line input stays precise through routing; one per-target interaction accumulator owns compensated fractions and integral visual quantization. |
+| SC-006 | READY | SC-000 causal trace | Independent pacing track; `PresentationPulse` remains a hypothesis pending negative controls. |
 | SC-007 | PENDING | SC-000 residency receipts, SC-004 state contract | Independent residency track; includes the open 64 MiB cold glyph-admission defect. |
 | SC-008 | PENDING | SC-002 topology, SC-004 terminology | Spatial track resumes to replace independent runtime-presented hit-test ancestry. |
 | SC-009 | PENDING | SC-003/SC-007 | Preserve U-001 and add typing/scroll locality rails. |
@@ -440,6 +440,8 @@ Initial evidence ledger:
 | E-020 generation/state contract | RECORDED/CLOSED | One private per-window `PresentationState` owns requested and present-submitted epochs. New requests advance requested state; retries do not; stale, duplicate, or impossible future receipts cannot advance present-submitted state. The exact Tier C suite passes seven deterministic core cases plus one release GPU scale-change case. |
 | E-021 skipped property generation | RECORDED/CLOSED | The release negative control exposed one stale pixel when the retained renderer received generation N+2 whose local dirty set omitted N+1. The final renderer stores each slot generation, permits sparse mutation only from the declared predecessor with exclusive ownership, and otherwise selects one named 65,536-byte generation resynchronization. |
 | E-022 post-state scroll regression | RECORDED | Release Tier A remains 40/40 with all 10 mutation controls discriminating. At all five scales the table payload remains at 464 warm property bytes and zero generation resynchronizations. Scale 1.0 to 1.25 selects one topology/viewport replacement totaling 65,552 property bytes. No receipt claims scanout. |
+| E-023 high-resolution input | RECORDED/CLOSED | The negative control mapped five 0.4-logical-pixel events to zero instead of their 2.0-pixel sum. The final exact 20-case suite passes tiny, reversal, and burst/coalesced traces at all five scales plus fractional line, thumb, keyboard, reveal, and programmatic absolute paths. Fractions are target-local; visual offsets remain integral. |
+| E-024 post-input scroll regression | RECORDED | Release Tier A remains 40/40, all 10 mutation controls remain discriminating, all 13 property-economics cases pass, skipped-generation recovery remains explicit, and the table payload remains at 464 warm property bytes at all five scales. |
 
 Append evidence; do not silently rewrite a failed receipt. When superseding a conclusion, add the new receipt and identify which prior inference it invalidates.
 
@@ -702,6 +704,24 @@ Closure:
 - Reversal and coalescing preserve sign and total without drift or staircase artifacts beyond the named quantization policy.
 - The fix is independently revertible and does not alter scheduler or spatial-topology policy.
 
+#### SC-005 closeout — target-local precise input with integral visual state
+
+SC-005 closes input precision without changing scene/GPU coordinate types, spatial topology, residency, presentation generations, or scheduling. The platform adapter previously divided pixel deltas by scale and rounded every event to `i32`; line-wheel fractions were likewise rounded after multiplying by 28 logical pixels. The red witness sent five 0.4-logical-pixel events at scale 1.0. Their aggregate is 2.0 pixels, but the old adapter emitted five zeros and produced `actual=0`.
+
+`ScrollDelta` now carries finite logical `f64` components from pixel and fractional-line conversion through host, shell, target routing, and runtime dispatch. It does not own visual position. `interaction::Scroll` remains the per-target owner and stores a private `ScrollRemainder` beside desired/resident-accepted integral offsets. This location is material: platform/window accumulation could leak remainder across payloads when the pointer changes targets, while global scene accumulation would conflate input with candidate geometry.
+
+The named visual policy is whole logical pixels. Each exact integral component is applied exactly, so keyboard and other discrete relative motion do not inherit a one-pixel penalty from an opposite fractional remainder. Only the fractional component enters a compensated per-axis accumulator. A fraction crosses into visual motion by truncation toward zero once it reaches a whole pixel. Floating sums within eight ULPs of an integral boundary snap to that boundary; the scale-1.5 burst witness exposed and now guards this numerical edge. Absolute thumb/programmatic requests and geometry/reveal projection reset the remainder because they author a new exact position. Fraction-only changes retain state but mint no scroll revision, candidate, or redraw until visual motion exists.
+
+The exact 20-case Tier C suite is source-counted by an architecture gate. Five tiny traces use five 0.4-physical-pixel events at scales 1.0/1.25/1.5/1.75/2.0; the resulting integral desired values are 2/1/1/1/1 while every fractional remainder accounts for the unpresented sum. Five reversal traces move forward and return to exact zero without drift. Five burst/coalescing traces preserve six physical pixels and produce integral desired values 6/4/4/3/3 with fewer visual revisions than input events. The remaining cases prove fractional line-wheel conversion (0.25 line equals 7 logical pixels), exact thumb absolute, exact keyboard relative motion with an opposite retained fraction, geometry/reveal reset, and exact programmatic absolute reset.
+
+Target routing consumes precise delta sign, so a subpixel event can select the correct scroll owner even when it produces no immediate property tick. `ScrollOffset`, scene properties, spatial bindings, renderer uniforms, chrome, and present-submitted geometry remain integral. This loop therefore does not broaden transform semantics or introduce fractional raster movement.
+
+Payload-neutral rendering and property economics did not regress. Release Tier A remains 40/40 at all five scales and all 10 mutation controls remain discriminating. `table-scroll-work` remains 464 warm property bytes at every scale with one dirty index, seven visits/lookups, two ranges, zero semantic/content/shaping/resource/plan-rebuild work, zero generation resynchronizations, and one plan reuse. The exact 13-case property-economics suite and skipped-generation resynchronization witness remain green.
+
+Verification at this boundary: the red input-loss witness was observed before production edits; the final red witness, legacy negative control, exact 20-case suite, exact-suite architecture gate, platform and popup conversion tests, integral-scroll architecture gate, SC-004 generation suite, formatter, diff check, 18 Python receipt/census/manifest tests, all-target/all-feature check, release GPU/property witnesses, and complete all-target/all-feature suite passed. The complete Rust suite reports 1,283 library tests passed with four intentional hardware ignores, three renderer-debug non-hardware tests passed with 24 hardware ignores, and two example tests passed.
+
+SC-005 makes no cadence claim. `PresentationPulse`, redraw delivery, acquire timing, and present-submitted intervals remain the ready SC-006 causal-trace boundary.
+
 ### SC-006 — Audit and correct presentation cadence
 
 Goal: establish whether scheduling contributes to choppiness and change it only with causal evidence.
@@ -814,6 +834,6 @@ Do not:
 
 ## 11. Immediate next action
 
-Resume at **SC-005**. Re-run the existing per-event rounding behavior as the negative control, then build the exact 20-case Tier C input-precision suite before changing production input representation. Preserve fractional pixel/line accumulation at the interaction owner, name the visual quantization policy, and keep scene/GPU offsets integral unless the evidence requires otherwise. Do not change `PresentationPulse`, residency policy, spatial topology, or property-transfer economics in this loop.
+Resume at **SC-006**. Start from the bounded SC-000 transition trace and add timestamps/serial correlation for redraw request, redraw delivery, acquire, queue submit, surface present call, and present-submitted receipt. Build the exact 12-case 60/90/120/144 Hz pacing suite and reproduce the completion-anchored `PresentationPulse` policy as the controlled negative path before changing scheduler behavior. Do not alter input accumulation, residency, spatial topology, or property economics in this loop.
 
-SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. SC-003 closed indexed dirty property production and sparse/dense transfer economics. SC-004 separated requested intent, resident acceptance, candidate property generations, and `present_submitted`, including explicit renderer recovery across skipped generations. Input precision, pacing, residency, present-submitted geometry consumers, and locality remain separate open loops.
+SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. SC-003 closed indexed dirty property production and sparse/dense transfer economics. SC-004 separated requested intent, resident acceptance, candidate property generations, and `present_submitted`, including explicit renderer recovery across skipped generations. SC-005 closed target-local high-resolution input accumulation while keeping all visual state integral. Pacing, residency, present-submitted geometry consumers, and locality remain separate open loops.

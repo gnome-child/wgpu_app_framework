@@ -1,6 +1,6 @@
 # Scroll source census
 
-Status: **SC-004 GENERATION/STATE OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
+Status: **SC-005 HIGH-RESOLUTION INPUT OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
 
 Date: 2026-07-16
 
@@ -14,8 +14,8 @@ This is a production-path census, not a claim that every listed path is wrong. I
 
 | Fact | Current owner | Derived readers/writers | Campaign disposition |
 |---|---|---|---|
-| Raw wheel delta | `src/platform/event.rs::scroll_delta` | `src/host/event.rs`, `src/shell/event.rs`, `src/shell/input.rs` | SC-005 preserves fractional remainder before integral visual quantization. |
-| Requested/desired and resident-accepted offset | `src/interaction/scroll.rs::Scroll` | `src/interaction/mod.rs`, `src/session/interaction/scroll.rs` | SC-004 closed distinct names while preserving interaction as intent owner. |
+| Raw precise wheel/trackpad delta | `src/platform/event.rs::scroll_delta` | `src/host/event.rs`, `src/shell/event.rs`, `src/shell/input.rs` | SC-005 closed lossless pixel/fractional-line transport through target routing; the adapter does not quantize visual motion. |
+| Target-local fractional remainder plus requested/desired and resident-accepted offset | `src/interaction/scroll.rs::Scroll` | `src/interaction/mod.rs`, `src/session/interaction/scroll.rs` | SC-004 closed state names; SC-005 made interaction the sole fractional accumulator and kept desired/resident offsets integral. |
 | Request, clamp, resident acceptance | `src/runtime/input/dispatch.rs::apply_scroll_transition` | presented layout and virtual request lookup | SC-004 closed the transition vocabulary; desired intent survives residency rejection. |
 | Legal range and resident acceptance | `src/layout/mod.rs::ScrollProjection` and `Layout` methods | `src/layout/viewport.rs`, `src/layout/frame.rs`, `src/scene/residency.rs` | Layout/residency remains range owner; axis ownership becomes typed in SC-002/SC-004. |
 | Node-to-scroll ancestry | `src/layout/mod.rs::scroll_ancestries` | scene paint ordering and runtime point projection | Superseded by normalized topology in SC-002/SC-008, then deleted in SC-010 if no non-spatial consumer remains. |
@@ -167,6 +167,15 @@ SC-004 generation/state ownership changes:
 - A skipped/mismatched candidate selects `PropertyFullReason::GenerationResync`; initialization, buffer replacement, topology/viewport replacement, and density retain their independent reasons.
 - The exact eight-case state suite is source-counted across deterministic runtime/layout cases and one explicit release GPU scale-change case. A separate release GPU witness requires skipped-generation resynchronization.
 
+SC-005 input-precision ownership changes:
+
+- `platform::scroll_delta` converts pixel and fractional-line input to finite logical `f64` components without per-event integer rounding. Host, shell, input routing, and runtime dispatch carry that value unchanged.
+- `layout::Viewport::can_consume_from` reads precise signs, so subpixel input selects the correct target before visual quantization.
+- Each `interaction::ScrollEntry` owns one private compensated `ScrollRemainder`. Remainders cannot leak between targets, windows, or popup payloads.
+- Exact integral delta components apply directly. Fractional components accumulate with truncation toward zero at whole logical pixels and an eight-ULP normalization at computed integral boundaries.
+- Absolute thumb/programmatic and geometry/reveal requests reset remainder; fraction-only updates persist without advancing source revision or scheduling a candidate.
+- `ScrollOffset`, scene properties, spatial topology, renderer bindings, chrome, and present-submitted geometry remain integral. The exact 20-case suite and source architecture gate enforce this boundary.
+
 ## 4. Property work census
 
 Current warm property uploads are emitted by:
@@ -233,6 +242,7 @@ Run from the repository root and inspect additions/removals rather than comparin
 
 ```powershell
 rg -l 'ScrollOffset|ScrollDelta|ScrollUpdate' src tools
+rg -l 'from_physical_pixels|from_logical_pixels|ScrollRemainder|quantize_scroll_axis|split_scroll_component' src tools
 rg -l 'scroll_ancestr|scroll_projection|ScrollProjection' src tools
 rg -l 'PushScroll|PopScroll|ScrollDeclaration' src tools
 rg -l 'TargetSpace|ScrollBinding|PropertyBinding' src tools
