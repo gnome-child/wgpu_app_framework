@@ -890,6 +890,77 @@ delta, and the cells exposed by re-census.
   intentional ignores; renderer-debug reports three passed and eighteen ignored
   GPU tests; the workspace all-target/all-feature check and diff check are green.
 
+### S-004/S-009 checkpoint E — bounded resident glyph fragments
+
+- **Measured storage owner.** Checkpoint D bounded the prepared rectangle but its
+  shared `glyphon::Buffer` still retained all 1,048,576 source bytes and glyphs.
+  Thus absolute offset no longer enlarged the surface while source length still
+  enlarged active CPU glyph storage, the line cache, renderer input, and the
+  transitive cosmic-text shape-run cache. The bounded-work law requires both
+  geometry and prepared glyph storage to be independent of total line length.
+- **Conservative fragmentation fence.** The engine now admits horizontal word
+  fragmentation only for one-run LTR ASCII no-wrap lines wider than the prepared
+  runway. It derives exact source/prefix checkpoints from the first complete
+  cosmic-text layout, and each interval must contain at most 4,096 source bytes.
+  This follows cosmic-text 0.18.2's practiced independent ASCII-word shaping at
+  Unicode line-break boundaries rather than guessing a shaping context radius.
+  Bidi, complex text, multi-run output, more-than-4-GiB lines, and unbreakable
+  intervals over the bound retain the exact whole-line fallback and remain named
+  resistance, not silently approximate output.
+- **Bounded identities and memory.** Checkpoints use one `u32` byte position plus
+  one `f32` observed prefix coordinate and live in a 64-entry immutable `Rc` LRU;
+  a cache hit bumps shared identity instead of cloning the source-proportional
+  index. Only word fragments intersecting the 1,432 px runway plus one safe word
+  guard are shaped and retained. The shared line-shaping cache has a 16-MiB
+  weighted ceiling, and the unbounded transitive shape-run cache is discarded
+  after full-index construction then age-trimmed as bounded fragments enter.
+- **One projection across fragments.** Interaction, overlay, render, selection,
+  caret reveal, source mapping, and hit testing consume the same fragment source
+  ranges and target-local text origins. Hit testing chooses `(line distance,
+  fragment-x distance)` instead of the first fragment on a matching y. Multiple
+  word surfaces prove identical horizontal prepared rectangles and vertically
+  contiguous coverage before their union can become resident bounds; the final
+  logical line extends that proof through the viewport's blank remainder. A
+  boundary crossing therefore still changes drawable/residency identity with
+  zero semantic commit.
+- **Versioned work and memory receipt.** `scroll-bench-version=3` adds index
+  build/source/glyph/checkpoint counts, the live index-byte gauge, entering-window
+  shapes/source bytes, active source/glyph/estimated-byte high-water, and weighted
+  line-cache high-water. Exact commit `43626ac67823` produced official cold times
+  of 270,578, 269,563, and 275,321 us; the median is 270,578 us. Median warm
+  p50/p95/p99/max are 8/9/14/89 us. Every trial preserves logical width
+  6,878,106 px, identical 1,432 px near/far windows, and 916,480 px bounded area.
+  Cold builds 53,775 eight-byte checkpoints (430,200 bytes), then retains 246
+  source bytes/glyphs (45,510 estimated bytes) across 13 initial word fragments.
+  Across all 1,024 measured transitions, only four entering fragments totaling
+  78 source bytes shape; active high-water is 273 source bytes/glyphs and 50,505
+  estimated bytes, while the weighted line cache peaks at 110,445 bytes. All
+  13,820 render-fragment accesses hit, with zero render source visits, render
+  shape time, width source visits, or width measurement.
+- **Timing tradeoff and industry ruling.** The median remains 2.70x faster than
+  checkpoint C's 729,572 us cold owner and warm residency work remains orders of
+  magnitude below a frame budget. It is nevertheless 15.9% slower cold than
+  checkpoint D's unbounded 233,401 us median, and warm p95 rises from 3 to 9 us.
+  The campaign accepts that measured regression as the explicit cost of deleting
+  whole-line active glyph residency; the prohibited-shortcut law does not permit
+  keeping unbounded storage to win one timing row. Against the recorded upstream
+  line, this implements Chromium/Firefox-style visible/near-visible retained
+  fragments, Qt's block-oriented large-text challenge, and Iced/COSMIC retained
+  content with a fixed visible layer, while preserving this repository's stronger
+  exact source, hit, caret, integral admission, and complete-pixel contracts.
+- **Witnesses and remaining red paths.** `far_ascii_window_matches_independent_full_line_glyphs`
+  proves source clusters, glyph identities/advances, runway-local coordinates,
+  and far x-aware hits; `far_ascii_caret_reveal_uses_its_resident_fragment` proves
+  caret mapping; `unbreakable_ascii_line_keeps_the_exact_full_line_fallback`
+  proves the resistance fence; the boundary/semantic and weighted-cache witnesses
+  cover residency and eviction. The suite reports 1,218 passed and four
+  intentional ignores; renderer-debug reports three passed and eighteen ignored
+  GPU tests; workspace all-target/all-feature and diff checks are green. S-004
+  remains open: cold/index construction still shapes and walks the complete line,
+  complex/bidi/unbreakable resident glyph storage is not yet bounded, exact
+  `2^24`/maximum pixel output, GPU resident glyph bytes, the 64-MiB matrix, and
+  edit-time incremental index maintenance remain unproved.
+
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a
 new `S-*` cell before continuing. New cells are not deferred merely because the
