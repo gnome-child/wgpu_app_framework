@@ -306,7 +306,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
 
     fn finish_presented(&mut self, presented: Presented, refreshes_active: bool) -> bool {
         let (presented, report) = presented.into_parts();
-        if report.presented() {
+        if report.present_submitted() {
             self.presented_windows.insert(presented.window());
         }
         if refreshes_active {

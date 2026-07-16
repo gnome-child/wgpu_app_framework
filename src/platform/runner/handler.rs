@@ -124,7 +124,7 @@ impl<M: State, E: Send + 'static> ApplicationHandler<RunnerEvent<E>> for Runner<
                 self.presentation_pulses
                     .entry(window)
                     .or_default()
-                    .mark_presented(Instant::now());
+                    .mark_present_submitted(Instant::now());
             }
         }
 

@@ -78,12 +78,15 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             super::dispatch::ScrollTransition::PropertyTick(_) => {
                 diagnostics.scroll.record_property_tick(duration);
             }
-            super::dispatch::ScrollTransition::NeedsResidency { desired, admitted } => {
+            super::dispatch::ScrollTransition::NeedsResidency {
+                desired,
+                resident_accepted,
+            } => {
                 diagnostics.scroll.record_needs_residency(
                     desired.x(),
                     desired.y(),
-                    admitted.x(),
-                    admitted.y(),
+                    resident_accepted.x(),
+                    resident_accepted.y(),
                     duration,
                 );
             }

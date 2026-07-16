@@ -200,7 +200,7 @@ impl TextArea {
         self.scroll = if !projects_session {
             interaction::ScrollOffset::default()
         } else {
-            interaction.scroll().offset(target)
+            interaction.scroll().resident_offset(target)
         };
         self.reveal = projects_session && interaction.scroll().should_reveal(target);
         self.preedit = projects_session

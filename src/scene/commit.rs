@@ -220,6 +220,7 @@ pub(crate) struct PropertyWork {
 pub(crate) struct Properties {
     commit: Revision,
     serial: PropertySerial,
+    predecessor: Option<PropertySerial>,
     indices: Arc<HashMap<PropertyRef, PropertyIndex>>,
     values: PropertyValues,
     changed: Vec<PropertyIndex>,
@@ -1415,6 +1416,7 @@ impl Properties {
         Ok(Self {
             commit: commit.revision,
             serial,
+            predecessor: None,
             indices: Arc::clone(&commit.property_indices),
             values: PropertyValues::from_vec(indexed.into_iter().flatten().collect()),
             changed: changed_indices,
@@ -1443,6 +1445,7 @@ impl Properties {
                 .collect();
             return Ok((snapshot, true));
         };
+        snapshot.predecessor = Some(previous.serial);
         if previous.values == snapshot.values {
             return Ok((previous.clone(), false));
         }
@@ -1512,6 +1515,7 @@ impl Properties {
             Self {
                 commit: commit.revision,
                 serial,
+                predecessor: Some(previous.serial),
                 indices: Arc::clone(&commit.property_indices),
                 values: PropertyValues {
                     blocks: blocks.into(),
@@ -1570,7 +1574,10 @@ impl Properties {
         if changed.is_empty() {
             return Ok((current.clone(), false));
         }
-        Self::new(commit, self.serial, values, changed).map(|properties| (properties, true))
+        Self::new(commit, self.serial, values, changed).map(|mut properties| {
+            properties.predecessor = Some(current.serial);
+            (properties, true)
+        })
     }
 
     pub(crate) fn rebase_onto_for_activation(
@@ -1605,7 +1612,10 @@ impl Properties {
                 (current.value(property) != Some(*value)).then_some(property)
             })
             .collect();
-        Self::new(commit, self.serial, values, changed)
+        Self::new(commit, self.serial, values, changed).map(|mut properties| {
+            properties.predecessor = Some(current.serial);
+            properties
+        })
     }
 
     pub(crate) fn require_compatible(&self, commit: &Commit) -> Result<(), ContractError> {
@@ -1660,6 +1670,10 @@ impl Properties {
 
     pub(crate) fn serial(&self) -> PropertySerial {
         self.serial
+    }
+
+    pub(crate) fn predecessor_serial(&self) -> Option<PropertySerial> {
+        self.predecessor
     }
 
     pub(crate) fn changed(&self) -> &[PropertyIndex] {

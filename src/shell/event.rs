@@ -217,10 +217,10 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 point,
                 delta,
             } => {
-                let epoch_before = self.runtime.desired_presentation_epoch(window);
+                let epoch_before = self.runtime.requested_presentation_epoch(window);
                 let outcome = self.scroll(window, point, delta)?;
                 if outcome.is_handled()
-                    && self.runtime.desired_presentation_epoch(window) > epoch_before
+                    && self.runtime.requested_presentation_epoch(window) > epoch_before
                 {
                     self.runtime.record_input_latency_sample(window, started_at);
                 }
@@ -232,10 +232,10 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
                 point,
                 delta,
             } => {
-                let epoch_before = self.runtime.desired_presentation_epoch(window);
+                let epoch_before = self.runtime.requested_presentation_epoch(window);
                 let outcome = self.scroll_popup(window, popup, point, delta)?;
                 if outcome.is_handled()
-                    && self.runtime.desired_presentation_epoch(window) > epoch_before
+                    && self.runtime.requested_presentation_epoch(window) > epoch_before
                 {
                     self.runtime.record_input_latency_sample(window, started_at);
                 }

@@ -18,9 +18,9 @@ struct ScrollEntry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Position {
-    Admitted(ScrollOffset),
+    ResidentAccepted(ScrollOffset),
     Pending {
-        admitted: ScrollOffset,
+        resident_accepted: ScrollOffset,
         desired: ScrollOffset,
     },
 }
@@ -55,12 +55,17 @@ impl Scroll {
         self.revisions.get(target).copied().unwrap_or_default()
     }
 
-    pub(crate) fn offset(&self, target: &Target) -> ScrollOffset {
+    pub(crate) fn resident_offset(&self, target: &Target) -> ScrollOffset {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
-            .map(|entry| entry.position.admitted())
+            .map(|entry| entry.position.resident_accepted())
             .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn offset(&self, target: &Target) -> ScrollOffset {
+        self.resident_offset(target)
     }
 
     pub(crate) fn desired_offset(&self, target: &Target) -> ScrollOffset {
@@ -98,10 +103,10 @@ impl Scroll {
         }
 
         let index = self.offsets.iter().position(|entry| entry.target == target);
-        let admitted = index
-            .map(|index| self.offsets[index].position.admitted())
+        let resident_accepted = index
+            .map(|index| self.offsets[index].position.resident_accepted())
             .unwrap_or_default();
-        let position = Position::new(admitted, desired);
+        let position = Position::new(resident_accepted, desired);
         if position.is_zero() {
             if let Some(index) = index {
                 self.offsets.remove(index);
@@ -118,17 +123,21 @@ impl Scroll {
         Some(desired)
     }
 
-    pub(super) fn admit(&mut self, target: Target, admitted: ScrollOffset) -> Option<ScrollOffset> {
-        let before = self.offset(&target);
-        if before == admitted {
+    pub(super) fn accept_resident(
+        &mut self,
+        target: Target,
+        resident_accepted: ScrollOffset,
+    ) -> Option<ScrollOffset> {
+        let before = self.resident_offset(&target);
+        if before == resident_accepted {
             return None;
         }
 
         let index = self.offsets.iter().position(|entry| entry.target == target);
         let desired = index
             .map(|index| self.offsets[index].position.desired())
-            .unwrap_or(admitted);
-        let position = Position::new(admitted, desired);
+            .unwrap_or(resident_accepted);
+        let position = Position::new(resident_accepted, desired);
         if position.is_zero() {
             if let Some(index) = index {
                 self.offsets.remove(index);
@@ -142,13 +151,13 @@ impl Scroll {
             });
         }
         self.mark_changed(target);
-        Some(admitted)
+        Some(resident_accepted)
     }
 
     pub(super) fn project_desired(&mut self) {
         let mut changed = Vec::new();
         for entry in &mut self.offsets {
-            let projected = Position::Admitted(entry.position.desired());
+            let projected = Position::ResidentAccepted(entry.position.desired());
             if entry.position != projected {
                 entry.position = projected;
                 changed.push(entry.target.clone());
@@ -225,26 +234,30 @@ impl Scroll {
 }
 
 impl Position {
-    fn new(admitted: ScrollOffset, desired: ScrollOffset) -> Self {
-        if admitted == desired {
-            Self::Admitted(admitted)
+    fn new(resident_accepted: ScrollOffset, desired: ScrollOffset) -> Self {
+        if resident_accepted == desired {
+            Self::ResidentAccepted(resident_accepted)
         } else {
-            Self::Pending { admitted, desired }
+            Self::Pending {
+                resident_accepted,
+                desired,
+            }
         }
     }
 
-    fn admitted(self) -> ScrollOffset {
+    fn resident_accepted(self) -> ScrollOffset {
         match self {
-            Self::Admitted(offset)
+            Self::ResidentAccepted(offset)
             | Self::Pending {
-                admitted: offset, ..
+                resident_accepted: offset,
+                ..
             } => offset,
         }
     }
 
     fn desired(self) -> ScrollOffset {
         match self {
-            Self::Admitted(offset)
+            Self::ResidentAccepted(offset)
             | Self::Pending {
                 desired: offset, ..
             } => offset,
@@ -252,7 +265,7 @@ impl Position {
     }
 
     fn is_zero(self) -> bool {
-        self.admitted().is_zero() && self.desired().is_zero()
+        self.resident_accepted().is_zero() && self.desired().is_zero()
     }
 }
 
@@ -330,7 +343,7 @@ mod tests {
         );
         assert_eq!(scroll.offset(&first), ScrollOffset::default());
         assert_eq!(
-            scroll.admit(first, ScrollOffset::new(0, 42)),
+            scroll.accept_resident(first, ScrollOffset::new(0, 42)),
             Some(ScrollOffset::new(0, 42))
         );
         assert_eq!(scroll.offset(&second), ScrollOffset::new(0, 42));
@@ -369,7 +382,7 @@ mod tests {
         );
         assert_eq!(scroll.offset(&target), ScrollOffset::default());
         assert_eq!(
-            scroll.admit(target.clone(), ScrollOffset::new(40, 60)),
+            scroll.accept_resident(target.clone(), ScrollOffset::new(40, 60)),
             Some(ScrollOffset::new(40, 60))
         );
         assert_eq!(scroll.offset(&target), ScrollOffset::new(40, 60));
@@ -409,14 +422,14 @@ mod tests {
             ScrollUpdate::Absolute(ScrollOffset::new(0, 300)),
         );
         assert_eq!(
-            scroll.admit(target.clone(), ScrollOffset::new(0, 120)),
+            scroll.accept_resident(target.clone(), ScrollOffset::new(0, 120)),
             Some(ScrollOffset::new(0, 120))
         );
         assert_eq!(scroll.offset(&target), ScrollOffset::new(0, 120));
         assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 300));
 
         assert_eq!(
-            scroll.admit(target.clone(), ScrollOffset::new(0, 300)),
+            scroll.accept_resident(target.clone(), ScrollOffset::new(0, 300)),
             Some(ScrollOffset::new(0, 300))
         );
         assert_eq!(scroll.offset(&target), ScrollOffset::new(0, 300));
@@ -468,16 +481,16 @@ mod tests {
         );
         assert_eq!(scroll.revision(&first), requested);
 
-        scroll.admit(first.clone(), ScrollOffset::new(12, 24));
-        let admitted = scroll.revision(&first);
-        assert!(admitted > requested);
+        scroll.accept_resident(first.clone(), ScrollOffset::new(12, 24));
+        let accepted = scroll.revision(&first);
+        assert!(accepted > requested);
 
         scroll.request(
             first.clone(),
             ScrollUpdate::Relative(ScrollDelta::horizontal(5)),
         );
         let pending = scroll.revision(&first);
-        assert!(pending > admitted);
+        assert!(pending > accepted);
         let mut projection = scroll.clone();
         projection.project_desired();
         assert!(projection.revision(&first) > pending);

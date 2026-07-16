@@ -98,6 +98,7 @@ pub(crate) struct DrawStats {
     pub(crate) property_full_buffer_replacements: usize,
     pub(crate) property_full_topology_replacements: usize,
     pub(crate) property_full_dense_transfers: usize,
+    pub(crate) property_full_generation_resyncs: usize,
     pub(crate) geometry_buffer_creations: usize,
     pub(crate) retained_gpu_resource_count: usize,
     pub(crate) retained_gpu_resource_bytes: usize,
@@ -152,8 +153,8 @@ pub struct RenderReport {
     pub(crate) batch_prepare: Duration,
     pub(crate) encode_submit_present: Duration,
     pub(crate) draw_stats: DrawStats,
-    pub(crate) presented: bool,
-    pub(crate) presented_at: Instant,
+    pub(crate) present_submitted: bool,
+    pub(crate) present_submitted_at: Instant,
     pub(crate) group_composites: usize,
     pub(crate) filter_layer_pool_entries: usize,
     pub(crate) filter_scratch_pool_entries: usize,
@@ -162,15 +163,15 @@ pub struct RenderReport {
 }
 
 impl RenderReport {
-    pub fn new(acquire_wait: Duration, draw: Duration, presented_at: Instant) -> Self {
+    pub fn new(acquire_wait: Duration, draw: Duration, present_submitted_at: Instant) -> Self {
         Self {
             acquire_wait,
             draw,
             batch_prepare: Duration::ZERO,
             encode_submit_present: Duration::ZERO,
             draw_stats: DrawStats::default(),
-            presented: true,
-            presented_at,
+            present_submitted: true,
+            present_submitted_at,
             group_composites: 0,
             filter_layer_pool_entries: 0,
             filter_scratch_pool_entries: 0,
@@ -222,8 +223,8 @@ impl RenderReport {
         self
     }
 
-    pub(crate) fn with_presented(mut self, presented: bool) -> Self {
-        self.presented = presented;
+    pub(crate) fn with_present_submitted(mut self, present_submitted: bool) -> Self {
+        self.present_submitted = present_submitted;
         self
     }
 
@@ -235,11 +236,11 @@ impl RenderReport {
         self.draw
     }
 
-    pub fn presented_at(&self) -> Instant {
-        self.presented_at
+    pub fn present_submitted_at(&self) -> Instant {
+        self.present_submitted_at
     }
 
-    pub(crate) fn presented(&self) -> bool {
-        self.presented
+    pub(crate) fn present_submitted(&self) -> bool {
+        self.present_submitted
     }
 }

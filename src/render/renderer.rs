@@ -1088,6 +1088,7 @@ impl DrawStats {
         self.property_full_buffer_replacements += other.property_full_buffer_replacements;
         self.property_full_topology_replacements += other.property_full_topology_replacements;
         self.property_full_dense_transfers += other.property_full_dense_transfers;
+        self.property_full_generation_resyncs += other.property_full_generation_resyncs;
         self.geometry_buffer_creations += other.geometry_buffer_creations;
         self.retained_gpu_resource_count += other.retained_gpu_resource_count;
         self.retained_gpu_resource_bytes += other.retained_gpu_resource_bytes;

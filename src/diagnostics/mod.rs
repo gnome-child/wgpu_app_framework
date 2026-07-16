@@ -112,8 +112,8 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
-            "scroll_admitted_changes={}",
-            self.scroll.scroll_admitted_changes
+            "scroll_resident_acceptances={}",
+            self.scroll.scroll_resident_acceptances
         );
         let _ = writeln!(receipt, "scroll_unchanged={}", self.scroll.scroll_unchanged);
         let _ = writeln!(
@@ -128,13 +128,13 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
-            "scroll_desired_admitted_lag_x_max={}",
-            self.scroll.desired_admitted_lag_x_max
+            "scroll_desired_resident_lag_x_max={}",
+            self.scroll.desired_resident_lag_x_max
         );
         let _ = writeln!(
             receipt,
-            "scroll_desired_admitted_lag_y_max={}",
-            self.scroll.desired_admitted_lag_y_max
+            "scroll_desired_resident_lag_y_max={}",
+            self.scroll.desired_resident_lag_y_max
         );
         let _ = writeln!(
             receipt,

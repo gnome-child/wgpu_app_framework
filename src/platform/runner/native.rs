@@ -279,13 +279,13 @@ mod tests {
 
         assert!(slow.is_due(now, Some(60_000)));
         assert!(fast.is_due(now, Some(144_000)));
-        slow.mark_presented(now);
-        fast.mark_presented(now);
+        slow.mark_present_submitted(now);
+        fast.mark_present_submitted(now);
         assert!(!slow.is_due(now + Duration::from_millis(8), Some(60_000)));
         assert!(fast.is_due(now + Duration::from_millis(8), Some(144_000)));
         assert!(slow.is_due(now + Duration::from_millis(17), Some(60_000)));
 
-        fast.mark_presented(now + Duration::from_millis(8));
+        fast.mark_present_submitted(now + Duration::from_millis(8));
         assert_eq!(
             slow.deadline(Some(60_000)),
             now.checked_add(Duration::from_secs_f64(1.0 / 60.0))

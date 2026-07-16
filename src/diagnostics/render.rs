@@ -36,6 +36,7 @@ pub struct Render {
     pub property_full_buffer_replacements: usize,
     pub property_full_topology_replacements: usize,
     pub property_full_dense_transfers: usize,
+    pub property_full_generation_resyncs: usize,
     pub candidate_property_serial: u64,
     pub attempted_property_serial: u64,
     pub gpu_submitted_property_serial: u64,
@@ -44,11 +45,11 @@ pub struct Render {
     pub virtual_guard_crossings: usize,
     pub replenishment_commits: usize,
     pub frames_attempted: usize,
-    pub frames_presented: usize,
+    pub frames_present_submitted: usize,
     pub property_frames_attempted: usize,
-    pub property_frames_presented: usize,
+    pub property_frames_present_submitted: usize,
     pub semantic_frames_attempted: usize,
-    pub semantic_frames_presented: usize,
+    pub semantic_frames_present_submitted: usize,
     pub missed_refresh_opportunities: usize,
     pub renderer_deadline_misses: usize,
     pub property_renderer_deadline_misses: usize,
@@ -164,10 +165,10 @@ pub struct Render {
     semantic_batch_prepare: Samples,
     semantic_encode_submit_present: Samples,
     semantic_draw: Samples,
-    key_to_present: Samples,
+    key_to_present_submitted: Samples,
     replenishment_commit: Samples,
     pending_inputs: VecDeque<InputSample>,
-    last_presented_at: Option<Instant>,
+    last_present_submitted_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,7 +182,7 @@ impl Render {
         &mut self,
         properties: &crate::scene::Properties,
         property_only: bool,
-        presented: bool,
+        present_submitted: bool,
     ) {
         let serial = properties.serial().value();
         self.candidate_property_serial = serial;
@@ -189,11 +190,11 @@ impl Render {
         if property_only {
             self.property_ticks += 1;
             self.changed_property_values += properties.changed().len();
-            if !presented {
+            if !present_submitted {
                 self.skipped_property_attempts += 1;
             }
         }
-        if presented {
+        if present_submitted {
             self.gpu_submitted_property_serial = serial;
             self.present_submitted_property_serial = serial;
         }
@@ -287,6 +288,7 @@ impl Render {
         self.property_full_topology_replacements +=
             report.draw_stats.property_full_topology_replacements;
         self.property_full_dense_transfers += report.draw_stats.property_full_dense_transfers;
+        self.property_full_generation_resyncs += report.draw_stats.property_full_generation_resyncs;
         self.geometry_buffer_creations = report.draw_stats.geometry_buffer_creations;
         self.geometry_buffer_creations_total += report.draw_stats.geometry_buffer_creations;
         self.retained_gpu_resource_count = report.draw_stats.retained_gpu_resource_count;
@@ -427,18 +429,20 @@ impl Render {
             }
         }
 
-        if !report.presented {
+        if !report.present_submitted {
             return;
         }
 
-        self.frames_presented += 1;
+        self.frames_present_submitted += 1;
         if property_only {
-            self.property_frames_presented += 1;
+            self.property_frames_present_submitted += 1;
         } else {
-            self.semantic_frames_presented += 1;
+            self.semantic_frames_present_submitted += 1;
         }
-        if let Some(previous) = self.last_presented_at {
-            let interval = report.presented_at.saturating_duration_since(previous);
+        if let Some(previous) = self.last_present_submitted_at {
+            let interval = report
+                .present_submitted_at
+                .saturating_duration_since(previous);
             self.intervals.record(duration_micros(interval));
             if let Some(refresh) = self
                 .environment
@@ -449,14 +453,14 @@ impl Render {
                     missed_refresh_opportunities(interval, refresh);
             }
         }
-        self.last_presented_at = Some(report.presented_at);
+        self.last_present_submitted_at = Some(report.present_submitted_at);
 
         let mut remaining = VecDeque::with_capacity(self.pending_inputs.len());
         while let Some(sample) = self.pending_inputs.pop_front() {
             if sample.epoch <= epoch {
-                self.key_to_present.record(duration_micros(
+                self.key_to_present_submitted.record(duration_micros(
                     report
-                        .presented_at
+                        .present_submitted_at
                         .saturating_duration_since(sample.started_at),
                 ));
             } else {
@@ -546,27 +550,28 @@ impl Render {
         self.encode_submit_present.max()
     }
 
-    pub fn key_to_present_p95_us(&self) -> u128 {
-        self.key_to_present.p95()
+    pub fn key_to_present_submitted_p95_us(&self) -> u128 {
+        self.key_to_present_submitted.p95()
     }
 
-    pub fn key_to_present_p50_us(&self) -> u128 {
-        self.key_to_present.p50()
+    pub fn key_to_present_submitted_p50_us(&self) -> u128 {
+        self.key_to_present_submitted.p50()
     }
 
-    pub fn key_to_present_p99_us(&self) -> u128 {
-        self.key_to_present.p99()
+    pub fn key_to_present_submitted_p99_us(&self) -> u128 {
+        self.key_to_present_submitted.p99()
     }
 
-    pub fn key_to_present_max_us(&self) -> u128 {
-        self.key_to_present.max()
+    pub fn key_to_present_submitted_max_us(&self) -> u128 {
+        self.key_to_present_submitted.max()
     }
 
     pub fn frames_skipped(&self) -> usize {
-        self.frames_attempted.saturating_sub(self.frames_presented)
+        self.frames_attempted
+            .saturating_sub(self.frames_present_submitted)
     }
 
-    pub fn pending_key_to_present_samples(&self) -> usize {
+    pub fn pending_key_to_present_submitted_samples(&self) -> usize {
         self.pending_inputs.len()
     }
 
@@ -653,7 +658,11 @@ impl Render {
             let _ = writeln!(receipt, "environment=unavailable");
         }
         let _ = writeln!(receipt, "frames_attempted={}", self.frames_attempted);
-        let _ = writeln!(receipt, "frames_presented={}", self.frames_presented);
+        let _ = writeln!(
+            receipt,
+            "frames_present_submitted={}",
+            self.frames_present_submitted
+        );
         let _ = writeln!(receipt, "frames_skipped={}", self.frames_skipped());
         let _ = writeln!(
             receipt,
@@ -662,8 +671,8 @@ impl Render {
         );
         let _ = writeln!(
             receipt,
-            "property_frames_presented={}",
-            self.property_frames_presented
+            "property_frames_present_submitted={}",
+            self.property_frames_present_submitted
         );
         let _ = writeln!(
             receipt,
@@ -672,8 +681,8 @@ impl Render {
         );
         let _ = writeln!(
             receipt,
-            "semantic_frames_presented={}",
-            self.semantic_frames_presented
+            "semantic_frames_present_submitted={}",
+            self.semantic_frames_present_submitted
         );
         let _ = writeln!(
             receipt,
@@ -803,6 +812,11 @@ impl Render {
             "property_full_dense_transfers={}",
             self.property_full_dense_transfers
         );
+        let _ = writeln!(
+            receipt,
+            "property_full_generation_resyncs={}",
+            self.property_full_generation_resyncs
+        );
         let attributed_property_upload_bytes = self
             .viewport_property_upload_bytes
             .saturating_add(self.node_property_upload_bytes)
@@ -881,7 +895,11 @@ impl Render {
             &self.semantic_encode_submit_present,
         );
         write_distribution(&mut receipt, "semantic_draw_us", &self.semantic_draw);
-        write_distribution(&mut receipt, "key_to_present_us", &self.key_to_present);
+        write_distribution(
+            &mut receipt,
+            "key_to_present_submitted_us",
+            &self.key_to_present_submitted,
+        );
         write_distribution(
             &mut receipt,
             "replenishment_commit_us",
@@ -1136,8 +1154,8 @@ impl Render {
         );
         let _ = writeln!(
             receipt,
-            "pending_key_to_present_samples={}",
-            self.pending_key_to_present_samples()
+            "pending_key_to_present_submitted_samples={}",
+            self.pending_key_to_present_submitted_samples()
         );
         let _ = writeln!(
             receipt,
@@ -1218,6 +1236,7 @@ impl Default for Render {
             property_full_buffer_replacements: 0,
             property_full_topology_replacements: 0,
             property_full_dense_transfers: 0,
+            property_full_generation_resyncs: 0,
             candidate_property_serial: 0,
             attempted_property_serial: 0,
             gpu_submitted_property_serial: 0,
@@ -1226,11 +1245,11 @@ impl Default for Render {
             virtual_guard_crossings: 0,
             replenishment_commits: 0,
             frames_attempted: 0,
-            frames_presented: 0,
+            frames_present_submitted: 0,
             property_frames_attempted: 0,
-            property_frames_presented: 0,
+            property_frames_present_submitted: 0,
             semantic_frames_attempted: 0,
-            semantic_frames_presented: 0,
+            semantic_frames_present_submitted: 0,
             missed_refresh_opportunities: 0,
             renderer_deadline_misses: 0,
             property_renderer_deadline_misses: 0,
@@ -1346,10 +1365,10 @@ impl Default for Render {
             semantic_batch_prepare: Samples::default(),
             semantic_encode_submit_present: Samples::default(),
             semantic_draw: Samples::default(),
-            key_to_present: Samples::default(),
+            key_to_present_submitted: Samples::default(),
             replenishment_commit: Samples::default(),
             pending_inputs: VecDeque::new(),
-            last_presented_at: None,
+            last_present_submitted_at: None,
         }
     }
 }
@@ -2151,12 +2170,12 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
         .ok_or_else(|| "control gallery has no render diagnostics".to_owned())?
         .render
         .semantic_commits_activated;
-    let mut admitted = app
+    let mut resident_accepted = app
         .session()
         .interaction(window)
         .ok_or_else(|| "control gallery has no interaction state".to_owned())?
         .scroll()
-        .offset(&scroll_target);
+        .resident_offset(&scroll_target);
     let mut residency_crossings = 0_usize;
 
     for index in 1..=STEPS {
@@ -2172,20 +2191,20 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             .interaction(window)
             .ok_or_else(|| format!("slow-scroll step {index} lost interaction state"))?;
         let desired = interaction.scroll().desired_offset(&scroll_target);
-        let before_receipt = interaction.scroll().offset(&scroll_target);
-        if desired.y() <= admitted.y() {
+        let before_receipt = interaction.scroll().resident_offset(&scroll_target);
+        if desired.y() <= resident_accepted.y() {
             return Err(format!(
-                "slow-scroll step {index} did not route its positive delta to the table owner: previous={admitted:?}, desired={desired:?}"
+                "slow-scroll step {index} did not route its positive delta to the table owner: previous={resident_accepted:?}, desired={desired:?}"
             ));
         }
         let expected_before_receipt = if active_residency.accepts(desired) {
             desired
         } else {
-            admitted
+            resident_accepted
         };
-        if before_receipt != expected_before_receipt || before_receipt.y() < admitted.y() {
+        if before_receipt != expected_before_receipt || before_receipt.y() < resident_accepted.y() {
             return Err(format!(
-                "slow-scroll step {index} exposed unprepared motion or snapped backward before a receipt: previous={admitted:?}, desired={desired:?}, actual={before_receipt:?}, active_accepts={}",
+                "slow-scroll step {index} exposed unprepared motion or snapped backward before a receipt: previous={resident_accepted:?}, desired={desired:?}, actual={before_receipt:?}, active_accepts={}",
                 active_residency.accepts(desired),
             ));
         }
@@ -2254,7 +2273,7 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             || resident.bottom() < visible.bottom()
         {
             return Err(format!(
-                "slow-scroll step {index} admits nonresident pixels: visible={visible:?}, resident={resident:?}, layer={layer:?}"
+                "slow-scroll step {index} accepts nonresident pixels: visible={visible:?}, resident={resident:?}, layer={layer:?}"
             ));
         }
 
@@ -2338,15 +2357,16 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
                 "slow-scroll step {index} successful receipt incorrectly requested a retry"
             ));
         }
-        let next_admitted = app
+        let next_resident_accepted = app
             .session()
             .interaction(window)
             .ok_or_else(|| format!("slow-scroll step {index} lost interaction after receipt"))?
             .scroll()
-            .offset(&scroll_target);
-        if next_admitted != desired || next_admitted.y() <= admitted.y() {
+            .resident_offset(&scroll_target);
+        if next_resident_accepted != desired || next_resident_accepted.y() <= resident_accepted.y()
+        {
             return Err(format!(
-                "slow-scroll step {index} did not advance monotonically on its exact receipt: previous={admitted:?}, desired={desired:?}, admitted={next_admitted:?}"
+                "slow-scroll step {index} did not advance monotonically on its exact receipt: previous={resident_accepted:?}, desired={desired:?}, resident_accepted={next_resident_accepted:?}"
             ));
         }
         if app
@@ -2361,7 +2381,7 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             ));
         }
 
-        admitted = next_admitted;
+        resident_accepted = next_resident_accepted;
         active_stack = std::sync::Arc::clone(candidate.stack());
         active_drawable = candidate_drawable;
         active_properties = candidate.properties().clone();
@@ -2462,7 +2482,7 @@ mod tests {
     }
 
     #[test]
-    fn input_samples_wait_for_presented_epoch() {
+    fn input_samples_wait_for_present_submitted_epoch() {
         let initial = PresentationEpoch::initial();
         let changed = initial.next();
         let mut render = Render::default();
@@ -2478,8 +2498,8 @@ mod tests {
                 now + Duration::from_millis(1),
             ),
         );
-        assert_eq!(render.pending_key_to_present_samples(), 1);
-        assert_eq!(render.key_to_present_p95_us(), 0);
+        assert_eq!(render.pending_key_to_present_submitted_samples(), 1);
+        assert_eq!(render.key_to_present_submitted_p95_us(), 0);
 
         render.record_present(
             changed,
@@ -2490,8 +2510,8 @@ mod tests {
                 now + Duration::from_millis(2),
             ),
         );
-        assert_eq!(render.pending_key_to_present_samples(), 0);
-        assert_eq!(render.key_to_present_p95_us(), 2_000);
+        assert_eq!(render.pending_key_to_present_submitted_samples(), 0);
+        assert_eq!(render.key_to_present_submitted_p95_us(), 2_000);
     }
 
     #[test]
@@ -2530,15 +2550,15 @@ mod tests {
                 Duration::from_micros(10),
                 now + Duration::from_millis(1),
             )
-            .with_presented(false),
+            .with_present_submitted(false),
         );
 
         assert_eq!(render.frames_attempted, 1);
-        assert_eq!(render.frames_presented, 0);
+        assert_eq!(render.frames_present_submitted, 0);
         assert_eq!(render.property_frames_attempted, 1);
-        assert_eq!(render.property_frames_presented, 0);
-        assert_eq!(render.pending_key_to_present_samples(), 1);
-        assert_eq!(render.key_to_present_p95_us(), 0);
+        assert_eq!(render.property_frames_present_submitted, 0);
+        assert_eq!(render.pending_key_to_present_submitted_samples(), 1);
+        assert_eq!(render.key_to_present_submitted_p95_us(), 0);
     }
 
     #[test]
@@ -2569,8 +2589,8 @@ mod tests {
 
         let receipt = render.receipt_text("split-timing");
         for field in [
-            "property_frames_presented=1",
-            "semantic_frames_presented=1",
+            "property_frames_present_submitted=1",
+            "semantic_frames_present_submitted=1",
             "property_batch_prepare_us_p95=1",
             "property_encode_submit_present_us_p95=2",
             "property_draw_us_p95=3",

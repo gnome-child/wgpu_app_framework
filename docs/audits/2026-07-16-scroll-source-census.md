@@ -1,6 +1,6 @@
 # Scroll source census
 
-Status: **SC-003 PROPERTY-DELTA OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
+Status: **SC-004 GENERATION/STATE OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
 
 Date: 2026-07-16
 
@@ -15,12 +15,14 @@ This is a production-path census, not a claim that every listed path is wrong. I
 | Fact | Current owner | Derived readers/writers | Campaign disposition |
 |---|---|---|---|
 | Raw wheel delta | `src/platform/event.rs::scroll_delta` | `src/host/event.rs`, `src/shell/event.rs`, `src/shell/input.rs` | SC-005 preserves fractional remainder before integral visual quantization. |
-| Requested/desired and resident-accepted offset | `src/interaction/scroll.rs::Scroll` | `src/interaction/mod.rs`, `src/session/interaction/scroll.rs` | SC-004 separates names/generations; interaction remains intent owner. |
-| Request, clamp, resident acceptance | `src/runtime/input/dispatch.rs::apply_scroll_transition` | presented layout and virtual request lookup | SC-000 traces the stages; SC-004 defines their transition contract. |
+| Requested/desired and resident-accepted offset | `src/interaction/scroll.rs::Scroll` | `src/interaction/mod.rs`, `src/session/interaction/scroll.rs` | SC-004 closed distinct names while preserving interaction as intent owner. |
+| Request, clamp, resident acceptance | `src/runtime/input/dispatch.rs::apply_scroll_transition` | presented layout and virtual request lookup | SC-004 closed the transition vocabulary; desired intent survives residency rejection. |
 | Legal range and resident acceptance | `src/layout/mod.rs::ScrollProjection` and `Layout` methods | `src/layout/viewport.rs`, `src/layout/frame.rs`, `src/scene/residency.rs` | Layout/residency remains range owner; axis ownership becomes typed in SC-002/SC-004. |
 | Node-to-scroll ancestry | `src/layout/mod.rs::scroll_ancestries` | scene paint ordering and runtime point projection | Superseded by normalized topology in SC-002/SC-008, then deleted in SC-010 if no non-spatial consumer remains. |
 | Candidate property values and dirty indices | `src/scene/paint/mod.rs::property_snapshot` and `src/scene/commit.rs::Properties` | scene stack, renderer, compatibility scene | SC-003 closed stable topology-local indices, block-shared values, and authoritative dirty production independently of spatial replacement. |
 | Candidate spatial ancestry, surface roots, clip/effect references, target identity, and axis ownership | `src/scene/spatial.rs::SpatialTopology`, immutably owned by `src/scene/commit.rs::Commit` | semantic/drawable projection, compatibility emission, retained plan compiler, renderer property adapters | SC-002 closed this ownership replacement. Draw order remains structural input/output, not an ancestry owner. |
+| Requested and present-submitted presentation epochs | private `src/session/window.rs::PresentationState` | runtime candidate selection and successful render feedback | SC-004 closed one owner. Requests advance requested state; retry does not; stale, duplicate, and future receipts cannot advance present-submitted state. |
+| Installed GPU property generation | retained node/scroll `PropertySlot::property_serial` derived from `scene::Properties::{serial, predecessor}` | sparse property preparation and explicit full resynchronization | SC-004 closed skipped-generation recovery. Sparse mutation requires the direct predecessor and exclusive commit ownership. |
 | Runtime-presented geometry | `src/runtime/access.rs::finish_render_report_with_kind` | `src/runtime/mod.rs::PresentedGeometry`, pointer/routing/context menu | SC-004 names the boundary `present_submitted`; SC-008 consumes normalized topology. |
 | Surface submission/present call | `src/render/surface.rs` | runtime report, diagnostics, runner pulse | No scanout claim. SC-006 audits cadence separately. |
 | Redraw throttling | `src/platform/runner/mod.rs::PresentationPulse` | `handler.rs`, `native.rs` | Independent SC-006 evidence track. |
@@ -156,6 +158,15 @@ SC-003 property ownership changes:
 - Node and scroll property buffers share `plan_property_transfer`, including one sparse range model and named initialization, buffer replacement, topology/viewport replacement, and dense reasons.
 - `src/diagnostics/render.rs`, renderer reports, and `renderer_debug` expose value visits, index lookups, dirty indices, write ranges, and every full-transfer reason.
 
+SC-004 generation/state ownership changes:
+
+- `interaction::Scroll` exposes `resident_offset` and `accept_resident`; pending state carries `resident_accepted` and `desired`. The old scroll admission API is absent from production.
+- `session::Window` contains one private `PresentationState { requested, present_submitted }`. Request mutation and successful feedback are its only writers; failed retries preserve the requested epoch.
+- `RenderReport`, native surface handling, diagnostics, runner pulse names, receipt keys, receipt validation, and the text-editor debug panel use `present_submitted`. The success path is downstream of queue submission and `frame.present()` and makes no scanout claim.
+- `scene::Properties` records an optional direct predecessor serial. Retained node and scroll property slots record their installed serial and mutate sparsely only from that predecessor while exclusively owned by the same commit.
+- A skipped/mismatched candidate selects `PropertyFullReason::GenerationResync`; initialization, buffer replacement, topology/viewport replacement, and density retain their independent reasons.
+- The exact eight-case state suite is source-counted across deterministic runtime/layout cases and one explicit release GPU scale-change case. A separate release GPU witness requires skipped-generation resynchronization.
+
 ## 4. Property work census
 
 Current warm property uploads are emitted by:
@@ -211,6 +222,7 @@ property_full_initializations=0
 property_full_buffer_replacements=0
 property_full_topology_replacements=0
 property_full_dense_transfers=0
+property_full_generation_resyncs=0
 ```
 
 The 272 scroll bytes are one cost-selected contiguous transfer spanning two scroll-path slots that depend on the dirty shared target; they are not a topology-wide scroll upload. All five scales retain zero semantic/content preparation, shaping, payload upload, GPU resource churn, and plan rebuilds with one plan reuse. The retained text adapter traverses resident text batches and writes only changed snapped offsets; its payload-local traversal remains under the SC-007/SC-009 residency and locality rails rather than becoming another property-topology owner.
@@ -226,11 +238,13 @@ rg -l 'PushScroll|PopScroll|ScrollDeclaration' src tools
 rg -l 'TargetSpace|ScrollBinding|PropertyBinding' src tools
 rg -l 'project_semantic_order|emit_compatibility_until|PendingPlan|PlanBuilder|PlanEncoder' src tools
 rg -l 'SpatialTopology|SpatialBinding|SurfaceRoot|AxisOwnership|ScrollTarget' src tools
-rg -l 'project_point|presented_geometry|acknowledge_presentation' src tools
+rg -l 'project_point|presented_geometry|record_present_submitted|present_submitted_epoch' src tools
 rg -l 'PresentationPulse|request_redraw|RedrawRequested' src tools
 rg -l 'property_upload_bytes|prepare_node_properties|prepare_scroll_properties' src tools
 rg -l 'PropertyIndex|apply_updates|property_dependents|scroll_dependents|plan_property_transfer' src tools
-rg -l 'property_full_initializations|property_full_buffer_replacements|property_full_topology_replacements|property_full_dense_transfers' src tools
+rg -l 'predecessor_serial|property_serial|property_slot_exclusively_owned_by' src tools
+rg -l 'property_full_initializations|property_full_buffer_replacements|property_full_topology_replacements|property_full_dense_transfers|property_full_generation_resyncs' src tools
+rg -l 'admit_scroll|desired_presentation_epoch|acknowledged_presentation_epoch|frames_presented|key_to_present_us' src tools
 ```
 
 SC-010 is not closed by finding no new names. It must prove that every remaining production hit is either the named sole owner, a generated/representation-specific consumer, or an independently justified non-spatial track.

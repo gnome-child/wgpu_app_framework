@@ -229,8 +229,33 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         [command] if command == "property-economics" => run_property_economics(),
+        [command] if command == "property-generation-skip" => {
+            let mut harness = harness(1.0)?;
+            let work = harness.compare_skipped_property_generation()?;
+            if work.property_full_generation_resyncs() != 1 {
+                return Err(format!(
+                    "skipped property candidate did not select one named generation resynchronization: {work:?}"
+                ));
+            }
+            println!(
+                "generation=skipped-property-candidate node_property_upload_bytes={} full_generation_resyncs={} result=pass",
+                work.node_property_upload_bytes(),
+                work.property_full_generation_resyncs(),
+            );
+            Ok(())
+        }
+        [command] if command == "generation-state-scale-change" => {
+            let mut harness = harness(1.0)?;
+            let work = harness.compare_scale_change_generation(1.25)?;
+            println!(
+                "generation=scale-change from=1 to=1.25 topology_replacements={} property_upload_bytes={} result=pass",
+                work.property_full_topology_replacements(),
+                work.property_upload_bytes(),
+            );
+            Ok(())
+        }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | generation-state-scale-change"
                 .to_owned(),
         ),
     }
@@ -267,6 +292,7 @@ fn run_property_economics() -> Result<(), String> {
                 || work.property_full_initializations() != 0
                 || work.property_full_buffer_replacements() != 0
                 || work.property_full_topology_replacements() != 0
+                || work.property_full_generation_resyncs() != 0
                 || work.property_full_dense_transfers()
                     != usize::from(dirty_count == property_count)
             {
@@ -321,6 +347,7 @@ fn run_property_economics() -> Result<(), String> {
         || coalesced.property_index_lookups() != 4
         || coalesced.node_property_upload_bytes() != std::mem::size_of::<[f32; 16]>()
         || coalesced.property_write_ranges() != 1
+        || coalesced.property_full_generation_resyncs() != 0
     {
         return Err(format!(
             "coalesced repeated writes did not collapse to one sparse update: {coalesced:?}"
@@ -349,7 +376,10 @@ fn require_property_full_reason(
         work.property_full_topology_replacements(),
         work.property_full_dense_transfers(),
     ];
-    if actual != expected || work.property_write_ranges() != 1 {
+    if actual != expected
+        || work.property_full_generation_resyncs() != 0
+        || work.property_write_ranges() != 1
+    {
         return Err(format!(
             "property full-transfer reason {name} was not explicit: expected={expected:?} actual={actual:?} work={work:?}"
         ));
@@ -402,7 +432,7 @@ fn git_commit() -> String {
 
 fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
     println!(
-        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} property_value_visits={} property_index_lookups={} property_dirty_indices={} property_write_ranges={} property_full_initializations={} property_full_buffer_replacements={} property_full_topology_replacements={} property_full_dense_transfers={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
+        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} property_value_visits={} property_index_lookups={} property_dirty_indices={} property_write_ranges={} property_full_initializations={} property_full_buffer_replacements={} property_full_topology_replacements={} property_full_dense_transfers={} property_full_generation_resyncs={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
         work.scene_node_realization_rebuilds(),
         work.primitive_prepare_calls(),
         work.text_prepare_calls(),
@@ -422,6 +452,7 @@ fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
         work.property_full_buffer_replacements(),
         work.property_full_topology_replacements(),
         work.property_full_dense_transfers(),
+        work.property_full_generation_resyncs(),
         work.gpu_resource_count(),
         work.gpu_resource_bytes(),
         work.gpu_resource_creations(),

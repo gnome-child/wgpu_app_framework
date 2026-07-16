@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(
             text_viewport_preparation_bounds(viewport, resident, true),
             resident,
-            "retained scroll text must prepare every glyph in its admitted runway"
+            "retained scroll text must prepare every glyph in its resident runway"
         );
     }
 

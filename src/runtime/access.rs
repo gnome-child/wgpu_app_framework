@@ -122,7 +122,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(epoch) = self
             .session
             .window(window)
-            .map(session::Window::desired_presentation_epoch)
+            .map(session::Window::requested_presentation_epoch)
         else {
             return;
         };
@@ -131,13 +131,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         diagnostics.scroll.record_input(epoch, started_at);
     }
 
-    pub(crate) fn desired_presentation_epoch(
+    pub(crate) fn requested_presentation_epoch(
         &self,
         window: window::Id,
     ) -> Option<window::PresentationEpoch> {
         self.session
             .window(window)
-            .map(session::Window::desired_presentation_epoch)
+            .map(session::Window::requested_presentation_epoch)
     }
 
     pub(crate) fn record_native_translation(
@@ -242,31 +242,37 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
         let property_only = kind.property_only();
         let refreshes_active = kind.refreshes_active();
-        let presented = report.presented();
-        let presented_at = report.presented_at();
+        let present_submitted = report.present_submitted();
+        let present_submitted_at = report.present_submitted_at();
         let properties = stack.base().properties();
         let property_serial = properties.serial().value();
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.scroll.record_candidate(epoch, property_serial);
-        if presented {
-            diagnostics
-                .scroll
-                .record_present_submitted(epoch, property_serial, presented_at);
+        if present_submitted {
+            diagnostics.scroll.record_present_submitted(
+                epoch,
+                property_serial,
+                present_submitted_at,
+            );
         }
         diagnostics
             .render
-            .record_property_attempt(properties, property_only, presented);
+            .record_property_attempt(properties, property_only, present_submitted);
         diagnostics
             .render
             .record_present(epoch, property_only, report);
-        if diagnostics.render.frames_presented.is_multiple_of(10) {
+        if diagnostics
+            .render
+            .frames_present_submitted
+            .is_multiple_of(10)
+        {
             log::debug!(
                 target: "wgpu_l3::presentation_clock",
-                "events={} prepared={} attempted={} presented={} view_rebuilds={} layout_recomposes={} layout_reuses={} routing_layouts={} event_p95_us={} native_p95_us={} rebuild_p95_us={} reconcile_p95_us={} routing_layout_p95_us={} presentation_layout_p95_us={} scene_p95_us={} batch_p95_us={} acquire_p95_us={} encode_present_p95_us={} draw_p95_us={} interval_p95_us={} scene_items={} batches={} glyph_batches={} geometry_vertices={} geometry_upload_bytes={} geometry_buffer_creations={} draw_passes={} text_hits={} text_misses={} shape_calls={} text_hits_total={} text_misses_total={} shape_calls_total={}",
+                "events={} prepared={} attempted={} present_submitted={} view_rebuilds={} layout_recomposes={} layout_reuses={} routing_layouts={} event_p95_us={} native_p95_us={} rebuild_p95_us={} reconcile_p95_us={} routing_layout_p95_us={} presentation_layout_p95_us={} scene_p95_us={} batch_p95_us={} acquire_p95_us={} encode_present_p95_us={} draw_p95_us={} interval_p95_us={} scene_items={} batches={} glyph_batches={} geometry_vertices={} geometry_upload_bytes={} geometry_buffer_creations={} draw_passes={} text_hits={} text_misses={} shape_calls={} text_hits_total={} text_misses_total={} shape_calls_total={}",
                 diagnostics.pipeline.events_received,
                 diagnostics.pipeline.frames_prepared,
                 diagnostics.render.frames_attempted,
-                diagnostics.render.frames_presented,
+                diagnostics.render.frames_present_submitted,
                 diagnostics.frame.view_rebuilds,
                 diagnostics.frame.layout_recomposes,
                 diagnostics.frame.layout_reuses,
@@ -299,14 +305,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             );
         }
 
-        if presented {
+        if present_submitted {
             let activated =
-                !refreshes_active && self.session.acknowledge_presentation(window, epoch);
+                !refreshes_active && self.session.record_present_submitted(window, epoch);
             let refreshes_visible = refreshes_active
                 && self
                     .session
                     .window(window)
-                    .and_then(session::Window::acknowledged_presentation_epoch)
+                    .and_then(session::Window::present_submitted_epoch)
                     == Some(epoch)
                 && self
                     .presented_geometry
@@ -322,10 +328,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     .record_semantic_activation();
             }
             if activated || refreshes_visible {
-                let mut admitted = std::collections::HashMap::new();
+                let mut present_submitted_offsets = std::collections::HashMap::new();
                 for projection in layout.scroll_projections() {
                     if let Some(offset) = stack.scroll_offset(projection.node()) {
-                        admitted
+                        present_submitted_offsets
                             .entry(projection.target().clone())
                             .and_modify(|current: &mut interaction::ScrollOffset| {
                                 *current = interaction::ScrollOffset::new(
@@ -336,8 +342,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                             .or_insert(offset);
                     }
                 }
-                for (target, offset) in admitted {
-                    self.session.admit_scroll(window, target, offset);
+                for (target, offset) in present_submitted_offsets {
+                    self.session.accept_resident_scroll(window, target, offset);
                 }
                 self.presented_geometry.insert(
                     window,
@@ -401,7 +407,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.session.retry_invalidation(window, invalidation);
             }
         }
-        !presented
+        !present_submitted
     }
 
     pub(crate) fn presented_layout(
@@ -424,13 +430,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     #[cfg(test)]
-    pub(crate) fn acknowledged_presentation_epoch(
+    pub(crate) fn present_submitted_epoch(
         &self,
         window: window::Id,
     ) -> Option<window::PresentationEpoch> {
         self.session
             .window(window)
-            .and_then(session::Window::acknowledged_presentation_epoch)
+            .and_then(session::Window::present_submitted_epoch)
     }
 
     pub(in crate::runtime) fn request_all_redraws(&mut self) {

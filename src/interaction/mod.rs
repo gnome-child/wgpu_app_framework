@@ -328,12 +328,12 @@ impl Interaction {
         self.scroll.request(target, update)
     }
 
-    pub(super) fn admit_scroll(
+    pub(super) fn accept_resident_scroll(
         &mut self,
         target: Target,
         offset: ScrollOffset,
     ) -> Option<ScrollOffset> {
-        self.scroll.admit(target, offset)
+        self.scroll.accept_resident(target, offset)
     }
 
     pub(crate) fn project_requested_scroll(&mut self) {

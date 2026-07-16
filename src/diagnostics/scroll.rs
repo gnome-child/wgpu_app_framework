@@ -56,12 +56,12 @@ pub struct Scroll {
     pub text_area_viewports: usize,
     pub scroll_input_events: usize,
     pub scroll_desired_changes: usize,
-    pub scroll_admitted_changes: usize,
+    pub scroll_resident_acceptances: usize,
     pub scroll_unchanged: usize,
     pub scroll_property_ticks: usize,
     pub scroll_needs_residency: usize,
-    pub desired_admitted_lag_x_max: usize,
-    pub desired_admitted_lag_y_max: usize,
+    pub desired_resident_lag_x_max: usize,
+    pub desired_resident_lag_y_max: usize,
     request: Samples,
     property_tick: Samples,
     needs_residency: Samples,
@@ -79,7 +79,7 @@ impl Scroll {
     pub(crate) fn record_property_tick(&mut self, duration: Duration) {
         self.scroll_input_events += 1;
         self.scroll_desired_changes += 1;
-        self.scroll_admitted_changes += 1;
+        self.scroll_resident_acceptances += 1;
         self.scroll_property_ticks += 1;
         self.request.record(duration.as_micros());
         self.property_tick.record(duration.as_micros());
@@ -89,19 +89,19 @@ impl Scroll {
         &mut self,
         desired_x: i32,
         desired_y: i32,
-        admitted_x: i32,
-        admitted_y: i32,
+        resident_x: i32,
+        resident_y: i32,
         duration: Duration,
     ) {
         self.scroll_input_events += 1;
         self.scroll_desired_changes += 1;
         self.scroll_needs_residency += 1;
-        self.desired_admitted_lag_x_max = self
-            .desired_admitted_lag_x_max
-            .max(desired_x.abs_diff(admitted_x) as usize);
-        self.desired_admitted_lag_y_max = self
-            .desired_admitted_lag_y_max
-            .max(desired_y.abs_diff(admitted_y) as usize);
+        self.desired_resident_lag_x_max = self
+            .desired_resident_lag_x_max
+            .max(desired_x.abs_diff(resident_x) as usize);
+        self.desired_resident_lag_y_max = self
+            .desired_resident_lag_y_max
+            .max(desired_y.abs_diff(resident_y) as usize);
         self.request.record(duration.as_micros());
         self.needs_residency.record(duration.as_micros());
     }
@@ -250,7 +250,7 @@ impl Scroll {
         &mut self,
         epoch: crate::window::PresentationEpoch,
         property_serial: u64,
-        presented_at: Instant,
+        present_submitted_at: Instant,
     ) {
         for trace in self
             .traces
@@ -261,7 +261,7 @@ impl Scroll {
             trace.gpu_submitted_property_serial = Some(property_serial);
             trace.present_submitted_property_serial = Some(property_serial);
             trace.input_to_present_submitted_us = trace.input_started_at.map(|started_at| {
-                presented_at
+                present_submitted_at
                     .saturating_duration_since(started_at)
                     .as_micros()
             });

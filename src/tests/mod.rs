@@ -403,7 +403,7 @@ impl platform::Backend for FakeBackend {
                 Duration::from_micros(20),
                 Instant::now(),
             )
-            .with_presented(!self.skip_present),
+            .with_present_submitted(!self.skip_present),
         )
         .into())
     }

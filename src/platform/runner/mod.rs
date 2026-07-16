@@ -33,7 +33,7 @@ pub struct Runner<M: State, E: Send + 'static = (), B: Backend = Native> {
 
 #[derive(Default)]
 struct PresentationPulse {
-    last_presented_at: Option<Instant>,
+    last_present_submitted_at: Option<Instant>,
 }
 
 impl PresentationPulse {
@@ -49,11 +49,11 @@ impl PresentationPulse {
             .filter(|refresh| *refresh > 0)
             .unwrap_or(Self::FALLBACK_REFRESH_MILLIHERTZ);
         let interval = Duration::from_secs_f64(1_000.0 / f64::from(refresh_millihertz));
-        self.last_presented_at
+        self.last_present_submitted_at
             .and_then(|last| last.checked_add(interval))
     }
 
-    fn mark_presented(&mut self, now: Instant) {
-        self.last_presented_at = Some(now);
+    fn mark_present_submitted(&mut self, now: Instant) {
+        self.last_present_submitted_at = Some(now);
     }
 }

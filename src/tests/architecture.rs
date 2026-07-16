@@ -791,7 +791,7 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
     for field in [
         "schema=wgpu_l3.renderer_receipt.v1",
         "frames_attempted=",
-        "frames_presented=",
+        "frames_present_submitted=",
         "renderer_deadline_misses=",
         "semantic_commits_created=",
         "scene_nodes_reused=",
@@ -5989,7 +5989,7 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         "retained text must share one atlas, re-pin live allocations, and consume an exact pre-realized copy-on-write viewport transform without repreparation"
     );
     let active_present_receipt = native_surface
-        .find("let presented = report.present_timing.is_some();")
+        .find("let present_submitted = report.present_timing.is_some();")
         .expect("native presentation should derive successful surface truth");
     let candidate_realization = native_surface
         .find("renderer.advance_stack_after_present(")
@@ -6006,6 +6006,7 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && renderer.contains("canvas.draw(render_context")
             && canvas.contains("self.surface.render(render_context, encode)")
             && surface.contains("submit([encoder.finish()]);")
+            && surface.contains("frame.present();")
             && native_surface.contains("retaining active state: {error}")
             && !renderer.contains("candidate_transaction")
             && !renderer.contains("CachedScrollLayer")
@@ -6258,12 +6259,60 @@ fn property_ticks_use_stable_indices_dirty_dependents_and_named_full_transfers()
         "property_full_buffer_replacements",
         "property_full_topology_replacements",
         "property_full_dense_transfers",
+        "property_full_generation_resyncs",
     ] {
         assert!(
             retained.contains(reason) && report.contains(reason),
             "full property transfer reason {reason} must remain observable"
         );
     }
+}
+
+#[test]
+fn generation_state_contract_has_one_owner_and_exact_eight_case_suite() {
+    let interaction = include_str!("../interaction/scroll.rs");
+    let session = include_str!("../session/window.rs");
+    let dispatch = include_str!("../runtime/input/dispatch.rs");
+    let access = include_str!("../runtime/access.rs");
+    let report = include_str!("../render/report.rs");
+    let properties = include_str!("../scene/commit.rs");
+    let retained = include_str!("../render/retained.rs");
+    let runtime_tests = include_str!("runtime_tests.rs");
+    let layout_tests = include_str!("layout_scene.rs");
+    let renderer_tests = include_str!("../../tools/renderer_debug/src/lib.rs");
+
+    assert!(
+        interaction.contains("ResidentAccepted(ScrollOffset)")
+            && interaction.contains("resident_accepted: ScrollOffset")
+            && interaction.contains("pub(crate) fn resident_offset(")
+            && interaction.contains("pub(super) fn accept_resident(")
+            && !interaction.contains("Admitted(ScrollOffset)")
+            && !dispatch.contains("admitted: interaction::ScrollOffset")
+            && access.contains("present_submitted_offsets"),
+        "scroll state must name desired intent, resident acceptance, and present-submitted feedback distinctly"
+    );
+    assert!(
+        session.contains("struct PresentationState {")
+            && session.contains("requested: app_window::PresentationEpoch")
+            && session.contains("present_submitted: Option<app_window::PresentationEpoch>")
+            && session.contains("fn record_present_submitted(")
+            && report.contains("present_submitted: bool")
+            && report.contains("present_submitted_at: Instant"),
+        "one window state must own requested and present-submitted epochs, advanced only by a named render receipt"
+    );
+    assert!(
+        properties.contains("predecessor: Option<PropertySerial>")
+            && retained.contains("properties.predecessor_serial()")
+            && retained.contains("PropertyFullReason::GenerationResync"),
+        "sparse GPU deltas must prove their predecessor or select an explicit generation resynchronization"
+    );
+    let suite_cases = runtime_tests.matches("fn generation_state_case_").count()
+        + layout_tests.matches("fn generation_state_case_").count()
+        + renderer_tests.matches("fn generation_state_case_").count();
+    assert_eq!(
+        suite_cases, 8,
+        "the Tier C generation/state suite is an exact eight-case contract"
+    );
 }
 
 #[test]
@@ -6283,14 +6332,14 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
             && interaction.contains("Geometry(ScrollOffset),")
             && interaction.contains("enum Position {")
             && interaction.contains("pub(super) fn request(")
-            && interaction.contains("pub(super) fn admit(")
+            && interaction.contains("pub(super) fn accept_resident(")
             && dispatch.contains("enum ScrollTransition {")
             && dispatch.contains("PropertyTick(interaction::ScrollOffset),")
             && dispatch.contains("NeedsResidency {")
             && dispatch.contains("desired: interaction::ScrollOffset,")
-            && dispatch.contains("admitted: interaction::ScrollOffset,")
+            && dispatch.contains("resident_accepted: interaction::ScrollOffset,")
             && dispatch.matches("self.apply_scroll_transition(").count() == 2,
-        "relative and absolute input must cross one authoritative request/admit and scheduling path"
+        "relative and absolute input must cross one authoritative request/resident-acceptance and scheduling path"
     );
     for displaced in ["fn scroll_by(", "fn resolve_scroll("] {
         assert!(
@@ -6401,7 +6450,8 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
             && layout.contains("maximum.y().max(candidate.y())")
             && presentation.contains("let mut seen = std::collections::HashSet::new();")
             && presentation.contains("layout.resolve_scroll_offset(target, desired)")
-            && access.contains("let mut admitted = std::collections::HashMap::new();")
+            && access
+                .contains("let mut present_submitted_offsets = std::collections::HashMap::new();")
             && access.contains("current.x().max(offset.x())")
             && access.contains("current.y().max(offset.y())")
             && runtime

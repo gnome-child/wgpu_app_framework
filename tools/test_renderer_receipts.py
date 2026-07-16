@@ -18,7 +18,7 @@ def receipt_text(
     device_type: str = "DiscreteGpu",
     refresh_millihertz: int = 240_000,
 ) -> str:
-    presented = 120
+    present_submitted = 120
     values = {
         "schema": "wgpu_l3.renderer_receipt.v1",
         "workload": workload,
@@ -39,34 +39,34 @@ def receipt_text(
         "desired_maximum_frame_latency": "2",
         "fallback_adapter_requested": "false",
         "fallback_selection_verified": "true",
-        "frames_attempted": str(presented),
-        "frames_presented": str(presented),
+        "frames_attempted": str(present_submitted),
+        "frames_present_submitted": str(present_submitted),
         "frames_skipped": "0",
         "missed_refresh_opportunities": "0",
         "renderer_deadline_misses": "0" if draw_p95 < 16_000 else "1",
         "virtual_guard_crossings": str(guard_crossings),
         "replenishment_commits": str(guard_crossings),
-        "frame_interval_us_sample_count": str(presented - 1),
+        "frame_interval_us_sample_count": str(present_submitted - 1),
         "frame_interval_us_p95": "16667",
         "frame_interval_us_p99": "17000",
         "frame_interval_us_max": "18000",
-        "draw_us_sample_count": str(presented),
+        "draw_us_sample_count": str(present_submitted),
         "draw_us_p95": str(draw_p95),
         "draw_us_p99": str(draw_p95 + 500),
         "draw_us_max": str(draw_p95 + 1000),
         "replenishment_commit_us_sample_count": str(guard_crossings),
         "replenishment_commit_us_p95": "4000" if guard_crossings else "0",
-        "scene_paint_calls": str(presented),
+        "scene_paint_calls": str(present_submitted),
         "inline_text_shape_calls_total": "20",
         "text_prepare_calls_total": "20",
         "quad_prepare_calls_total": "20",
         "content_upload_bytes_total": "1024",
         "property_upload_bytes": "0",
-        "render_plan_rebuilds_total": str(presented),
+        "render_plan_rebuilds_total": str(present_submitted),
         "render_plan_reuses_total": "0",
-        "full_surface_blits_total": str(presented),
+        "full_surface_blits_total": str(present_submitted),
         "full_surface_blit_bytes_total": "4096",
-        "acquire_successes": str(presented),
+        "acquire_successes": str(present_submitted),
     }
     return "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
 
@@ -129,7 +129,7 @@ class RendererReceiptTests(unittest.TestCase):
         )
         self.assertTrue(summary["field_igpu_60hz_required"])
 
-    def test_baseline_can_be_admitted_without_pretending_to_meet_final_budget(self) -> None:
+    def test_baseline_can_be_validated_without_pretending_to_meet_final_budget(self) -> None:
         pair = self.pair(draw_p95=20_000)
         summary = validate_pair(*pair)
         self.assertFalse(summary["in_window"]["renderer_budget_met"])

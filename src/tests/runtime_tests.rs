@@ -37,7 +37,8 @@ fn store_starts_clean_with_initial_revision() {
 }
 
 #[test]
-fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
+fn generation_state_case_failed_acquire_retains_present_submitted_geometry_and_retries_the_same_epoch()
+ {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -54,16 +55,16 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
         candidate.layout(),
         candidate.stack(),
         candidate.property_only(),
-        successful_render_report().with_presented(false),
+        successful_render_report().with_present_submitted(false),
     );
 
     assert!(app.presented_layout(window).is_none());
-    assert_eq!(app.acknowledged_presentation_epoch(window), None);
+    assert_eq!(app.present_submitted_epoch(window), None);
     assert_eq!(
         app.session()
             .window(window)
             .expect("window should remain")
-            .desired_presentation_epoch(),
+            .requested_presentation_epoch(),
         epoch,
         "retrying the same truth must not mint a freshness epoch"
     );
@@ -102,7 +103,7 @@ fn skipped_presentation_retains_visible_geometry_and_retries_the_same_epoch() {
         successful_render_report(),
     );
 
-    assert_eq!(app.acknowledged_presentation_epoch(window), Some(epoch));
+    assert_eq!(app.present_submitted_epoch(window), Some(epoch));
     assert_eq!(
         app.presented_layout(window)
             .as_deref()
@@ -157,7 +158,7 @@ fn skipped_candidate_geometry_never_replaces_the_visible_hit_surface() {
         candidate.layout(),
         candidate.stack(),
         candidate.property_only(),
-        successful_render_report().with_presented(false),
+        successful_render_report().with_present_submitted(false),
     );
 
     let retained = app
@@ -262,7 +263,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
     );
 
     assert_eq!(
-        app.acknowledged_presentation_epoch(window),
+        app.present_submitted_epoch(window),
         Some(active_epoch),
         "active refresh must not acknowledge the pending candidate epoch"
     );
@@ -284,7 +285,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
 }
 
 #[test]
-fn scroll_leaving_resident_topology_advances_residency_without_a_semantic_commit() {
+fn generation_state_case_residency_race_advances_residency_without_a_semantic_commit() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -588,7 +589,7 @@ fn one_scroll_residency_can_advance_while_an_independent_one_stays_reusable() {
 }
 
 #[test]
-fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
+fn generation_state_case_resize_rejects_older_successful_geometry_receipt() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -622,10 +623,7 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
         successful_render_report(),
     );
 
-    assert_eq!(
-        app.acknowledged_presentation_epoch(window),
-        Some(newer.epoch())
-    );
+    assert_eq!(app.present_submitted_epoch(window), Some(newer.epoch()));
     assert_eq!(
         app.presented_layout(window)
             .as_deref()
@@ -635,7 +633,7 @@ fn older_successful_receipt_cannot_replace_newer_presented_geometry() {
 }
 
 #[test]
-fn model_revision_desired_epoch_and_acknowledged_epoch_are_independent_facts() {
+fn generation_state_case_delayed_redraw_keeps_requested_and_present_submitted_epochs_distinct() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -644,17 +642,17 @@ fn model_revision_desired_epoch_and_acknowledged_epoch_are_independent_facts() {
         .session()
         .window(window)
         .unwrap()
-        .desired_presentation_epoch();
+        .requested_presentation_epoch();
 
     app.request_redraw(window);
     let next_desired = app
         .session()
         .window(window)
         .unwrap()
-        .desired_presentation_epoch();
+        .requested_presentation_epoch();
     assert!(next_desired > desired);
     assert_eq!(app.revision(), revision);
-    assert_eq!(app.acknowledged_presentation_epoch(window), None);
+    assert_eq!(app.present_submitted_epoch(window), None);
 
     let candidate = app
         .render_scene(window, geometry::Size::new(760, 660))
@@ -669,17 +667,14 @@ fn model_revision_desired_epoch_and_acknowledged_epoch_are_independent_facts() {
         successful_render_report(),
     );
     assert_eq!(app.revision(), revision);
-    assert_eq!(
-        app.acknowledged_presentation_epoch(window),
-        Some(next_desired)
-    );
+    assert_eq!(app.present_submitted_epoch(window), Some(next_desired));
 
     app.change(state::Reason::programmatic("model-only witness"), |state| {
         state.clicks += 1;
     });
     assert!(app.revision() > revision);
     assert_eq!(
-        app.acknowledged_presentation_epoch(window),
+        app.present_submitted_epoch(window),
         Some(next_desired),
         "model truth may advance while visible geometry remains older"
     );

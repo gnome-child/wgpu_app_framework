@@ -333,7 +333,7 @@ mod tests {
     fn retained_scroll_tick_realizes_text_entering_from_the_runway() {
         let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
         harness.require_scroll_text_runway().expect(
-            "an admitted property tick must reveal the complete row, including retained text",
+            "a resident-accepted property tick must reveal the complete row, including retained text",
         );
     }
 
@@ -521,6 +521,26 @@ mod tests {
             .expect("coalesced case");
         assert_eq!(coalesced.property_dirty_indices(), 1);
         assert_eq!(coalesced.node_property_upload_bytes(), 64);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn generation_state_case_scale_change_replaces_viewport_properties_without_stale_pixels() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let work = harness
+            .compare_scale_change_generation(1.25)
+            .expect("scale-changed retained output");
+        assert_eq!(work.property_full_topology_replacements(), 1);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn skipped_property_candidate_selects_one_generation_resynchronization() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        let work = harness
+            .compare_skipped_property_generation()
+            .expect("skipped property generation must remain pixel exact");
+        assert_eq!(work.property_full_generation_resyncs(), 1);
     }
 
     #[test]

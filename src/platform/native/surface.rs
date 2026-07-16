@@ -187,7 +187,7 @@ impl Native {
                 let pending = self
                     .pending_presentations
                     .get(&window)
-                    .expect("pending presentation was just admitted");
+                    .expect("pending presentation was just enqueued");
                 let preparing = pending.preparing.clone();
                 let newest = pending.newest().clone();
                 let remaining = preparation
@@ -297,8 +297,8 @@ impl Native {
             );
         }
 
-        let presented = report.present_timing.is_some();
-        if presented && let Some(candidate) = candidate_after_present {
+        let present_submitted = report.present_timing.is_some();
+        if present_submitted && let Some(candidate) = candidate_after_present {
             let preparation = preparation_window(native_window.display_refresh_millihertz());
             if let Err(error) = renderer.advance_stack_after_present(
                 context,
@@ -315,7 +315,7 @@ impl Native {
                 );
             }
         }
-        if presented
+        if present_submitted
             && context.windows_popup_composition_supported()
             && !self.popup_prewarm.contains_key(&window)
         {
@@ -323,17 +323,17 @@ impl Native {
         }
 
         if activation_from_pending {
-            if !presented {
+            if !present_submitted {
                 self.requeue_failed_activation(window, actual.clone());
             }
         }
 
-        if presented {
+        if present_submitted {
             self.active_presentations.insert(window, actual.clone());
         }
 
         let report = diagnostics::RenderReport::new(acquire_wait, draw, Instant::now())
-            .with_presented(presented)
+            .with_present_submitted(present_submitted)
             .with_acquire_outcome(report.acquire_outcome)
             .with_pipeline_timings(report.batch_prepare, encode_submit_present)
             .with_draw_stats(report.stats)
@@ -533,7 +533,7 @@ mod tests {
         let scroll = projection.node();
         let (_, maximum) = projection
             .accepted_offsets()
-            .expect("active table residency should prove an admitted interval");
+            .expect("active table residency should prove a resident interval");
         let active_offset = active
             .properties()
             .scroll_offset(scroll)

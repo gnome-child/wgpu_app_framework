@@ -42,7 +42,7 @@ cargo test --release -p renderer_debug control_gallery_slow_scroll_never_exposes
 ```
 
 The slow-scroll witness presents 64 consecutive four-pixel deltas. It requires
-monotonic requested/admitted motion, exact active pixels while a replacement
+monotonic requested/resident-accepted motion, exact active pixels while a replacement
 residency prepares, exact pixels after activation, advancing local residency
 revisions, and zero semantic activations for row-window crossings.
 

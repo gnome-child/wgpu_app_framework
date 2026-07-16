@@ -211,6 +211,7 @@ pub struct Work {
     property_full_buffer_replacements: usize,
     property_full_topology_replacements: usize,
     property_full_dense_transfers: usize,
+    property_full_generation_resyncs: usize,
     gpu_resource_count: usize,
     gpu_resource_bytes: usize,
     gpu_resource_creations: usize,
@@ -311,6 +312,10 @@ impl Work {
 
     pub fn property_full_dense_transfers(self) -> usize {
         self.property_full_dense_transfers
+    }
+
+    pub fn property_full_generation_resyncs(self) -> usize {
+        self.property_full_generation_resyncs
     }
 
     pub fn unattributed_property_upload_bytes(self) -> usize {
@@ -452,6 +457,7 @@ impl From<render::DrawStats> for Work {
             property_full_buffer_replacements: stats.property_full_buffer_replacements,
             property_full_topology_replacements: stats.property_full_topology_replacements,
             property_full_dense_transfers: stats.property_full_dense_transfers,
+            property_full_generation_resyncs: stats.property_full_generation_resyncs,
             gpu_resource_count: stats.retained_gpu_resource_count,
             gpu_resource_bytes: stats.retained_gpu_resource_bytes,
             gpu_resource_creations: stats.retained_gpu_resource_creations,
@@ -2528,6 +2534,93 @@ impl Harness {
             return Err("coalesced property writes did not produce one dirty index".to_owned());
         }
         self.compare_retained_property_transition(&std::sync::Arc::new(commit), &initial, &tick)
+    }
+
+    pub fn compare_skipped_property_generation(&mut self) -> Result<Work, String> {
+        let (commit, initial, _) = scene::renderer_property_economics_fixture_at(256, 0, 70_000)
+            .map_err(|error| error.to_string())?;
+        let first_node = crate::composition::tree::NodeId::renderer_fixture(70_000);
+        let second_node = crate::composition::tree::NodeId::renderer_fixture(70_001);
+        let (first, advanced) = scene::Properties::apply_updates(
+            &commit,
+            &initial,
+            scene::PropertySerial::INITIAL.next(),
+            vec![scene::PropertyValue::Transform {
+                node: first_node,
+                value: scene::Transform::translate(2.0, 0.0),
+            }],
+        )
+        .map_err(|error| error.to_string())?;
+        if !advanced {
+            return Err("first skipped generation did not advance".to_owned());
+        }
+        let (latest, advanced) = scene::Properties::apply_updates(
+            &commit,
+            &first,
+            scene::PropertySerial::INITIAL.next().next(),
+            vec![scene::PropertyValue::Transform {
+                node: second_node,
+                value: scene::Transform::translate(2.0, 0.0),
+            }],
+        )
+        .map_err(|error| error.to_string())?;
+        if !advanced || latest.changed().len() != 1 {
+            return Err("latest generation did not retain its one local dirty index".to_owned());
+        }
+
+        self.compare_retained_property_transition(&std::sync::Arc::new(commit), &initial, &latest)
+    }
+
+    pub fn compare_scale_change_generation(&mut self, next_scale: f32) -> Result<Work, String> {
+        if !next_scale.is_finite() || next_scale <= 0.0 || next_scale == self.scale_factor {
+            return Err("next scale must be finite, positive, and different".to_owned());
+        }
+        let (commit, properties, _) = scene::renderer_property_economics_fixture_at(256, 0, 80_000)
+            .map_err(|error| error.to_string())?;
+        let commit = std::sync::Arc::new(commit);
+        let (width, height) = self.physical_extent(commit.size());
+        self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+
+        self.scale_factor = next_scale;
+        let (width, height) = self.physical_extent(commit.size());
+        let (candidate, work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected, _) = self.witness.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            &properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if candidate != expected {
+            return Err(
+                "scale-changed retained output differs from a fresh realization".to_owned(),
+            );
+        }
+        let work = Work::from(work);
+        if work.property_full_topology_replacements() != 1 {
+            return Err(format!(
+                "scale change did not select one viewport/topology property replacement: {work:?}"
+            ));
+        }
+        Ok(work)
     }
 
     fn draw_property_economics_initial(

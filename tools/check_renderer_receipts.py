@@ -12,7 +12,7 @@ from typing import Iterable
 
 
 SCHEMA = "wgpu_l3.renderer_receipt.v1"
-MIN_PRESENTED_FRAMES = 60
+MIN_PRESENT_SUBMITTED_FRAMES = 60
 MIN_REFRESH_MILLIHERTZ = 59_000
 MAX_REFRESH_MILLIHERTZ = 61_000
 
@@ -44,7 +44,7 @@ REQUIRED_TEXT_KEYS = (
 
 REQUIRED_INTEGER_KEYS = (
     "frames_attempted",
-    "frames_presented",
+    "frames_present_submitted",
     "frames_skipped",
     "missed_refresh_opportunities",
     "renderer_deadline_misses",
@@ -176,28 +176,36 @@ def _validate_common(
         )
 
     attempted = receipt.integer("frames_attempted")
-    presented = receipt.integer("frames_presented")
+    present_submitted = receipt.integer("frames_present_submitted")
     skipped = receipt.integer("frames_skipped")
-    _require(errors, attempted >= presented, f"{label}: presented frames exceed attempts")
-    _require(errors, skipped == attempted - presented, f"{label}: frames_skipped is inconsistent")
     _require(
         errors,
-        presented >= MIN_PRESENTED_FRAMES,
-        f"{label}: only {presented} frames presented; need at least {MIN_PRESENTED_FRAMES}",
+        attempted >= present_submitted,
+        f"{label}: present-submitted frames exceed attempts",
     )
     _require(
         errors,
-        receipt.integer("draw_us_sample_count") == presented,
-        f"{label}: draw sample count does not match presented frames",
+        skipped == attempted - present_submitted,
+        f"{label}: frames_skipped is inconsistent",
     )
     _require(
         errors,
-        receipt.integer("acquire_successes") == presented,
-        f"{label}: acquire successes do not match presented frames",
+        present_submitted >= MIN_PRESENT_SUBMITTED_FRAMES,
+        f"{label}: only {present_submitted} frames reached present submission; need at least {MIN_PRESENT_SUBMITTED_FRAMES}",
     )
     _require(
         errors,
-        receipt.integer("frame_interval_us_sample_count") >= MIN_PRESENTED_FRAMES - 1,
+        receipt.integer("draw_us_sample_count") == present_submitted,
+        f"{label}: draw sample count does not match present-submitted frames",
+    )
+    _require(
+        errors,
+        receipt.integer("acquire_successes") == present_submitted,
+        f"{label}: acquire successes do not match present-submitted frames",
+    )
+    _require(
+        errors,
+        receipt.integer("frame_interval_us_sample_count") >= MIN_PRESENT_SUBMITTED_FRAMES - 1,
         f"{label}: too few frame-interval samples",
     )
 
@@ -285,7 +293,7 @@ def validate_pair(
         return {
             "workload": receipt.text("workload"),
             "frames_attempted": receipt.integer("frames_attempted"),
-            "frames_presented": receipt.integer("frames_presented"),
+            "frames_present_submitted": receipt.integer("frames_present_submitted"),
             "frames_skipped": receipt.integer("frames_skipped"),
             "frame_interval_us_p95": receipt.integer("frame_interval_us_p95"),
             "frame_interval_us_p99": receipt.integer("frame_interval_us_p99"),
@@ -351,7 +359,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             require_field_igpu_60hz=args.require_field_igpu_60hz,
         )
     except ReceiptError as error:
-        print(f"renderer receipt admission failed:\n{error}", file=sys.stderr)
+        print(f"renderer receipt validation failed:\n{error}", file=sys.stderr)
         return 1
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

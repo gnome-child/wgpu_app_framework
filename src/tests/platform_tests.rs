@@ -974,7 +974,7 @@ fn text_editor_platform_applies_host_work_to_backend() {
         .diagnostics(window)
         .expect("diagnostics should exist")
         .render;
-    assert_eq!(render.frames_presented, 1);
+    assert_eq!(render.frames_present_submitted, 1);
     assert_eq!(render.acquire_wait_p95_us(), 10);
     assert_eq!(render.draw_p95_us(), 20);
 
@@ -1025,7 +1025,7 @@ fn high_rate_events_mutate_immediately_but_present_once_at_redraw() {
         .diagnostics(window)
         .unwrap()
         .render
-        .frames_presented;
+        .frames_present_submitted;
     platform.backend_mut().events.clear();
 
     for _ in 0..1_000 {
@@ -1079,7 +1079,7 @@ fn high_rate_events_mutate_immediately_but_present_once_at_redraw() {
             .diagnostics(window)
             .unwrap()
             .render
-            .frames_presented,
+            .frames_present_submitted,
         before_frames
     );
 
@@ -1229,7 +1229,7 @@ fn skipped_frame_requests_redraw_until_one_receipt_succeeds() {
         .unwrap()
         .render;
     assert_eq!(render.frames_attempted, 1);
-    assert_eq!(render.frames_presented, 0);
+    assert_eq!(render.frames_present_submitted, 0);
     assert!(
         platform
             .host()
@@ -1258,7 +1258,7 @@ fn skipped_frame_requests_redraw_until_one_receipt_succeeds() {
         .unwrap()
         .render;
     assert_eq!(render.frames_attempted, 2);
-    assert_eq!(render.frames_presented, 1);
+    assert_eq!(render.frames_present_submitted, 1);
     assert!(
         platform
             .host()

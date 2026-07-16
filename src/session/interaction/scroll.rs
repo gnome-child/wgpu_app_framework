@@ -20,14 +20,14 @@ impl Session {
             .or_else(|| reveal_cleared.then(|| window.interaction.scroll().desired_offset(&target)))
     }
 
-    pub(crate) fn admit_scroll(
+    pub(crate) fn accept_resident_scroll(
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
         offset: interaction::ScrollOffset,
     ) -> Option<interaction::ScrollOffset> {
         let window = self.window_mut(id)?;
-        window.interaction.admit_scroll(target, offset)
+        window.interaction.accept_resident_scroll(target, offset)
     }
 
     pub fn reveal_scroll(&mut self, id: app_window::Id, target: interaction::Target) -> bool {

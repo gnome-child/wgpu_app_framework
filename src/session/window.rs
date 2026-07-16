@@ -9,8 +9,7 @@ pub struct Window {
     pub(super) invalidation: Option<response::effect::Invalidation>,
     pub(super) property_tick_requested: bool,
     pub(super) projected_revision: Option<state::Revision>,
-    pub(super) desired_presentation_epoch: app_window::PresentationEpoch,
-    pub(super) acknowledged_presentation_epoch: Option<app_window::PresentationEpoch>,
+    presentation: PresentationState,
     cursor: Cursor,
     pub(super) focus: Option<Focus>,
     pub(super) menu_restore_focus: Option<Focus>,
@@ -23,6 +22,12 @@ pub struct Window {
 enum Cursor {
     Synced(pointer::Cursor),
     Pending(pointer::Cursor),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PresentationState {
+    requested: app_window::PresentationEpoch,
+    present_submitted: Option<app_window::PresentationEpoch>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,8 +45,7 @@ impl Window {
             invalidation: Some(response::effect::Invalidation::Rebuild),
             property_tick_requested: false,
             projected_revision: None,
-            desired_presentation_epoch: app_window::PresentationEpoch::initial(),
-            acknowledged_presentation_epoch: None,
+            presentation: PresentationState::initial(),
             cursor: Cursor::default(),
             focus: None,
             menu_restore_focus: None,
@@ -60,8 +64,7 @@ impl Window {
             invalidation: Some(response::effect::Invalidation::Rebuild),
             property_tick_requested: false,
             projected_revision: None,
-            desired_presentation_epoch: app_window::PresentationEpoch::initial(),
-            acknowledged_presentation_epoch: None,
+            presentation: PresentationState::initial(),
             cursor: Cursor::default(),
             focus: snapshot.focus,
             menu_restore_focus: None,
@@ -111,12 +114,12 @@ impl Window {
         self.projected_revision
     }
 
-    pub(crate) fn desired_presentation_epoch(&self) -> app_window::PresentationEpoch {
-        self.desired_presentation_epoch
+    pub(crate) fn requested_presentation_epoch(&self) -> app_window::PresentationEpoch {
+        self.presentation.requested
     }
 
-    pub(crate) fn acknowledged_presentation_epoch(&self) -> Option<app_window::PresentationEpoch> {
-        self.acknowledged_presentation_epoch
+    pub(crate) fn present_submitted_epoch(&self) -> Option<app_window::PresentationEpoch> {
+        self.presentation.present_submitted
     }
 
     pub fn cursor(&self) -> pointer::Cursor {
@@ -152,6 +155,31 @@ impl Window {
 impl Default for Cursor {
     fn default() -> Self {
         Self::Synced(pointer::Cursor::Default)
+    }
+}
+
+impl PresentationState {
+    const fn initial() -> Self {
+        Self {
+            requested: app_window::PresentationEpoch::initial(),
+            present_submitted: None,
+        }
+    }
+
+    fn request(&mut self) {
+        self.requested = self.requested.next();
+    }
+
+    fn record_present_submitted(&mut self, epoch: app_window::PresentationEpoch) -> bool {
+        if epoch > self.requested
+            || self
+                .present_submitted
+                .is_some_and(|present_submitted| present_submitted >= epoch)
+        {
+            return false;
+        }
+        self.present_submitted = Some(epoch);
+        true
     }
 }
 
@@ -307,7 +335,7 @@ impl Session {
             return false;
         };
         let previous = window.invalidation;
-        window.desired_presentation_epoch = window.desired_presentation_epoch.next();
+        window.presentation.request();
         window.invalidation =
             Some(previous.map_or(invalidation, |previous| previous.max(invalidation)));
         previous != window.invalidation
@@ -332,7 +360,7 @@ impl Session {
             return false;
         };
         let changed = !window.property_tick_requested;
-        window.desired_presentation_epoch = window.desired_presentation_epoch.next();
+        window.presentation.request();
         window.property_tick_requested = true;
         changed
     }
@@ -366,7 +394,7 @@ impl Session {
         changed
     }
 
-    pub(crate) fn acknowledge_presentation(
+    pub(crate) fn record_present_submitted(
         &mut self,
         id: app_window::Id,
         epoch: app_window::PresentationEpoch,
@@ -374,14 +402,7 @@ impl Session {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
-        if window
-            .acknowledged_presentation_epoch
-            .is_some_and(|acknowledged| acknowledged >= epoch)
-        {
-            return false;
-        }
-        window.acknowledged_presentation_epoch = Some(epoch);
-        true
+        window.presentation.record_present_submitted(epoch)
     }
 
     pub(crate) fn set_cursor(&mut self, id: app_window::Id, cursor: pointer::Cursor) -> bool {
@@ -476,6 +497,20 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presentation_state_rejects_future_and_non_monotonic_receipts() {
+        let mut presentation = PresentationState::initial();
+        let initial = app_window::PresentationEpoch::initial();
+
+        assert!(!presentation.record_present_submitted(initial.next()));
+        assert!(presentation.record_present_submitted(initial));
+        assert!(!presentation.record_present_submitted(initial));
+
+        presentation.request();
+        assert!(presentation.record_present_submitted(initial.next()));
+        assert_eq!(presentation.present_submitted, Some(presentation.requested));
+    }
 
     #[test]
     fn cursor_publication_advances_from_pending_to_synced() {

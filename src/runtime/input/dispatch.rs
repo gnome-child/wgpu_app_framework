@@ -10,7 +10,7 @@ pub(super) enum ScrollTransition {
     PropertyTick(interaction::ScrollOffset),
     NeedsResidency {
         desired: interaction::ScrollOffset,
-        admitted: interaction::ScrollOffset,
+        resident_accepted: interaction::ScrollOffset,
     },
 }
 
@@ -224,7 +224,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             let resident_offset = self
                 .session
                 .interaction(window)
-                .map(|interaction| interaction.scroll().offset(&target))
+                .map(|interaction| interaction.scroll().resident_offset(&target))
                 .unwrap_or_default();
             self.record_scroll_trace(
                 window,
@@ -255,7 +255,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             let resident_offset = self
                 .session
                 .interaction(window)
-                .map(|interaction| interaction.scroll().offset(&target))
+                .map(|interaction| interaction.scroll().resident_offset(&target))
                 .unwrap_or_default();
             self.record_scroll_trace(
                 window,
@@ -269,7 +269,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return ScrollTransition::Unchanged;
         }
         if resident_accepted {
-            self.session.admit_scroll(window, target, offset);
+            self.session.accept_resident_scroll(window, target, offset);
             self.session.request_property_tick(window);
             self.record_scroll_trace(
                 window,
@@ -282,10 +282,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             );
             ScrollTransition::PropertyTick(offset)
         } else {
-            let admitted = self
+            let resident_accepted = self
                 .session
                 .interaction(window)
-                .map(|interaction| interaction.scroll().offset(&target))
+                .map(|interaction| interaction.scroll().resident_offset(&target))
                 .unwrap_or_default();
             let request = self
                 .presented_layout(window)
@@ -298,13 +298,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 target_key,
                 requested,
                 offset,
-                admitted,
+                resident_accepted,
                 false,
                 "needs-residency",
             );
             ScrollTransition::NeedsResidency {
                 desired: offset,
-                admitted,
+                resident_accepted,
             }
         }
     }
@@ -322,7 +322,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(epoch) = self
             .session
             .window(window)
-            .map(session::Window::desired_presentation_epoch)
+            .map(session::Window::requested_presentation_epoch)
         else {
             return;
         };

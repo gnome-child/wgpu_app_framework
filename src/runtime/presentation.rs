@@ -1129,7 +1129,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let layout =
             self.layout_for_scene(window, size, theme, frame, invalidation, popup_surfaces)?;
         let layout_elapsed = layout_started_at.elapsed();
-        let epoch = self.session.window(window)?.desired_presentation_epoch();
+        let epoch = self.session.window(window)?.requested_presentation_epoch();
         let assembly_started_at = Instant::now();
         let interaction = self.interaction_projected_for_layout(window, &layout);
         let canvas_color = self.canvas_color(window);

@@ -2163,7 +2163,7 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
         skipped.stack(),
         skipped.property_only(),
         diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
-            .with_presented(false),
+            .with_present_submitted(false),
     );
     assert_eq!(
         app.session()
@@ -7079,7 +7079,8 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
 }
 
 #[test]
-fn older_successful_scroll_receipt_cannot_regress_admitted_property() {
+fn generation_state_case_superseded_request_cannot_regress_resident_or_present_submitted_property()
+{
     let mut app = scroll_app();
     app.start();
     let window = app.session().windows()[0].id();
@@ -7149,14 +7150,11 @@ fn older_successful_scroll_receipt_cannot_regress_admitted_property() {
             .and_then(|properties| properties.scroll_offset(node)),
         Some(interaction::ScrollOffset::new(0, 32))
     );
-    assert_eq!(
-        app.acknowledged_presentation_epoch(window),
-        Some(newer.epoch())
-    );
+    assert_eq!(app.present_submitted_epoch(window), Some(newer.epoch()));
 }
 
 #[test]
-fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
+fn generation_state_case_coalesced_requests_select_one_latest_property_candidate() {
     let mut app = scroll_app();
     app.start();
     let window = app.session().windows()[0].id();
@@ -7243,7 +7241,7 @@ fn in_window_scroll_inputs_coalesce_into_one_literal_zero_property_tick() {
     let scroll_metrics = &app.diagnostics(window).expect("window diagnostics").scroll;
     assert_eq!(scroll_metrics.scroll_input_events, 4);
     assert_eq!(scroll_metrics.scroll_desired_changes, 4);
-    assert_eq!(scroll_metrics.scroll_admitted_changes, 4);
+    assert_eq!(scroll_metrics.scroll_resident_acceptances, 4);
     assert_eq!(scroll_metrics.scroll_property_ticks, 4);
     assert_eq!(scroll_metrics.scroll_needs_residency, 0);
     assert_eq!(scroll_metrics.scroll_unchanged, 0);
@@ -10804,7 +10802,7 @@ fn wrapped_text_resize_preserves_the_presented_source_anchor_through_geometry_fe
 }
 
 #[test]
-fn text_area_input_clamps_to_presented_extent_before_admission() {
+fn generation_state_case_no_op_request_mints_no_candidate_generation() {
     let mut app = text_editor::app(text_editor::State {
         document: TextDocument::from_multiline_text("short\ntext"),
         ..text_editor::State::default()

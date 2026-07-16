@@ -2,12 +2,12 @@
 pub(crate) struct PresentationEpoch(u64);
 
 impl PresentationEpoch {
-    pub(crate) fn initial() -> Self {
+    pub(crate) const fn initial() -> Self {
         Self(0)
     }
 
     pub(crate) fn next(self) -> Self {
-        Self(self.0 + 1)
+        Self(self.0.saturating_add(1))
     }
 
     pub(crate) fn value(self) -> u64 {

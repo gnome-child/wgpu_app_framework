@@ -707,7 +707,7 @@ impl Node {
         if matches!(self.role(), Role::Scroll | Role::VirtualList) {
             let offset = pointer_target
                 .as_ref()
-                .map(|target| interaction.scroll().offset(target))
+                .map(|target| interaction.scroll().resident_offset(target))
                 .unwrap_or_default();
             self.set_scroll_offset(offset);
         }

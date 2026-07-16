@@ -374,6 +374,7 @@ pub(in crate::render) struct SyncStats {
     pub(in crate::render) property_full_buffer_replacements: usize,
     pub(in crate::render) property_full_topology_replacements: usize,
     pub(in crate::render) property_full_dense_transfers: usize,
+    pub(in crate::render) property_full_generation_resyncs: usize,
     pub(in crate::render) resource_creations: usize,
     pub(in crate::render) resource_replacements: usize,
     pub(in crate::render) resource_removals: usize,
@@ -2087,6 +2088,7 @@ fn apply_sync_stats(stats: &mut render::DrawStats, sync: SyncStats) {
     stats.property_full_buffer_replacements += sync.property_full_buffer_replacements;
     stats.property_full_topology_replacements += sync.property_full_topology_replacements;
     stats.property_full_dense_transfers += sync.property_full_dense_transfers;
+    stats.property_full_generation_resyncs += sync.property_full_generation_resyncs;
     stats.retained_gpu_resource_creations += sync.resource_creations;
     stats.retained_gpu_resource_replacements += sync.resource_replacements;
     stats.retained_gpu_resource_removals += sync.resource_removals;
@@ -2155,6 +2157,7 @@ enum PropertyFullReason {
     BufferReplacement,
     TopologyReplacement,
     Dense,
+    GenerationResync,
 }
 
 fn record_property_full_transfer(stats: &mut SyncStats, reason: PropertyFullReason) {
@@ -2163,6 +2166,7 @@ fn record_property_full_transfer(stats: &mut SyncStats, reason: PropertyFullReas
         PropertyFullReason::BufferReplacement => &mut stats.property_full_buffer_replacements,
         PropertyFullReason::TopologyReplacement => &mut stats.property_full_topology_replacements,
         PropertyFullReason::Dense => &mut stats.property_full_dense_transfers,
+        PropertyFullReason::GenerationResync => &mut stats.property_full_generation_resyncs,
     };
     *counter = counter.saturating_add(1);
 }
@@ -2410,6 +2414,7 @@ pub(in crate::render) struct Shapes {
 
 struct PropertySlot {
     owners: Vec<Weak<scene::Commit>>,
+    property_serial: Option<scene::PropertySerial>,
     viewport_key: [u32; 3],
     viewport_buffer: wgpu::Buffer,
     property_buffer: wgpu::Buffer,
@@ -2421,6 +2426,7 @@ struct PropertySlot {
 
 struct ScrollPropertySlot {
     owners: Vec<Weak<scene::Commit>>,
+    property_serial: Option<scene::PropertySerial>,
     buffer: wgpu::Buffer,
     capacity: usize,
     bind_group: wgpu::BindGroup,
@@ -2735,7 +2741,16 @@ impl Shapes {
             && self.property_slots[slot].viewport_key == viewport_key
             && self.property_slots[slot].bindings == bindings
             && self.property_slots[slot].bytes.len() == required * self.property_stride
+            && (self.property_slots[slot].property_serial == Some(properties.serial())
+                || (self.property_slots[slot].property_serial == properties.predecessor_serial()
+                    && property_slot_exclusively_owned_by(
+                        &self.property_slots[slot].owners,
+                        commit,
+                    )))
         {
+            if self.property_slots[slot].property_serial == Some(properties.serial()) {
+                return slot;
+            }
             let mut dirty_bindings = properties
                 .changed()
                 .iter()
@@ -2763,6 +2778,7 @@ impl Shapes {
                 }
             }
             if changed_bindings.is_empty() {
+                property_slot.property_serial = Some(properties.serial());
                 return slot;
             }
 
@@ -2807,6 +2823,7 @@ impl Shapes {
                 stats.property_write_ranges = stats.property_write_ranges.saturating_add(1);
                 record_property_full_transfer(stats, PropertyFullReason::Dense);
             }
+            property_slot.property_serial = Some(properties.serial());
             return slot;
         }
 
@@ -2828,6 +2845,7 @@ impl Shapes {
             slot.viewport_key == viewport_key && slot.bindings == bindings && slot.bytes == bytes
         }) {
             add_property_owner(&mut self.property_slots[slot].owners, commit);
+            self.property_slots[slot].property_serial = Some(properties.serial());
             return slot;
         }
 
@@ -2867,6 +2885,10 @@ impl Shapes {
         let initialized = property_slot.bytes.is_empty();
         let topology_replaced = !initialized
             && (property_slot.bindings != bindings || property_slot.bytes.len() != bytes.len());
+        let generation_resync = !initialized
+            && !topology_replaced
+            && !viewport_changed
+            && property_slot.property_serial != properties.predecessor_serial();
         let mut buffer_recreated = false;
         if required > property_slot.property_capacity {
             property_slot.property_capacity = required.next_power_of_two();
@@ -2915,6 +2937,8 @@ impl Shapes {
                 PropertyFullReason::Initialization
             } else if topology_replaced || viewport_changed {
                 PropertyFullReason::TopologyReplacement
+            } else if generation_resync {
+                PropertyFullReason::GenerationResync
             } else {
                 PropertyFullReason::Dense
             };
@@ -2922,6 +2946,7 @@ impl Shapes {
         }
         property_slot.owners.clear();
         property_slot.owners.push(Arc::downgrade(commit));
+        property_slot.property_serial = Some(properties.serial());
         property_slot.viewport_key = viewport_key;
         property_slot.bindings = bindings.to_vec();
         property_slot.bytes = bytes;
@@ -2953,7 +2978,17 @@ impl Shapes {
             && self.scroll_property_slots[slot].bindings == scroll_bindings
             && self.scroll_property_slots[slot].bytes.len()
                 == required * self.scroll_property_stride
+            && (self.scroll_property_slots[slot].property_serial == Some(properties.serial())
+                || (self.scroll_property_slots[slot].property_serial
+                    == properties.predecessor_serial()
+                    && property_slot_exclusively_owned_by(
+                        &self.scroll_property_slots[slot].owners,
+                        commit,
+                    )))
         {
+            if self.scroll_property_slots[slot].property_serial == Some(properties.serial()) {
+                return slot;
+            }
             let mut dirty_bindings = properties
                 .changed()
                 .iter()
@@ -2992,6 +3027,7 @@ impl Shapes {
                 }
             }
             if changed_bindings.is_empty() {
+                scroll_slot.property_serial = Some(properties.serial());
                 return slot;
             }
             let transfer = plan_property_transfer(
@@ -3033,6 +3069,7 @@ impl Shapes {
                 stats.property_write_ranges = stats.property_write_ranges.saturating_add(1);
                 record_property_full_transfer(stats, PropertyFullReason::Dense);
             }
+            scroll_slot.property_serial = Some(properties.serial());
             return slot;
         }
 
@@ -3066,6 +3103,7 @@ impl Shapes {
             .position(|slot| slot.bindings == scroll_bindings && slot.bytes == bytes)
         {
             add_property_owner(&mut self.scroll_property_slots[slot].owners, commit);
+            self.scroll_property_slots[slot].property_serial = Some(properties.serial());
             return slot;
         }
 
@@ -3104,6 +3142,9 @@ impl Shapes {
         let initialized = scroll_slot.bytes.is_empty();
         let topology_replaced = !initialized
             && (scroll_slot.bindings != scroll_bindings || scroll_slot.bytes.len() != bytes.len());
+        let generation_resync = !initialized
+            && !topology_replaced
+            && scroll_slot.property_serial != properties.predecessor_serial();
         let mut buffer_recreated = false;
         if required > scroll_slot.capacity {
             scroll_slot.capacity = required.next_power_of_two();
@@ -3133,6 +3174,8 @@ impl Shapes {
                 PropertyFullReason::Initialization
             } else if topology_replaced {
                 PropertyFullReason::TopologyReplacement
+            } else if generation_resync {
+                PropertyFullReason::GenerationResync
             } else {
                 PropertyFullReason::Dense
             };
@@ -3140,6 +3183,7 @@ impl Shapes {
         }
         scroll_slot.owners.clear();
         scroll_slot.owners.push(Arc::downgrade(commit));
+        scroll_slot.property_serial = Some(properties.serial());
         scroll_slot.bindings = scroll_bindings.to_vec();
         scroll_slot.bytes = bytes;
 
@@ -3378,6 +3422,7 @@ fn create_property_slot(
     let bind_group = create_bind_group(device, layout, &viewport_buffer, &property_buffer);
     PropertySlot {
         owners: Vec::new(),
+        property_serial: None,
         viewport_key: [0; 3],
         viewport_buffer,
         property_buffer,
@@ -3398,6 +3443,7 @@ fn create_scroll_property_slot(
     let bind_group = create_scroll_bind_group(device, layout, &buffer);
     ScrollPropertySlot {
         owners: Vec::new(),
+        property_serial: None,
         buffer,
         capacity,
         bind_group,
@@ -3415,6 +3461,21 @@ fn add_property_owner(owners: &mut Vec<Weak<scene::Commit>>, commit: &Arc<scene:
     {
         owners.push(Arc::downgrade(commit));
     }
+}
+
+fn property_slot_exclusively_owned_by(
+    owners: &[Weak<scene::Commit>],
+    commit: &Arc<scene::Commit>,
+) -> bool {
+    let mut owns_commit = false;
+    for owner in owners.iter().filter_map(Weak::upgrade) {
+        if Arc::ptr_eq(&owner, commit) {
+            owns_commit = true;
+        } else {
+            return false;
+        }
+    }
+    owns_commit
 }
 
 fn remove_property_owner(owners: &mut Vec<Weak<scene::Commit>>, commit: &Arc<scene::Commit>) {

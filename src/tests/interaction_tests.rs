@@ -1829,10 +1829,10 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
         assert_eq!(diagnostics.scroll.scroll_redraw_requests, 1);
         assert_eq!(diagnostics.scroll.scroll_input_events, 1);
         assert_eq!(diagnostics.scroll.scroll_desired_changes, 1);
-        assert_eq!(diagnostics.scroll.scroll_admitted_changes, 0);
+        assert_eq!(diagnostics.scroll.scroll_resident_acceptances, 0);
         assert_eq!(diagnostics.scroll.scroll_needs_residency, 1);
-        assert_eq!(diagnostics.scroll.desired_admitted_lag_x_max, 0);
-        assert_eq!(diagnostics.scroll.desired_admitted_lag_y_max, 120);
+        assert_eq!(diagnostics.scroll.desired_resident_lag_x_max, 0);
+        assert_eq!(diagnostics.scroll.desired_resident_lag_y_max, 120);
     }
 
     let scrolled_again = app
@@ -1865,10 +1865,10 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
         assert_eq!(diagnostics.scroll.scroll_redraw_requests, 2);
         assert_eq!(diagnostics.scroll.scroll_input_events, 2);
         assert_eq!(diagnostics.scroll.scroll_desired_changes, 2);
-        assert_eq!(diagnostics.scroll.scroll_admitted_changes, 0);
+        assert_eq!(diagnostics.scroll.scroll_resident_acceptances, 0);
         assert_eq!(diagnostics.scroll.scroll_needs_residency, 2);
-        assert_eq!(diagnostics.scroll.desired_admitted_lag_x_max, 8);
-        assert_eq!(diagnostics.scroll.desired_admitted_lag_y_max, 120);
+        assert_eq!(diagnostics.scroll.desired_resident_lag_x_max, 8);
+        assert_eq!(diagnostics.scroll.desired_resident_lag_y_max, 120);
     }
 }
 

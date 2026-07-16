@@ -22,7 +22,7 @@ use super::{
 #[derive(Clone, Copy)]
 enum ScrollSample {
     Desired,
-    Admitted,
+    ResidentAccepted,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -280,7 +280,7 @@ impl Retained {
                 layout,
                 visuals,
                 interaction,
-                ScrollSample::Admitted,
+                ScrollSample::ResidentAccepted,
             )
             .ok()?;
         let keyed =
@@ -305,7 +305,7 @@ impl Retained {
                         layout,
                         visuals,
                         interaction,
-                        ScrollSample::Admitted,
+                        ScrollSample::ResidentAccepted,
                     )
                     .ok()?;
                 let scene = popup_commit
@@ -359,7 +359,9 @@ impl Retained {
                     .map(super::super::interaction::Interaction::scroll)
                     .map(|scroll| match sample {
                         ScrollSample::Desired => scroll.desired_offset(projection.target()),
-                        ScrollSample::Admitted => scroll.offset(projection.target()),
+                        ScrollSample::ResidentAccepted => {
+                            scroll.resident_offset(projection.target())
+                        }
                     })
                     .map(|offset| projection.viewport().resolve(offset))
                     .and_then(|offset| {
