@@ -13,6 +13,8 @@ use super::{
     Transform, region::MaterialRegion,
 };
 
+const PROPERTY_BLOCK_LEN: usize = 256;
+
 macro_rules! revision_currency {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -68,7 +70,9 @@ pub(crate) struct Commit {
     size: geometry::Size,
     clear: Color,
     nodes: Vec<Arc<Node>>,
+    node_indices: HashMap<composition::tree::NodeId, usize>,
     property_topology: Vec<PropertyRef>,
+    property_indices: Arc<HashMap<PropertyRef, PropertyIndex>>,
     spatial_topology: super::spatial::SpatialTopology,
     order: Option<Vec<Draw>>,
     material_regions: Vec<MaterialRegion>,
@@ -197,12 +201,29 @@ pub(crate) struct PropertyRef {
     kind: PropertyKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct PropertyIndex(u32);
+
+#[derive(Debug, Clone, PartialEq)]
+struct PropertyValues {
+    blocks: Arc<[Arc<[PropertyValue]>]>,
+    len: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PropertyWork {
+    value_visits: usize,
+    index_lookups: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Properties {
     commit: Revision,
     serial: PropertySerial,
-    values: Vec<PropertyValue>,
-    changed: Vec<PropertyRef>,
+    indices: Arc<HashMap<PropertyRef, PropertyIndex>>,
+    values: PropertyValues,
+    changed: Vec<PropertyIndex>,
+    work: PropertyWork,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -295,6 +316,8 @@ pub(crate) enum ContractError {
         node: composition::tree::NodeId,
         kind: PropertyKind,
     },
+    #[error("scene commit exceeds its addressable property count")]
+    TooManyProperties,
     #[error("property snapshot targets {actual:?}, expected {expected:?}")]
     IncompatibleCommit {
         expected: Revision,
@@ -363,16 +386,16 @@ impl Commit {
         order: Option<Vec<Draw>>,
         material_regions: Vec<MaterialRegion>,
     ) -> Result<Self, ContractError> {
-        let mut seen_nodes = HashSet::new();
+        let mut node_indices = HashMap::with_capacity(nodes.len());
         let mut property_topology = Vec::new();
-        let mut seen_properties = HashSet::new();
+        let mut property_indices = HashMap::new();
 
-        for node in &nodes {
-            if !seen_nodes.insert(node.id) {
+        for (node_index, node) in nodes.iter().enumerate() {
+            if node_indices.insert(node.id, node_index).is_some() {
                 return Err(ContractError::DuplicateNode(node.id));
             }
             if let Some(parent) = node.parent
-                && !seen_nodes.contains(&parent)
+                && !node_indices.contains_key(&parent)
             {
                 return Err(ContractError::UnknownParent {
                     node: node.id,
@@ -381,7 +404,8 @@ impl Commit {
             }
             for kind in &node.properties {
                 let property = PropertyRef::new(node.id, *kind);
-                if !seen_properties.insert(property) {
+                let index = PropertyIndex::from_usize(property_topology.len())?;
+                if property_indices.insert(property, index).is_some() {
                     return Err(ContractError::DuplicateProperty {
                         node: node.id,
                         kind: *kind,
@@ -398,7 +422,9 @@ impl Commit {
             size: size.sanitized(),
             clear,
             nodes,
+            node_indices,
             property_topology,
+            property_indices: Arc::new(property_indices),
             spatial_topology,
             order,
             material_regions,
@@ -419,6 +445,20 @@ impl Commit {
 
     pub(crate) fn nodes(&self) -> &[Arc<Node>] {
         &self.nodes
+    }
+
+    pub(crate) fn node(&self, id: composition::tree::NodeId) -> Option<&Arc<Node>> {
+        self.node_indices
+            .get(&id)
+            .and_then(|index| self.nodes.get(*index))
+    }
+
+    pub(crate) fn property_index(&self, property: PropertyRef) -> Option<PropertyIndex> {
+        self.property_indices.get(&property).copied()
+    }
+
+    pub(crate) fn property_count(&self) -> usize {
+        self.property_topology.len()
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -715,7 +755,7 @@ impl Content {
 }
 
 impl ContentProjection {
-    fn scrollbar_axis(self) -> Option<interaction::ScrollbarAxis> {
+    pub(crate) fn scrollbar_axis(self) -> Option<interaction::ScrollbarAxis> {
         match self {
             Self::Normal | Self::Caret => None,
             Self::ScrollbarTrack { axis, .. } | Self::ScrollbarThumb { axis, .. } => Some(axis),
@@ -1273,6 +1313,60 @@ impl PropertyRef {
     }
 }
 
+impl PropertyIndex {
+    fn from_usize(index: usize) -> Result<Self, ContractError> {
+        u32::try_from(index)
+            .map(Self)
+            .map_err(|_| ContractError::TooManyProperties)
+    }
+
+    pub(crate) const fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl PropertyValues {
+    fn from_vec(values: Vec<PropertyValue>) -> Self {
+        let len = values.len();
+        let blocks = values
+            .chunks(PROPERTY_BLOCK_LEN)
+            .map(|block| Arc::<[PropertyValue]>::from(block.to_vec()))
+            .collect::<Vec<_>>()
+            .into();
+        Self { blocks, len }
+    }
+
+    fn get(&self, index: PropertyIndex) -> Option<PropertyValue> {
+        let index = index.as_usize();
+        (index < self.len)
+            .then(|| {
+                self.blocks
+                    .get(index / PROPERTY_BLOCK_LEN)
+                    .and_then(|block| block.get(index % PROPERTY_BLOCK_LEN))
+                    .copied()
+            })
+            .flatten()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = PropertyValue> + '_ {
+        self.blocks.iter().flat_map(|block| block.iter().copied())
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl PropertyWork {
+    pub(crate) const fn value_visits(self) -> usize {
+        self.value_visits
+    }
+
+    pub(crate) const fn index_lookups(self) -> usize {
+        self.index_lookups
+    }
+}
+
 impl Properties {
     pub(crate) fn new(
         commit: &Commit,
@@ -1280,41 +1374,54 @@ impl Properties {
         values: Vec<PropertyValue>,
         changed: Vec<PropertyRef>,
     ) -> Result<Self, ContractError> {
-        let topology = commit
-            .property_topology
-            .iter()
-            .copied()
-            .collect::<HashSet<_>>();
-        let mut present = HashSet::new();
-
-        for value in &values {
+        let value_visits = values.len();
+        let mut index_lookups = 0_usize;
+        let mut indexed = vec![None; commit.property_count()];
+        for value in values {
             let property = value.property_ref();
-            if !topology.contains(&property) {
+            index_lookups = index_lookups.saturating_add(1);
+            let Some(index) = commit.property_index(property) else {
                 return Err(ContractError::UndeclaredValue(property));
-            }
-            if !present.insert(property) {
+            };
+            let slot = &mut indexed[index.as_usize()];
+            if slot.replace(value).is_some() {
                 return Err(ContractError::DuplicateValue(property));
             }
             if !value.is_valid(commit) {
                 return Err(ContractError::InvalidValue(property));
             }
         }
-        if let Some(missing) = commit
-            .property_topology
+        if let Some((index, _)) = indexed
             .iter()
-            .find(|property| !present.contains(property))
+            .enumerate()
+            .find(|(_, value)| value.is_none())
         {
-            return Err(ContractError::MissingValue(*missing));
+            return Err(ContractError::MissingValue(commit.property_topology[index]));
         }
-        if let Some(undeclared) = changed.iter().find(|property| !topology.contains(property)) {
-            return Err(ContractError::UndeclaredChange(*undeclared));
+
+        let mut changed_indices = Vec::with_capacity(changed.len());
+        let mut seen_changed = HashSet::new();
+        for property in changed {
+            index_lookups = index_lookups.saturating_add(1);
+            let Some(index) = commit.property_index(property) else {
+                return Err(ContractError::UndeclaredChange(property));
+            };
+            if seen_changed.insert(index) {
+                changed_indices.push(index);
+            }
         }
+        changed_indices.sort_unstable();
 
         Ok(Self {
             commit: commit.revision,
             serial,
-            values,
-            changed,
+            indices: Arc::clone(&commit.property_indices),
+            values: PropertyValues::from_vec(indexed.into_iter().flatten().collect()),
+            changed: changed_indices,
+            work: PropertyWork {
+                value_visits,
+                index_lookups,
+            },
         })
     }
 
@@ -1329,25 +1436,92 @@ impl Properties {
         serial: PropertySerial,
         values: Vec<PropertyValue>,
     ) -> Result<(Self, bool), ContractError> {
-        if let Some(previous) = previous
-            && previous.commit == commit.revision
-            && previous.values == values
-        {
+        let mut snapshot = Self::new(commit, serial, values, Vec::new())?;
+        let Some(previous) = previous.filter(|value| value.commit == commit.revision) else {
+            snapshot.changed = (0..snapshot.values.len())
+                .map(|index| PropertyIndex::from_usize(index).expect("validated property index"))
+                .collect();
+            return Ok((snapshot, true));
+        };
+        if previous.values == snapshot.values {
             return Ok((previous.clone(), false));
         }
-        let changed =
-            if let Some(previous) = previous.filter(|value| value.commit == commit.revision) {
-                values
-                    .iter()
-                    .filter_map(|value| {
-                        let property = value.property_ref();
-                        (previous.value(property) != Some(*value)).then_some(property)
-                    })
-                    .collect()
-            } else {
-                values.iter().map(|value| value.property_ref()).collect()
+        snapshot.changed = snapshot
+            .values
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| {
+                let index = PropertyIndex::from_usize(index).expect("validated property index");
+                (previous.value_at(index) != Some(value)).then_some(index)
+            })
+            .collect();
+        snapshot.work.value_visits = snapshot
+            .work
+            .value_visits
+            .saturating_add(snapshot.values.len());
+        Ok((snapshot, true))
+    }
+
+    pub(crate) fn apply_updates(
+        commit: &Commit,
+        previous: &Self,
+        serial: PropertySerial,
+        updates: Vec<PropertyValue>,
+    ) -> Result<(Self, bool), ContractError> {
+        previous.require_compatible(commit)?;
+        let mut coalesced = HashMap::with_capacity(updates.len());
+        let mut work = PropertyWork::default();
+        for value in updates {
+            work.value_visits = work.value_visits.saturating_add(1);
+            work.index_lookups = work.index_lookups.saturating_add(1);
+            let property = value.property_ref();
+            let Some(index) = commit.property_index(property) else {
+                return Err(ContractError::UndeclaredValue(property));
             };
-        Self::new(commit, serial, values, changed).map(|snapshot| (snapshot, true))
+            if !value.is_valid(commit) {
+                return Err(ContractError::InvalidValue(property));
+            }
+            coalesced.insert(index, value);
+        }
+
+        let mut changed = coalesced
+            .into_iter()
+            .filter(|(index, value)| previous.value_at(*index) != Some(*value))
+            .collect::<Vec<_>>();
+        changed.sort_unstable_by_key(|(index, _)| *index);
+        if changed.is_empty() {
+            return Ok((previous.clone(), false));
+        }
+
+        let mut blocks = previous.values.blocks.as_ref().to_vec();
+        let mut cursor = 0;
+        while cursor < changed.len() {
+            let block_index = changed[cursor].0.as_usize() / PROPERTY_BLOCK_LEN;
+            let mut block = blocks[block_index].as_ref().to_vec();
+            while cursor < changed.len()
+                && changed[cursor].0.as_usize() / PROPERTY_BLOCK_LEN == block_index
+            {
+                let (index, value) = changed[cursor];
+                block[index.as_usize() % PROPERTY_BLOCK_LEN] = value;
+                cursor += 1;
+            }
+            blocks[block_index] = block.into();
+        }
+
+        Ok((
+            Self {
+                commit: commit.revision,
+                serial,
+                indices: Arc::clone(&commit.property_indices),
+                values: PropertyValues {
+                    blocks: blocks.into(),
+                    len: previous.values.len(),
+                },
+                changed: changed.into_iter().map(|(index, _)| index).collect(),
+                work,
+            },
+            true,
+        ))
     }
 
     pub(crate) fn project_onto(
@@ -1447,14 +1621,18 @@ impl Properties {
 
     pub(crate) fn with_commit_revision(mut self, commit: &Commit) -> Self {
         self.commit = commit.revision;
+        self.indices = Arc::clone(&commit.property_indices);
         self
     }
 
     pub(crate) fn value(&self, property: PropertyRef) -> Option<PropertyValue> {
-        self.values
-            .iter()
-            .copied()
-            .find(|value| value.property_ref() == property)
+        self.indices
+            .get(&property)
+            .and_then(|index| self.values.get(*index))
+    }
+
+    pub(crate) fn value_at(&self, index: PropertyIndex) -> Option<PropertyValue> {
+        self.values.get(index)
     }
 
     pub(crate) fn scroll_offset(
@@ -1484,8 +1662,18 @@ impl Properties {
         self.serial
     }
 
-    pub(crate) fn changed(&self) -> &[PropertyRef] {
+    pub(crate) fn changed(&self) -> &[PropertyIndex] {
         &self.changed
+    }
+
+    pub(crate) fn changed_values(&self) -> impl Iterator<Item = PropertyValue> + '_ {
+        self.changed
+            .iter()
+            .filter_map(|index| self.value_at(*index))
+    }
+
+    pub(crate) fn work(&self) -> PropertyWork {
+        self.work
     }
 }
 
@@ -1505,11 +1693,7 @@ impl PropertyValue {
     }
 
     fn is_valid(self, commit: &Commit) -> bool {
-        let Some(node) = commit
-            .nodes
-            .iter()
-            .find(|node| node.id == self.property_ref().node)
-        else {
+        let Some(node) = commit.node(self.property_ref().node) else {
             return false;
         };
         match self {
@@ -1566,9 +1750,7 @@ impl PropertyValue {
             return true;
         };
         commit
-            .nodes
-            .iter()
-            .find(|candidate| candidate.id == node)
+            .node(node)
             .and_then(|node| node.scroll)
             .is_some_and(|scroll| scroll.accepts(value))
     }
@@ -3743,6 +3925,68 @@ pub(crate) fn renderer_text_atlas_pressure_pair()
     Ok(((active, active_properties), (pressure, pressure_properties)))
 }
 
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_property_economics_fixture(
+    property_count: usize,
+    dirty_count: usize,
+) -> Result<(Commit, Properties, Properties), ContractError> {
+    renderer_property_economics_fixture_at(property_count, dirty_count, 20_000)
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_property_economics_fixture_at(
+    property_count: usize,
+    dirty_count: usize,
+    fixture_base: u64,
+) -> Result<(Commit, Properties, Properties), ContractError> {
+    let property_count = property_count.max(1);
+    let dirty_count = dirty_count.min(property_count);
+    let bounds = geometry::Rect::new(0, 0, 64, 64);
+    let mut nodes = Vec::with_capacity(property_count);
+    let mut initial_values = Vec::with_capacity(property_count);
+    let mut updates = Vec::with_capacity(dirty_count);
+
+    for index in 0..property_count {
+        let node =
+            composition::tree::NodeId::renderer_fixture(fixture_base.saturating_add(index as u64));
+        let rect = geometry::Rect::new((index % 64) as i32, ((index / 64) % 64) as i32, 1, 1);
+        nodes.push(
+            Node::new(
+                node,
+                None,
+                bounds,
+                vec![Content::Quad(Quad::new(
+                    rect,
+                    Color::rgba(117, 191, 242, 255),
+                ))],
+            )
+            .with_properties([PropertyKind::Transform]),
+        );
+        initial_values.push(PropertyValue::Transform {
+            node,
+            value: Transform::identity(),
+        });
+        if index < dirty_count {
+            updates.push(PropertyValue::Transform {
+                node,
+                value: Transform::translate(1.0, 0.0),
+            });
+        }
+    }
+
+    let commit = Commit::new(
+        Revision::renderer_fixture(fixture_base),
+        geometry::Size::new(64, 64),
+        Color::rgba(0, 0, 0, 255),
+        nodes,
+    )?;
+    let initial = Properties::new(&commit, PropertySerial::INITIAL, initial_values, Vec::new())?;
+    let (tick, advanced) =
+        Properties::apply_updates(&commit, &initial, PropertySerial::INITIAL.next(), updates)?;
+    debug_assert_eq!(advanced, dirty_count > 0);
+    Ok((commit, initial, tick))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{Glass, Material};
@@ -4026,6 +4270,71 @@ mod tests {
                 value: 0.5
             })
         );
+    }
+
+    #[test]
+    fn indexed_property_updates_share_untouched_blocks_and_coalesce_one_dirty_slot() {
+        let mut nodes = Vec::new();
+        let mut values = Vec::new();
+        for value in 1_u64..=300 {
+            let node = empty_node(value, None).with_properties([PropertyKind::Opacity]);
+            values.push(PropertyValue::Opacity {
+                node: node.id(),
+                value: 1.0,
+            });
+            nodes.push(node);
+        }
+        values.reverse();
+        let commit = Commit::new(
+            Revision::INITIAL,
+            geometry::Size::new(20, 10),
+            Color::rgba(0, 0, 0, 0),
+            nodes,
+        )
+        .expect("indexed property commit");
+        let initial = Properties::new(&commit, PropertySerial::INITIAL, values, Vec::new())
+            .expect("canonical indexed values");
+        let property = PropertyRef::new(id(300), PropertyKind::Opacity);
+        let (updated, advanced) = Properties::apply_updates(
+            &commit,
+            &initial,
+            PropertySerial::INITIAL.next(),
+            vec![
+                PropertyValue::Opacity {
+                    node: id(300),
+                    value: 0.25,
+                },
+                PropertyValue::Opacity {
+                    node: id(300),
+                    value: 0.5,
+                },
+                PropertyValue::Opacity {
+                    node: id(300),
+                    value: 0.75,
+                },
+            ],
+        )
+        .expect("coalesced indexed update");
+
+        assert!(advanced);
+        assert_eq!(updated.changed().len(), 1);
+        assert_eq!(updated.work().value_visits(), 3);
+        assert_eq!(updated.work().index_lookups(), 3);
+        assert_eq!(
+            updated.value(property),
+            Some(PropertyValue::Opacity {
+                node: id(300),
+                value: 0.75,
+            })
+        );
+        assert!(Arc::ptr_eq(
+            &initial.values.blocks[0],
+            &updated.values.blocks[0]
+        ));
+        assert!(!Arc::ptr_eq(
+            initial.values.blocks.last().expect("initial tail block"),
+            updated.values.blocks.last().expect("updated tail block")
+        ));
     }
 
     #[test]

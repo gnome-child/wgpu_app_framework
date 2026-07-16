@@ -14,12 +14,14 @@ pub use crate::color::Color;
 pub(crate) use commit::{Builder as CommitBuilder, Commit, Node, Properties};
 pub(crate) use commit::{
     Content, ContentProjection, Draw, EffectDeclaration, GeometryRevision, OpacityDeclaration,
-    PropertyKind, PropertyRef, PropertySerial, PropertyValue, ScrollDeclaration, TopologyRevision,
+    PropertyIndex, PropertyKind, PropertyRef, PropertySerial, PropertyValue, ScrollDeclaration,
+    TopologyRevision,
 };
 #[cfg(feature = "renderer-debug")]
 pub(crate) use commit::{
     FixtureCase, ScrollOracleCase, ScrollOracleFixture, ScrollOracleRegion, renderer_fixture,
-    renderer_partial_update_fixture, renderer_scroll_layer_semantic_pair,
+    renderer_partial_update_fixture, renderer_property_economics_fixture,
+    renderer_property_economics_fixture_at, renderer_scroll_layer_semantic_pair,
     renderer_scroll_oracle_fixture, renderer_scroll_properties, renderer_scroll_semantic_pair,
     renderer_scroll_text_runway_pair, renderer_text_atlas_pressure_pair,
 };
@@ -39,7 +41,9 @@ pub(crate) use region::{
     MaterialRenderer, RealizedMaterialParts,
 };
 pub(crate) use residency::Residency;
-pub(crate) use spatial::{PropertyState as SpatialPropertyState, SpatialBinding, SpatialTopology};
+pub(crate) use spatial::{
+    PropertyState as SpatialPropertyState, ScrollPathId, SpatialBinding, SpatialTopology,
+};
 pub(crate) use stack::{Layer, MaterialProjection, Stack};
 pub(crate) use store::{PaintStats, Store};
 pub(crate) use visual::Visuals;

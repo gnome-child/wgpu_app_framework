@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::super::interaction;
 use super::Motion;
@@ -9,6 +9,8 @@ pub(crate) struct Visuals {
     slider_track_scale_y: HashMap<interaction::Target, Scalar>,
     scrollbars: HashMap<interaction::Target, Scrollbar>,
     carets: HashMap<interaction::Target, bool>,
+    dirty_scrollbars: HashSet<interaction::Target>,
+    dirty_carets: HashSet<interaction::Target>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -48,6 +50,14 @@ pub(super) struct Scrollbar {
 }
 
 impl Visuals {
+    pub(crate) fn from_property_baseline(previous: &Self) -> Self {
+        Self {
+            scrollbars: previous.scrollbars.clone(),
+            carets: previous.carets.clone(),
+            ..Self::default()
+        }
+    }
+
     pub(super) fn node_state(&self, target: Option<&interaction::Target>) -> NodeState {
         NodeState {
             target: target.map_or_else(Target::default, |target| self.target(target)),
@@ -84,11 +94,17 @@ impl Visuals {
     }
 
     pub(crate) fn set_caret_visible(&mut self, target: interaction::Target, visible: bool) {
-        self.carets.insert(target, visible);
+        if self.carets.insert(target.clone(), visible) != Some(visible) {
+            self.dirty_carets.insert(target);
+        }
     }
 
     pub(super) fn caret_visible(&self, target: &interaction::Target) -> bool {
         self.carets.get(target).copied().unwrap_or(true)
+    }
+
+    pub(super) fn caret_changed(&self, target: &interaction::Target) -> bool {
+        self.dirty_carets.contains(target)
     }
 
     pub(crate) fn set_moving_slider_track_scale_y(
@@ -130,20 +146,24 @@ impl Visuals {
         hovered: bool,
         pressed: bool,
     ) {
-        self.scrollbars.insert(
-            target,
-            Scrollbar {
-                opacity: sanitize_opacity(opacity),
-                thickness: thickness.max(1),
-                thickness_motion,
-                hovered,
-                pressed,
-            },
-        );
+        let scrollbar = Scrollbar {
+            opacity: sanitize_opacity(opacity),
+            thickness: thickness.max(1),
+            thickness_motion,
+            hovered,
+            pressed,
+        };
+        if self.scrollbars.insert(target.clone(), scrollbar) != Some(scrollbar) {
+            self.dirty_scrollbars.insert(target);
+        }
     }
 
     pub(super) fn scrollbar(&self, target: &interaction::Target) -> Scrollbar {
         self.scrollbars.get(target).copied().unwrap_or_default()
+    }
+
+    pub(super) fn scrollbar_changed(&self, target: &interaction::Target) -> bool {
+        self.dirty_scrollbars.contains(target)
     }
 }
 

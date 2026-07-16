@@ -1,6 +1,6 @@
 # Scroll source census
 
-Status: **SC-002 SPATIAL OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
+Status: **SC-003 PROPERTY-DELTA OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
 
 Date: 2026-07-16
 
@@ -19,7 +19,7 @@ This is a production-path census, not a claim that every listed path is wrong. I
 | Request, clamp, resident acceptance | `src/runtime/input/dispatch.rs::apply_scroll_transition` | presented layout and virtual request lookup | SC-000 traces the stages; SC-004 defines their transition contract. |
 | Legal range and resident acceptance | `src/layout/mod.rs::ScrollProjection` and `Layout` methods | `src/layout/viewport.rs`, `src/layout/frame.rs`, `src/scene/residency.rs` | Layout/residency remains range owner; axis ownership becomes typed in SC-002/SC-004. |
 | Node-to-scroll ancestry | `src/layout/mod.rs::scroll_ancestries` | scene paint ordering and runtime point projection | Superseded by normalized topology in SC-002/SC-008, then deleted in SC-010 if no non-spatial consumer remains. |
-| Candidate property values | `src/scene/paint/mod.rs::property_snapshot` and `src/scene/commit.rs::Properties` | scene stack, renderer, compatibility scene | SC-003 adds indexed dirty production independently of spatial replacement. |
+| Candidate property values and dirty indices | `src/scene/paint/mod.rs::property_snapshot` and `src/scene/commit.rs::Properties` | scene stack, renderer, compatibility scene | SC-003 closed stable topology-local indices, block-shared values, and authoritative dirty production independently of spatial replacement. |
 | Candidate spatial ancestry, surface roots, clip/effect references, target identity, and axis ownership | `src/scene/spatial.rs::SpatialTopology`, immutably owned by `src/scene/commit.rs::Commit` | semantic/drawable projection, compatibility emission, retained plan compiler, renderer property adapters | SC-002 closed this ownership replacement. Draw order remains structural input/output, not an ancestry owner. |
 | Runtime-presented geometry | `src/runtime/access.rs::finish_render_report_with_kind` | `src/runtime/mod.rs::PresentedGeometry`, pointer/routing/context menu | SC-004 names the boundary `present_submitted`; SC-008 consumes normalized topology. |
 | Surface submission/present call | `src/render/surface.rs` | runtime report, diagnostics, runner pulse | No scanout claim. SC-006 audits cadence separately. |
@@ -146,11 +146,21 @@ SC-002 production ownership changes:
 - Stable declared surface bounds replaced baseline-content-union inference; the latter clipped scrolling payload after the first property tick and is deleted.
 - Scene painting now omits an own-scroll fragment when that projection lacks drawable residency, so a dangling `PushScroll` can no longer rely on renderer no-op behavior.
 
+SC-003 property ownership changes:
+
+- `Commit::from_parts` assigns stable topology-local `PropertyIndex` values and owns O(1) property/node maps.
+- `Properties` stores canonical values in shared 256-entry immutable blocks; `apply_updates` coalesces index writes and path-copies only touched blocks.
+- `interaction::Scroll` owns per-target source revisions. Runtime `Visuals` owns prior scrollbar/caret property baselines and dirty target sets. Scene painting consumes those sources and commits its source ledger only after constructing a valid property snapshot.
+- Retained plans precompute dirty property dependents for node/chrome bindings and compiled scroll paths. `Properties::changed()` is a production input rather than a diagnostic-only list.
+- `SpatialTopology` interns scroll-only paths independently of transform topology. Transform-only bindings share the root path; real nested scroll contributions retain explicit owner/baseline chains.
+- Node and scroll property buffers share `plan_property_transfer`, including one sparse range model and named initialization, buffer replacement, topology/viewport replacement, and dense reasons.
+- `src/diagnostics/render.rs`, renderer reports, and `renderer_debug` expose value visits, index lookups, dirty indices, write ranges, and every full-transfer reason.
+
 ## 4. Property work census
 
 Current warm property uploads are emitted by:
 
-| Category | Current write site | SC-000 diagnostic field |
+| Category | Current write site | Diagnostic field |
 |---|---|---|
 | Retained viewport uniform | `src/render/retained.rs::prepare_node_properties` | `viewport_property_upload_bytes` |
 | Retained node properties, including current chrome/effect entries | `src/render/retained.rs::prepare_node_properties` | `node_property_upload_bytes` |
@@ -184,6 +194,27 @@ unattributed_property_upload_bytes=0
 
 All five scales are identical, with zero semantic/content preparation, zero text shaping, zero GPU resource churn, and one plan reuse. The total is 416 bytes below the SC-000 baseline; text-transform bytes increased by 96 while node bytes decreased by 512. This is an SC-003 input, not a sparse-update budget or a claim that the category shift is optimal.
 
+The SC-003 indexed-delta boundary produces this separately recorded five-scale receipt:
+
+```text
+property_upload_bytes=464
+viewport_property_upload_bytes=0
+node_property_upload_bytes=64
+scroll_property_upload_bytes=272
+text_property_upload_bytes=128
+unattributed_property_upload_bytes=0
+property_value_visits=7
+property_index_lookups=7
+property_dirty_indices=1
+property_write_ranges=2
+property_full_initializations=0
+property_full_buffer_replacements=0
+property_full_topology_replacements=0
+property_full_dense_transfers=0
+```
+
+The 272 scroll bytes are one cost-selected contiguous transfer spanning two scroll-path slots that depend on the dirty shared target; they are not a topology-wide scroll upload. All five scales retain zero semantic/content preparation, shaping, payload upload, GPU resource churn, and plan rebuilds with one plan reuse. The retained text adapter traverses resident text batches and writes only changed snapped offsets; its payload-local traversal remains under the SC-007/SC-009 residency and locality rails rather than becoming another property-topology owner.
+
 ## 5. Repeatable census commands
 
 Run from the repository root and inspect additions/removals rather than comparing counts alone:
@@ -198,6 +229,8 @@ rg -l 'SpatialTopology|SpatialBinding|SurfaceRoot|AxisOwnership|ScrollTarget' sr
 rg -l 'project_point|presented_geometry|acknowledge_presentation' src tools
 rg -l 'PresentationPulse|request_redraw|RedrawRequested' src tools
 rg -l 'property_upload_bytes|prepare_node_properties|prepare_scroll_properties' src tools
+rg -l 'PropertyIndex|apply_updates|property_dependents|scroll_dependents|plan_property_transfer' src tools
+rg -l 'property_full_initializations|property_full_buffer_replacements|property_full_topology_replacements|property_full_dense_transfers' src tools
 ```
 
 SC-010 is not closed by finding no new names. It must prove that every remaining production hit is either the named sole owner, a generated/representation-specific consumer, or an independently justified non-spatial track.

@@ -228,8 +228,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             println!("oracle=tier-a-negative-controls executions=10 result=pass");
             Ok(())
         }
+        [command] if command == "property-economics" => run_property_economics(),
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics"
                 .to_owned(),
         ),
     }
@@ -241,6 +242,127 @@ fn run_table_scroll_work(scale: f32) -> Result<(), String> {
     )?;
     println!("workload=control-gallery-horizontal-table-scroll scale={scale}");
     print_work("property-hit", work);
+    Ok(())
+}
+
+fn run_property_economics() -> Result<(), String> {
+    let mut steady_harness = harness(1.0)?;
+    let mut steady = Vec::new();
+    for property_count in [1_usize, 256, 4_096] {
+        for (density, dirty_count) in [
+            ("one", 1_usize),
+            ("25-percent", property_count.div_ceil(4)),
+            ("100-percent", property_count),
+        ] {
+            let dirty_count = dirty_count.min(property_count);
+            let work = steady_harness.property_economics_work(property_count, dirty_count)?;
+            if work.property_dirty_indices() != dirty_count
+                || work.property_value_visits() != dirty_count.saturating_mul(2)
+                || work.property_index_lookups() != dirty_count.saturating_mul(2)
+                || work.property_write_ranges() != 1
+                || work.gpu_resource_creations() != 0
+                || work.gpu_resource_replacements() != 0
+                || work.gpu_resource_removals() != 0
+                || work.render_plan_reuses() != 1
+                || work.property_full_initializations() != 0
+                || work.property_full_buffer_replacements() != 0
+                || work.property_full_topology_replacements() != 0
+                || work.property_full_dense_transfers()
+                    != usize::from(dirty_count == property_count)
+            {
+                return Err(format!(
+                    "steady property-economics invariant failed for properties={property_count} density={density}: {work:?}"
+                ));
+            }
+            println!(
+                "case=steady properties={property_count} density={density} dirty={dirty_count} value_visits={} index_lookups={} write_ranges={} node_property_upload_bytes={} full_dense={}",
+                work.property_value_visits(),
+                work.property_index_lookups(),
+                work.property_write_ranges(),
+                work.node_property_upload_bytes(),
+                work.property_full_dense_transfers(),
+            );
+            steady.push((property_count, density, work.node_property_upload_bytes()));
+        }
+    }
+    for property_count in [256_usize, 4_096] {
+        let one = steady
+            .iter()
+            .find(|(count, density, _)| *count == property_count && *density == "one")
+            .map(|(_, _, bytes)| *bytes)
+            .expect("one-entry case");
+        let quarter = steady
+            .iter()
+            .find(|(count, density, _)| *count == property_count && *density == "25-percent")
+            .map(|(_, _, bytes)| *bytes)
+            .expect("quarter-density case");
+        let dense = steady
+            .iter()
+            .find(|(count, density, _)| *count == property_count && *density == "100-percent")
+            .map(|(_, _, bytes)| *bytes)
+            .expect("dense case");
+        if one != std::mem::size_of::<[f32; 16]>() || quarter >= dense {
+            return Err(format!(
+                "sparse transfer did not remain below the dense transfer for {property_count} properties: one={one} quarter={quarter} dense={dense}"
+            ));
+        }
+    }
+
+    let initialization = harness(1.0)?.property_economics_initial_work(1)?;
+    require_property_full_reason("initialization", initialization, [1, 0, 0, 0])?;
+    let buffer_replacement = harness(1.0)?.property_economics_initial_work(4_096)?;
+    require_property_full_reason("buffer-replacement", buffer_replacement, [0, 1, 0, 0])?;
+    let topology_replacement = harness(1.0)?.property_economics_topology_replacement_work()?;
+    require_property_full_reason("topology-replacement", topology_replacement, [0, 0, 1, 0])?;
+
+    let coalesced = harness(1.0)?.property_economics_coalesced_work()?;
+    if coalesced.property_dirty_indices() != 1
+        || coalesced.property_value_visits() != 4
+        || coalesced.property_index_lookups() != 4
+        || coalesced.node_property_upload_bytes() != std::mem::size_of::<[f32; 16]>()
+        || coalesced.property_write_ranges() != 1
+    {
+        return Err(format!(
+            "coalesced repeated writes did not collapse to one sparse update: {coalesced:?}"
+        ));
+    }
+    println!(
+        "case=coalesced-repeated-write dirty={} value_visits={} index_lookups={} write_ranges={} node_property_upload_bytes={}",
+        coalesced.property_dirty_indices(),
+        coalesced.property_value_visits(),
+        coalesced.property_index_lookups(),
+        coalesced.property_write_ranges(),
+        coalesced.node_property_upload_bytes(),
+    );
+    println!("suite=property-economics cases=13 result=pass");
+    Ok(())
+}
+
+fn require_property_full_reason(
+    name: &str,
+    work: wgpu_l3::renderer_debug::Work,
+    expected: [usize; 4],
+) -> Result<(), String> {
+    let actual = [
+        work.property_full_initializations(),
+        work.property_full_buffer_replacements(),
+        work.property_full_topology_replacements(),
+        work.property_full_dense_transfers(),
+    ];
+    if actual != expected || work.property_write_ranges() != 1 {
+        return Err(format!(
+            "property full-transfer reason {name} was not explicit: expected={expected:?} actual={actual:?} work={work:?}"
+        ));
+    }
+    println!(
+        "case={name} write_ranges={} node_property_upload_bytes={} full_initialization={} full_buffer_replacement={} full_topology_replacement={} full_dense={}",
+        work.property_write_ranges(),
+        work.node_property_upload_bytes(),
+        actual[0],
+        actual[1],
+        actual[2],
+        actual[3],
+    );
     Ok(())
 }
 
@@ -280,7 +402,7 @@ fn git_commit() -> String {
 
 fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
     println!(
-        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
+        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} property_value_visits={} property_index_lookups={} property_dirty_indices={} property_write_ranges={} property_full_initializations={} property_full_buffer_replacements={} property_full_topology_replacements={} property_full_dense_transfers={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
         work.scene_node_realization_rebuilds(),
         work.primitive_prepare_calls(),
         work.text_prepare_calls(),
@@ -292,6 +414,14 @@ fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
         work.scroll_property_upload_bytes(),
         work.text_property_upload_bytes(),
         work.unattributed_property_upload_bytes(),
+        work.property_value_visits(),
+        work.property_index_lookups(),
+        work.property_dirty_indices(),
+        work.property_write_ranges(),
+        work.property_full_initializations(),
+        work.property_full_buffer_replacements(),
+        work.property_full_topology_replacements(),
+        work.property_full_dense_transfers(),
         work.gpu_resource_count(),
         work.gpu_resource_bytes(),
         work.gpu_resource_creations(),

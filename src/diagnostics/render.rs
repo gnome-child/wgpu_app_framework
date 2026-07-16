@@ -28,6 +28,14 @@ pub struct Render {
     pub node_property_upload_bytes: usize,
     pub scroll_property_upload_bytes: usize,
     pub text_property_upload_bytes: usize,
+    pub property_value_visits: usize,
+    pub property_index_lookups: usize,
+    pub property_dirty_indices: usize,
+    pub property_write_ranges: usize,
+    pub property_full_initializations: usize,
+    pub property_full_buffer_replacements: usize,
+    pub property_full_topology_replacements: usize,
+    pub property_full_dense_transfers: usize,
     pub candidate_property_serial: u64,
     pub attempted_property_serial: u64,
     pub gpu_submitted_property_serial: u64,
@@ -269,6 +277,16 @@ impl Render {
         self.node_property_upload_bytes += report.draw_stats.node_property_upload_bytes;
         self.scroll_property_upload_bytes += report.draw_stats.scroll_property_upload_bytes;
         self.text_property_upload_bytes += report.draw_stats.text_property_upload_bytes;
+        self.property_value_visits += report.draw_stats.property_value_visits;
+        self.property_index_lookups += report.draw_stats.property_index_lookups;
+        self.property_dirty_indices += report.draw_stats.property_dirty_indices;
+        self.property_write_ranges += report.draw_stats.property_write_ranges;
+        self.property_full_initializations += report.draw_stats.property_full_initializations;
+        self.property_full_buffer_replacements +=
+            report.draw_stats.property_full_buffer_replacements;
+        self.property_full_topology_replacements +=
+            report.draw_stats.property_full_topology_replacements;
+        self.property_full_dense_transfers += report.draw_stats.property_full_dense_transfers;
         self.geometry_buffer_creations = report.draw_stats.geometry_buffer_creations;
         self.geometry_buffer_creations_total += report.draw_stats.geometry_buffer_creations;
         self.retained_gpu_resource_count = report.draw_stats.retained_gpu_resource_count;
@@ -745,6 +763,46 @@ impl Render {
             "text_property_upload_bytes={}",
             self.text_property_upload_bytes
         );
+        let _ = writeln!(
+            receipt,
+            "property_value_visits={}",
+            self.property_value_visits
+        );
+        let _ = writeln!(
+            receipt,
+            "property_index_lookups={}",
+            self.property_index_lookups
+        );
+        let _ = writeln!(
+            receipt,
+            "property_dirty_indices={}",
+            self.property_dirty_indices
+        );
+        let _ = writeln!(
+            receipt,
+            "property_write_ranges={}",
+            self.property_write_ranges
+        );
+        let _ = writeln!(
+            receipt,
+            "property_full_initializations={}",
+            self.property_full_initializations
+        );
+        let _ = writeln!(
+            receipt,
+            "property_full_buffer_replacements={}",
+            self.property_full_buffer_replacements
+        );
+        let _ = writeln!(
+            receipt,
+            "property_full_topology_replacements={}",
+            self.property_full_topology_replacements
+        );
+        let _ = writeln!(
+            receipt,
+            "property_full_dense_transfers={}",
+            self.property_full_dense_transfers
+        );
         let attributed_property_upload_bytes = self
             .viewport_property_upload_bytes
             .saturating_add(self.node_property_upload_bytes)
@@ -1152,6 +1210,14 @@ impl Default for Render {
             node_property_upload_bytes: 0,
             scroll_property_upload_bytes: 0,
             text_property_upload_bytes: 0,
+            property_value_visits: 0,
+            property_index_lookups: 0,
+            property_dirty_indices: 0,
+            property_write_ranges: 0,
+            property_full_initializations: 0,
+            property_full_buffer_replacements: 0,
+            property_full_topology_replacements: 0,
+            property_full_dense_transfers: 0,
             candidate_property_serial: 0,
             attempted_property_serial: 0,
             gpu_submitted_property_serial: 0,
@@ -1985,14 +2051,8 @@ fn caret_blink_commit_content_counts(commit: &crate::scene::Commit) -> (usize, u
 #[cfg(feature = "renderer-debug")]
 fn caret_property_change_count(properties: &crate::scene::Properties) -> usize {
     properties
-        .changed()
-        .iter()
-        .filter(|property| {
-            matches!(
-                properties.value(**property),
-                Some(crate::scene::PropertyValue::Caret { .. })
-            )
-        })
+        .changed_values()
+        .filter(|value| matches!(value, crate::scene::PropertyValue::Caret { .. }))
         .count()
 }
 

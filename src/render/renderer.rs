@@ -1080,6 +1080,14 @@ impl DrawStats {
         self.node_property_upload_bytes += other.node_property_upload_bytes;
         self.scroll_property_upload_bytes += other.scroll_property_upload_bytes;
         self.text_property_upload_bytes += other.text_property_upload_bytes;
+        self.property_value_visits += other.property_value_visits;
+        self.property_index_lookups += other.property_index_lookups;
+        self.property_dirty_indices += other.property_dirty_indices;
+        self.property_write_ranges += other.property_write_ranges;
+        self.property_full_initializations += other.property_full_initializations;
+        self.property_full_buffer_replacements += other.property_full_buffer_replacements;
+        self.property_full_topology_replacements += other.property_full_topology_replacements;
+        self.property_full_dense_transfers += other.property_full_dense_transfers;
         self.geometry_buffer_creations += other.geometry_buffer_creations;
         self.retained_gpu_resource_count += other.retained_gpu_resource_count;
         self.retained_gpu_resource_bytes += other.retained_gpu_resource_bytes;

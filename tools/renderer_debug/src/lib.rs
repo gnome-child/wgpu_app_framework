@@ -480,6 +480,51 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
+    fn property_economics_are_dirty_bounded_and_name_every_full_transfer_reason() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        for property_count in [1_usize, 256, 4_096] {
+            for dirty_count in [1_usize, property_count.div_ceil(4), property_count] {
+                let dirty_count = dirty_count.min(property_count);
+                let work = harness
+                    .property_economics_work(property_count, dirty_count)
+                    .expect("steady property economics case");
+                assert_eq!(work.property_dirty_indices(), dirty_count);
+                assert_eq!(work.property_value_visits(), dirty_count * 2);
+                assert_eq!(work.property_index_lookups(), dirty_count * 2);
+                assert_eq!(work.property_write_ranges(), 1);
+                assert_eq!(work.gpu_resource_creations(), 0);
+                assert_eq!(
+                    work.property_full_dense_transfers(),
+                    usize::from(dirty_count == property_count)
+                );
+            }
+        }
+
+        let initialization = pollster::block_on(Harness::new(1.0))
+            .expect("initialization harness")
+            .property_economics_initial_work(1)
+            .expect("initialization case");
+        assert_eq!(initialization.property_full_initializations(), 1);
+        let replacement = pollster::block_on(Harness::new(1.0))
+            .expect("replacement harness")
+            .property_economics_initial_work(4_096)
+            .expect("buffer replacement case");
+        assert_eq!(replacement.property_full_buffer_replacements(), 1);
+        let topology = pollster::block_on(Harness::new(1.0))
+            .expect("topology harness")
+            .property_economics_topology_replacement_work()
+            .expect("topology replacement case");
+        assert_eq!(topology.property_full_topology_replacements(), 1);
+        let coalesced = pollster::block_on(Harness::new(1.0))
+            .expect("coalescing harness")
+            .property_economics_coalesced_work()
+            .expect("coalesced case");
+        assert_eq!(coalesced.property_dirty_indices(), 1);
+        assert_eq!(coalesced.node_property_upload_bytes(), 64);
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
     fn control_gallery_slow_scroll_never_exposes_unprepared_output() {
         pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_slow_scroll(
             1.0,

@@ -99,8 +99,8 @@ impl NodeProperty {
 fn project_scrollbar_property(
     property: &mut NodeProperty,
     projection: scene::ContentProjection,
-    node: composition::tree::NodeId,
-    properties: &scene::Properties,
+    value: Option<scene::PropertyValue>,
+    scroll_offset: Option<crate::interaction::ScrollOffset>,
     scale_factor: f32,
 ) {
     let (axis, edge, base_thickness, maximum_thickness, thumb) = match projection {
@@ -128,9 +128,12 @@ fn project_scrollbar_property(
             Some((baseline_start, baseline_extent, baseline_position)),
         ),
     };
-    let (opacity, thickness) = properties
-        .scrollbar(node, axis)
-        .unwrap_or((0.0, base_thickness as f32));
+    let (opacity, thickness) = match value {
+        Some(scene::PropertyValue::Scrollbar {
+            opacity, thickness, ..
+        }) => (opacity, thickness),
+        _ => (0.0, base_thickness as f32),
+    };
     property.opacity = opacity.clamp(0.0, 1.0);
 
     let base_thickness = base_thickness.max(1);
@@ -152,7 +155,7 @@ fn project_scrollbar_property(
     );
 
     if let Some((baseline_start, extent, baseline_position)) = thumb
-        && let Some(offset) = properties.scroll_offset(node)
+        && let Some(offset) = scroll_offset
     {
         let position = projection
             .scrollbar_position(offset)
@@ -197,6 +200,70 @@ fn snapped_span(grid: crate::paint::Grid, start: i32, extent: i32) -> (f32, f32)
         end = start + grid.logical_pixel();
     }
     (start, end)
+}
+
+fn node_property_for_binding(
+    commit: &scene::Commit,
+    properties: &scene::Properties,
+    binding: PropertyBinding,
+    scale_factor: f32,
+    stats: &mut SyncStats,
+) -> NodeProperty {
+    let mut value = |kind| {
+        stats.property_index_lookups = stats.property_index_lookups.saturating_add(1);
+        let value = commit
+            .property_index(scene::PropertyRef::new(binding.node, kind))
+            .and_then(|index| properties.value_at(index));
+        stats.property_value_visits = stats
+            .property_value_visits
+            .saturating_add(usize::from(value.is_some()));
+        value
+    };
+
+    let mut property = NodeProperty::IDENTITY;
+    property.grid[0] = scale_factor;
+    property.scene_origin = binding.space.origin;
+    property.target_size = binding.space.size;
+    match binding.projection {
+        scene::ContentProjection::Normal => {
+            if let Some(scene::PropertyValue::Transform { value, .. }) =
+                value(scene::PropertyKind::Transform)
+            {
+                property.origin = [value.origin_x(), value.origin_y()];
+                property.translate = [value.translate_x(), value.translate_y()];
+                property.scale = [value.scale_x(), value.scale_y()];
+                property.grid[1] = 1.0;
+            }
+        }
+        scene::ContentProjection::Caret => {
+            if let Some(scene::PropertyValue::Caret { visible, .. }) =
+                value(scene::PropertyKind::Caret)
+            {
+                property.opacity = f32::from(visible);
+            }
+        }
+        projection => {
+            let visual = projection
+                .scrollbar_axis()
+                .and_then(|axis| value(scene::PropertyKind::scrollbar(axis)));
+            let scroll_offset =
+                matches!(projection, scene::ContentProjection::ScrollbarThumb { .. })
+                    .then(|| value(scene::PropertyKind::ScrollOffset))
+                    .flatten()
+                    .and_then(|value| match value {
+                        scene::PropertyValue::ScrollOffset { value, .. } => Some(value),
+                        _ => None,
+                    });
+            project_scrollbar_property(
+                &mut property,
+                projection,
+                visual,
+                scroll_offset,
+                scale_factor,
+            );
+        }
+    }
+    property
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -299,6 +366,14 @@ pub(in crate::render) struct SyncStats {
     pub(in crate::render) node_property_upload_bytes: usize,
     pub(in crate::render) scroll_property_upload_bytes: usize,
     pub(in crate::render) text_property_upload_bytes: usize,
+    pub(in crate::render) property_value_visits: usize,
+    pub(in crate::render) property_index_lookups: usize,
+    pub(in crate::render) property_dirty_indices: usize,
+    pub(in crate::render) property_write_ranges: usize,
+    pub(in crate::render) property_full_initializations: usize,
+    pub(in crate::render) property_full_buffer_replacements: usize,
+    pub(in crate::render) property_full_topology_replacements: usize,
+    pub(in crate::render) property_full_dense_transfers: usize,
     pub(in crate::render) resource_creations: usize,
     pub(in crate::render) resource_replacements: usize,
     pub(in crate::render) resource_removals: usize,
@@ -307,6 +382,11 @@ pub(in crate::render) struct SyncStats {
 pub(in crate::render) struct Plan {
     batches: Vec<PlanStep>,
     property_bindings: Vec<PropertyBinding>,
+    property_offsets: Arc<HashMap<PropertyBinding, u32>>,
+    property_dependents: Arc<HashMap<scene::PropertyIndex, Vec<usize>>>,
+    scroll_bindings: Arc<[ScrollBinding]>,
+    scroll_offsets: Arc<HashMap<ScrollBinding, u32>>,
+    scroll_dependents: Arc<HashMap<scene::PropertyIndex, Vec<usize>>>,
     spatial_bindings: Vec<scene::SpatialBinding>,
     requires_surface_sampling: bool,
     facts: PlanFacts,
@@ -336,10 +416,25 @@ impl Plan {
 
     #[cfg(feature = "renderer-debug")]
     fn debug_signature(&self) -> String {
+        let mut property_dependents = self
+            .property_dependents
+            .iter()
+            .map(|(property, dependents)| (*property, dependents.as_slice()))
+            .collect::<Vec<_>>();
+        property_dependents.sort_unstable_by_key(|(property, _)| *property);
+        let mut scroll_dependents = self
+            .scroll_dependents
+            .iter()
+            .map(|(property, dependents)| (*property, dependents.as_slice()))
+            .collect::<Vec<_>>();
+        scroll_dependents.sort_unstable_by_key(|(property, _)| *property);
         format!(
-            "batches={:?};property_bindings={:?};spatial_bindings={:?};requires_surface_sampling={}",
+            "batches={:?};property_bindings={:?};property_dependents={:?};scroll_bindings={:?};scroll_dependents={:?};spatial_bindings={:?};requires_surface_sampling={}",
             self.batches,
             self.property_bindings,
+            property_dependents,
+            self.scroll_bindings,
+            scroll_dependents,
             self.spatial_bindings,
             self.requires_surface_sampling
         )
@@ -444,12 +539,12 @@ impl std::hash::Hash for TargetSpace {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ScrollBinding {
-    spatial: scene::SpatialBinding,
+    path: scene::ScrollPathId,
 }
 
 impl ScrollBinding {
     const IDENTITY: Self = Self {
-        spatial: scene::SpatialBinding::ROOT,
+        path: scene::ScrollPathId::ROOT,
     };
 }
 
@@ -458,13 +553,12 @@ struct PropertyBinding {
     node: composition::tree::NodeId,
     space: TargetSpace,
     projection: scene::ContentProjection,
+    scroll: ScrollBinding,
 }
 
 impl PropertyBinding {
     fn scroll(self) -> ScrollBinding {
-        ScrollBinding {
-            spatial: self.space.spatial,
-        }
+        self.scroll
     }
 }
 
@@ -658,9 +752,25 @@ impl Realizer {
         coalesce_shape_batches(&mut batches);
         let requires_surface_sampling = render::renderer::requires_surface_sampling(&batches);
         let spatial_bindings = collect_plan_spatial_bindings(&batches);
+        let property_bindings = pending.property_bindings;
+        let property_offsets = Arc::new(collect_property_offsets(
+            &property_bindings,
+            self.shapes.property_stride,
+        ));
+        let property_dependents = Arc::new(collect_property_dependents(commit, &property_bindings));
+        let (scroll_bindings, scroll_offsets, scroll_dependents) = collect_scroll_bindings(
+            commit,
+            &property_bindings,
+            self.shapes.scroll_property_stride,
+        );
         let plan = Arc::new(Plan {
             batches,
-            property_bindings: pending.property_bindings,
+            property_bindings,
+            property_offsets,
+            property_dependents,
+            scroll_bindings,
+            scroll_offsets,
+            scroll_dependents,
             spatial_bindings,
             requires_surface_sampling,
             facts: PlanFacts::from_stats(&pending.stats),
@@ -796,6 +906,11 @@ impl Realizer {
             commit,
             properties,
             &plan.property_bindings,
+            Arc::clone(&plan.property_offsets),
+            &plan.property_dependents,
+            &plan.scroll_bindings,
+            Arc::clone(&plan.scroll_offsets),
+            &plan.scroll_dependents,
         );
         property_bindings.prepare_spatial_translations(
             commit.spatial_topology(),
@@ -892,6 +1007,11 @@ impl Realizer {
             commit,
             properties,
             &plan.property_bindings,
+            Arc::clone(&plan.property_offsets),
+            &plan.property_dependents,
+            &plan.scroll_bindings,
+            Arc::clone(&plan.scroll_offsets),
+            &plan.scroll_dependents,
         );
         property_bindings.prepare_spatial_translations(
             commit.spatial_topology(),
@@ -1454,6 +1574,12 @@ impl PlanBuilder<'_> {
             node,
             space,
             projection,
+            scroll: ScrollBinding {
+                path: self
+                    .spatial_topology
+                    .scroll_path(space.spatial)
+                    .unwrap_or(scene::ScrollPathId::ROOT),
+            },
         };
         if !self.property_bindings.contains(&binding) {
             self.property_bindings.push(binding);
@@ -1475,9 +1601,25 @@ impl PlanBuilder<'_> {
         coalesce_shape_batches(&mut batches);
         let requires_surface_sampling = render::renderer::requires_surface_sampling(&batches);
         let spatial_bindings = collect_plan_spatial_bindings(&batches);
+        let property_bindings = std::mem::take(&mut self.property_bindings);
+        let property_offsets = Arc::new(collect_property_offsets(
+            &property_bindings,
+            self.shapes.property_stride,
+        ));
+        let property_dependents = Arc::new(collect_property_dependents(commit, &property_bindings));
+        let (scroll_bindings, scroll_offsets, scroll_dependents) = collect_scroll_bindings(
+            commit,
+            &property_bindings,
+            self.shapes.scroll_property_stride,
+        );
         Ok(Plan {
             batches,
-            property_bindings: std::mem::take(&mut self.property_bindings),
+            property_bindings,
+            property_offsets,
+            property_dependents,
+            scroll_bindings,
+            scroll_offsets,
+            scroll_dependents,
             spatial_bindings,
             requires_surface_sampling,
             facts: PlanFacts::from_stats(&self.stats),
@@ -1937,6 +2079,14 @@ fn apply_sync_stats(stats: &mut render::DrawStats, sync: SyncStats) {
     stats.node_property_upload_bytes += sync.node_property_upload_bytes;
     stats.scroll_property_upload_bytes += sync.scroll_property_upload_bytes;
     stats.text_property_upload_bytes += sync.text_property_upload_bytes;
+    stats.property_value_visits += sync.property_value_visits;
+    stats.property_index_lookups += sync.property_index_lookups;
+    stats.property_dirty_indices += sync.property_dirty_indices;
+    stats.property_write_ranges += sync.property_write_ranges;
+    stats.property_full_initializations += sync.property_full_initializations;
+    stats.property_full_buffer_replacements += sync.property_full_buffer_replacements;
+    stats.property_full_topology_replacements += sync.property_full_topology_replacements;
+    stats.property_full_dense_transfers += sync.property_full_dense_transfers;
     stats.retained_gpu_resource_creations += sync.resource_creations;
     stats.retained_gpu_resource_replacements += sync.resource_replacements;
     stats.retained_gpu_resource_removals += sync.resource_removals;
@@ -1951,6 +2101,173 @@ fn count_batches(batches: &[PlanStep]) -> usize {
             _ => 1,
         })
         .sum()
+}
+
+fn collect_property_offsets(
+    bindings: &[PropertyBinding],
+    stride: usize,
+) -> HashMap<PropertyBinding, u32> {
+    bindings
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, binding)| (binding, index.saturating_mul(stride) as u32))
+        .collect()
+}
+
+fn property_write_ranges(
+    sorted_binding_indices: &[usize],
+    stride: usize,
+    property_size: usize,
+) -> Vec<Range<usize>> {
+    let Some(first) = sorted_binding_indices.first().copied() else {
+        return Vec::new();
+    };
+    let mut ranges = Vec::new();
+    let mut start = first;
+    let mut previous = first;
+    for index in sorted_binding_indices.iter().copied().skip(1) {
+        if index == previous.saturating_add(1) {
+            previous = index;
+            continue;
+        }
+        ranges.push(start.saturating_mul(stride)..previous.saturating_mul(stride) + property_size);
+        start = index;
+        previous = index;
+    }
+    ranges.push(start.saturating_mul(stride)..previous.saturating_mul(stride) + property_size);
+    ranges
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PropertyTransfer {
+    Unchanged,
+    Sparse {
+        ranges: Vec<Range<usize>>,
+        bytes: usize,
+    },
+    Dense,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PropertyFullReason {
+    Initialization,
+    BufferReplacement,
+    TopologyReplacement,
+    Dense,
+}
+
+fn record_property_full_transfer(stats: &mut SyncStats, reason: PropertyFullReason) {
+    let counter = match reason {
+        PropertyFullReason::Initialization => &mut stats.property_full_initializations,
+        PropertyFullReason::BufferReplacement => &mut stats.property_full_buffer_replacements,
+        PropertyFullReason::TopologyReplacement => &mut stats.property_full_topology_replacements,
+        PropertyFullReason::Dense => &mut stats.property_full_dense_transfers,
+    };
+    *counter = counter.saturating_add(1);
+}
+
+fn plan_property_transfer(
+    sorted_binding_indices: &[usize],
+    stride: usize,
+    property_size: usize,
+    full_bytes: usize,
+) -> PropertyTransfer {
+    let ranges = property_write_ranges(sorted_binding_indices, stride, property_size);
+    if ranges.is_empty() {
+        return PropertyTransfer::Unchanged;
+    }
+    let bytes = ranges.iter().map(|range| range.len()).sum::<usize>();
+    // Model each queue write as one aligned property slot in addition to its payload. This keeps
+    // the policy deterministic across node and scroll buffers while accounting for command count.
+    let sparse_cost = bytes.saturating_add(ranges.len().saturating_mul(stride));
+    if sparse_cost < full_bytes {
+        PropertyTransfer::Sparse { ranges, bytes }
+    } else {
+        PropertyTransfer::Dense
+    }
+}
+
+fn collect_property_dependents(
+    commit: &scene::Commit,
+    bindings: &[PropertyBinding],
+) -> HashMap<scene::PropertyIndex, Vec<usize>> {
+    let mut dependents = HashMap::new();
+    for (binding_index, binding) in bindings.iter().copied().enumerate() {
+        let mut kinds = Vec::with_capacity(2);
+        match binding.projection {
+            scene::ContentProjection::Normal => kinds.push(scene::PropertyKind::Transform),
+            scene::ContentProjection::Caret => kinds.push(scene::PropertyKind::Caret),
+            scene::ContentProjection::ScrollbarTrack { axis, .. } => {
+                kinds.push(scene::PropertyKind::scrollbar(axis));
+            }
+            scene::ContentProjection::ScrollbarThumb { axis, .. } => {
+                kinds.push(scene::PropertyKind::scrollbar(axis));
+                kinds.push(scene::PropertyKind::ScrollOffset);
+            }
+        };
+        for kind in kinds {
+            let Some(property) = commit.property_index(scene::PropertyRef::new(binding.node, kind))
+            else {
+                continue;
+            };
+            dependents
+                .entry(property)
+                .or_insert_with(Vec::new)
+                .push(binding_index);
+        }
+    }
+    dependents
+}
+
+fn collect_scroll_bindings(
+    commit: &scene::Commit,
+    bindings: &[PropertyBinding],
+    stride: usize,
+) -> (
+    Arc<[ScrollBinding]>,
+    Arc<HashMap<ScrollBinding, u32>>,
+    Arc<HashMap<scene::PropertyIndex, Vec<usize>>>,
+) {
+    let mut scroll_bindings = Vec::new();
+    for binding in bindings.iter().map(|binding| binding.scroll()) {
+        if !scroll_bindings.contains(&binding) {
+            scroll_bindings.push(binding);
+        }
+    }
+    if scroll_bindings.is_empty() && !bindings.is_empty() {
+        scroll_bindings.push(ScrollBinding::IDENTITY);
+    }
+    let offsets = scroll_bindings
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, binding)| (binding, index.saturating_mul(stride) as u32))
+        .collect::<HashMap<_, _>>();
+    let mut dependents = HashMap::new();
+    for (binding_index, binding) in scroll_bindings.iter().copied().enumerate() {
+        let owners = commit
+            .spatial_topology()
+            .scroll_path_owners(binding.path)
+            .unwrap_or_default();
+        for owner in owners {
+            let Some(property) = commit.property_index(scene::PropertyRef::new(
+                owner,
+                scene::PropertyKind::ScrollOffset,
+            )) else {
+                continue;
+            };
+            dependents
+                .entry(property)
+                .or_insert_with(Vec::new)
+                .push(binding_index);
+        }
+    }
+    (
+        scroll_bindings.into(),
+        Arc::new(offsets),
+        Arc::new(dependents),
+    )
 }
 
 fn collect_plan_spatial_bindings(batches: &[PlanStep]) -> Vec<scene::SpatialBinding> {
@@ -2027,9 +2344,9 @@ fn local_rect(mut bounds: crate::paint::Rect, parent_origin: [f32; 2]) -> crate:
 }
 
 pub(in crate::render) struct PropertyBindings {
-    offsets: HashMap<PropertyBinding, u32>,
+    offsets: Arc<HashMap<PropertyBinding, u32>>,
     slot: usize,
-    scroll_offsets: HashMap<ScrollBinding, u32>,
+    scroll_offsets: Arc<HashMap<ScrollBinding, u32>>,
     scroll_slot: usize,
     spatial_translations: HashMap<scene::SpatialBinding, [f32; 2]>,
 }
@@ -2334,14 +2651,23 @@ impl Shapes {
         commit: &Arc<scene::Commit>,
         properties: &scene::Properties,
         bindings: &[PropertyBinding],
+        offsets: Arc<HashMap<PropertyBinding, u32>>,
+        dependents: &HashMap<scene::PropertyIndex, Vec<usize>>,
+        scroll_bindings: &[ScrollBinding],
+        scroll_offsets: Arc<HashMap<ScrollBinding, u32>>,
+        scroll_dependents: &HashMap<scene::PropertyIndex, Vec<usize>>,
     ) -> (PropertyBindings, SyncStats) {
         let mut stats = SyncStats::default();
+        let property_work = properties.work();
+        stats.property_value_visits = property_work.value_visits();
+        stats.property_index_lookups = property_work.index_lookups();
+        stats.property_dirty_indices = properties.changed().len();
         if bindings.is_empty() {
             return (
                 PropertyBindings {
-                    offsets: HashMap::new(),
+                    offsets: Arc::new(HashMap::new()),
                     slot: 0,
-                    scroll_offsets: HashMap::new(),
+                    scroll_offsets: Arc::new(HashMap::new()),
                     scroll_slot: 0,
                     spatial_translations: HashMap::new(),
                 },
@@ -2349,19 +2675,21 @@ impl Shapes {
             );
         }
 
-        let (offsets, slot) = self.prepare_node_properties(
+        let slot = self.prepare_node_properties(
             render_context,
             viewport,
             commit,
             properties,
             bindings,
+            dependents,
             &mut stats,
         );
-        let (scroll_offsets, scroll_slot) = self.prepare_scroll_properties(
+        let scroll_slot = self.prepare_scroll_properties(
             render_context,
             commit,
             properties,
-            bindings,
+            scroll_bindings,
+            scroll_dependents,
             &mut stats,
         );
 
@@ -2384,70 +2712,123 @@ impl Shapes {
         commit: &Arc<scene::Commit>,
         properties: &scene::Properties,
         bindings: &[PropertyBinding],
+        dependents: &HashMap<scene::PropertyIndex, Vec<usize>>,
         stats: &mut SyncStats,
-    ) -> (HashMap<PropertyBinding, u32>, usize) {
+    ) -> usize {
         let required = bindings.len().max(1);
         let viewport_key = [
             viewport.logical_area().width().to_bits(),
             viewport.logical_area().height().to_bits(),
             viewport.scale_factor().to_bits(),
         ];
-        let offsets = bindings
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, binding)| (binding, (index * self.property_stride) as u32))
-            .collect::<HashMap<_, _>>();
-        let mut bytes = vec![0_u8; required * self.property_stride];
+        for slot in &mut self.property_slots {
+            slot.owners.retain(|owner| owner.strong_count() > 0);
+        }
 
-        for (index, binding) in bindings.iter().copied().enumerate() {
-            let Some(node) = commit.nodes().iter().find(|node| node.id() == binding.node) else {
-                continue;
-            };
+        let owned_slot = self.property_slots.iter().position(|slot| {
+            slot.owners
+                .iter()
+                .filter_map(Weak::upgrade)
+                .any(|owner| Arc::ptr_eq(&owner, commit))
+        });
+        if let Some(slot) = owned_slot
+            && self.property_slots[slot].viewport_key == viewport_key
+            && self.property_slots[slot].bindings == bindings
+            && self.property_slots[slot].bytes.len() == required * self.property_stride
+        {
+            let mut dirty_bindings = properties
+                .changed()
+                .iter()
+                .flat_map(|property| dependents.get(property).into_iter().flatten().copied())
+                .collect::<Vec<_>>();
+            dirty_bindings.sort_unstable();
+            dirty_bindings.dedup();
 
-            let mut property = NodeProperty::IDENTITY;
-            property.grid[0] = viewport.scale_factor();
-            property.scene_origin = binding.space.origin;
-            property.target_size = binding.space.size;
-            match binding.projection {
-                scene::ContentProjection::Normal => {
-                    if let Some(scene::PropertyValue::Transform { value, .. }) = properties.value(
-                        scene::PropertyRef::new(node.id(), scene::PropertyKind::Transform),
-                    ) {
-                        property.origin = [value.origin_x(), value.origin_y()];
-                        property.translate = [value.translate_x(), value.translate_y()];
-                        property.scale = [value.scale_x(), value.scale_y()];
-                        property.grid[1] = 1.0;
-                    }
-                }
-                scene::ContentProjection::Caret => {
-                    if let Some(scene::PropertyValue::Caret { visible, .. }) = properties.value(
-                        scene::PropertyRef::new(node.id(), scene::PropertyKind::Caret),
-                    ) {
-                        property.opacity = f32::from(visible);
-                    }
-                }
-                projection => project_scrollbar_property(
-                    &mut property,
-                    projection,
-                    node.id(),
+            let property_slot = &mut self.property_slots[slot];
+            let mut changed_bindings = Vec::with_capacity(dirty_bindings.len());
+            for binding_index in dirty_bindings {
+                let property = node_property_for_binding(
+                    commit,
                     properties,
+                    bindings[binding_index],
                     viewport.scale_factor(),
-                ),
+                    stats,
+                );
+                let offset = binding_index * self.property_stride;
+                let range = offset..offset + std::mem::size_of::<NodeProperty>();
+                let bytes = bytemuck::bytes_of(&property);
+                if property_slot.bytes[range.clone()] != *bytes {
+                    property_slot.bytes[range].copy_from_slice(bytes);
+                    changed_bindings.push(binding_index);
+                }
             }
+            if changed_bindings.is_empty() {
+                return slot;
+            }
+
+            let transfer = plan_property_transfer(
+                &changed_bindings,
+                self.property_stride,
+                std::mem::size_of::<NodeProperty>(),
+                property_slot.bytes.len(),
+            );
+            if let PropertyTransfer::Sparse {
+                ranges,
+                bytes: sparse_bytes,
+            } = transfer
+            {
+                for range in &ranges {
+                    render_context.queue().write_buffer(
+                        &property_slot.property_buffer,
+                        range.start as u64,
+                        &property_slot.bytes[range.clone()],
+                    );
+                }
+                stats.property_upload_bytes =
+                    stats.property_upload_bytes.saturating_add(sparse_bytes);
+                stats.node_property_upload_bytes = stats
+                    .node_property_upload_bytes
+                    .saturating_add(sparse_bytes);
+                stats.property_write_ranges =
+                    stats.property_write_ranges.saturating_add(ranges.len());
+            } else {
+                debug_assert_eq!(transfer, PropertyTransfer::Dense);
+                render_context.queue().write_buffer(
+                    &property_slot.property_buffer,
+                    0,
+                    &property_slot.bytes,
+                );
+                stats.property_upload_bytes = stats
+                    .property_upload_bytes
+                    .saturating_add(property_slot.bytes.len());
+                stats.node_property_upload_bytes = stats
+                    .node_property_upload_bytes
+                    .saturating_add(property_slot.bytes.len());
+                stats.property_write_ranges = stats.property_write_ranges.saturating_add(1);
+                record_property_full_transfer(stats, PropertyFullReason::Dense);
+            }
+            return slot;
+        }
+
+        let mut bytes = vec![0_u8; required * self.property_stride];
+        for (index, binding) in bindings.iter().copied().enumerate() {
+            let property = node_property_for_binding(
+                commit,
+                properties,
+                binding,
+                viewport.scale_factor(),
+                stats,
+            );
             let offset = index * self.property_stride;
             bytes[offset..offset + std::mem::size_of::<NodeProperty>()]
                 .copy_from_slice(bytemuck::bytes_of(&property));
         }
 
-        for slot in &mut self.property_slots {
-            slot.owners.retain(|owner| owner.strong_count() > 0);
-        }
         if let Some(slot) = self.property_slots.iter_mut().position(|slot| {
             slot.viewport_key == viewport_key && slot.bindings == bindings && slot.bytes == bytes
         }) {
             add_property_owner(&mut self.property_slots[slot].owners, commit);
-            return (offsets, slot);
+            return slot;
         }
 
         let slot = self
@@ -2483,6 +2864,9 @@ impl Shapes {
 
         let property_slot = &mut self.property_slots[slot];
         let viewport_changed = property_slot.viewport_key != viewport_key;
+        let initialized = property_slot.bytes.is_empty();
+        let topology_replaced = !initialized
+            && (property_slot.bindings != bindings || property_slot.bytes.len() != bytes.len());
         let mut buffer_recreated = false;
         if required > property_slot.property_capacity {
             property_slot.property_capacity = required.next_power_of_two();
@@ -2524,6 +2908,17 @@ impl Shapes {
                 .write_buffer(&property_slot.property_buffer, 0, &bytes);
             stats.property_upload_bytes += bytes.len();
             stats.node_property_upload_bytes += bytes.len();
+            stats.property_write_ranges = stats.property_write_ranges.saturating_add(1);
+            let reason = if buffer_recreated {
+                PropertyFullReason::BufferReplacement
+            } else if initialized {
+                PropertyFullReason::Initialization
+            } else if topology_replaced || viewport_changed {
+                PropertyFullReason::TopologyReplacement
+            } else {
+                PropertyFullReason::Dense
+            };
+            record_property_full_transfer(stats, reason);
         }
         property_slot.owners.clear();
         property_slot.owners.push(Arc::downgrade(commit));
@@ -2531,7 +2926,7 @@ impl Shapes {
         property_slot.bindings = bindings.to_vec();
         property_slot.bytes = bytes;
 
-        (offsets, slot)
+        slot
     }
 
     fn prepare_scroll_properties(
@@ -2539,31 +2934,122 @@ impl Shapes {
         render_context: &render::Context,
         commit: &Arc<scene::Commit>,
         properties: &scene::Properties,
-        bindings: &[PropertyBinding],
+        scroll_bindings: &[ScrollBinding],
+        dependents: &HashMap<scene::PropertyIndex, Vec<usize>>,
         stats: &mut SyncStats,
-    ) -> (HashMap<ScrollBinding, u32>, usize) {
-        let mut scroll_bindings = Vec::new();
-        for binding in bindings.iter().map(|binding| binding.scroll()) {
-            if !scroll_bindings.contains(&binding) {
-                scroll_bindings.push(binding);
-            }
-        }
-        if scroll_bindings.is_empty() {
-            scroll_bindings.push(ScrollBinding::IDENTITY);
+    ) -> usize {
+        let required = scroll_bindings.len().max(1);
+        for slot in &mut self.scroll_property_slots {
+            slot.owners.retain(|owner| owner.strong_count() > 0);
         }
 
-        let offsets = scroll_bindings
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, binding)| (binding, (index * self.scroll_property_stride) as u32))
-            .collect::<HashMap<_, _>>();
-        let required = scroll_bindings.len().max(1);
+        let owned_slot = self.scroll_property_slots.iter().position(|slot| {
+            slot.owners
+                .iter()
+                .filter_map(Weak::upgrade)
+                .any(|owner| Arc::ptr_eq(&owner, commit))
+        });
+        if let Some(slot) = owned_slot
+            && self.scroll_property_slots[slot].bindings == scroll_bindings
+            && self.scroll_property_slots[slot].bytes.len()
+                == required * self.scroll_property_stride
+        {
+            let mut dirty_bindings = properties
+                .changed()
+                .iter()
+                .flat_map(|property| dependents.get(property).into_iter().flatten().copied())
+                .collect::<Vec<_>>();
+            dirty_bindings.sort_unstable();
+            dirty_bindings.dedup();
+
+            let scroll_slot = &mut self.scroll_property_slots[slot];
+            let mut changed_bindings = Vec::with_capacity(dirty_bindings.len());
+            for binding_index in dirty_bindings {
+                let binding = scroll_bindings[binding_index];
+                let dependency_count = commit
+                    .spatial_topology()
+                    .scroll_path_owners(binding.path)
+                    .map_or(0, |owners| owners.len());
+                stats.property_index_lookups = stats
+                    .property_index_lookups
+                    .saturating_add(dependency_count);
+                stats.property_value_visits =
+                    stats.property_value_visits.saturating_add(dependency_count);
+                let translation = commit
+                    .spatial_topology()
+                    .scroll_path_translation(binding.path, properties)
+                    .unwrap_or_default();
+                let property = ScrollProperty {
+                    translation,
+                    ..ScrollProperty::IDENTITY
+                };
+                let offset = binding_index * self.scroll_property_stride;
+                let range = offset..offset + std::mem::size_of::<ScrollProperty>();
+                let bytes = bytemuck::bytes_of(&property);
+                if scroll_slot.bytes[range.clone()] != bytes[..] {
+                    scroll_slot.bytes[range].copy_from_slice(bytes);
+                    changed_bindings.push(binding_index);
+                }
+            }
+            if changed_bindings.is_empty() {
+                return slot;
+            }
+            let transfer = plan_property_transfer(
+                &changed_bindings,
+                self.scroll_property_stride,
+                std::mem::size_of::<ScrollProperty>(),
+                scroll_slot.bytes.len(),
+            );
+            if let PropertyTransfer::Sparse {
+                ranges,
+                bytes: sparse_bytes,
+            } = transfer
+            {
+                for range in &ranges {
+                    render_context.queue().write_buffer(
+                        &scroll_slot.buffer,
+                        range.start as u64,
+                        &scroll_slot.bytes[range.clone()],
+                    );
+                }
+                stats.property_upload_bytes =
+                    stats.property_upload_bytes.saturating_add(sparse_bytes);
+                stats.scroll_property_upload_bytes = stats
+                    .scroll_property_upload_bytes
+                    .saturating_add(sparse_bytes);
+                stats.property_write_ranges =
+                    stats.property_write_ranges.saturating_add(ranges.len());
+            } else {
+                debug_assert_eq!(transfer, PropertyTransfer::Dense);
+                render_context
+                    .queue()
+                    .write_buffer(&scroll_slot.buffer, 0, &scroll_slot.bytes);
+                stats.property_upload_bytes = stats
+                    .property_upload_bytes
+                    .saturating_add(scroll_slot.bytes.len());
+                stats.scroll_property_upload_bytes = stats
+                    .scroll_property_upload_bytes
+                    .saturating_add(scroll_slot.bytes.len());
+                stats.property_write_ranges = stats.property_write_ranges.saturating_add(1);
+                record_property_full_transfer(stats, PropertyFullReason::Dense);
+            }
+            return slot;
+        }
+
         let mut bytes = vec![0_u8; required * self.scroll_property_stride];
         for (index, binding) in scroll_bindings.iter().copied().enumerate() {
+            let dependency_count = commit
+                .spatial_topology()
+                .scroll_path_owners(binding.path)
+                .map_or(0, |owners| owners.len());
+            stats.property_index_lookups = stats
+                .property_index_lookups
+                .saturating_add(dependency_count);
+            stats.property_value_visits =
+                stats.property_value_visits.saturating_add(dependency_count);
             let translation = commit
                 .spatial_topology()
-                .scroll_translation(binding.spatial, properties)
+                .scroll_path_translation(binding.path, properties)
                 .unwrap_or_default();
             let property = ScrollProperty {
                 translation,
@@ -2574,16 +3060,13 @@ impl Shapes {
                 .copy_from_slice(bytemuck::bytes_of(&property));
         }
 
-        for slot in &mut self.scroll_property_slots {
-            slot.owners.retain(|owner| owner.strong_count() > 0);
-        }
         if let Some(slot) = self
             .scroll_property_slots
             .iter_mut()
             .position(|slot| slot.bindings == scroll_bindings && slot.bytes == bytes)
         {
             add_property_owner(&mut self.scroll_property_slots[slot].owners, commit);
-            return (offsets, slot);
+            return slot;
         }
 
         let slot = self
@@ -2618,6 +3101,9 @@ impl Shapes {
             });
 
         let scroll_slot = &mut self.scroll_property_slots[slot];
+        let initialized = scroll_slot.bytes.is_empty();
+        let topology_replaced = !initialized
+            && (scroll_slot.bindings != scroll_bindings || scroll_slot.bytes.len() != bytes.len());
         let mut buffer_recreated = false;
         if required > scroll_slot.capacity {
             scroll_slot.capacity = required.next_power_of_two();
@@ -2634,34 +3120,30 @@ impl Shapes {
             stats.resource_creations += 1;
             buffer_recreated = true;
         }
-        if buffer_recreated || scroll_slot.bytes.len() != bytes.len() {
+        if buffer_recreated || scroll_slot.bytes != bytes {
             render_context
                 .queue()
                 .write_buffer(&scroll_slot.buffer, 0, &bytes);
             stats.property_upload_bytes += bytes.len();
             stats.scroll_property_upload_bytes += bytes.len();
-        } else {
-            let property_size = std::mem::size_of::<ScrollProperty>();
-            for index in 0..required {
-                let offset = index * self.scroll_property_stride;
-                let range = offset..offset + property_size;
-                if scroll_slot.bytes[range.clone()] != bytes[range.clone()] {
-                    render_context.queue().write_buffer(
-                        &scroll_slot.buffer,
-                        offset as u64,
-                        &bytes[range],
-                    );
-                    stats.property_upload_bytes += property_size;
-                    stats.scroll_property_upload_bytes += property_size;
-                }
-            }
+            stats.property_write_ranges = stats.property_write_ranges.saturating_add(1);
+            let reason = if buffer_recreated {
+                PropertyFullReason::BufferReplacement
+            } else if initialized {
+                PropertyFullReason::Initialization
+            } else if topology_replaced {
+                PropertyFullReason::TopologyReplacement
+            } else {
+                PropertyFullReason::Dense
+            };
+            record_property_full_transfer(stats, reason);
         }
         scroll_slot.owners.clear();
         scroll_slot.owners.push(Arc::downgrade(commit));
-        scroll_slot.bindings = scroll_bindings;
+        scroll_slot.bindings = scroll_bindings.to_vec();
         scroll_slot.bytes = bytes;
 
-        (offsets, slot)
+        slot
     }
 
     pub(in crate::render) fn draw<'a>(
@@ -2919,8 +3401,8 @@ fn create_scroll_property_slot(
         buffer,
         capacity,
         bind_group,
-        bindings: Vec::new(),
-        bytes: Vec::new(),
+        bindings: vec![ScrollBinding::IDENTITY],
+        bytes: vec![0; stride],
     }
 }
 
@@ -3009,6 +3491,7 @@ mod tests {
                 spatial: scene::SpatialBinding::ROOT,
             },
             projection: scene::ContentProjection::Normal,
+            scroll: ScrollBinding::IDENTITY,
         }
     }
 
@@ -3056,5 +3539,40 @@ mod tests {
         let local = binding(12);
 
         assert_eq!(local.scroll(), ScrollBinding::IDENTITY);
+    }
+
+    #[test]
+    fn property_write_ranges_merge_adjacent_bindings_without_spanning_gaps() {
+        assert_eq!(
+            property_write_ranges(&[1, 2, 3, 7], 256, 64),
+            vec![256..832, 1792..1856]
+        );
+        assert!(property_write_ranges(&[], 256, 64).is_empty());
+    }
+
+    #[test]
+    fn one_transfer_planner_selects_sparse_and_dense_property_writes() {
+        assert_eq!(
+            plan_property_transfer(&[], 256, 64, 4_096),
+            PropertyTransfer::Unchanged
+        );
+        assert_eq!(
+            plan_property_transfer(&[0], 256, 64, 4_096),
+            PropertyTransfer::Sparse {
+                ranges: vec![0..64],
+                bytes: 64,
+            }
+        );
+        assert_eq!(
+            plan_property_transfer(&[1, 2], 256, 64, 4_096),
+            PropertyTransfer::Sparse {
+                ranges: vec![256..576],
+                bytes: 320,
+            }
+        );
+        assert_eq!(
+            plan_property_transfer(&[0], 256, 64, 256),
+            PropertyTransfer::Dense
+        );
     }
 }

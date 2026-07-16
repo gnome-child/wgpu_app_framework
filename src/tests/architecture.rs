@@ -5945,7 +5945,9 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && retained.contains("property_slots: Vec<PropertySlot>")
             && retained.contains("scroll_property_slots: Vec<ScrollPropertySlot>")
             && retained.contains("struct ScrollProperty")
-            && retained.contains("stats.property_upload_bytes += property_size;")
+            && retained.matches("plan_property_transfer(").count() >= 3
+            && retained.contains("stats.node_property_upload_bytes")
+            && retained.contains("stats.scroll_property_upload_bytes")
             && retained.contains("owners: Vec<Weak<scene::Node>>")
             && retained.contains("owners: Vec<Weak<scene::Commit>>")
             && retained.contains("commit: Weak<scene::Commit>")
@@ -6228,6 +6230,43 @@ fn candidate_spatial_topology_is_the_only_scroll_ancestry_compiler() {
 }
 
 #[test]
+fn property_ticks_use_stable_indices_dirty_dependents_and_named_full_transfers() {
+    let commit = include_str!("../scene/commit.rs");
+    let paint = include_str!("../scene/paint/mod.rs");
+    let retained = include_str!("../render/retained.rs");
+    let report = include_str!("../render/report.rs");
+
+    assert!(
+        commit.contains("property_indices: Arc<HashMap<PropertyRef, PropertyIndex>>")
+            && commit.contains("blocks: Arc<[Arc<[PropertyValue]>]>")
+            && commit.contains("pub(crate) fn apply_updates(")
+            && commit.contains("self.indices\n            .get(&property)")
+            && !commit.contains(".find(|value| value.property_ref() == property)"),
+        "property identity and lookup must remain indexed, canonical, and block-shared"
+    );
+    assert!(
+        paint.contains("Properties::apply_updates(")
+            && retained.contains("properties\n                .changed()")
+            && retained.contains("collect_property_dependents(")
+            && retained.contains("property_write_ranges(")
+            && retained.matches("plan_property_transfer(").count() >= 3
+            && retained.contains("sparse_cost < full_bytes"),
+        "warm production preparation must consume dirty indices and a cost-selected range plan"
+    );
+    for reason in [
+        "property_full_initializations",
+        "property_full_buffer_replacements",
+        "property_full_topology_replacements",
+        "property_full_dense_transfers",
+    ] {
+        assert!(
+            retained.contains(reason) && report.contains(reason),
+            "full property transfer reason {reason} must remain observable"
+        );
+    }
+}
+
+#[test]
 fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     let interaction = include_str!("../interaction/scroll.rs");
     let dispatch = include_str!("../runtime/input/dispatch.rs");
@@ -6383,7 +6422,7 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
             && scene_paint.contains("scrollbar_properties.insert((node, axis))")
             && scene_paint.contains("visuals.scrollbar(chrome.target())")
             && !scene_paint.contains("opacity.max(visual.opacity())")
-            && retained.contains(".scrollbar(node, axis)"),
+            && retained.contains("value(scene::PropertyKind::scrollbar(axis))"),
         "two bars on one text/generic frame must retain independent property slots instead of folding hover thickness by incidental owner topology"
     );
 }

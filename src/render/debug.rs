@@ -203,6 +203,14 @@ pub struct Work {
     node_property_upload_bytes: usize,
     scroll_property_upload_bytes: usize,
     text_property_upload_bytes: usize,
+    property_value_visits: usize,
+    property_index_lookups: usize,
+    property_dirty_indices: usize,
+    property_write_ranges: usize,
+    property_full_initializations: usize,
+    property_full_buffer_replacements: usize,
+    property_full_topology_replacements: usize,
+    property_full_dense_transfers: usize,
     gpu_resource_count: usize,
     gpu_resource_bytes: usize,
     gpu_resource_creations: usize,
@@ -271,6 +279,38 @@ impl Work {
 
     pub fn text_property_upload_bytes(self) -> usize {
         self.text_property_upload_bytes
+    }
+
+    pub fn property_value_visits(self) -> usize {
+        self.property_value_visits
+    }
+
+    pub fn property_index_lookups(self) -> usize {
+        self.property_index_lookups
+    }
+
+    pub fn property_dirty_indices(self) -> usize {
+        self.property_dirty_indices
+    }
+
+    pub fn property_write_ranges(self) -> usize {
+        self.property_write_ranges
+    }
+
+    pub fn property_full_initializations(self) -> usize {
+        self.property_full_initializations
+    }
+
+    pub fn property_full_buffer_replacements(self) -> usize {
+        self.property_full_buffer_replacements
+    }
+
+    pub fn property_full_topology_replacements(self) -> usize {
+        self.property_full_topology_replacements
+    }
+
+    pub fn property_full_dense_transfers(self) -> usize {
+        self.property_full_dense_transfers
     }
 
     pub fn unattributed_property_upload_bytes(self) -> usize {
@@ -404,6 +444,14 @@ impl From<render::DrawStats> for Work {
             node_property_upload_bytes: stats.node_property_upload_bytes,
             scroll_property_upload_bytes: stats.scroll_property_upload_bytes,
             text_property_upload_bytes: stats.text_property_upload_bytes,
+            property_value_visits: stats.property_value_visits,
+            property_index_lookups: stats.property_index_lookups,
+            property_dirty_indices: stats.property_dirty_indices,
+            property_write_ranges: stats.property_write_ranges,
+            property_full_initializations: stats.property_full_initializations,
+            property_full_buffer_replacements: stats.property_full_buffer_replacements,
+            property_full_topology_replacements: stats.property_full_topology_replacements,
+            property_full_dense_transfers: stats.property_full_dense_transfers,
             gpu_resource_count: stats.retained_gpu_resource_count,
             gpu_resource_bytes: stats.retained_gpu_resource_bytes,
             gpu_resource_creations: stats.retained_gpu_resource_creations,
@@ -2392,18 +2440,111 @@ impl Harness {
                 "retained property transition differs from independent realization at {differing} pixels"
             ));
         }
-        if tick.changed().iter().any(|property| {
-            matches!(
-                tick.value(*property),
-                Some(scene::PropertyValue::Caret { .. })
-            )
-        }) && candidate == initial_pixels
+        if tick
+            .changed_values()
+            .any(|value| matches!(value, scene::PropertyValue::Caret { .. }))
+            && candidate == initial_pixels
         {
             return Err(
                 "retained caret property transition changed state without changing pixels"
                     .to_owned(),
             );
         }
+        Ok(work.into())
+    }
+
+    pub fn property_economics_work(
+        &mut self,
+        property_count: usize,
+        dirty_count: usize,
+    ) -> Result<Work, String> {
+        let (commit, initial, tick) =
+            scene::renderer_property_economics_fixture(property_count, dirty_count)
+                .map_err(|error| error.to_string())?;
+        self.compare_retained_property_transition(&std::sync::Arc::new(commit), &initial, &tick)
+    }
+
+    pub fn property_economics_initial_work(
+        &mut self,
+        property_count: usize,
+    ) -> Result<Work, String> {
+        let (commit, initial, _) = scene::renderer_property_economics_fixture(property_count, 1)
+            .map_err(|error| error.to_string())?;
+        self.draw_property_economics_initial(std::sync::Arc::new(commit), &initial)
+    }
+
+    pub fn property_economics_topology_replacement_work(&mut self) -> Result<Work, String> {
+        let (first, first_properties, _) =
+            scene::renderer_property_economics_fixture_at(1, 1, 30_000)
+                .map_err(|error| error.to_string())?;
+        let first = std::sync::Arc::new(first);
+        let _ =
+            self.draw_property_economics_initial(std::sync::Arc::clone(&first), &first_properties)?;
+
+        let (second, second_properties, _) =
+            scene::renderer_property_economics_fixture_at(1, 1, 40_000)
+                .map_err(|error| error.to_string())?;
+        let second = std::sync::Arc::new(second);
+        let _ = self
+            .draw_property_economics_initial(std::sync::Arc::clone(&second), &second_properties)?;
+        drop(first);
+
+        let (replacement, replacement_properties, _) =
+            scene::renderer_property_economics_fixture_at(2, 2, 50_000)
+                .map_err(|error| error.to_string())?;
+        let work = self.draw_property_economics_initial(
+            std::sync::Arc::new(replacement),
+            &replacement_properties,
+        )?;
+        drop(second);
+        Ok(work)
+    }
+
+    pub fn property_economics_coalesced_work(&mut self) -> Result<Work, String> {
+        let (commit, initial, _) = scene::renderer_property_economics_fixture_at(256, 0, 60_000)
+            .map_err(|error| error.to_string())?;
+        let node = crate::composition::tree::NodeId::renderer_fixture(60_000);
+        let (tick, advanced) = scene::Properties::apply_updates(
+            &commit,
+            &initial,
+            scene::PropertySerial::INITIAL.next(),
+            vec![
+                scene::PropertyValue::Transform {
+                    node,
+                    value: scene::Transform::translate(1.0, 0.0),
+                },
+                scene::PropertyValue::Transform {
+                    node,
+                    value: scene::Transform::translate(2.0, 0.0),
+                },
+                scene::PropertyValue::Transform {
+                    node,
+                    value: scene::Transform::translate(3.0, 0.0),
+                },
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        if !advanced || tick.changed().len() != 1 {
+            return Err("coalesced property writes did not produce one dirty index".to_owned());
+        }
+        self.compare_retained_property_transition(&std::sync::Arc::new(commit), &initial, &tick)
+    }
+
+    fn draw_property_economics_initial(
+        &mut self,
+        commit: std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> Result<Work, String> {
+        let (width, height) = self.physical_extent(commit.size());
+        let (_, work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
         Ok(work.into())
     }
 }

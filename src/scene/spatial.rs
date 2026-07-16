@@ -48,6 +48,17 @@ impl SpatialNodeId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ScrollPathId(u32);
+
+impl ScrollPathId {
+    pub(crate) const ROOT: Self = Self(0);
+
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ClipNodeId(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -168,6 +179,8 @@ pub(crate) struct SpatialTopology {
     draw_states: Vec<PropertyState>,
     draw_surfaces: Vec<Option<SpatialNodeId>>,
     content: Vec<ContentBinding>,
+    scroll_paths: Vec<Vec<(composition::tree::NodeId, interaction::ScrollOffset)>>,
+    binding_scroll_paths: HashMap<SpatialBinding, ScrollPathId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -269,6 +282,8 @@ impl SpatialTopology {
             draw_states: vec![PropertyState::ROOT; order.map_or(0, <[Draw]>::len)],
             draw_surfaces: vec![None; order.map_or(0, <[Draw]>::len)],
             content: Vec::new(),
+            scroll_paths: vec![Vec::new()],
+            binding_scroll_paths: HashMap::new(),
         };
         let scene_nodes = nodes
             .iter()
@@ -280,6 +295,7 @@ impl SpatialTopology {
         } else {
             topology.compile_node_tree(nodes, &scene_nodes, &mut axis_owners)?;
         }
+        topology.compile_scroll_paths()?;
         Ok(topology)
     }
 
@@ -415,24 +431,45 @@ impl SpatialTopology {
         binding: SpatialBinding,
         properties: &Properties,
     ) -> Result<[f32; 2], SpatialError> {
+        self.scroll_path_translation(self.scroll_path(binding)?, properties)
+    }
+
+    pub(crate) fn scroll_path(
+        &self,
+        binding: SpatialBinding,
+    ) -> Result<ScrollPathId, SpatialError> {
+        self.binding_scroll_paths
+            .get(&binding)
+            .copied()
+            .ok_or(SpatialError::InvalidSurfaceRoot)
+    }
+
+    pub(crate) fn scroll_path_translation(
+        &self,
+        path: ScrollPathId,
+        properties: &Properties,
+    ) -> Result<[f32; 2], SpatialError> {
         let mut translation = [0.0_f32; 2];
-        let mut current = binding.spatial;
-        while current != binding.surface {
-            let node = self
-                .nodes
-                .get(current.index())
-                .ok_or(SpatialError::InvalidSurfaceRoot)?;
-            if let SpatialNodeKind::Scroll {
-                owner, baseline, ..
-            } = node.kind
-            {
-                let offset = properties.scroll_offset(owner).unwrap_or(baseline);
-                translation[0] += baseline.x().saturating_sub(offset.x()) as f32;
-                translation[1] += baseline.y().saturating_sub(offset.y()) as f32;
-            }
-            current = node.parent.ok_or(SpatialError::InvalidSurfaceRoot)?;
+        for (owner, baseline) in self
+            .scroll_paths
+            .get(path.index())
+            .ok_or(SpatialError::InvalidSurfaceRoot)?
+        {
+            let offset = properties.scroll_offset(*owner).unwrap_or(*baseline);
+            translation[0] += baseline.x().saturating_sub(offset.x()) as f32;
+            translation[1] += baseline.y().saturating_sub(offset.y()) as f32;
         }
         Ok(translation)
+    }
+
+    pub(crate) fn scroll_path_owners(
+        &self,
+        path: ScrollPathId,
+    ) -> Result<Vec<composition::tree::NodeId>, SpatialError> {
+        self.scroll_paths
+            .get(path.index())
+            .map(|path| path.iter().map(|(owner, _)| *owner).collect())
+            .ok_or(SpatialError::InvalidSurfaceRoot)
     }
 
     fn world_scroll_translation(&self, state: PropertyState, properties: &Properties) -> [f32; 2] {
@@ -444,6 +481,75 @@ impl SpatialTopology {
             properties,
         )
         .unwrap_or_default()
+    }
+
+    fn compile_scroll_paths(&mut self) -> Result<(), SpatialError> {
+        let mut bindings = vec![SpatialBinding::ROOT];
+        let mut push_binding = |binding: SpatialBinding| {
+            if !bindings.contains(&binding) {
+                bindings.push(binding);
+            }
+            let world = SpatialBinding {
+                spatial: binding.spatial,
+                surface: SpatialNodeId::ROOT,
+            };
+            if !bindings.contains(&world) {
+                bindings.push(world);
+            }
+        };
+        for state in &self.draw_states {
+            push_binding(state.spatial);
+        }
+        for binding in &self.content {
+            push_binding(binding.state.spatial);
+        }
+        for clip in &self.clips {
+            push_binding(clip.spatial);
+        }
+        for effect in &self.effects {
+            push_binding(effect.spatial);
+        }
+
+        let mut interned = HashMap::from([(Vec::new(), ScrollPathId::ROOT)]);
+        for binding in bindings {
+            let entries = self.scroll_path_entries(binding)?;
+            let key = entries.iter().map(|(owner, _)| *owner).collect::<Vec<_>>();
+            let path = if let Some(path) = interned.get(&key).copied() {
+                path
+            } else {
+                let path = ScrollPathId(
+                    u32::try_from(self.scroll_paths.len())
+                        .map_err(|_| SpatialError::TooManyNodes)?,
+                );
+                self.scroll_paths.push(entries);
+                interned.insert(key, path);
+                path
+            };
+            self.binding_scroll_paths.insert(binding, path);
+        }
+        Ok(())
+    }
+
+    fn scroll_path_entries(
+        &self,
+        binding: SpatialBinding,
+    ) -> Result<Vec<(composition::tree::NodeId, interaction::ScrollOffset)>, SpatialError> {
+        let mut path = Vec::new();
+        let mut current = binding.spatial;
+        while current != binding.surface {
+            let node = self
+                .nodes
+                .get(current.index())
+                .ok_or(SpatialError::InvalidSurfaceRoot)?;
+            if let SpatialNodeKind::Scroll {
+                owner, baseline, ..
+            } = node.kind
+            {
+                path.push((owner, baseline));
+            }
+            current = node.parent.ok_or(SpatialError::InvalidSurfaceRoot)?;
+        }
+        Ok(path)
     }
 
     fn compile_ordered(
@@ -958,7 +1064,8 @@ mod tests {
     use crate::scene::commit::EffectEnvelope;
 
     fn id(value: u64) -> composition::tree::NodeId {
-        composition::tree::NodeId::renderer_fixture(value)
+        let mut value = value;
+        composition::tree::NodeId::layout(&mut value)
     }
 
     fn node(value: u64, parent: Option<composition::tree::NodeId>) -> Node {
@@ -1230,5 +1337,40 @@ mod tests {
                 },
             }] if *actual_owner == owner && *actual_bounds == bounds
         ));
+    }
+
+    #[test]
+    fn transform_nodes_share_identity_scroll_path_when_no_scroll_ancestor_exists() {
+        let first = id(51);
+        let second = id(52);
+        let nodes = vec![
+            Arc::new(node(51, None).with_properties([PropertyKind::Transform])),
+            Arc::new(node(52, None).with_properties([PropertyKind::Transform])),
+        ];
+        let topology = SpatialTopology::compile(
+            &nodes,
+            Some(&[
+                Draw::Content {
+                    node: first,
+                    index: 0,
+                    projection: ContentProjection::Normal,
+                },
+                Draw::Content {
+                    node: second,
+                    index: 0,
+                    projection: ContentProjection::Normal,
+                },
+            ]),
+        )
+        .expect("transform-only topology");
+
+        let first_path = topology
+            .scroll_path(topology.draw_states[0].spatial)
+            .expect("first scroll path");
+        let second_path = topology
+            .scroll_path(topology.draw_states[1].spatial)
+            .expect("second scroll path");
+        assert_eq!(first_path, ScrollPathId::ROOT);
+        assert_eq!(second_path, ScrollPathId::ROOT);
     }
 }

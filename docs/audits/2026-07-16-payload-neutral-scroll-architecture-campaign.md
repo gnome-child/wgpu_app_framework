@@ -1,6 +1,6 @@
 # Payload-neutral scrolling architecture audit and campaign
 
-Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-002 CLOSED; SC-003 READY**
+Status: **EXECUTION AUTHORIZED; SC-000 THROUGH SC-003 CLOSED; SC-004 READY**
 
 Date: 2026-07-16
 
@@ -404,8 +404,8 @@ Update this table first whenever a loop changes state. `PENDING` means intention
 | SC-000 | CLOSED | — | Baseline, generation vocabulary, bounded trace, property attribution, source census, and deterministic Tier B manifest are recorded at the SC-000 boundary on `master`. |
 | SC-001 | CLOSED | SC-000 vocabulary/receipts | Eight payload-neutral fixtures, 40 five-scale executions, direct/incremental plan equality, and all 10 negative controls are frozen. Twenty current executions are intentionally red and become SC-002 production gates. |
 | SC-002 | CLOSED | SC-001 red oracle | One immutable candidate-owned spatial topology now supplies candidate, semantic/drawable, compatibility, retained-planning, shape, text, clip, pane, viewport, and surface adapters. Tier A is 40/40 green with all 10 negative controls preserved. |
-| SC-003 | READY | SC-000 property receipts | Independent property-economics track; the new 10,656-byte five-scale receipt is an input, not a sparse-update budget. |
-| SC-004 | PENDING | SC-000 generation trace | Independent state contract; separate resident acceptance from `present_submitted`. |
+| SC-003 | CLOSED | SC-000 property receipts | Stable property indices, dirty-source deltas, compiled dependents, shared sparse/dense transfer planning, and the exact 13-case economics suite are recorded. |
+| SC-004 | READY | SC-000 generation trace | Independent state contract; separate resident acceptance from `present_submitted`. |
 | SC-005 | PENDING | SC-000 input traces | Independent input-precision track; rounding remains a hypothesis pending sum-preservation controls. |
 | SC-006 | PENDING | SC-000 causal trace | Independent pacing track; `PresentationPulse` remains a hypothesis pending negative controls. |
 | SC-007 | PENDING | SC-000 residency receipts, SC-004 state contract | Independent residency track; includes the open 64 MiB cold glyph-admission defect. |
@@ -435,6 +435,8 @@ Initial evidence ledger:
 | E-015 explicit spatial topology | RECORDED/CLOSED | Every commit compiles a typed root/transform/scroll/surface topology with clip/effect references, content property states, scroll-target identity, and typed axis ownership. Release Tier A passes 40/40 across five scales and all 10 mutation controls remain discriminating. Direct and bounded plans execute the same resumable compiler; compatibility payload geometry matches independently authored static commits; repeated sibling, empty-payload, and filter-surface topology tests pass. |
 | E-016 post-topology warm table receipt | RECORDED | Release `table-scroll-work` is identical at scales 1.0/1.25/1.5/1.75/2.0: zero semantic/content preparation, shaping, payload upload, resource churn, and plan rebuilds; one plan reuse; 10,656 property bytes split as node 10,496, scroll 32, text 128, viewport/unattributed 0. This is 416 bytes below E-001 but remains SC-003 input, not a budget. |
 | E-017 spatial-owner deletion gate | RECORDED | The old commit-local semantic and compatibility interpreters, direct planner, mutable planner scroll ancestry, baseline-content-union surface bounds, and encoder scroll-offset reconstruction are deleted. The source census and architecture test require `SpatialTopology` to remain the sole candidate spatial compiler. Runtime-presented point projection remains explicitly owned by SC-008. |
+| E-018 indexed property economics | RECORDED/CLOSED | The release negative control wrote the complete node-property vector at every density: 256 bytes for 1 property, 65,536 for 256, and 1,048,576 for 4,096. The final exact 13-case suite makes one dirty property cost 64 bytes at both 256 and 4,096 properties, reports two value visits/lookups, chooses sparse quarter-density transfers and dense full-density transfers, coalesces repeated writes to one dirty index, and names initialization/buffer/topology/dense full-transfer reasons. |
+| E-019 post-index warm table receipt | RECORDED | Release `table-scroll-work` is identical at all five scales: one dirty index, seven value visits/lookups, two write ranges, zero full-transfer reasons, and 464 property bytes split as node 64, scroll 272, text 128, viewport/unattributed 0. Semantic/content/shaping work, resource churn, and plan rebuilds remain zero; one retained plan is reused. |
 
 Append evidence; do not silently rewrite a failed receipt. When superseding a conclusion, add the new receipt and identify which prior inference it invalidates.
 
@@ -620,6 +622,30 @@ Closure:
 - Resource create/replace/remove counts remain zero.
 - The visual oracle remains green on the first tick.
 
+#### SC-003 closeout — indexed dirty production and one transfer policy
+
+SC-003 closes the property-economics boundary without changing scroll geometry, input precision, generation terminology, pacing, or residency policy. Every property declared by a commit now receives a stable `PropertyIndex` in topology order. `Commit` owns O(1) node and property maps, and `Properties` stores canonical values in immutable 256-entry blocks. A local update validates and coalesces writes by index, copies only touched blocks, preserves untouched blocks by `Arc`, and emits sorted dirty indices. Full snapshot, semantic projection, activation rebase, and drawable-revision paths retain complete-value validation while replacing their former repeated linear value lookup with indexed access.
+
+Dirty production now starts at the authoritative mutable sources used by current property ticks. Scroll intent/resident changes carry per-target source revisions; scrollbar and caret visuals compare against the prior per-window property baseline. Scene painting emits only dirty scroll/chrome/caret values when the commit topology is compatible, applies them through `Properties::apply_updates`, and commits its observed source ledger only after a valid property snapshot is produced. Removed windows clear the retained visual baseline. Transform, clip/effect, and other complete lifecycle paths remain validated full snapshots until they acquire an authoritative mutable producer; no renderer-side comparison is presented as source truth.
+
+Retained plans precompute property-index-to-node-binding and property-index-to-scroll-path dependents. Production preparation consumes `Properties::changed()` directly. Scroll paths are compiled and interned by `SpatialTopology`; transform-only geometry shares the identity path instead of allocating one apparent scroll uniform per transform. Node and scroll buffers use one `plan_property_transfer` policy: contiguous dirty binding slots become ranges, and sparse cost is payload bytes plus one aligned property stride per queue write. Sparse is selected only when that cost is below the complete buffer; otherwise the transfer is dense. Initialization, buffer replacement, topology/viewport replacement, and cost-selected density remain explicit full-transfer reasons in renderer and diagnostic receipts.
+
+The recorded release negative control predates the indexed transfer change: all dirty densities wrote 256 bytes at one property, 65,536 bytes at 256 properties, and 1,048,576 bytes at 4,096 properties. The final steady-state matrix is:
+
+| Properties | One dirty | 25 percent dirty | 100 percent dirty |
+|---:|---:|---:|---:|
+| 1 | 256 bytes, dense | 256 bytes, dense | 256 bytes, dense |
+| 256 | 64 bytes, sparse | 16,192 bytes, sparse | 65,536 bytes, dense |
+| 4,096 | 64 bytes, sparse | 261,952 bytes, sparse | 1,048,576 bytes, dense |
+
+One dirty entry reports exactly two value visits and two index lookups at both 256 and 4,096 properties: one source update and one dependent renderer evaluation. Quarter-density and full-density cases report twice the dirty count for the same reason. The four lifecycle cases independently report initialization (256 bytes), buffer replacement (1,048,576 bytes), topology replacement (512 bytes), and three coalesced writes plus the final renderer evaluation (one dirty index, four visits/lookups, 64 bytes). `property-economics` asserts all 13 cases rather than printing an observational benchmark.
+
+The production table remains only a payload witness. At every required scale its first horizontal property tick now reports 464 bytes: 64 node bytes for the dirty chrome binding, a 272-byte cost-selected range spanning two dependent scroll-path slots, and 128 bytes of changed retained text transform offsets. It reports one dirty property index, seven total value visits/lookups, two GPU write ranges, no full-transfer reason, no semantic/node/content/text preparation or shaping, no payload upload, no GPU resource creation/replacement/removal, no plan rebuild, and one plan reuse. E-019 supersedes E-016 as the warm property budget while retaining E-016 as the failed full-vector baseline.
+
+The text transform adapter continues to visit retained text batches and writes only changed snapped offsets; that traversal is payload residency/locality work rather than a scan of unrelated property topology. SC-007 and SC-009 retain the bounded residency and large-document locality rails. SC-004 must still prove coalesced/superseded/failed presentation state and may strengthen renderer resynchronization across skipped candidate generations; SC-003 does not rename resident acceptance or claim present submission.
+
+Verification at this boundary: release `property-economics` passed all 13 exact cases; release Tier A passed 40/40 first-tick executions and all 10 mutation controls; release `table-scroll-work` reproduced E-019 at all five scales; formatter, diff, all-target/all-feature check, targeted default-feature source-revision/index/block-sharing/transfer/spatial tests, and 18 Python census/receipt/manifest tests passed. The complete `cargo test --workspace --all-targets --all-features` run passed 1,258 of 1,262 library tests with four intentional hardware ignores, three renderer-debug non-hardware tests with 22 hardware ignores, and two example tests. The broad run first exposed two stale source-architecture patterns—renderer-only synthetic identity and the old direct scrollbar accessor—and those gates were updated to preserve their original invariants through test-layout identity and indexed property lookup before the suite was rerun green.
+
 ### SC-004 — Separate intent, residency acceptance, and present submission
 
 Goal: make state transitions atomic and recoverable.
@@ -769,6 +795,6 @@ Do not:
 
 ## 11. Immediate next action
 
-Resume at **SC-003**. Start from E-016 and instrument property-index lookup/visit counts plus explicit full-transfer reasons before changing upload policy. Build the exact 13-case Tier C property-economics suite, including 4,096 unrelated properties, and prove that the present full-vector path scales with topology size as the negative control. Then introduce stable property indices and dirty-source production behind one independently reversible boundary while preserving all SC-002 spatial witnesses.
+Resume at **SC-004**. Start from the SC-000 generation vocabulary and eight-case Tier C state suite. Trace the current ownership and mutation points for requested/coalesced intent, clamped and resident-accepted values, candidate property serials, GPU submission, and `present_submitted`; prove the existing ambiguous or non-atomic transition as the negative control before changing names or state. Include coalesced and superseded requests, no-op, failed acquire, delayed redraw, resize, scale change, residency race, shared-axis composition, and renderer resynchronization when a candidate generation is skipped.
 
-SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. Property delta economics, generation state, input precision, pacing, residency, present-submitted geometry consumers, and locality remain separate open loops.
+SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 froze the independent payload-neutral oracle and negative controls. SC-002 replaced distributed renderer-side ancestry with one candidate-owned topology and closed all 40 Tier A executions. SC-003 closed indexed dirty property production and sparse/dense transfer economics. Generation state, input precision, pacing, residency, present-submitted geometry consumers, and locality remain separate open loops.

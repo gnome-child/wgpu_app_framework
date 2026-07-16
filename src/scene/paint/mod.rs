@@ -52,6 +52,7 @@ pub(super) struct Retained {
     nodes: HashMap<composition::tree::NodeId, Arc<super::Node>>,
     commits: HashMap<CommitKey, Arc<super::Commit>>,
     properties: HashMap<CommitKey, super::Properties>,
+    property_sources: HashMap<CommitKey, PropertySources>,
     overlays: Vec<overlay::Draft>,
     next_property_serial: super::PropertySerial,
 }
@@ -60,6 +61,11 @@ pub(super) struct Retained {
 enum CommitKey {
     Base,
     Popup(composition::tree::NodeId),
+}
+
+#[derive(Default)]
+struct PropertySources {
+    scroll_revisions: HashMap<super::super::interaction::Target, u64>,
 }
 
 #[derive(Clone)]
@@ -124,6 +130,7 @@ impl Default for Retained {
             nodes: HashMap::new(),
             commits: HashMap::new(),
             properties: HashMap::new(),
+            property_sources: HashMap::new(),
             overlays: Vec::new(),
             next_property_serial: super::PropertySerial::INITIAL,
         }
@@ -248,6 +255,8 @@ impl Retained {
         self.nodes.retain(|id, _| work.seen.frames.contains(id));
         self.commits.retain(|key, _| seen_commits.contains(key));
         self.properties.retain(|key, _| seen_commits.contains(key));
+        self.property_sources
+            .retain(|key, _| seen_commits.contains(key));
         work.stats.nodes_added = work.seen.frames.difference(&self.retained_nodes).count();
         work.stats.nodes_removed = self.retained_nodes.difference(&work.seen.frames).count();
         self.retained_nodes = work.seen.frames;
@@ -318,15 +327,34 @@ impl Retained {
         interaction: Option<&super::super::interaction::Interaction>,
         sample: ScrollSample,
     ) -> Result<super::Properties, super::commit::ContractError> {
+        let previous = self.properties.get(&key).cloned();
+        let incremental = previous
+            .as_ref()
+            .is_some_and(|previous| previous.require_compatible(commit).is_ok());
+        let previous_sources = self.property_sources.get(&key);
+        let mut observed_scroll_revisions = Vec::with_capacity(layout.scroll_projections().len());
+        let mut dirty_scroll_targets = HashSet::new();
+        for projection in layout.scroll_projections() {
+            let revision = interaction
+                .map(super::super::interaction::Interaction::scroll)
+                .map(|scroll| scroll.revision(projection.target()))
+                .unwrap_or_default();
+            if !incremental
+                || previous_sources
+                    .and_then(|sources| sources.scroll_revisions.get(projection.target()))
+                    .copied()
+                    != Some(revision)
+            {
+                dirty_scroll_targets.insert(projection.target().clone());
+            }
+            observed_scroll_revisions.push((projection.target().clone(), revision));
+        }
         let mut values = layout
             .scroll_projections()
             .iter()
+            .filter(|projection| dirty_scroll_targets.contains(projection.target()))
             .filter_map(|projection| {
-                let declaration = commit
-                    .nodes()
-                    .iter()
-                    .find(|node| node.id() == projection.node())?
-                    .scroll()?;
+                let declaration = commit.node(projection.node())?.scroll()?;
                 let offset = interaction
                     .map(super::super::interaction::Interaction::scroll)
                     .map(|scroll| match sample {
@@ -354,9 +382,9 @@ impl Retained {
             let node = chrome.owner();
             let axis = chrome.axis();
             if !scrollbar_properties.insert((node, axis))
-                || !commit.nodes().iter().any(|candidate| {
-                    candidate.id() == node
-                        && candidate.declares(super::PropertyKind::scrollbar(axis))
+                || (incremental && !visuals.scrollbar_changed(chrome.target()))
+                || !commit.node(node).is_some_and(|candidate| {
+                    candidate.declares(super::PropertyKind::scrollbar(axis))
                 })
             {
                 continue;
@@ -373,9 +401,13 @@ impl Retained {
         for frame in layout.frames() {
             let node = frame.node_id();
             if !caret_nodes.insert(node)
-                || !commit.nodes().iter().any(|candidate| {
-                    candidate.id() == node && candidate.declares(super::PropertyKind::Caret)
-                })
+                || (incremental
+                    && frame
+                        .target()
+                        .is_none_or(|target| !visuals.caret_changed(target)))
+                || !commit
+                    .node(node)
+                    .is_some_and(|candidate| candidate.declares(super::PropertyKind::Caret))
             {
                 continue;
             }
@@ -384,12 +416,24 @@ impl Retained {
                 .is_none_or(|target| visuals.caret_visible(target));
             values.push(super::PropertyValue::Caret { node, visible });
         }
-        let previous = self.properties.get(&key);
-        let (properties, advanced) =
-            super::Properties::snapshot(commit, previous, self.next_property_serial, values)?;
+        let (properties, advanced) = if let Some(previous) = previous.as_ref()
+            && incremental
+        {
+            super::Properties::apply_updates(commit, previous, self.next_property_serial, values)?
+        } else {
+            super::Properties::snapshot(
+                commit,
+                previous.as_ref(),
+                self.next_property_serial,
+                values,
+            )?
+        };
         if advanced {
             self.next_property_serial = self.next_property_serial.next();
         }
+        let sources = self.property_sources.entry(key).or_default();
+        sources.scroll_revisions.clear();
+        sources.scroll_revisions.extend(observed_scroll_revisions);
         self.properties.insert(key, properties.clone());
         Ok(properties)
     }

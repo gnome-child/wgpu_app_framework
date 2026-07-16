@@ -402,12 +402,8 @@ fn focused_text_area_caret_blinks_and_schedules_next_deadline() {
     assert_eq!(
         hidden
             .properties()
-            .changed()
-            .iter()
-            .filter(|property| matches!(
-                hidden.properties().value(**property),
-                Some(crate::scene::PropertyValue::Caret { .. })
-            ))
+            .changed_values()
+            .filter(|value| matches!(value, crate::scene::PropertyValue::Caret { .. }))
             .count(),
         1
     );

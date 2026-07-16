@@ -1,9 +1,13 @@
+use std::collections::HashMap;
+
 use super::Target;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Scroll {
     offsets: Vec<ScrollEntry>,
     reveal_requests: Vec<Reveal>,
+    next_revision: u64,
+    revisions: HashMap<Target, u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +51,10 @@ pub(crate) enum ScrollUpdate {
 }
 
 impl Scroll {
+    pub(crate) fn revision(&self, target: &Target) -> u64 {
+        self.revisions.get(target).copied().unwrap_or_default()
+    }
+
     pub(crate) fn offset(&self, target: &Target) -> ScrollOffset {
         self.offsets
             .iter()
@@ -101,8 +109,12 @@ impl Scroll {
         } else if let Some(index) = index {
             self.offsets[index].position = position;
         } else {
-            self.offsets.push(ScrollEntry { target, position });
+            self.offsets.push(ScrollEntry {
+                target: target.clone(),
+                position,
+            });
         }
+        self.mark_changed(target);
         Some(desired)
     }
 
@@ -124,14 +136,26 @@ impl Scroll {
         } else if let Some(index) = index {
             self.offsets[index].position = position;
         } else {
-            self.offsets.push(ScrollEntry { target, position });
+            self.offsets.push(ScrollEntry {
+                target: target.clone(),
+                position,
+            });
         }
+        self.mark_changed(target);
         Some(admitted)
     }
 
     pub(super) fn project_desired(&mut self) {
+        let mut changed = Vec::new();
         for entry in &mut self.offsets {
-            entry.position = Position::Admitted(entry.position.desired());
+            let projected = Position::Admitted(entry.position.desired());
+            if entry.position != projected {
+                entry.position = projected;
+                changed.push(entry.target.clone());
+            }
+        }
+        for target in changed {
+            self.mark_changed(target);
         }
     }
 
@@ -175,6 +199,7 @@ impl Scroll {
     ) -> bool {
         let before_offsets = self.offsets.len();
         let before_reveals = self.reveal_requests.len();
+        let before_revisions = self.revisions.len();
         self.offsets.retain(|entry| {
             !entry
                 .target
@@ -185,7 +210,17 @@ impl Scroll {
                 .viewport()
                 .matches_removed_identity(removed_nodes, removed_elements, &[])
         });
-        before_offsets != self.offsets.len() || before_reveals != self.reveal_requests.len()
+        self.revisions.retain(|target, _| {
+            !target.matches_removed_identity(removed_nodes, removed_elements, &[])
+        });
+        before_offsets != self.offsets.len()
+            || before_reveals != self.reveal_requests.len()
+            || before_revisions != self.revisions.len()
+    }
+
+    fn mark_changed(&mut self, target: Target) {
+        self.next_revision = self.next_revision.saturating_add(1);
+        self.revisions.insert(target, self.next_revision);
     }
 }
 
@@ -406,5 +441,46 @@ mod tests {
             projection.desired_offset(&target),
             ScrollOffset::new(0, 240)
         );
+    }
+
+    #[test]
+    fn source_revisions_advance_only_when_the_named_target_changes() {
+        let mut scroll = Scroll::default();
+        let first = Target::scroll("revision.first", "First");
+        let second = Target::scroll("revision.second", "Second");
+
+        assert_eq!(scroll.revision(&first), 0);
+        assert_eq!(scroll.revision(&second), 0);
+        scroll.request(
+            first.clone(),
+            ScrollUpdate::Absolute(ScrollOffset::new(12, 24)),
+        );
+        let requested = scroll.revision(&first);
+        assert!(requested > 0);
+        assert_eq!(scroll.revision(&second), 0);
+
+        assert_eq!(
+            scroll.request(
+                first.clone(),
+                ScrollUpdate::Geometry(ScrollOffset::new(12, 24)),
+            ),
+            None
+        );
+        assert_eq!(scroll.revision(&first), requested);
+
+        scroll.admit(first.clone(), ScrollOffset::new(12, 24));
+        let admitted = scroll.revision(&first);
+        assert!(admitted > requested);
+
+        scroll.request(
+            first.clone(),
+            ScrollUpdate::Relative(ScrollDelta::horizontal(5)),
+        );
+        let pending = scroll.revision(&first);
+        assert!(pending > admitted);
+        let mut projection = scroll.clone();
+        projection.project_desired();
+        assert!(projection.revision(&first) > pending);
+        assert_eq!(scroll.revision(&first), pending);
     }
 }

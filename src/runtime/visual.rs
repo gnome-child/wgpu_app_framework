@@ -39,6 +39,7 @@ pub(super) struct Animations {
     transitions: HashMap<Key, VisualTransition>,
     scrollbar_activity: HashMap<ScrollKey, Instant>,
     scrollbar_offsets: HashMap<ScrollKey, interaction::ScrollOffset>,
+    visuals: HashMap<window::Id, scene::Visuals>,
 }
 
 pub(super) struct Update {
@@ -70,6 +71,7 @@ impl Animations {
         self.transitions.clear();
         self.scrollbar_activity.clear();
         self.scrollbar_offsets.clear();
+        self.visuals.clear();
     }
 
     pub(super) fn update_window(
@@ -80,7 +82,11 @@ impl Animations {
         theme: &theme::Theme,
         now: Instant,
     ) -> Update {
-        let mut visuals = scene::Visuals::default();
+        let mut visuals = self
+            .visuals
+            .get(&window)
+            .map(scene::Visuals::from_property_baseline)
+            .unwrap_or_default();
         let mut schedule = animation::Schedule::Idle;
         let mut seen = HashSet::new();
         let mut remove = Vec::new();
@@ -160,6 +166,7 @@ impl Animations {
             self.transitions.remove(&key);
         }
 
+        self.visuals.insert(window, visuals.clone());
         Update { visuals, schedule }
     }
 
@@ -385,6 +392,7 @@ impl notification::Listener<window::Departed> for Animations {
             .retain(|key, _| key.window != *window);
         self.scrollbar_offsets
             .retain(|key, _| key.window != *window);
+        self.visuals.remove(window);
         notification::Reaction::ignored()
     }
 }
@@ -406,6 +414,7 @@ impl Animations {
                 .keys()
                 .filter(|key| key.window == window)
                 .count()
+            + usize::from(self.visuals.contains_key(&window))
     }
 }
 
