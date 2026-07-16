@@ -1225,7 +1225,8 @@ fn variable_height_text_has_one_bounded_anchor_feedback_path() {
 
     assert!(
         layout_text.contains("TEXT_AREA_ANCHOR_OBSERVATION_CACHE_CAPACITY: NonZeroUsize")
-            && layout_text.contains("LruCache<composition::tree::NodeId, TextAreaAnchorObservation>")
+            && layout_text
+                .contains("LruCache<composition::tree::NodeId, TextAreaAnchorObservation>")
             && layout_text.contains("text_area_scroll_y_for_anchor(")
             && layout_text.contains("resolved_scroll_correction = Some(")
     );

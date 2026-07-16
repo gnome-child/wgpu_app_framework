@@ -19,8 +19,7 @@ use super::super::{
 };
 use super::Viewport;
 
-const TEXT_AREA_ANCHOR_OBSERVATION_CACHE_CAPACITY: NonZeroUsize =
-    NonZeroUsize::new(128).unwrap();
+const TEXT_AREA_ANCHOR_OBSERVATION_CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(128).unwrap();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Text {
