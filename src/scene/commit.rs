@@ -3471,11 +3471,35 @@ fn renderer_scroll_oracle_f07() -> Result<ScrollOracleFixture, ContractError> {
             )),
         ],
     );
-    let expected = Commit::new(
+    let expected_node_id = expected_node.id();
+    let expected = Commit::from_parts(
         Revision::renderer_fixture(552),
         size,
         Color::rgba(0, 0, 0, 255),
-        vec![expected_node],
+        vec![Arc::new(expected_node)],
+        Some(vec![
+            Draw::PushClip {
+                node: None,
+                clip: Clip::new(viewport),
+            },
+            Draw::Content {
+                node: expected_node_id,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: expected_node_id,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: expected_node_id,
+                index: 2,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopClip,
+        ]),
+        Vec::new(),
     )?;
     let expected_properties = Properties::empty(&expected)?;
     Ok(ScrollOracleFixture {
@@ -3519,7 +3543,7 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
     let header = geometry::Rect::new(88, 12, 32, 16);
     let cell = geometry::Rect::new(64, 60, 32, 20);
     let rule = geometry::Rect::new(100, 48, 4, 40);
-    let text = geometry::Rect::new(108, 62, 32, 18);
+    let text = geometry::Rect::new(84, 62, 20, 18);
     let horizontal_node = Node::new(
         horizontal,
         None,
@@ -3615,7 +3639,7 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
     let translated_header = geometry::Rect::new(68, 12, 32, 16);
     let translated_cell = geometry::Rect::new(44, 40, 32, 20);
     let translated_rule = geometry::Rect::new(80, 28, 4, 40);
-    let translated_text = geometry::Rect::new(88, 42, 32, 18);
+    let translated_text = geometry::Rect::new(64, 42, 20, 18);
     let expected_header_node = Node::new(
         expected_header,
         None,
@@ -3644,11 +3668,46 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
             )),
         ],
     );
-    let expected = Commit::new(
+    let expected_header_id = expected_header_node.id();
+    let expected_body_id = expected_body_node.id();
+    let expected = Commit::from_parts(
         Revision::renderer_fixture(562),
         size,
         Color::rgba(0, 0, 0, 255),
-        vec![expected_header_node, expected_body_node],
+        vec![Arc::new(expected_header_node), Arc::new(expected_body_node)],
+        Some(vec![
+            Draw::PushClip {
+                node: None,
+                clip: Clip::new(viewport),
+            },
+            Draw::Content {
+                node: expected_header_id,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PushClip {
+                node: None,
+                clip: Clip::new(geometry::Rect::new(-12, 8, 96, 80)),
+            },
+            Draw::Content {
+                node: expected_body_id,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: expected_body_id,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: expected_body_id,
+                index: 2,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopClip,
+            Draw::PopClip,
+        ]),
+        Vec::new(),
     )?;
     let expected_properties = Properties::empty(&expected)?;
     Ok(ScrollOracleFixture {

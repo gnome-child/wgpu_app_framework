@@ -403,7 +403,7 @@ Update this table first whenever a loop changes state. `PENDING` means intention
 |---|---|---|---|
 | SC-000 | CLOSED | — | Baseline, generation vocabulary, bounded trace, property attribution, source census, and deterministic Tier B manifest are recorded at the SC-000 boundary on `master`. |
 | SC-001 | CLOSED | SC-000 vocabulary/receipts | Eight payload-neutral fixtures, 40 five-scale executions, direct/incremental plan equality, and all 10 negative controls are frozen. Twenty current executions are intentionally red and become SC-002 production gates. |
-| SC-002 | READY | SC-001 red oracle | Spatial-semantics rewrite begins with F04/F06/F07/F08 red at all five scales; candidate/semantic/drawable/compatibility ownership is in scope. |
+| SC-002 | READY | SC-001 red oracle | After E-014 corrected static viewport clips, the genuine red is F04/F06 grouped text at all five scales; candidate/semantic/drawable/compatibility ownership is in scope. |
 | SC-003 | PENDING | SC-000 property receipts | Independent property-economics track; current 11,072-byte receipt is a baseline, not a budget. |
 | SC-004 | PENDING | SC-000 generation trace | Independent state contract; separate resident acceptance from `present_submitted`. |
 | SC-005 | PENDING | SC-000 input traces | Independent input-precision track; rounding remains a hypothesis pending sum-preservation controls. |
@@ -431,6 +431,7 @@ Initial evidence ledger:
 | E-011 Tier A positive classification | RECORDED/RED | With the inherited F03 correction present, F01/F02/F03/F05 pass at 1.0/1.25/1.5/1.75/2.0 (20 green executions). F04/F06/F07/F08 fail at every scale (20 red executions), exposing grouped text, nested-group text, table text, and split-axis nested geometry respectively. SC-002 owns production green. |
 | E-012 Tier A negative controls | RECORDED | N01, N03, N04, N05, N06 and N02 at all five scales produce exactly 10 failing mutations for missing translation, legacy group binding, double surface translation, moving fixed geometry, rule-only movement, and direct/incremental plan divergence. Each fails its named assertion. |
 | E-013 direct/incremental plan equality | RECORDED | Every Tier A fixture serializes the complete direct and bounded retained plan structures, including nested batches, geometry, resource/property bindings, and surface-sampling choice, before pixel comparison. No current positive failure is caused by direct/incremental divergence. |
+| E-014 static scroll-clip correction | RECORDED/SUPERSEDES PART OF E-011 | SC-002 preflight found that F07/F08 static expected commits omitted the fixed viewport clips introduced by production scroll scopes, and F08's first text probe began outside its initial clip. Adding independently authored fixed clips and moving the probe inside legal initial geometry makes F07/F08 green at all five scales. The corrected matrix is 30 green/10 red; only F04/F06 grouped text remains red. This invalidates E-011's inference that table text or split-axis geometry was defective, without changing its recorded first execution. |
 
 Append evidence; do not silently rewrite a failed receipt. When superseding a conclusion, add the new receipt and identify which prior inference it invalidates.
 
@@ -521,6 +522,8 @@ The eight fixtures are payload/topology cases, not table branches:
 | F08 split-axis nested viewports with diagonal payload | 0/5 red | diagonal rule old occupancy; mismatched pixels 23/41/53/65/92 |
 
 Counts are ordered by scales 1.0/1.25/1.5/1.75/2.0 and identify the fail-fast discriminating region, not total image differences. F01/F02 prove ordinary horizontal/vertical payload motion; F03 isolates the inherited surface-root defect; F05 proves the fixed/moving clip fixture; F04/F06/F07/F08 establish broader red gates for SC-002. Table is only F07, and its oracle is identical to every other case.
+
+E-014 supersedes the F07/F08 production inference in this initial table. Production scroll scopes apply fixed viewport clips; their static expected commits initially omitted those independent clips, and F08's text probe began outside the initial viewport. After authoring the same fixed clip geometry explicitly (without using production scroll evaluation), F07 and F08 pass every scale. The corrected SC-002 entry matrix is F01/F02/F03/F05/F07/F08 green at all five scales and F04/F06 red at all five scales. The red mechanism is therefore text below a group/surface root, not table or split-axis identity.
 
 The actual legacy `PropertyBinding::scroll` behavior was temporarily rebuilt and executed for F03 at all five scales. It failed only the grouped quad's translated occupancy with 384/600/864/1,176/1,536 mismatched pixels while the independently drawn rule passed. Restoring the inherited identity binding made F03 pass all scales. This proves the correction's narrow effect without treating it as the final architecture.
 
@@ -739,6 +742,6 @@ Do not:
 
 ## 11. Immediate next action
 
-Resume at **SC-002**. Begin with the frozen F04/F06/F07/F08 five-scale reds and compile one normalized spatial topology beside the old path. The first vertical slice must explain why grouped/nested text and split-axis geometry diverge after equal direct/incremental plans, then move one candidate/semantic/drawable/compatibility consumer boundary at a time. Preserve F01/F02/F03/F05 green, all 10 negative controls, and the SC-000 work/resource rails throughout.
+Resume at **SC-002**. Begin with the corrected F04/F06 five-scale reds and compile one normalized spatial topology beside the old path. The first vertical slice must explain why text below a group/surface root diverges after equal direct/incremental plans while the co-located quads pass, then move one candidate/semantic/drawable/compatibility consumer boundary at a time. Preserve F01/F02/F03/F05/F07/F08 green, all 10 negative controls, and the SC-000 work/resource rails throughout.
 
 SC-000 added bounded diagnostics, receipt vocabulary, property-write attribution, a source census, and a deterministic test manifest. SC-001 added the independent payload-neutral oracle and proved the inherited F03 correction's narrow effect; the broader spatial architecture and 20 red Tier A executions remain open.
