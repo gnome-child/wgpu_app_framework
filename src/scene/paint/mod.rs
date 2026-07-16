@@ -349,31 +349,24 @@ impl Retained {
                 })
             })
             .collect::<Vec<_>>();
-        let mut scrollbar_nodes = HashSet::new();
+        let mut scrollbar_properties = HashSet::new();
         for chrome in layout.chrome() {
             let node = chrome.owner();
-            if !scrollbar_nodes.insert(node)
+            let axis = chrome.axis();
+            if !scrollbar_properties.insert((node, axis))
                 || !commit.nodes().iter().any(|candidate| {
-                    candidate.id() == node && candidate.declares(super::PropertyKind::Scrollbar)
+                    candidate.id() == node
+                        && candidate.declares(super::PropertyKind::scrollbar(axis))
                 })
             {
                 continue;
             }
-            let (opacity, thickness) = layout
-                .chrome()
-                .iter()
-                .filter(|candidate| candidate.owner() == node)
-                .map(|candidate| visuals.scrollbar(candidate.target()))
-                .fold((0.0_f32, 1.0_f32), |(opacity, thickness), visual| {
-                    (
-                        opacity.max(visual.opacity()),
-                        thickness.max(visual.thickness() as f32),
-                    )
-                });
+            let visual = visuals.scrollbar(chrome.target());
             values.push(super::PropertyValue::Scrollbar {
                 node,
-                opacity,
-                thickness,
+                axis,
+                opacity: visual.opacity(),
+                thickness: visual.thickness() as f32,
             });
         }
         let mut caret_nodes = HashSet::new();

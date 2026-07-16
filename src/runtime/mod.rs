@@ -188,7 +188,9 @@ impl PresentedGeometry {
                 self.layout
                     .scroll_projections()
                     .iter()
-                    .find(|projection| projection.target() == target)
+                    .find(|projection| {
+                        projection.target() == target && projection.viewport() == viewport
+                    })
                     .and_then(|projection| self.stack.scroll_offset(projection.node()))
                     .unwrap_or_else(|| viewport.resolved_scroll())
             },

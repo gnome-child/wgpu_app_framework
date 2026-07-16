@@ -175,7 +175,17 @@ pub(crate) enum PropertyKind {
     Clip,
     Blur,
     Caret,
-    Scrollbar,
+    HorizontalScrollbar,
+    VerticalScrollbar,
+}
+
+impl PropertyKind {
+    pub(crate) const fn scrollbar(axis: interaction::ScrollbarAxis) -> Self {
+        match axis {
+            interaction::ScrollbarAxis::Horizontal => Self::HorizontalScrollbar,
+            interaction::ScrollbarAxis::Vertical => Self::VerticalScrollbar,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -224,6 +234,7 @@ pub(crate) enum PropertyValue {
     },
     Scrollbar {
         node: composition::tree::NodeId,
+        axis: interaction::ScrollbarAxis,
         opacity: f32,
         thickness: f32,
     },
@@ -781,6 +792,13 @@ impl Content {
 }
 
 impl ContentProjection {
+    fn scrollbar_axis(self) -> Option<interaction::ScrollbarAxis> {
+        match self {
+            Self::Normal | Self::Caret => None,
+            Self::ScrollbarTrack { axis, .. } | Self::ScrollbarThumb { axis, .. } => Some(axis),
+        }
+    }
+
     fn maximum_thickness(self) -> Option<i32> {
         match self {
             Self::Normal | Self::Caret => None,
@@ -854,7 +872,7 @@ impl ContentProjection {
         };
         let Some(PropertyValue::Scrollbar {
             opacity, thickness, ..
-        }) = properties.value(PropertyRef::new(node, PropertyKind::Scrollbar))
+        }) = properties.value(PropertyRef::new(node, PropertyKind::scrollbar(axis)))
         else {
             return Some(primitive);
         };
@@ -1034,9 +1052,7 @@ impl Builder {
         let property = match projection {
             ContentProjection::Normal => None,
             ContentProjection::Caret => Some(PropertyKind::Caret),
-            ContentProjection::ScrollbarTrack { .. } | ContentProjection::ScrollbarThumb { .. } => {
-                Some(PropertyKind::Scrollbar)
-            }
+            projection => projection.scrollbar_axis().map(PropertyKind::scrollbar),
         };
         if let Some(property) = property
             && !self.nodes[node_index].properties.contains(&property)
@@ -1490,8 +1506,12 @@ impl Properties {
         }
     }
 
-    pub(crate) fn scrollbar(&self, node: composition::tree::NodeId) -> Option<(f32, f32)> {
-        match self.value(PropertyRef::new(node, PropertyKind::Scrollbar)) {
+    pub(crate) fn scrollbar(
+        &self,
+        node: composition::tree::NodeId,
+        axis: interaction::ScrollbarAxis,
+    ) -> Option<(f32, f32)> {
+        match self.value(PropertyRef::new(node, PropertyKind::scrollbar(axis))) {
             Some(PropertyValue::Scrollbar {
                 opacity, thickness, ..
             }) => Some((opacity, thickness)),
@@ -1517,7 +1537,9 @@ impl PropertyValue {
             Self::Clip { node, .. } => PropertyRef::new(node, PropertyKind::Clip),
             Self::Blur { node, .. } => PropertyRef::new(node, PropertyKind::Blur),
             Self::Caret { node, .. } => PropertyRef::new(node, PropertyKind::Caret),
-            Self::Scrollbar { node, .. } => PropertyRef::new(node, PropertyKind::Scrollbar),
+            Self::Scrollbar { node, axis, .. } => {
+                PropertyRef::new(node, PropertyKind::scrollbar(axis))
+            }
         }
     }
 
@@ -1562,7 +1584,10 @@ impl PropertyValue {
                 })
             }),
             Self::Scrollbar {
-                opacity, thickness, ..
+                axis,
+                opacity,
+                thickness,
+                ..
             } => {
                 opacity.is_finite()
                     && (0.0..=1.0).contains(&opacity)
@@ -1574,9 +1599,11 @@ impl PropertyValue {
                                 node: owner,
                                 projection,
                                 ..
-                            } if *owner == node.id => projection
-                                .maximum_thickness()
-                                .is_some_and(|maximum| thickness <= maximum as f32),
+                            } if *owner == node.id && projection.scrollbar_axis() == Some(axis) => {
+                                projection
+                                    .maximum_thickness()
+                                    .is_some_and(|maximum| thickness <= maximum as f32)
+                            }
                             _ => false,
                         })
                     })

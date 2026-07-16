@@ -129,7 +129,7 @@ fn project_scrollbar_property(
         ),
     };
     let (opacity, thickness) = properties
-        .scrollbar(node)
+        .scrollbar(node, axis)
         .unwrap_or((0.0, base_thickness as f32));
     property.opacity = opacity.clamp(0.0, 1.0);
 

@@ -163,10 +163,12 @@ impl Node {
     }
 
     pub(crate) fn table_scroll(model: crate::table::Model) -> Self {
+        let id = model.id();
         Self::new(Content::Scroll(Scroll::Table {
             model,
             offset: interaction::ScrollOffset::default(),
         }))
+        .with_interaction_id(id)
         .with_axis(Axis::Horizontal)
     }
 

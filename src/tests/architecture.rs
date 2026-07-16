@@ -6161,6 +6161,69 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     );
 }
 
+#[test]
+fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() {
+    let chrome = include_str!("../layout/chrome.rs");
+    let algorithm = include_str!("../layout/algorithm.rs");
+    let frame = include_str!("../layout/frame.rs");
+    let layout = include_str!("../layout/mod.rs");
+    let builder = include_str!("../view/node/builder.rs");
+    let access = include_str!("../runtime/access.rs");
+    let runtime = include_str!("../runtime/mod.rs");
+    let presentation = include_str!("../runtime/presentation.rs");
+    let scene_commit = include_str!("../scene/commit.rs");
+    let scene_paint = include_str!("../scene/paint/mod.rs");
+    let retained = include_str!("../render/retained.rs");
+
+    assert!(
+        chrome.contains("pub(super) fn viewport_geometry(")
+            && chrome.contains("reserve_gutters(rect, theme, axes)")
+            && algorithm.matches("chrome::viewport_geometry(").count() >= 3
+            && frame.matches("chrome::viewport_geometry(").count() >= 2,
+        "generic, table, virtual-list, and text viewports must derive fixed clips and gutter geometry from one policy"
+    );
+    let table_scroll = builder
+        .split("pub(crate) fn table_scroll(")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) fn table_header(").next())
+        .expect("table scroll builder should remain inspectable");
+    assert!(
+        table_scroll.contains("let id = model.id();")
+            && table_scroll.contains(".with_interaction_id(id)"),
+        "a table's horizontal and vertical projections must borrow its one stable interaction target"
+    );
+    assert!(
+        layout.contains(".filter(|projection| &projection.target == target)")
+            && layout.contains("maximum.x().max(candidate.x())")
+            && layout.contains("maximum.y().max(candidate.y())")
+            && presentation.contains("let mut seen = std::collections::HashSet::new();")
+            && presentation.contains("layout.resolve_scroll_offset(target, desired)")
+            && access.contains("let mut admitted = std::collections::HashMap::new();")
+            && access.contains("current.x().max(offset.x())")
+            && access.contains("current.y().max(offset.y())")
+            && runtime
+                .contains("projection.target() == target && projection.viewport() == viewport",),
+        "shared multi-axis targets must aggregate their projections for clamp/feedback and resolve hit coordinates through the exact viewport"
+    );
+    assert!(
+        chrome.contains("fn rounded_product_ratio(")
+            && !chrome.contains("travel as f32")
+            && !chrome.contains("max_offset as f32")
+            && !chrome.contains("content_extent.max(1) as f32"),
+        "scrollbar thumb and drag geometry must retain integral truth beyond f32 precision"
+    );
+    assert!(
+        scene_commit.contains("HorizontalScrollbar,")
+            && scene_commit.contains("VerticalScrollbar,")
+            && scene_commit.contains("axis: interaction::ScrollbarAxis,")
+            && scene_paint.contains("scrollbar_properties.insert((node, axis))")
+            && scene_paint.contains("visuals.scrollbar(chrome.target())")
+            && !scene_paint.contains("opacity.max(visual.opacity())")
+            && retained.contains(".scrollbar(node, axis)"),
+        "two bars on one text/generic frame must retain independent property slots instead of folding hover thickness by incidental owner topology"
+    );
+}
+
 fn assert_source_patterns_absent(path: &std::path::Path, patterns: &[String]) {
     for entry in std::fs::read_dir(path).expect("framework source directory should be readable") {
         let path = entry

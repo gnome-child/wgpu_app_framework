@@ -187,6 +187,8 @@ impl Service {
         &self,
         text_area: &view::TextArea,
         rect: Rect,
+        visible_frame: Rect,
+        visible_content: Rect,
         theme: &Theme,
         color: scene::Color,
         now: Instant,
@@ -235,7 +237,8 @@ impl Service {
             }
             paint_layout
         };
-        let viewport = viewport_for_text_area(rect, paint_layout.layout(), &state);
+        let viewport = viewport_for_text_area(rect, paint_layout.layout(), &state)
+            .with_visible(visible_frame, visible_content);
         let (layout, interaction_surfaces, render_surfaces) = paint_layout.into_projection_parts();
 
         Area {

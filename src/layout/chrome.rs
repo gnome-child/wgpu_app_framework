@@ -3,6 +3,66 @@ use super::{Frame, Viewport, frame::Clip};
 
 use interaction::ScrollbarAxis as Axis;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Axes {
+    horizontal: bool,
+    vertical: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ViewportGeometry {
+    viewport: Rect,
+    visible_frame: Rect,
+    visible_content: Rect,
+}
+
+impl Axes {
+    pub(super) const NONE: Self = Self {
+        horizontal: false,
+        vertical: false,
+    };
+    pub(super) const HORIZONTAL: Self = Self {
+        horizontal: true,
+        vertical: false,
+    };
+    pub(super) const VERTICAL: Self = Self {
+        horizontal: false,
+        vertical: true,
+    };
+    pub(super) const BOTH: Self = Self {
+        horizontal: true,
+        vertical: true,
+    };
+}
+
+impl ViewportGeometry {
+    pub(super) fn viewport(self) -> Rect {
+        self.viewport
+    }
+
+    pub(super) fn visible_frame(self) -> Rect {
+        self.visible_frame
+    }
+
+    pub(super) fn visible_content(self) -> Rect {
+        self.visible_content
+    }
+}
+
+pub(super) fn viewport_geometry(
+    rect: Rect,
+    inherited: Option<Clip>,
+    theme: &theme::Theme,
+    axes: Axes,
+) -> ViewportGeometry {
+    let visible_frame = intersect_rect(inherited.map(Clip::rect), rect);
+    ViewportGeometry {
+        viewport: reserve_gutters(rect, theme, axes),
+        visible_frame,
+        visible_content: reserve_gutters(visible_frame, theme, axes),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Chrome {
     owner: composition::tree::NodeId,
@@ -276,16 +336,15 @@ fn thumb_rect(
         Axis::Vertical => track.height(),
         Axis::Horizontal => track.width(),
     };
-    let thumb_extent = ((track_extent as f32 * viewport_extent.max(1) as f32
-        / content_extent.max(1) as f32)
-        .round() as i32)
-        .max(min_thumb_length.max(1))
-        .min(track_extent);
+    let thumb_extent =
+        rounded_product_ratio(track_extent, viewport_extent.max(1), content_extent.max(1))
+            .max(min_thumb_length.max(1))
+            .min(track_extent);
     let travel = track_extent.saturating_sub(thumb_extent);
     let thumb_offset = if max_offset <= 0 {
         0
     } else {
-        ((travel as f32 * offset.clamp(0, max_offset) as f32 / max_offset as f32).round()) as i32
+        rounded_product_ratio(travel, offset.clamp(0, max_offset), max_offset)
     };
 
     Some(match axis {
@@ -331,7 +390,17 @@ fn axis_offset(point: i32, origin: i32, track_extent: i32, thumb_extent: i32, ma
         .saturating_sub(origin)
         .saturating_sub(thumb_extent / 2)
         .clamp(0, travel);
-    ((local as f32 / travel as f32) * max as f32).round() as i32
+    rounded_product_ratio(local, max, travel)
+}
+
+fn rounded_product_ratio(left: i32, right: i32, denominator: i32) -> i32 {
+    if left <= 0 || right <= 0 || denominator <= 0 {
+        return 0;
+    }
+
+    let denominator = i128::from(denominator);
+    let rounded = (i128::from(left) * i128::from(right) + denominator / 2) / denominator;
+    i32::try_from(rounded).unwrap_or(i32::MAX)
 }
 
 fn viewport_extent(viewport: Viewport, axis: Axis) -> i32 {
@@ -359,5 +428,59 @@ fn max_offset(viewport: Viewport, axis: Axis) -> i32 {
     match axis {
         Axis::Vertical => viewport.max_scroll().y(),
         Axis::Horizontal => viewport.max_scroll().x(),
+    }
+}
+
+fn reserve_gutters(rect: Rect, theme: &theme::Theme, axes: Axes) -> Rect {
+    let metrics = theme.scrollbar().metrics;
+    if metrics.policy != theme::ScrollbarPolicy::GutterAlways {
+        return rect;
+    }
+
+    let gutter = metrics.thickness.max(1);
+    Rect::new(
+        rect.x(),
+        rect.y(),
+        rect.width()
+            .saturating_sub(if axes.vertical { gutter } else { 0 }),
+        rect.height()
+            .saturating_sub(if axes.horizontal { gutter } else { 0 }),
+    )
+}
+
+fn intersect_rect(inherited: Option<Rect>, rect: Rect) -> Rect {
+    let Some(inherited) = inherited else {
+        return rect;
+    };
+    let x = inherited.x().max(rect.x());
+    let y = inherited.y().max(rect.y());
+    let right = inherited.right().min(rect.right());
+    let bottom = inherited.bottom().min(rect.bottom());
+    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollbar_drag_preserves_integral_truth_past_f32_precision() {
+        for (maximum, travel, local, expected) in [
+            (16_777_215, 97, 49, 8_475_088),
+            (16_777_216, 127, 22, 2_906_289),
+            (16_777_217, 97, 49, 8_475_089),
+            (23_999_897, 97, 9, 2_226_795),
+            (23_999_898, 97, 4, 989_687),
+            (23_999_899, 97, 21, 5_195_854),
+        ] {
+            let thumb_extent = 20;
+            let track_extent = travel + thumb_extent;
+            let point = 11 + thumb_extent / 2 + local;
+            assert_eq!(
+                axis_offset(point, 11, track_extent, thumb_extent, maximum),
+                expected,
+                "maximum={maximum} travel={travel} local={local}"
+            );
+        }
     }
 }

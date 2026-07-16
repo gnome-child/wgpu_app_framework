@@ -5,7 +5,7 @@ use super::super::{
     theme::Theme,
     view::{self, Node, node},
 };
-use super::{Viewport, control, engine, measure, path, table, text, typography};
+use super::{Viewport, chrome, control, engine, measure, path, table, text, typography};
 use crate::{animation, text as text_model};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -282,12 +282,27 @@ impl Frame {
             }
             node::Content::TextArea(model) => {
                 let model = model.clone();
-                let text_rect =
+                let base_text_rect =
                     table_cell_text_rect_for(node, rect, None, Some(&model), engine, theme);
+                let geometry = chrome::viewport_geometry(
+                    base_text_rect,
+                    clip,
+                    theme,
+                    text_area_scroll_axes(node),
+                );
+                let text_rect = geometry.viewport();
                 let projection = text_area_projection(node, &model, text_rect, engine, theme);
                 let display_model = projected_text_area(&model, projection.as_ref());
                 let color = text_area_color(node, theme);
-                let layout = engine.text_area_layout(&display_model, text_rect, theme, color, now);
+                let layout = engine.text_area_layout(
+                    &display_model,
+                    text_rect,
+                    geometry.visible_frame(),
+                    geometry.visible_content(),
+                    theme,
+                    color,
+                    now,
+                );
                 let (label, _) = frame_label(node, rect, projection, engine, theme);
                 (
                     FrameContent::Text(TextContent::Area {
@@ -367,7 +382,7 @@ impl Frame {
                     if let Some(focus) = model.focus() {
                         text_area = text_area.with_focus(focus);
                     }
-                    let text_rect = table_cell_text_rect_for(
+                    let base_text_rect = table_cell_text_rect_for(
                         node,
                         rect,
                         Some(parts.text()),
@@ -375,12 +390,22 @@ impl Frame {
                         engine,
                         theme,
                     );
+                    let geometry =
+                        chrome::viewport_geometry(base_text_rect, clip, theme, chrome::Axes::NONE);
+                    let text_rect = geometry.viewport();
                     let projection =
                         text_area_projection(node, &text_area, text_rect, engine, theme);
                     let display_model = projected_text_area(&text_area, projection.as_ref());
                     let color = text_area_color(node, theme);
-                    let layout =
-                        engine.text_area_layout(&display_model, text_rect, theme, color, now);
+                    let layout = engine.text_area_layout(
+                        &display_model,
+                        text_rect,
+                        geometry.visible_frame(),
+                        geometry.visible_content(),
+                        theme,
+                        color,
+                        now,
+                    );
                     let (label, _) = frame_label(node, rect, projection, engine, theme);
                     (
                         FrameContent::Text(TextContent::InactiveField {
@@ -1434,6 +1459,16 @@ fn table_cell_text_rect_for(
         view::Align::End => content.right().saturating_sub(width),
     };
     Rect::new(x, y, width, height)
+}
+
+fn text_area_scroll_axes(node: &Node) -> chrome::Axes {
+    if node.participation() == Some(view::Participation::Table(view::TablePart::Cell))
+        || node.world_text_overflow().is_some()
+    {
+        chrome::Axes::NONE
+    } else {
+        chrome::Axes::BOTH
+    }
 }
 
 fn clipped_caret_rect(rect: Rect, caret: crate::text::layout::Caret) -> Option<Rect> {

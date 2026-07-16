@@ -1680,6 +1680,10 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         .iter()
         .find(|frame| frame.role() == view::Role::Scroll && frame.table_projection().is_some())
         .expect("table should compose one horizontal scroll owner");
+    let table_scroll_target = horizontal
+        .target()
+        .expect("table horizontal projection should expose its shared target")
+        .clone();
     let viewport = horizontal.viewport().expect("horizontal viewport");
     assert_eq!(viewport.content().width(), 310);
     assert_eq!(viewport.max_scroll(), interaction::ScrollOffset::new(70, 0));
@@ -1721,6 +1725,22 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         (viewport, track)
     };
     let (initial_vertical_viewport, initial_vertical_track) = vertical_scrollbar(&initial);
+    assert_eq!(
+        initial
+            .layout()
+            .chrome()
+            .iter()
+            .filter(|chrome| chrome.scroll_target() == &table_scroll_target)
+            .map(layout::Chrome::axis)
+            .collect::<std::collections::HashSet<_>>(),
+        [
+            interaction::ScrollbarAxis::Horizontal,
+            interaction::ScrollbarAxis::Vertical,
+        ]
+        .into_iter()
+        .collect(),
+        "table chrome axes must consume one shared interaction target"
+    );
     assert_eq!(initial_vertical_viewport.rect().right(), 310);
     assert_eq!(initial_vertical_viewport.visible_frame().right(), 240);
     assert_eq!(
@@ -2223,6 +2243,59 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
         frame.is_active_item()
             && frame.table_cell().is_some_and(|cell| {
                 cell.row() == crate::virtual_list::Key::new(0)
+                    && cell.column() == interaction::Id::new("action")
+            })
+    }));
+    let table_target = revealed
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_projection().is_some())
+        .and_then(layout::Frame::target)
+        .expect("table viewport should expose its shared target")
+        .clone();
+    app.handle_input(
+        window,
+        Input::key_down(
+            input::Key::End,
+            input::Modifiers::new(false, true, false, false),
+        ),
+    )
+    .expect("Ctrl+End should reveal the far row and column through one target");
+    let diagonal = app
+        .show_scene(window, size)
+        .expect("far table cell should materialize and reveal");
+    let maximum = diagonal
+        .layout()
+        .scroll_projections()
+        .iter()
+        .filter(|projection| projection.target() == &table_target)
+        .map(|projection| projection.viewport().max_scroll())
+        .fold(
+            interaction::ScrollOffset::default(),
+            |maximum, candidate| {
+                interaction::ScrollOffset::new(
+                    maximum.x().max(candidate.x()),
+                    maximum.y().max(candidate.y()),
+                )
+            },
+        );
+    assert!(maximum.x() > 0 && maximum.y() > 0);
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("table interaction")
+        .scroll();
+    assert_eq!(scroll.desired_offset(&table_target), maximum);
+    assert_eq!(
+        scroll.offset(&table_target),
+        maximum,
+        "horizontal and vertical reveal projections must combine before admission"
+    );
+    assert!(diagonal.layout().frames().iter().any(|frame| {
+        frame.is_active_item()
+            && frame.table_cell().is_some_and(|cell| {
+                cell.row() == crate::virtual_list::Key::new(999_999)
                     && cell.column() == interaction::Id::new("action")
             })
     }));
@@ -6393,11 +6466,10 @@ fn late_scrollbar_chrome_retains_its_owner_viewport_clip_for_paint_and_hit() {
         .expect("text area should project scrollbar chrome");
     let track = chrome.track();
     assert!(
-        track.bottom() > clip.bottom(),
-        "text-area track {track:?} should extend below inherited clip {clip:?}"
+        rect_contains(clip, track),
+        "text-area track {track:?} must consume the same clipped visible frame as other viewport species {clip:?}"
     );
     let escaped_point = geometry::Point::new(track.x(), clip.bottom() + 1);
-    assert!(track.contains(escaped_point));
     assert!(
         !chrome.accepts_hit(escaped_point),
         "the chrome hit scope must consume the same viewport clip as paint"
@@ -7233,7 +7305,9 @@ fn control_gallery_property_tick_does_not_move_the_table_viewport_clip() {
         .layout()
         .scroll_projections()
         .iter()
-        .find(|projection| projection.target() == &target)
+        .find(|projection| {
+            projection.target() == &target && projection.viewport().max_scroll().y() > 0
+        })
         .map(|projection| projection.viewport().visible_content())
         .expect("table should expose its visible viewport");
 
@@ -7499,6 +7573,304 @@ fn overlay_auto_hides_idle_appears_after_activity_and_fades_out() {
 }
 
 #[test]
+fn two_axis_table_activity_and_fade_follow_one_scroll_owner() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Two-axis table activity"));
+        })
+        .view(|_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "two.axis.activity.table",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(100)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(120)),
+                        crate::table::Column::new("action", "Action", view::Dimension::fixed(90)),
+                    ],
+                    MillionTableProvider {
+                        cell_calls: Rc::new(Cell::new(0)),
+                    },
+                )
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 108);
+    let theme = Theme::dark();
+    let now = std::time::Instant::now();
+    let initial = app
+        .show_scene_at(window, size, now)
+        .expect("two-axis table should render");
+    let table_target = initial
+        .layout()
+        .chrome()
+        .iter()
+        .find(|chrome| chrome.axis() == interaction::ScrollbarAxis::Horizontal)
+        .expect("wide table should expose horizontal chrome")
+        .scroll_target()
+        .clone();
+    let chrome = initial
+        .layout()
+        .chrome()
+        .iter()
+        .filter(|chrome| chrome.scroll_target() == &table_target)
+        .map(|chrome| (chrome.axis(), chrome.owner()))
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(chrome.len(), 2, "both axes must share one scroll target");
+    let body_point = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell().is_some())
+        .map(|frame| frame_point_at(frame.rect()))
+        .expect("table body should expose a scroll input point");
+
+    for (axis, owner) in &chrome {
+        assert_eq!(
+            initial
+                .properties()
+                .scrollbar(*owner, *axis)
+                .map(|value| value.0),
+            Some(0.0),
+            "both overlay bars should begin idle"
+        );
+    }
+
+    app.scroll_at(
+        window,
+        size,
+        body_point,
+        interaction::ScrollDelta::vertical(80),
+    )
+    .expect("vertical table movement should be handled");
+    let activity_at = now + std::time::Duration::from_millis(10);
+    app.show_scene_at(window, size, activity_at)
+        .expect("activity should begin the shared fade-in");
+    let visible_at = activity_at
+        + std::time::Duration::from_millis(theme.scrollbar().appearance.fade_duration_ms + 20);
+    let visible = app
+        .show_scene_at(window, size, visible_at)
+        .expect("both active bars should render");
+    for (axis, owner) in &chrome {
+        assert!(
+            visible
+                .properties()
+                .scrollbar(*owner, *axis)
+                .is_some_and(|value| value.0 > 0.99),
+            "{axis:?} bar must become visible from activity on the shared owner"
+        );
+    }
+
+    let fade_start =
+        activity_at + std::time::Duration::from_millis(theme.scrollbar().appearance.fade_delay_ms);
+    app.show_scene_at(window, size, fade_start)
+        .expect("shared inactivity deadline should begin fade-out");
+    let faded = app
+        .show_scene_at(
+            window,
+            size,
+            fade_start
+                + std::time::Duration::from_millis(
+                    theme.scrollbar().appearance.fade_duration_ms + 20,
+                ),
+        )
+        .expect("both inactive bars should render their hidden state");
+    for (axis, owner) in chrome {
+        assert_eq!(
+            faded
+                .properties()
+                .scrollbar(owner, axis)
+                .map(|value| value.0),
+            Some(0.0),
+            "{axis:?} bar must fade from the same inactivity clock"
+        );
+    }
+}
+
+#[test]
+fn two_axis_table_scrollbar_capture_and_mutation_are_axis_symmetric() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Two-axis table scrollbar input"));
+        })
+        .view(|_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "two.axis.input.table",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(100)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(120)),
+                        crate::table::Column::new("action", "Action", view::Dimension::fixed(90)),
+                    ],
+                    MillionTableProvider {
+                        cell_calls: Rc::new(Cell::new(0)),
+                    },
+                )
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 108);
+    let initial = app
+        .show_scene(window, size)
+        .expect("two-axis table should render");
+    let table_target = initial
+        .layout()
+        .chrome()
+        .iter()
+        .find(|chrome| chrome.axis() == interaction::ScrollbarAxis::Horizontal)
+        .expect("wide table horizontal chrome")
+        .scroll_target()
+        .clone();
+    let body_point = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell().is_some())
+        .map(|frame| frame_point_at(frame.rect()))
+        .expect("table body input point");
+    app.scroll_at(
+        window,
+        size,
+        body_point,
+        interaction::ScrollDelta::vertical(80),
+    )
+    .expect("vertical wheel should establish a nonzero other-axis value");
+    let vertically_scrolled = app
+        .show_scene(window, size)
+        .expect("vertical property should present");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("table interaction")
+            .scroll()
+            .offset(&table_target)
+            .y(),
+        80
+    );
+
+    let horizontal = vertically_scrolled
+        .layout()
+        .chrome()
+        .iter()
+        .find(|chrome| {
+            chrome.scroll_target() == &table_target
+                && chrome.axis() == interaction::ScrollbarAxis::Horizontal
+        })
+        .expect("horizontal table chrome");
+    let horizontal_target = horizontal.target().clone();
+    let horizontal_track = horizontal.track();
+    let horizontal_max = horizontal.maximum_offset();
+    let horizontal_press = geometry::Point::new(
+        horizontal_track.x().saturating_add(1),
+        horizontal_track
+            .y()
+            .saturating_add(horizontal_track.height() / 2),
+    );
+    let horizontal_drag = geometry::Point::new(
+        horizontal_track.right().saturating_sub(1),
+        horizontal_press.y(),
+    );
+    app.pointer_down_at(window, size, horizontal_press)
+        .expect("horizontal scrollbar should capture");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::pointer::Capture::target),
+        Some(&horizontal_target)
+    );
+    app.pointer_drag_at(window, size, horizontal_drag)
+        .expect("horizontal scrollbar drag should mutate x");
+    let after_horizontal_drag = app
+        .session()
+        .interaction(window)
+        .expect("table interaction")
+        .scroll()
+        .desired_offset(&table_target);
+    assert_eq!(
+        after_horizontal_drag,
+        interaction::ScrollOffset::new(horizontal_max, 80),
+        "horizontal chrome must preserve the desired vertical component"
+    );
+    app.pointer_up_at(window, size, horizontal_drag)
+        .expect("horizontal capture should release");
+    let horizontally_scrolled = app
+        .show_scene(window, size)
+        .expect("horizontal property should present");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("table interaction")
+            .scroll()
+            .offset(&table_target),
+        after_horizontal_drag,
+        "receipt aggregation must retain both projected axes"
+    );
+
+    let vertical = horizontally_scrolled
+        .layout()
+        .chrome()
+        .iter()
+        .find(|chrome| {
+            chrome.scroll_target() == &table_target
+                && chrome.axis() == interaction::ScrollbarAxis::Vertical
+        })
+        .expect("vertical table chrome");
+    let vertical_target = vertical.target().clone();
+    let vertical_track = vertical.track();
+    let vertical_max = vertical.maximum_offset();
+    let vertical_press = geometry::Point::new(
+        vertical_track
+            .x()
+            .saturating_add(vertical_track.width() / 2),
+        vertical_track.y().saturating_add(1),
+    );
+    let vertical_drag = geometry::Point::new(
+        vertical_press.x(),
+        vertical_track.bottom().saturating_sub(1),
+    );
+    app.pointer_down_at(window, size, vertical_press)
+        .expect("vertical scrollbar should capture");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::pointer::Capture::target),
+        Some(&vertical_target)
+    );
+    app.pointer_drag_at(window, size, vertical_drag)
+        .expect("vertical scrollbar drag should mutate y");
+    let after_vertical_drag = app
+        .session()
+        .interaction(window)
+        .expect("table interaction")
+        .scroll()
+        .desired_offset(&table_target);
+    assert_eq!(
+        after_vertical_drag,
+        interaction::ScrollOffset::new(horizontal_max, vertical_max),
+        "vertical chrome must preserve the desired horizontal component"
+    );
+    app.pointer_up_at(window, size, vertical_drag)
+        .expect("vertical capture should release");
+    app.show_scene(window, size)
+        .expect("far vertical residency should present");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("table interaction")
+            .scroll()
+            .offset(&table_target),
+        after_vertical_drag
+    );
+}
+
+#[test]
 fn gutter_always_reserves_base_gutter_and_remains_visible() {
     let mut theme = Theme::dark();
     theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;
@@ -7524,6 +7896,276 @@ fn gutter_always_reserves_base_gutter_and_remains_visible() {
     assert!(
         scene_has_scrollbar_thumb(rendered.scene(), &theme, scroll.rect()),
         "gutter scrollbar should paint while idle"
+    );
+}
+
+#[test]
+fn two_axis_scroll_gutters_follow_viewport_capability_not_stack_axis() {
+    let view = widget::view_node(
+        view::Node::scroll()
+            .with_interaction_id("two.axis.gutter")
+            .with_layout_axis(view::Axis::Overlay)
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(120))
+                    .with_height(view::Dimension::fixed(90)),
+            )
+            .child(
+                view::Node::panel().with_style(
+                    view::Style::new()
+                        .with_width(view::Dimension::fixed(240))
+                        .with_height(view::Dimension::fixed(180)),
+                ),
+            ),
+    );
+    let mut theme = Theme::dark();
+    theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;
+    let mut engine = layout::Engine::new();
+    let layout = layout::Layout::compose_with_theme(
+        &view,
+        geometry::Size::new(120, 90),
+        &mut engine,
+        &theme,
+    );
+    let frame = layout
+        .frames()
+        .iter()
+        .find(|frame| frame.role() == view::Role::Scroll)
+        .expect("two-axis scroll frame");
+    let viewport = frame.viewport().expect("two-axis viewport");
+    let gutter = theme.scrollbar().metrics.thickness;
+
+    assert_eq!(frame.rect().width() - viewport.rect().width(), gutter);
+    assert_eq!(frame.rect().height() - viewport.rect().height(), gutter);
+}
+
+#[test]
+fn text_area_uses_the_same_two_axis_gutter_geometry_as_other_viewports() {
+    let document = (0..120)
+        .map(|line| format!("text area line {line:03} {}", "wide".repeat(80)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut theme = Theme::dark();
+    theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text(document),
+        wrap_text: false,
+        ..text_editor::State::default()
+    })
+    .theme(move |_| theme.clone());
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .show_scene(window, geometry::Size::new(520, 180))
+        .expect("text editor should render with gutter policy");
+    let frame = rendered
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area frame");
+    let viewport = frame.viewport().expect("text area viewport");
+    let gutter = Theme::dark().scrollbar().metrics.thickness;
+
+    assert_eq!(frame.rect().width() - viewport.rect().width(), gutter);
+    assert_eq!(frame.rect().height() - viewport.rect().height(), gutter);
+    assert_eq!(viewport.visible_frame(), frame.rect());
+    assert_eq!(viewport.visible_content(), viewport.rect());
+    assert_eq!(
+        rendered
+            .layout()
+            .chrome()
+            .iter()
+            .filter(|chrome| chrome.scroll_target() == frame.target().expect("text target"))
+            .map(layout::Chrome::axis)
+            .collect::<std::collections::HashSet<_>>(),
+        [
+            interaction::ScrollbarAxis::Horizontal,
+            interaction::ScrollbarAxis::Vertical,
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+#[test]
+fn two_axis_text_scrollbars_share_activity_but_keep_per_axis_hover_and_mutation() {
+    let document = (0..120)
+        .map(|line| format!("wide text line {line:03} {}", "horizontal".repeat(80)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text(document),
+        wrap_text: false,
+        ..text_editor::State::default()
+    });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(520, 180);
+    let now = std::time::Instant::now();
+    let theme = Theme::dark();
+    let initial = app
+        .show_scene_at(window, size, now)
+        .expect("wide, long text should render");
+    let text = initial
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area frame");
+    let text_target = text.target().expect("text scroll target").clone();
+    let chrome = initial
+        .layout()
+        .chrome()
+        .iter()
+        .filter(|chrome| chrome.scroll_target() == &text_target)
+        .map(|chrome| {
+            (
+                chrome.axis(),
+                (
+                    chrome.owner(),
+                    chrome.target().clone(),
+                    chrome.track(),
+                    chrome.maximum_offset(),
+                ),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(chrome.len(), 2);
+    assert_eq!(
+        chrome
+            .values()
+            .map(|(owner, _, _, _)| *owner)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        1,
+        "text bars intentionally share one semantic frame while retaining two property slots"
+    );
+    let (horizontal_owner, horizontal_target, horizontal_track, horizontal_max) =
+        chrome[&interaction::ScrollbarAxis::Horizontal].clone();
+    let (vertical_owner, vertical_target, vertical_track, vertical_max) =
+        chrome[&interaction::ScrollbarAxis::Vertical].clone();
+    let horizontal_hover = geometry::Point::new(
+        horizontal_track
+            .x()
+            .saturating_add(horizontal_track.width() / 2),
+        horizontal_track
+            .y()
+            .saturating_add(horizontal_track.height() / 2),
+    );
+
+    app.pointer_move_at(window, size, horizontal_hover)
+        .expect("horizontal text chrome should hover");
+    let activity_at = now + std::time::Duration::from_millis(10);
+    app.show_scene_at(window, size, activity_at)
+        .expect("hover should begin per-axis thickness and shared activity transitions");
+    let active = app
+        .show_scene_at(
+            window,
+            size,
+            activity_at
+                + std::time::Duration::from_millis(
+                    theme.scrollbar().appearance.fade_duration_ms + 20,
+                ),
+        )
+        .expect("hover transition should settle");
+    let horizontal_visual = active
+        .properties()
+        .scrollbar(horizontal_owner, interaction::ScrollbarAxis::Horizontal)
+        .expect("horizontal scrollbar property");
+    let vertical_visual = active
+        .properties()
+        .scrollbar(vertical_owner, interaction::ScrollbarAxis::Vertical)
+        .expect("vertical scrollbar property");
+    assert!(
+        horizontal_visual.0 > 0.99 && vertical_visual.0 > 0.99,
+        "horizontal={horizontal_visual:?} vertical={vertical_visual:?}"
+    );
+    assert_eq!(
+        horizontal_visual.1,
+        theme.scrollbar().appearance.hover_thickness as f32
+    );
+    assert_eq!(
+        vertical_visual.1,
+        theme.scrollbar().appearance.overlay_thickness as f32,
+        "hover thickness must remain local to one bar even though activity is shared"
+    );
+
+    let horizontal_press =
+        geometry::Point::new(horizontal_track.x().saturating_add(1), horizontal_hover.y());
+    let horizontal_drag = geometry::Point::new(
+        horizontal_track.right().saturating_sub(1),
+        horizontal_hover.y(),
+    );
+    app.pointer_down_at(window, size, horizontal_press)
+        .expect("horizontal text scrollbar should capture");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::pointer::Capture::target),
+        Some(&horizontal_target)
+    );
+    app.pointer_drag_at(window, size, horizontal_drag)
+        .expect("horizontal text scrollbar should mutate x");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("text interaction")
+            .scroll()
+            .desired_offset(&text_target),
+        interaction::ScrollOffset::new(horizontal_max, 0)
+    );
+    app.pointer_up_at(window, size, horizontal_drag)
+        .expect("horizontal text capture should release");
+    app.show_scene(window, size)
+        .expect("horizontal text scroll should present");
+
+    let vertical_press = geometry::Point::new(
+        vertical_track
+            .x()
+            .saturating_add(vertical_track.width() / 2),
+        vertical_track.y().saturating_add(1),
+    );
+    let vertical_drag = geometry::Point::new(
+        vertical_press.x(),
+        vertical_track.bottom().saturating_sub(1),
+    );
+    app.pointer_down_at(window, size, vertical_press)
+        .expect("vertical text scrollbar should capture");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .and_then(|interaction| interaction.pointer().capture())
+            .map(interaction::pointer::Capture::target),
+        Some(&vertical_target)
+    );
+    app.pointer_drag_at(window, size, vertical_drag)
+        .expect("vertical text scrollbar should mutate y");
+    let expected = interaction::ScrollOffset::new(horizontal_max, vertical_max);
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("text interaction")
+            .scroll()
+            .desired_offset(&text_target),
+        expected
+    );
+    app.pointer_up_at(window, size, vertical_drag)
+        .expect("vertical text capture should release");
+    app.show_scene(window, size)
+        .expect("far text residency should present");
+    let admitted = app
+        .session()
+        .interaction(window)
+        .expect("text interaction")
+        .scroll()
+        .offset(&text_target);
+    assert_eq!(
+        admitted, expected,
+        "vertical text chrome must preserve the admitted horizontal component"
     );
 }
 
@@ -7599,13 +8241,17 @@ fn text_area_projects_scrollbars_like_generic_viewports() {
         .expect("text area should expose scroll target");
 
     assert!(viewport.max_scroll().y() > 0);
-    assert!(
+    assert_eq!(viewport.max_scroll().x(), 0);
+    assert_eq!(
         rendered
             .layout()
             .chrome()
             .iter()
-            .any(|chrome| chrome.scroll_target() == target),
-        "text-area viewport should project scrollbar chrome"
+            .filter(|chrome| chrome.scroll_target() == target)
+            .map(layout::Chrome::axis)
+            .collect::<std::collections::HashSet<_>>(),
+        [interaction::ScrollbarAxis::Vertical].into_iter().collect(),
+        "vertical text overflow must not synthesize a horizontal scrollbar"
     );
 }
 
@@ -9628,6 +10274,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         vec![
             crate::scene::PropertyValue::Scrollbar {
                 node: chrome.owner(),
+                axis: chrome.axis(),
                 opacity: 1.0,
                 thickness: theme.scrollbar().appearance.overlay_thickness as f32,
             },

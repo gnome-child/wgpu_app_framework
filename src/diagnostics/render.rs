@@ -1334,21 +1334,19 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
             _ => None,
         })
         .ok_or_else(|| "control gallery commit has no vertical scrollbar projection".to_owned())?;
-    let mut scrollbar_owners = order
+    let scrollbar_properties = order
         .iter()
         .filter_map(|draw| match draw {
             crate::scene::Draw::Content {
                 node,
                 projection:
-                    crate::scene::ContentProjection::ScrollbarTrack { .. }
-                    | crate::scene::ContentProjection::ScrollbarThumb { .. },
+                    crate::scene::ContentProjection::ScrollbarTrack { axis, .. }
+                    | crate::scene::ContentProjection::ScrollbarThumb { axis, .. },
                 ..
-            } => Some(*node),
+            } => Some((*node, *axis)),
             _ => None,
         })
-        .collect::<Vec<_>>();
-    scrollbar_owners.sort_unstable();
-    scrollbar_owners.dedup();
+        .collect::<std::collections::HashSet<_>>();
     let initial_scroll = initial_properties
         .scroll_offset(vertical_owner)
         .ok_or_else(|| "vertical scrollbar owner has no initial scroll property".to_owned())?;
@@ -1359,14 +1357,14 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
     if initial_scroll == tick_scroll {
         return Err("vertical scrollbar property did not advance its scroll truth".to_owned());
     }
-    for owner in scrollbar_owners {
+    for (owner, axis) in scrollbar_properties {
         if initial_properties.scroll_offset(owner).is_none()
             || tick.properties().scroll_offset(owner).is_none()
-            || initial_properties.scrollbar(owner).is_none()
-            || tick.properties().scrollbar(owner).is_none()
+            || initial_properties.scrollbar(owner, axis).is_none()
+            || tick.properties().scrollbar(owner, axis).is_none()
         {
             return Err(format!(
-                "scrollbar owner {owner:?} must consume scroll and chrome values from the same property snapshot"
+                "{axis:?} scrollbar owner {owner:?} must consume scroll and chrome values from the same property snapshot"
             ));
         }
     }
@@ -1763,7 +1761,11 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
         .layout()
         .scroll_projections()
         .iter()
-        .find(|projection| projection.is_scene_drawable() && projection.target() == &scroll_target)
+        .find(|projection| {
+            projection.is_scene_drawable()
+                && projection.target() == &scroll_target
+                && projection.viewport().max_scroll().y() > 0
+        })
         .ok_or_else(|| "control gallery table has no complete scroll projection".to_owned())?;
     let scroll_node = projection.node();
     let semantic_commit = std::sync::Arc::clone(initial.commit());

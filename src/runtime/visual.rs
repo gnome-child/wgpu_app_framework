@@ -176,23 +176,33 @@ impl Animations {
                 window: pass.window,
                 target: scroll_target.clone(),
             };
-            seen_scrolls.insert(scroll_key.clone());
-
-            let offset = pass
-                .interaction
-                .map(interaction::Interaction::scroll)
-                .map(|scroll| scroll.desired_offset(&scroll_target))
-                .unwrap_or_else(|| chrome.resolved_scroll());
-            let offset_changed = self
-                .scrollbar_offsets
-                .insert(scroll_key.clone(), offset)
-                .is_some_and(|previous| previous != offset);
+            let offset_changed = if seen_scrolls.insert(scroll_key.clone()) {
+                let offset = pass
+                    .interaction
+                    .map(interaction::Interaction::scroll)
+                    .map(|scroll| scroll.desired_offset(&scroll_target))
+                    .unwrap_or_else(|| chrome.resolved_scroll());
+                self.scrollbar_offsets
+                    .insert(scroll_key.clone(), offset)
+                    .is_some_and(|previous| previous != offset)
+            } else {
+                false
+            };
             let is_hovered = hovered == Some(&target);
             let is_pressed = pressed == Some(&target);
             if offset_changed || is_hovered || is_pressed {
-                self.scrollbar_activity.insert(scroll_key.clone(), pass.now);
+                self.scrollbar_activity.insert(scroll_key, pass.now);
             }
+        }
 
+        for chrome in pass.layout.chrome() {
+            let target = chrome.target().clone();
+            let scroll_key = ScrollKey {
+                window: pass.window,
+                target: chrome.scroll_target().clone(),
+            };
+            let is_hovered = hovered == Some(&target);
+            let is_pressed = pressed == Some(&target);
             let (desired_opacity, fade_deadline) = self.scrollbar_opacity_target(
                 &scroll_key,
                 is_hovered || is_pressed,

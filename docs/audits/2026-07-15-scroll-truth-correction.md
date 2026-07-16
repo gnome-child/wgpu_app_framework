@@ -445,7 +445,7 @@ delta, and the cells exposed by re-census.
 | S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
 | S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Open | One line/block anchor plus within-line displacement resolves through `ScrollUpdate` |
 | S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | Open | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
-| S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | Open | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
+| S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | **Complete; R-007** | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
 | S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
 | S-010 | Native presentation atomicity | Fresh release capture intermittently observed a partially composed deadline frame | Open | Native property, residency, and semantic redraws expose only complete receipted frames; capture artifact versus presentation defect is resolved |
@@ -587,6 +587,71 @@ delta, and the cells exposed by re-census.
   storage and incremental width/height work remain S-004/S-005, and activation
   races beyond this slow-forward trace remain S-008. No additional drawable-
   residency owner, descendant class, or clip entrance was found.
+
+### R-007 — one two-axis viewport and chrome policy
+
+- **Bounded question and trace.** Generic scrolls, table column/body projections,
+  wrapped and unwrapped text areas, fixed clips, gutter reservation, scrollbar
+  presence, activity/fade, hover thickness, hit testing, pointer capture, thumb
+  mutation, keyboard reveal, layout feedback, property construction, retained
+  projection, and successful receipt admission were traced on both axes. The
+  trace included diagonal movement and independently saturated axes rather than
+  treating vertical and horizontal tests as unrelated one-dimensional cases.
+- **Displaced topology truths.** Gutter choice no longer derives from a node's
+  stack layout axis, and text no longer bypasses the common visible-frame and
+  visible-content calculation. A table's horizontal wrapper and virtual body
+  now borrow the table element's one interaction target. Clamp, reveal,
+  feedback, hit projection, and receipt admission aggregate every projection of
+  that target instead of selecting or overwriting with the first/last one.
+  `Ctrl+End` on a wide million-row table consequently retains both the far
+  column and far row instead of the vertical receipt restoring x to zero.
+- **Explicit activity and property policy.** Offset movement or interaction on
+  either bar activates the viewport's shared activity/fade clock; hover and
+  pressed thickness remain local to the individual bar. Runtime resolves all
+  activity before projecting either bar, eliminating one-frame behavior based
+  on chrome iteration order. Horizontal and vertical scrollbar properties use
+  distinct property kinds on a shared text/generic frame, so scene and retained
+  projection no longer fold one bar's hover thickness into the other. Tables
+  receive the same semantics despite their bars living on separate layout
+  projection nodes.
+- **Integral chrome arithmetic.** Layout thumb sizing, property projection, and
+  absolute drag use rounded integral ratios. The remaining layout-chrome `f32`
+  conversion over total content extent was deleted; exact witnesses cover
+  `16_777_215`, `16_777_216`, `16_777_217`, and three odd values near
+  24,000,000 where the former calculation returned a different logical offset.
+- **Industry comparison ruling.** The result meets the shared line represented
+  by GTK's per-axis adjustments and common `Scrollable`, Qt's coordinated
+  central viewport and as-needed ranges, and Iced/COSMIC's one state and fixed
+  visible layer. Chromium's retained property movement and Firefox APZ's
+  transform-consistent hit testing challenge the property/hit path; Flutter's
+  explicit position/content-dimension separation challenges correction and
+  admission. This implementation keeps stronger repository-specific integral
+  offsets, complete-pixel admission, and per-axis property slots rather than
+  importing any reference's floating authority or widget/process topology.
+- **Structural performance delta.** A viewport offset is sampled once per
+  shared scroll target during visual activity projection, and property
+  construction emits one value per `(owner, axis)` without rescanning and
+  max-folding every chrome sharing an owner. Two-axis property movement remains
+  semantic-commit-free; quantitative CPU/GPU/allocation deltas remain assigned
+  to S-009 and are not inferred from unit elapsed time.
+- **Witnesses and closure.** `two_axis_scroll_gutters_follow_viewport_capability_not_stack_axis`,
+  `text_area_uses_the_same_two_axis_gutter_geometry_as_other_viewports`,
+  `text_area_projects_scrollbars_like_generic_viewports`,
+  `two_axis_table_activity_and_fade_follow_one_scroll_owner`,
+  `two_axis_table_scrollbar_capture_and_mutation_are_axis_symmetric`,
+  `two_axis_text_scrollbars_share_activity_but_keep_per_axis_hover_and_mutation`,
+  `table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow`,
+  `scrollbar_drag_preserves_integral_truth_past_f32_precision`, and the
+  architecture ratchet cover presence, gutter, shared activity/fade, per-bar
+  hover, hit, capture, mutation, diagonal reveal, receipt aggregation, and
+  integral large extents. Release GPU witnesses
+  `retained_scroll_tick_is_pixel_exact_and_reuses_all_content_work` and
+  `control_gallery_slow_scroll_never_exposes_unprepared_output` remain green
+  after the per-axis property split. The library suite reports 1,201 passed and
+  four intentional ignores; renderer-debug reports three passed and seventeen
+  intentional GPU ignores; the workspace all-target/all-feature check is green.
+  Table rule/cell pixel unity remains S-006, bounded text economics and stable
+  anchoring remain S-004/S-005, and quantitative fixed-point work remains S-009.
 
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a

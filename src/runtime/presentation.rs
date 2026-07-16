@@ -210,13 +210,18 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let Some(interaction) = self.session.interaction(window) else {
             return;
         };
+        let mut seen = std::collections::HashSet::new();
         let corrections = layout
             .scroll_projections()
             .iter()
             .filter_map(|projection| {
-                let desired = interaction.scroll().desired_offset(projection.target());
-                let resolved = projection.viewport().resolve(desired);
-                (resolved != desired).then(|| (projection.target().clone(), resolved))
+                let target = projection.target();
+                if !seen.insert(target.clone()) {
+                    return None;
+                }
+                let desired = interaction.scroll().desired_offset(target);
+                let resolved = layout.resolve_scroll_offset(target, desired);
+                (resolved != desired).then(|| (target.clone(), resolved))
             })
             .chain(layout.frames().iter().filter_map(|frame| {
                 Some((frame.target()?.clone(), frame.resolved_scroll_correction()?))

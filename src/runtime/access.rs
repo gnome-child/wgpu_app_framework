@@ -4,7 +4,7 @@ use super::super::pointer;
 use super::super::{
     clipboard::Clipboard,
     diagnostics::Diagnostics,
-    session,
+    interaction, session,
     state::{self, Store},
     timeline::Timeline,
     window,
@@ -306,11 +306,22 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     .record_semantic_activation();
             }
             if activated || refreshes_visible {
+                let mut admitted = std::collections::HashMap::new();
                 for projection in layout.scroll_projections() {
                     if let Some(offset) = stack.scroll_offset(projection.node()) {
-                        self.session
-                            .admit_scroll(window, projection.target().clone(), offset);
+                        admitted
+                            .entry(projection.target().clone())
+                            .and_modify(|current: &mut interaction::ScrollOffset| {
+                                *current = interaction::ScrollOffset::new(
+                                    current.x().max(offset.x()),
+                                    current.y().max(offset.y()),
+                                );
+                            })
+                            .or_insert(offset);
                     }
+                }
+                for (target, offset) in admitted {
+                    self.session.admit_scroll(window, target, offset);
                 }
                 self.presented_geometry.insert(
                     window,

@@ -538,10 +538,28 @@ impl Layout {
         target: &interaction::Target,
         offset: interaction::ScrollOffset,
     ) -> interaction::ScrollOffset {
-        self.scroll_projections
+        let mut found = false;
+        let mut maximum = interaction::ScrollOffset::default();
+        for projection in self
+            .scroll_projections
             .iter()
-            .find(|projection| &projection.target == target)
-            .map_or(offset, |projection| projection.viewport.resolve(offset))
+            .filter(|projection| &projection.target == target)
+        {
+            found = true;
+            let candidate = projection.viewport.max_scroll();
+            maximum = interaction::ScrollOffset::new(
+                maximum.x().max(candidate.x()),
+                maximum.y().max(candidate.y()),
+            );
+        }
+        if found {
+            interaction::ScrollOffset::new(
+                offset.x().clamp(0, maximum.x()),
+                offset.y().clamp(0, maximum.y()),
+            )
+        } else {
+            offset
+        }
     }
 
     pub(crate) fn resident_node_ids(
@@ -939,17 +957,40 @@ impl Layout {
         margin: i32,
         mut accepts_descendant: impl FnMut(&Frame) -> bool,
     ) -> Option<interaction::ScrollOffset> {
-        let viewport_frame = self
+        let mut found = false;
+        let mut resolved = interaction::ScrollOffset::default();
+        for viewport_frame in self
             .frames
             .iter()
-            .find(|frame| frame.target() == Some(viewport_target))?;
-        let viewport = viewport_frame.viewport()?;
-        let descendant = self
-            .frames
-            .iter()
-            .find(|frame| frame.is_descendant_of(viewport_frame) && accepts_descendant(frame))?;
-
-        Some(viewport.reveal_rect(descendant.rect(), margin))
+            .filter(|frame| frame.target() == Some(viewport_target))
+        {
+            let Some(viewport) = viewport_frame.viewport() else {
+                continue;
+            };
+            let Some(descendant) = self
+                .frames
+                .iter()
+                .find(|frame| frame.is_descendant_of(viewport_frame) && accepts_descendant(frame))
+            else {
+                continue;
+            };
+            found = true;
+            let candidate = viewport.reveal_rect(descendant.rect(), margin);
+            let maximum = viewport.max_scroll();
+            resolved = interaction::ScrollOffset::new(
+                if maximum.x() > 0 {
+                    candidate.x()
+                } else {
+                    resolved.x()
+                },
+                if maximum.y() > 0 {
+                    candidate.y()
+                } else {
+                    resolved.y()
+                },
+            );
+        }
+        found.then_some(resolved)
     }
 
     #[cfg(test)]

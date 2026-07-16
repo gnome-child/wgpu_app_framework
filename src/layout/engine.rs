@@ -93,12 +93,21 @@ impl Engine {
         &self,
         text_area: &view::TextArea,
         rect: geometry::Rect,
+        visible_frame: geometry::Rect,
+        visible_content: geometry::Rect,
         theme: &theme::Theme,
         color: scene::Color,
         now: Instant,
     ) -> text::Area {
-        self.text
-            .text_area_layout(text_area, rect, theme, color, now)
+        self.text.text_area_layout(
+            text_area,
+            rect,
+            visible_frame,
+            visible_content,
+            theme,
+            color,
+            now,
+        )
     }
 
     pub(super) fn text_area_position_at(

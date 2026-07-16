@@ -5,7 +5,7 @@ use super::super::{
     view::{self, node},
 };
 use super::{
-    Viewport, control, engine, flow,
+    Viewport, chrome, control, engine, flow,
     frame::{Clip, Frame, Input as FrameInput},
     measure, path, table,
 };
@@ -196,8 +196,10 @@ fn layout_scroll(
         }
     }
 
-    let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
-    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
+    let geometry = chrome::viewport_geometry(rect, clip, ctx.theme, chrome::Axes::BOTH);
+    let viewport_rect = geometry.viewport();
+    let visible_frame = geometry.visible_frame();
+    let visible_content = geometry.visible_content();
     let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme, ctx.keymap);
     let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset())
         .with_visible(visible_frame, visible_content);
@@ -251,8 +253,10 @@ fn layout_table_scroll(
     let columns = model.column_dimensions();
     debug_assert_eq!(columns.len(), header.children().len());
 
-    let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
-    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
+    let geometry = chrome::viewport_geometry(rect, clip, ctx.theme, chrome::Axes::HORIZONTAL);
+    let viewport_rect = geometry.viewport();
+    let visible_frame = geometry.visible_frame();
+    let visible_content = geometry.visible_content();
     let mut allocation = flow::Row::new().pressure(flow::Pressure::Overflow);
     for ((_, dimension, _), header_cell) in columns.iter().copied().zip(header.children()) {
         let item = match dimension {
@@ -348,15 +352,17 @@ fn layout_virtual_list(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let viewport_rect = scroll_viewport_rect(node, rect, ctx.theme);
-    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
+    let geometry = chrome::viewport_geometry(rect, clip, ctx.theme, chrome::Axes::VERTICAL);
+    let viewport_rect = geometry.viewport();
+    let visible_frame = geometry.visible_frame();
+    let visible_content = geometry.visible_content();
     if let Some(measurements) = model.measurements() {
         layout_variable_virtual_list(
             node,
             retained,
             path,
             rect,
-            viewport_rect,
+            geometry,
             floating_layer,
             clip,
             model,
@@ -414,14 +420,16 @@ fn layout_variable_virtual_list(
     retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
-    viewport_rect: Rect,
+    geometry: chrome::ViewportGeometry,
     floating_layer: bool,
     clip: Option<Clip>,
     model: &crate::virtual_list::Model,
     measured_sequence: crate::virtual_list::Measurements,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let (visible_frame, visible_content) = visible_scroll_geometry(node, rect, clip, ctx.theme);
+    let viewport_rect = geometry.viewport();
+    let visible_frame = geometry.visible_frame();
+    let visible_content = geometry.visible_content();
     let provider = model.provider();
     let requested_offset = node.scroll_offset();
     {
@@ -494,52 +502,6 @@ fn layout_variable_virtual_list(
             ctx,
         );
     }
-}
-
-fn scroll_viewport_rect(node: &view::Node, rect: Rect, theme: &theme::Theme) -> Rect {
-    let metrics = theme.scrollbar().metrics;
-    if metrics.policy != theme::ScrollbarPolicy::GutterAlways {
-        return rect;
-    }
-
-    let gutter = metrics.thickness.max(1);
-    match node.axis() {
-        Some(view::Axis::Horizontal) => Rect::new(
-            rect.x(),
-            rect.y(),
-            rect.width(),
-            rect.height().saturating_sub(gutter),
-        ),
-        Some(view::Axis::Overlay) => rect,
-        Some(view::Axis::Vertical) | None => Rect::new(
-            rect.x(),
-            rect.y(),
-            rect.width().saturating_sub(gutter),
-            rect.height(),
-        ),
-    }
-}
-
-fn visible_scroll_geometry(
-    node: &view::Node,
-    rect: Rect,
-    inherited: Option<Clip>,
-    theme: &theme::Theme,
-) -> (Rect, Rect) {
-    let frame = intersect_rect(inherited.map(Clip::rect), rect);
-    (frame, scroll_viewport_rect(node, frame, theme))
-}
-
-fn intersect_rect(inherited: Option<Rect>, rect: Rect) -> Rect {
-    let Some(inherited) = inherited else {
-        return rect;
-    };
-    let x = inherited.x().max(rect.x());
-    let y = inherited.y().max(rect.y());
-    let right = inherited.right().min(rect.right());
-    let bottom = inherited.bottom().min(rect.bottom());
-
-    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
 }
 
 fn child_clip(child: &view::Node, clip: Option<Clip>) -> Option<Clip> {
