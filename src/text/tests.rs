@@ -1178,17 +1178,32 @@ fn unwindowed_last_line_retains_complete_source_metadata() {
 
 #[test]
 fn far_ascii_window_matches_independent_full_line_glyphs() {
+    assert_far_ltr_window_matches_independent_full_line(
+        "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(8_192),
+    );
+}
+
+fn assert_far_ltr_window_matches_independent_full_line(source: String) {
     let mut engine = engine();
-    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(8_192);
+    let source_len = source.len();
     let area_model = Area::new(Buffer::from_multiline_text(source)).no_wrap();
     let viewport = area::logical(920.0, 80.0);
     let style = Style::default().with_size(13.0);
+    area_model.buffer().reset_document_stats();
     let near = engine.text_area_paint_layout_for_area_at(
         &area_model,
         style,
         viewport,
         ViewState::default(),
         Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+    assert_eq!(diagnostics.text_area_horizontal_index_builds, 1);
+    assert!(diagnostics.text_area_horizontal_index_source_bytes >= source_len);
+    assert!(diagnostics.text_area_horizontal_exact_band_shapes >= 2);
+    assert_eq!(
+        area_model.buffer().document_stats().full_materializations,
+        0
     );
     let far = ((near.layout().content_area().width() - viewport.width()).max(0.0) * 0.75).floor();
     let observed = engine.text_area_paint_layout_for_area_at(
@@ -1298,6 +1313,36 @@ fn far_ascii_window_matches_independent_full_line_glyphs() {
             .all(|surface| surface.text_x.abs() <= 4_096.0),
         "far glyph buffers must enter the renderer in runway-local coordinates"
     );
+}
+
+#[test]
+fn far_complex_ltr_window_matches_independent_full_line_glyphs() {
+    assert_far_ltr_window_matches_independent_full_line(
+        "नमस्ते दुनिया café 漢字かなカナ αλφάβητο ".repeat(4_096),
+    );
+}
+
+#[test]
+fn long_mixed_bidi_line_keeps_the_exact_full_line_fallback() {
+    let mut engine = engine();
+    let source = "left אבגדה right مرحبا ".repeat(16_384);
+    let area_model = Area::new(Buffer::from_multiline_text(source.clone())).no_wrap();
+    engine.reset_diagnostics();
+
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        Style::default().with_size(13.0),
+        area::logical(320.0, 80.0),
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+
+    assert_eq!(diagnostics.text_area_horizontal_index_builds, 0);
+    assert_eq!(diagnostics.text_area_horizontal_exact_band_shapes, 0);
+    assert_eq!(layout.render_surfaces().len(), 1);
+    assert_eq!(layout.render_surfaces()[0].source_start(), 0);
+    assert_eq!(layout.render_surfaces()[0].source_text_len(), source.len());
 }
 
 #[test]

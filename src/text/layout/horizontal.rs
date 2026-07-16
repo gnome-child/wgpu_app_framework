@@ -109,20 +109,20 @@ impl LineIndexBuilder {
 }
 
 impl LineIndex {
-    pub(super) fn from_ascii_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
-        Self::from_ascii_buffer_inner(text, buffer, true)
+    pub(super) fn from_ltr_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
+        Self::from_ltr_buffer_inner(text, buffer, true)
     }
 
-    pub(super) fn from_ascii_fragment_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
-        Self::from_ascii_buffer_inner(text, buffer, false)
+    pub(super) fn from_ltr_fragment_buffer(text: &str, buffer: &glyphon::Buffer) -> Option<Self> {
+        Self::from_ltr_buffer_inner(text, buffer, false)
     }
 
-    fn from_ascii_buffer_inner(
+    fn from_ltr_buffer_inner(
         text: &str,
         buffer: &glyphon::Buffer,
         require_multiple_windows: bool,
     ) -> Option<Self> {
-        if !text.is_ascii() || text.is_empty() {
+        if text.is_empty() {
             return None;
         }
         let source_len = u32::try_from(text.len()).ok()?;
@@ -138,49 +138,61 @@ impl LineIndex {
             x: 0.0,
         }];
         let mut last_x = 0.0_f32;
+        let mut last_source_start = 0_usize;
         let mut terminal_x = run.line_w;
-        let mut pending_boundary = false;
-        let mut previous_boundary = None::<Checkpoint>;
         for glyph in run.glyphs {
-            if glyph.end < glyph.start || glyph.end > text.len() || glyph.x < last_x {
+            if glyph.end < glyph.start
+                || glyph.end > text.len()
+                || glyph.x < last_x
+                || glyph.start < last_source_start
+            {
                 return None;
             }
-            let cluster = text.get(glyph.start..glyph.end)?;
-            let whitespace = cluster.chars().all(char::is_whitespace);
-            if pending_boundary && !whitespace {
-                let glyph_start = u32::try_from(glyph.start).ok()?;
-                let boundary = Checkpoint {
-                    source_byte: glyph_start,
-                    x: f64::from(glyph.x),
-                };
-                let last = *checkpoints.last()?;
-                if boundary.source_byte.saturating_sub(last.source_byte)
-                    > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
-                {
-                    let candidate = previous_boundary?;
-                    if candidate.source_byte <= last.source_byte
-                        || boundary.source_byte.saturating_sub(candidate.source_byte)
-                            > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
-                    {
-                        return None;
-                    }
-                    checkpoints.push(candidate);
-                }
-                if boundary
-                    .source_byte
-                    .saturating_sub(checkpoints.last()?.source_byte)
-                    >= TEXT_AREA_HORIZONTAL_INDEX_TARGET_SOURCE_SPAN
-                {
-                    checkpoints.push(boundary);
-                }
-                previous_boundary = Some(boundary);
-                pending_boundary = false;
-            }
-            if whitespace {
-                pending_boundary = true;
-            }
             last_x = glyph.x;
+            last_source_start = glyph.start;
             terminal_x = terminal_x.max(glyph.x + glyph.w);
+        }
+
+        let mut previous_boundary = None::<Checkpoint>;
+        let mut glyph_index = 0_usize;
+        for (source_byte, _) in unicode_linebreak::linebreaks(text) {
+            if source_byte == 0 || source_byte >= text.len() {
+                continue;
+            }
+            while glyph_index < run.glyphs.len() && run.glyphs[glyph_index].end <= source_byte {
+                glyph_index += 1;
+            }
+            let Some(glyph) = run.glyphs.get(glyph_index) else {
+                continue;
+            };
+            if glyph.start < source_byte {
+                continue;
+            }
+            let boundary = Checkpoint {
+                source_byte: u32::try_from(source_byte).ok()?,
+                x: f64::from(glyph.x),
+            };
+            let last = *checkpoints.last()?;
+            if boundary.source_byte.saturating_sub(last.source_byte)
+                > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+            {
+                let candidate = previous_boundary?;
+                if candidate.source_byte <= last.source_byte
+                    || boundary.source_byte.saturating_sub(candidate.source_byte)
+                        > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+                {
+                    return None;
+                }
+                checkpoints.push(candidate);
+            }
+            if boundary
+                .source_byte
+                .saturating_sub(checkpoints.last()?.source_byte)
+                >= TEXT_AREA_HORIZONTAL_INDEX_TARGET_SOURCE_SPAN
+            {
+                checkpoints.push(boundary);
+            }
+            previous_boundary = Some(boundary);
         }
 
         let terminal = Checkpoint {

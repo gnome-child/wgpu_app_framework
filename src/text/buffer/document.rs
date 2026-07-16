@@ -367,7 +367,7 @@ impl TextDocument {
         self.tree.text_for_range(bounds.start..bounds.end)
     }
 
-    fn floor_grapheme_in_line(&self, line: usize, local: usize) -> usize {
+    pub(in crate::text) fn floor_grapheme_in_line(&self, line: usize, local: usize) -> usize {
         let start = self.line_start(line);
         self.tree
             .floor_grapheme_boundary(start + local.min(self.line_text_len(line)))

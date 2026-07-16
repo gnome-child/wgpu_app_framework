@@ -195,7 +195,7 @@ impl Engine {
                 && area_model.wrap() == AreaWrap::None
                 && source_text_len > TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN
                 && let Some(line_key) = line_key.clone()
-                && let Some((index, band_shapes, glyphs)) = prepare_streamed_ascii_line_index(
+                && let Some((index, band_shapes, glyphs)) = prepare_streamed_ltr_line_index(
                     &mut self.font_system,
                     source,
                     style,
@@ -272,7 +272,7 @@ impl Engine {
                 && let Some(line_key) = line_key
                 && let Some(index) = {
                     let buffer = shaped.value.buffer.borrow();
-                    HorizontalLineIndex::from_ascii_buffer(&text, &buffer)
+                    HorizontalLineIndex::from_ltr_buffer(&text, &buffer)
                 }
                 && let Some((index, exact_band_shapes)) = index.refine_exact_bands(&text, |band| {
                     prepare_text_area_exact_horizontal_band(&mut self.font_system, style, band)
@@ -778,10 +778,10 @@ fn prepare_text_area_exact_horizontal_band_with_glyphs(
     set_cosmic_buffer_text(&mut buffer, text, glyphon::AttrsList::new(&attrs), shaping);
     buffer.shape_until_scroll(font_system, false);
     let glyphs = buffer_glyph_count(&buffer);
-    HorizontalLineIndex::from_ascii_fragment_buffer(text, &buffer).map(|index| (index, glyphs))
+    HorizontalLineIndex::from_ltr_fragment_buffer(text, &buffer).map(|index| (index, glyphs))
 }
 
-fn prepare_streamed_ascii_line_index(
+fn prepare_streamed_ltr_line_index(
     font_system: &mut glyphon::FontSystem,
     source: &Buffer,
     style: Style,
@@ -794,16 +794,19 @@ fn prepare_streamed_ascii_line_index(
     let mut glyphs = 0_usize;
 
     while source_offset < source_len {
-        let requested_end = source_offset
-            .saturating_add(TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN)
-            .min(source_len);
+        let requested_end = source.inner.document.floor_grapheme_in_line(
+            source_line,
+            source_offset
+                .saturating_add(TEXT_AREA_HORIZONTAL_EXACT_BAND_MAX_SOURCE_SPAN)
+                .min(source_len),
+        );
+        if requested_end <= source_offset {
+            return None;
+        }
         let mut text = source
             .inner
             .document
             .text_for_range(line_start + source_offset..line_start + requested_end);
-        if !text.is_ascii() {
-            return None;
-        }
         if requested_end < source_len {
             let boundary = text
                 .as_bytes()
