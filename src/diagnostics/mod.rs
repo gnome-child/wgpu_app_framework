@@ -14,7 +14,8 @@ pub use render::Render;
 #[cfg(feature = "renderer-debug")]
 #[doc(hidden)]
 pub use render::{
-    compare_control_gallery_caret_blink, compare_control_gallery_incremental_activation,
+    compare_control_gallery_caret_blink, compare_control_gallery_horizontal_table_scroll,
+    compare_control_gallery_incremental_activation,
     compare_control_gallery_pending_property_refresh, compare_control_gallery_pending_transition,
     compare_control_gallery_property_tick, compare_control_gallery_slow_scroll,
 };

@@ -444,7 +444,7 @@ delta, and the cells exposed by re-census.
 | S-003 | Exact drawable residency | Layout runway and prepared glyph bounds disagree | **Complete; R-003** | Admission and prepared pixels name the same integral region for every descendant |
 | S-004 | Bounded text economics | Horizontal surface size and width work can scale with absolute offset/document length | Open | Warm movement is property-only; replenishment and storage are viewport/runway bounded |
 | S-005 | Stable variable-height position | Refined line heights can move the visible anchor | Open | One line/block anchor plus within-line displacement resolves through `ScrollUpdate` |
-| S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | Open | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
+| S-006 | Table content/rule/clip unity | Rules and overflow lack a transition pixel oracle | **Complete; R-006** | Cells, backgrounds, rules, text, and fixed clip pass the same scroll pixel witness |
 | S-007 | One two-axis viewport/chrome policy | Text and table activity/visibility depend on different node topology | **Complete; R-007** | Presence, gutter, activity, hit, capture, and fade policies are explicit and axis-parity proven |
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
 | S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
@@ -587,6 +587,60 @@ delta, and the cells exposed by re-census.
   storage and incremental width/height work remain S-004/S-005, and activation
   races beyond this slow-forward trace remain S-008. No additional drawable-
   residency owner, descendant class, or clip entrance was found.
+
+### R-006 — table content, rule, and fixed-clip unity
+
+- **Bounded question and trace.** Header and body cell frames, alternating row
+  backgrounds, column and row tracks, cell text, divider hits, horizontal and
+  virtual-body projections, shared interaction target, scene scroll ancestry,
+  retained draw order, fixed clips, fractional scaling, resize, and entering
+  side pixels were traced from table layout through compatibility output and the
+  production retained renderer. Ordinary horizontal and diagonal property ticks
+  and a real vertical residency crossing were included.
+- **Owner ruling.** No second table paint offset was admitted. Column tracks own
+  the same scroll ancestry as their header cells and therefore move only on the
+  horizontal projection; row tracks own their row ancestry and therefore move
+  on the shared horizontal plus vertical projections. Scene paint already binds
+  rules through `Track::owner_node`, exactly as frames bind backgrounds and text.
+  The open defect was an unratcheted cross-species pixel contract; S-007's shared
+  target correction removed the last interaction/receipt path capable of making
+  those otherwise-correct projections sample different admitted values.
+- **Pixels and transitions.** The compatibility-scene witness now proves that a
+  horizontal property tick translates the header background, alternating row,
+  vertical rule, horizontal rule, and body text by the same exact x displacement
+  while leaving semantic geometry untouched. A following vertical tick leaves
+  the sticky header and column rule y fixed while translating the row background,
+  row rule, and text by the same y displacement. The release GPU witness requires
+  the narrow table's newly exposed right-side region to change on that property
+  tick and match an independent retained realization at 1.0, 1.25, 1.5, and 2.0
+  scale. The 64-step four-pixel slow-scroll oracle crosses real vertical
+  residency while retaining exact complete output, and the resized expanded-table
+  witness keeps one-pixel rules grid-aligned at all four scales.
+- **Industry comparison ruling.** Against the upstream references recorded in
+  the industry line (consulted 2026-07-15), this meets Chromium's retained
+  property movement, GTK/Qt's content-from-shared-position and central viewport,
+  Iced/COSMIC's fixed visible layer over one two-axis state, Firefox APZ/WebRender's
+  transform-consistent retained scroll tree, and Flutter's finite viewport-driven
+  realization. The repository keeps the stronger local requirements that the
+  admitted coordinate is integral, incomplete residency is never drawable, and
+  the entering strip is checked by exact pixels rather than inferred from a
+  settled repaint.
+- **Structural performance delta.** The horizontal transition retains both the
+  semantic and drawable commits and reports zero scene-node realization rebuilds,
+  primitive/text preparation or shaping, content uploads, retained resource
+  creates/replacements/removals, and render-plan rebuilds. Quantitative timing,
+  allocation, and memory comparisons remain S-009.
+- **Witnesses and re-census.** `table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together`,
+  `expanded_resized_table_rules_remain_aligned_at_supported_scales`,
+  `horizontal_table_scroll_updates_entering_pixels_at_supported_scales`, and
+  `control_gallery_slow_scroll_never_exposes_unprepared_output` cover ancestry,
+  per-species displacement, side-pixel immediacy, scale, resize, fixed clipping,
+  and residency crossing. The checkpoint suite reports 1,201 passed and four
+  intentional ignores; renderer-debug reports three passed and eighteen
+  intentional GPU ignores; workspace all-target/all-feature and doctest checks
+  are green. No additional table offset, clip, track, or overflow repaint
+  authority was found. Bounded large-text economics and anchor stability remain
+  S-004/S-005; activation races and quantitative fixed-point work remain S-008/S-009.
 
 ### R-007 — one two-axis viewport and chrome policy
 

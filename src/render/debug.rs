@@ -1718,6 +1718,67 @@ impl Harness {
         }
     }
 
+    pub(crate) fn require_retained_scroll_region_change(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        initial: &scene::Properties,
+        tick: &scene::Properties,
+        region: crate::geometry::Rect,
+        context: &str,
+    ) -> Result<(), String> {
+        self.compare_retained_scroll_transition(commit, initial, tick)?;
+
+        let (width, height) = self.physical_extent(commit.size());
+        let (initial, _) = render_commit_image(
+            &self.context,
+            &mut self.witness,
+            commit,
+            initial,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (tick, _) = render_commit_image(
+            &self.context,
+            &mut self.witness,
+            commit,
+            tick,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let physical_edge = |value: i32, round: fn(f32) -> f32, limit: u32| {
+            round(value as f32 * self.scale_factor).clamp(0.0, limit as f32) as u32
+        };
+        let left = physical_edge(region.x(), f32::floor, width);
+        let top = physical_edge(region.y(), f32::floor, height);
+        let right = physical_edge(region.right(), f32::ceil, width);
+        let bottom = physical_edge(region.bottom(), f32::ceil, height);
+        if left >= right || top >= bottom {
+            return Err(format!(
+                "{context} selected an empty scroll witness region: logical={region:?}, physical=({left}, {top})..({right}, {bottom})"
+            ));
+        }
+
+        let mut changed = 0_usize;
+        for y in top..bottom {
+            for x in left..right {
+                let index = (y * width + x) as usize;
+                changed = changed
+                    .saturating_add(usize::from(initial.pixels()[index] != tick.pixels()[index]));
+            }
+        }
+        if changed == 0 {
+            return Err(format!(
+                "{context} did not update any entering-side pixels in {region:?} at {}x",
+                self.scale_factor
+            ));
+        }
+        Ok(())
+    }
+
     pub fn partial_update_receipt(&mut self) -> Result<PartialUpdateReceipt, String> {
         let (first_commit, first_properties) =
             scene::renderer_partial_update_fixture(1).map_err(|error| error.to_string())?;

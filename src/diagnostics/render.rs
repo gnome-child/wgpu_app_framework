@@ -1378,6 +1378,135 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
 }
 
 #[cfg(feature = "renderer-debug")]
+pub async fn compare_control_gallery_horizontal_table_scroll(
+    scale_factor: f32,
+) -> Result<(), String> {
+    const DELTA: i32 = 70;
+
+    let mut app = crate::control_gallery::app(crate::control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = crate::geometry::Size::new(300, 700);
+    let initial = app
+        .render_scene(window, size)
+        .ok_or_else(|| "control gallery did not produce a narrow table scene".to_owned())?;
+    app.finish_render_report(
+        window,
+        initial.epoch(),
+        initial.invalidation(),
+        initial.layout(),
+        initial.stack(),
+        initial.property_only(),
+        RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
+    );
+    let horizontal_frame = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == crate::view::Role::Scroll
+                && frame.table_projection().is_some()
+                && frame
+                    .viewport()
+                    .is_some_and(|viewport| viewport.max_scroll().x() > 0)
+        })
+        .ok_or_else(|| "narrow control gallery table has no horizontal viewport".to_owned())?;
+    let scroll_target = horizontal_frame
+        .target()
+        .ok_or_else(|| "horizontal table viewport has no shared scroll target".to_owned())?
+        .clone();
+    let viewport = horizontal_frame
+        .viewport()
+        .ok_or_else(|| "horizontal table frame lost its viewport".to_owned())?;
+    let projection = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| {
+            projection.target() == &scroll_target && projection.viewport().max_scroll().x() > 0
+        })
+        .ok_or_else(|| "horizontal table viewport has no scene scroll projection".to_owned())?;
+    let scroll_node = projection.node();
+    let visible = viewport.visible_content();
+    let body = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.table_cell().is_some()
+                && frame.rect().x() < visible.right()
+                && frame.rect().right() > visible.x()
+                && frame.rect().y() < visible.bottom()
+                && frame.rect().bottom() > visible.y()
+        })
+        .ok_or_else(|| "horizontal table viewport has no visible body cell".to_owned())?;
+    let point = crate::geometry::Point::new(
+        body.rect().x().max(visible.x()).saturating_add(1),
+        body.rect().y().max(visible.y()).saturating_add(1),
+    );
+    let semantic_commit = std::sync::Arc::clone(initial.commit());
+    let drawable_commit = std::sync::Arc::clone(initial.stack().base().drawable_commit());
+    let initial_properties = initial.properties().clone();
+    let before_offset = initial_properties
+        .scroll_offset(scroll_node)
+        .ok_or_else(|| "horizontal table projection has no initial property".to_owned())?;
+    drop(initial);
+
+    let outcome = app
+        .scroll_at(
+            window,
+            size,
+            point,
+            crate::interaction::ScrollDelta::horizontal(DELTA),
+        )
+        .map_err(|error| error.to_string())?;
+    let tick = app
+        .render_scene(window, size)
+        .ok_or_else(|| "horizontal table scroll produced no property tick".to_owned())?;
+    if !tick.property_only()
+        || !std::sync::Arc::ptr_eq(&semantic_commit, tick.commit())
+        || !std::sync::Arc::ptr_eq(&drawable_commit, tick.stack().base().drawable_commit())
+    {
+        return Err(format!(
+            "horizontal table scroll escaped the property clock: point={point:?}, effect={:?}, property_only={}, invalidation={:?}",
+            outcome.effect(),
+            tick.property_only(),
+            tick.invalidation(),
+        ));
+    }
+    let tick_offset = tick
+        .properties()
+        .scroll_offset(scroll_node)
+        .ok_or_else(|| "horizontal table property tick lost its scroll value".to_owned())?;
+    let applied = tick_offset.x().saturating_sub(before_offset.x());
+    if applied <= 0 || tick_offset.y() != before_offset.y() {
+        return Err(format!(
+            "horizontal table tick did not preserve axis-specific truth: before={before_offset:?}, tick={tick_offset:?}"
+        ));
+    }
+    let entering = crate::geometry::Rect::new(
+        visible.right().saturating_sub(applied.min(visible.width())),
+        visible.y(),
+        applied.min(visible.width()),
+        visible.height(),
+    );
+    let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
+    harness.require_retained_scroll_region_change(
+        &drawable_commit,
+        &initial_properties,
+        tick.properties(),
+        entering,
+        "horizontal table property tick",
+    )?;
+    let work = harness.compare_retained_property_transition(
+        &drawable_commit,
+        &initial_properties,
+        tick.properties(),
+    )?;
+    require_zero_semantic_property_work("horizontal table property tick", work)
+}
+
+#[cfg(feature = "renderer-debug")]
 pub async fn compare_control_gallery_incremental_activation(
     scale_factor: f32,
 ) -> Result<crate::render::debug::IncrementalActivationReceipt, String> {

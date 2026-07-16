@@ -1829,6 +1829,70 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         initial_action_divider.x() >= 240,
         "an offscreen divider must not clamp into a false viewport-edge target"
     );
+    let detail_column_track = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track.axis() == layout::table::Axis::Column
+                && track
+                    .column_identity()
+                    .is_some_and(|cell| cell.column() == interaction::Id::new("detail"))
+        })
+        .expect("detail column rule");
+    let detail_column_rule = detail_column_track.rule_rect();
+    let first_row_track = initial
+        .layout()
+        .table_tracks()
+        .iter()
+        .find(|track| {
+            track.axis() == layout::table::Axis::Row
+                && track.boundary() == initial_detail.1.bottom()
+        })
+        .expect("first body row rule");
+    let first_row_rule = first_row_track.rule_rect();
+    let column_scrolls = initial
+        .layout()
+        .scroll_ancestry(detail_column_track.owner_node());
+    let row_scrolls = initial
+        .layout()
+        .scroll_ancestry(first_row_track.owner_node());
+    assert_eq!(column_scrolls.len(), 1, "header rules move horizontally");
+    assert_eq!(row_scrolls.len(), 2, "body rules move on both axes");
+    assert_eq!(
+        row_scrolls.first(),
+        column_scrolls.first(),
+        "header and body rules inherit the same horizontal owner"
+    );
+    let detail_text = initial
+        .scene()
+        .texts()
+        .into_iter()
+        .find(|text| text.rect() == layout::table_content_rect(initial_detail.1, &Theme::default()))
+        .expect("first detail cell text")
+        .rect();
+    let alternate_row = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_row().is_some_and(|row| row.index() == 1))
+        .expect("second body row with the alternating background")
+        .rect();
+    let translate = |rect: geometry::Rect, x: i32, y: i32| {
+        geometry::Rect::new(
+            rect.x().saturating_add(x),
+            rect.y().saturating_add(y),
+            rect.width(),
+            rect.height(),
+        )
+    };
+    let table_theme = Theme::default();
+    assert!(initial.scene().quads().iter().any(|quad| {
+        quad.rect() == alternate_row && quad.fill() == table_theme.table().alternate_row_tint
+    }));
+    assert!(initial.scene().quads().iter().any(|quad| {
+        quad.rect() == initial_detail.0 && quad.fill() == table_theme.table().header_background
+    }));
 
     let before_scroll = app
         .diagnostics(window)
@@ -1893,6 +1957,40 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         );
     }
     assert_eq!(scrolled_action.0.right(), 310);
+    let horizontal_delta = interaction::ScrollOffset::new(-70, 0);
+    let horizontal_alternate_row =
+        translate(alternate_row, horizontal_delta.x(), horizontal_delta.y());
+    let horizontal_detail_header =
+        translate(initial_detail.0, horizontal_delta.x(), horizontal_delta.y());
+    let horizontal_column_rule = translate(
+        detail_column_rule,
+        horizontal_delta.x(),
+        horizontal_delta.y(),
+    );
+    let horizontal_row_rule = translate(first_row_rule, horizontal_delta.x(), horizontal_delta.y());
+    let horizontal_detail_text = translate(detail_text, horizontal_delta.x(), horizontal_delta.y());
+    assert!(scrolled.scene().quads().iter().any(|quad| {
+        quad.rect() == horizontal_alternate_row
+            && quad.fill() == table_theme.table().alternate_row_tint
+    }));
+    assert!(scrolled.scene().quads().iter().any(|quad| {
+        quad.rect() == horizontal_detail_header
+            && quad.fill() == table_theme.table().header_background
+    }));
+    assert!(scrolled.scene().rules().iter().any(|rule| {
+        rule.axis() == scene::Axis::Vertical && rule.rect() == horizontal_column_rule
+    }));
+    assert!(scrolled.scene().rules().iter().any(|rule| {
+        rule.axis() == scene::Axis::Horizontal && rule.rect() == horizontal_row_rule
+    }));
+    assert!(
+        scrolled
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.rect() == horizontal_detail_text),
+        "horizontal property tick must reveal translated cell text immediately"
+    );
     assert_eq!(
         scrolled
             .layout()
@@ -1907,6 +2005,46 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
             .expect("revealed far-right hit zone")
             .right(),
         initial_action_divider.right()
+    );
+
+    app.handle_input(
+        window,
+        Input::scroll(
+            table_scroll_target.clone(),
+            interaction::ScrollDelta::vertical(20),
+        ),
+    )
+    .expect("vertical delta should be consumed by the same table owner");
+    let diagonally_scrolled = app
+        .show_scene(window, size)
+        .expect("diagonally scrolled table should render");
+    assert!(diagonally_scrolled.property_only());
+    assert!(std::sync::Arc::ptr_eq(
+        initial.commit(),
+        diagonally_scrolled.commit()
+    ));
+    let body_delta = interaction::ScrollOffset::new(-70, -20);
+    assert!(diagonally_scrolled.scene().quads().iter().any(|quad| {
+        quad.rect() == translate(alternate_row, body_delta.x(), body_delta.y())
+            && quad.fill() == table_theme.table().alternate_row_tint
+    }));
+    assert!(diagonally_scrolled.scene().quads().iter().any(|quad| {
+        quad.rect() == horizontal_detail_header
+            && quad.fill() == table_theme.table().header_background
+    }));
+    assert!(diagonally_scrolled.scene().rules().iter().any(|rule| {
+        rule.axis() == scene::Axis::Vertical && rule.rect() == horizontal_column_rule
+    }));
+    assert!(diagonally_scrolled.scene().rules().iter().any(|rule| {
+        rule.axis() == scene::Axis::Horizontal
+            && rule.rect() == translate(first_row_rule, body_delta.x(), body_delta.y())
+    }));
+    assert!(
+        diagonally_scrolled
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| { text.rect() == translate(detail_text, body_delta.x(), body_delta.y()) })
     );
 
     let detail_track = scrolled

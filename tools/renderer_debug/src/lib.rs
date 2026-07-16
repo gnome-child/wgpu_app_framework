@@ -452,6 +452,23 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
+    fn horizontal_table_scroll_updates_entering_pixels_at_supported_scales() {
+        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+            pollster::block_on(
+                wgpu_l3::diagnostics::compare_control_gallery_horizontal_table_scroll(
+                    scale_factor,
+                ),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "table cells, rules, text, and entering pixels must share one exact horizontal property at {scale_factor}x: {error}"
+                )
+            });
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
     fn control_gallery_property_tick_is_blend_equivalent_offscreen() {
         for scale_factor in [1.0, 1.25, 1.5, 2.0] {
             pollster::block_on(wgpu_l3::diagnostics::compare_control_gallery_property_tick(
