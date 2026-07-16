@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::super::super::{
-    buffer::Buffer,
+    buffer::{Buffer, LineEditDelta},
     document::Style,
     surface::{Area, AreaWrap},
     view::ViewState,
@@ -169,7 +169,7 @@ impl Engine {
         );
         let scroll_x = state.exact_scroll_x().max(0.0);
         let (surface_x, surface_width) = prepared_window(viewport.width(), scroll_x);
-        let horizontal = line_key.as_ref().and_then(|key| {
+        let mut horizontal = line_key.as_ref().and_then(|key| {
             if let Some(index) = self.text_area_horizontal_indices.get(key).cloned() {
                 self.diagnostics.text_area_horizontal_index_hits += 1;
                 Some(index)
@@ -178,6 +178,43 @@ impl Engine {
                 None
             }
         });
+        let source_text_len = source.inner.document.line_text_len(source_line);
+        if horizontal.is_none()
+            && committed
+            && area_model.wrap() == AreaWrap::None
+            && let Some(current_key) = line_key.as_ref()
+            && let Some(delta) = source.line_edit_delta(source_line)
+            && let Some((index, shaped_bytes, glyphs)) = self
+                .incrementally_update_text_area_horizontal_index(
+                    source,
+                    style,
+                    source_line,
+                    current_key,
+                    delta,
+                )
+        {
+            self.diagnostics.text_area_line_shape_calls += 1;
+            self.diagnostics.text_area_shaped_logical_lines += 1;
+            self.diagnostics.text_area_shaped_visual_lines += 1;
+            self.diagnostics
+                .text_area_horizontal_index_incremental_updates += 1;
+            self.diagnostics
+                .text_area_horizontal_index_incremental_source_bytes += shaped_bytes;
+            self.diagnostics
+                .text_area_horizontal_index_incremental_glyphs += glyphs;
+            self.diagnostics.text_area_horizontal_exact_band_shapes += 1;
+            self.diagnostics
+                .text_area_horizontal_exact_band_source_bytes += shaped_bytes;
+            #[cfg(test)]
+            {
+                self.interaction_stats.text_area_frame_cache_misses += 1;
+                self.interaction_stats.text_area_frame_shape_calls += 1;
+                self.interaction_stats.text_area_frame_shaped_logical_lines += 1;
+                self.interaction_stats.text_area_frame_shaped_visual_lines += 1;
+            }
+            horizontal = Some(self.install_text_area_horizontal_index(current_key.clone(), index));
+            self.font_system.shape_run_cache = Default::default();
+        }
         self.diagnostics
             .text_area_horizontal_index_resident_bytes_max = self
             .diagnostics
@@ -189,7 +226,6 @@ impl Engine {
                 |source_byte| index.windows_for_source_byte(source_byte),
             )
         });
-        let source_text_len = source.inner.document.line_text_len(source_line);
         if horizontal.is_none() {
             if committed
                 && area_model.wrap() == AreaWrap::None
@@ -421,14 +457,51 @@ impl Engine {
         displays
     }
 
+    fn incrementally_update_text_area_horizontal_index(
+        &mut self,
+        source: &Buffer,
+        style: Style,
+        source_line: usize,
+        current_key: &TextAreaLineDisplayKey,
+        delta: LineEditDelta,
+    ) -> Option<(HorizontalLineIndex, usize, usize)> {
+        let predecessor_key = self
+            .text_area_horizontal_indices
+            .iter()
+            .find(|(key, _)| key.matches_predecessor(current_key, delta.before))
+            .map(|(key, _)| key.clone())?;
+        let predecessor = self
+            .text_area_horizontal_indices
+            .get(&predecessor_key)
+            .cloned()?;
+        self.diagnostics.text_area_horizontal_index_hits += 1;
+        let window = predecessor.edit_window(delta.old_range, delta.inserted_bytes)?;
+        let new_source = window.new_source.clone();
+        let line_start = source.inner.document.line_start(source_line);
+        let text = source
+            .inner
+            .document
+            .text_for_range(line_start + new_source.start..line_start + new_source.end);
+        let shaped_bytes = text.len();
+        let (replacement, stable_xs, glyphs) = prepare_text_area_exact_horizontal_band_with_glyphs(
+            &mut self.font_system,
+            style,
+            &text,
+        )?;
+        let replacement = replacement.with_stable_xs(stable_xs)?;
+        let index = predecessor.splice_edit(window, replacement)?;
+        Some((index, shaped_bytes, glyphs))
+    }
+
     fn install_text_area_horizontal_index(
         &mut self,
         line_key: TextAreaLineDisplayKey,
         index: HorizontalLineIndex,
-    ) {
+    ) -> Rc<HorizontalLineIndex> {
         let index_resident_bytes = index.resident_bytes();
+        let index = Rc::new(index);
         self.text_area_horizontal_indices
-            .put(line_key, Rc::new(index));
+            .put(line_key, index.clone());
         let mut resident_bytes = self
             .text_area_horizontal_indices
             .iter()
@@ -449,6 +522,7 @@ impl Engine {
             .diagnostics
             .text_area_horizontal_index_resident_bytes_max
             .max(index_resident_bytes.max(self.text_area_horizontal_index_resident_bytes));
+        index
     }
 
     fn record_text_area_line_shape(
@@ -761,14 +835,14 @@ fn prepare_text_area_exact_horizontal_band(
     text: &str,
 ) -> Option<HorizontalLineIndex> {
     prepare_text_area_exact_horizontal_band_with_glyphs(font_system, style, text)
-        .map(|(index, _)| index)
+        .map(|(index, _, _)| index)
 }
 
 fn prepare_text_area_exact_horizontal_band_with_glyphs(
     font_system: &mut glyphon::FontSystem,
     style: Style,
     text: &str,
-) -> Option<(HorizontalLineIndex, usize)> {
+) -> Option<(HorizontalLineIndex, Vec<f64>, usize)> {
     let metrics = glyphon::Metrics::relative(style.size().max(1.0), 1.25);
     let attrs = system::attrs_for_style(style);
     let mut buffer = glyphon::Buffer::new_empty(metrics);
@@ -778,7 +852,9 @@ fn prepare_text_area_exact_horizontal_band_with_glyphs(
     set_cosmic_buffer_text(&mut buffer, text, glyphon::AttrsList::new(&attrs), shaping);
     buffer.shape_until_scroll(font_system, false);
     let glyphs = buffer_glyph_count(&buffer);
-    HorizontalLineIndex::from_ltr_fragment_buffer(text, &buffer).map(|index| (index, glyphs))
+    let index = HorizontalLineIndex::from_ltr_fragment_buffer(text, &buffer)?;
+    let stable_xs = index.stable_xs(&buffer)?;
+    Some((index, stable_xs, glyphs))
 }
 
 fn prepare_streamed_ltr_line_index(
@@ -819,9 +895,9 @@ fn prepare_streamed_ltr_line_index(
             return None;
         }
         let band_len = text.len();
-        let (band, band_glyphs) =
+        let (band, stable_xs, band_glyphs) =
             prepare_text_area_exact_horizontal_band_with_glyphs(font_system, style, &text)?;
-        builder.push(band)?;
+        builder.push(band, stable_xs)?;
         glyphs = glyphs.saturating_add(band_glyphs);
         source_offset = source_offset.checked_add(band_len)?;
     }

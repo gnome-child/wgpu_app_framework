@@ -18,6 +18,7 @@ pub use mark::{Mark, MarkGravity, MarkRange};
 static NEXT_BUFFER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_CONTENT_VERSION: AtomicU64 = AtomicU64::new(1);
 static NEXT_LINE_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_LINE_LAYOUT_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub(super) fn next_content_version() -> ContentVersion {
     ContentVersion(NEXT_CONTENT_VERSION.fetch_add(1, Ordering::Relaxed))
@@ -25,6 +26,10 @@ pub(super) fn next_content_version() -> ContentVersion {
 
 fn next_line_id() -> LineId {
     LineId(NEXT_LINE_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+fn next_line_layout_revision() -> u64 {
+    NEXT_LINE_LAYOUT_REVISION.fetch_add(1, Ordering::Relaxed)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -87,6 +92,14 @@ pub struct LineId(u64);
 pub(crate) struct LineLayoutIdentity {
     pub(crate) id: LineId,
     pub(crate) revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LineEditDelta {
+    pub(crate) before: LineLayoutIdentity,
+    pub(crate) after: LineLayoutIdentity,
+    pub(crate) old_range: std::ops::Range<usize>,
+    pub(crate) inserted_bytes: usize,
 }
 
 /// Identity of one immutable document-content version.
@@ -285,6 +298,9 @@ impl Buffer {
     }
     pub(crate) fn line_layout_identity(&self, line: usize) -> Option<LineLayoutIdentity> {
         self.inner.document.line_layout_identity(line)
+    }
+    pub(crate) fn line_edit_delta(&self, line: usize) -> Option<LineEditDelta> {
+        self.inner.document.line_edit_delta(line).cloned()
     }
     pub(crate) fn line_ending(&self) -> &'static str {
         self.inner.document.line_ending()

@@ -1,7 +1,10 @@
 use std::{fs, io, path::Path, rc::Rc, sync::Arc};
 
 use super::super::unicode::{next_word_boundary, previous_word_boundary};
-use super::{Cursor, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range, Selection};
+use super::{
+    Cursor, LineEditDelta, LineLayoutIdentity, Mark, MarkGravity, MarkRange, Position, Range,
+    Selection,
+};
 
 mod line_index;
 mod span_tree;
@@ -61,6 +64,7 @@ pub(in crate::text) struct TextDocument {
     lines: LineIndex,
     line_ending: DocumentLineEnding,
     pub(in crate::text) revision: u64,
+    last_line_edit: Option<LineEditDelta>,
     stats: TextDocumentStats,
 }
 
@@ -83,12 +87,13 @@ impl TextDocument {
     fn from_owned(text: Arc<str>) -> Self {
         let line_ending = DocumentLineEnding::detect(&text);
         let tree = SpanTree::from_original(text);
-        let lines = LineIndex::new(tree.line_count(), 0);
+        let lines = LineIndex::new(tree.line_count());
         Self {
             tree,
             lines,
             line_ending,
             revision: 0,
+            last_line_edit: None,
             stats: TextDocumentStats::default(),
         }
     }
@@ -147,6 +152,13 @@ impl TextDocument {
         self.lines.get(line).map(LineMeta::identity)
     }
 
+    pub(in crate::text) fn line_edit_delta(&self, line: usize) -> Option<&LineEditDelta> {
+        let current = self.line_layout_identity(line)?;
+        self.last_line_edit
+            .as_ref()
+            .filter(|delta| delta.after == current)
+    }
+
     pub(in crate::text) fn replace_range(
         &mut self,
         range: Range,
@@ -166,15 +178,15 @@ impl TextDocument {
         let next_revision = self.revision.saturating_add(1);
         let inserted_line_count = inserted.bytes().filter(|byte| *byte == b'\n').count() + 1;
         let mut replacement_lines = (0..inserted_line_count)
-            .map(|_| LineMeta::new(next_revision))
+            .map(|_| LineMeta::new())
             .collect::<Vec<_>>();
 
         if start_local == 0 && end_local == 0 {
             if let (Some(old_end), Some(suffix)) = (old_end, replacement_lines.last_mut()) {
-                *suffix = old_end.with_revision(next_revision);
+                *suffix = old_end.with_new_layout_revision();
             }
         } else if let (Some(old_start), Some(first)) = (old_start, replacement_lines.first_mut()) {
-            *first = old_start.with_revision(next_revision);
+            *first = old_start.with_new_layout_revision();
         }
 
         let inserted_tree = if inserted.is_empty() {
@@ -187,6 +199,20 @@ impl TextDocument {
             .lines
             .replace(start_line, old_line_count, replacement_lines);
         self.revision = next_revision;
+        self.last_line_edit = if start_line == end_line && inserted_line_count == 1 {
+            old_start.and_then(|before| {
+                let before = before.identity();
+                let after = self.line_layout_identity(start_line)?;
+                (before.id == after.id).then_some(LineEditDelta {
+                    before,
+                    after,
+                    old_range: start_local..end_local,
+                    inserted_bytes: inserted.len(),
+                })
+            })
+        } else {
+            None
+        };
         self.stats
             .piece_tree_updates
             .set(self.stats.piece_tree_updates.get() + 1);

@@ -97,6 +97,18 @@ impl LineDisplayKey {
             direction: style.direction(),
         })
     }
+
+    pub(super) fn matches_predecessor(
+        &self,
+        current: &Self,
+        predecessor: LineLayoutIdentity,
+    ) -> bool {
+        self.line == predecessor
+            && self.style == current.style
+            && self.width == current.width
+            && self.wrap == current.wrap
+            && self.direction == current.direction
+    }
 }
 
 impl LineWindowKey {

@@ -1,20 +1,21 @@
 use std::sync::Arc;
 
-use super::super::{LineId, LineLayoutIdentity, next_line_id};
+use super::super::{LineId, LineLayoutIdentity, next_line_id, next_line_layout_revision};
 
 const TARGET_LEAF_LINES: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct LineMeta {
     pub(super) id: LineId,
+    /// Process-unique identity for one immutable layout value of this line.
     pub(super) revision: u64,
 }
 
 impl LineMeta {
-    pub(super) fn new(revision: u64) -> Self {
+    pub(super) fn new() -> Self {
         Self {
             id: next_line_id(),
-            revision,
+            revision: next_line_layout_revision(),
         }
     }
 
@@ -25,8 +26,11 @@ impl LineMeta {
         }
     }
 
-    pub(super) fn with_revision(self, revision: u64) -> Self {
-        Self { revision, ..self }
+    pub(super) fn with_new_layout_revision(self) -> Self {
+        Self {
+            revision: next_line_layout_revision(),
+            ..self
+        }
     }
 }
 
@@ -54,16 +58,16 @@ pub(super) struct LineIndex {
 }
 
 impl LineIndex {
-    pub(super) fn new(line_count: usize, revision: u64) -> Self {
+    pub(super) fn new(line_count: usize) -> Self {
         let lines = (0..line_count.max(1))
-            .map(|_| LineMeta::new(revision))
+            .map(|_| LineMeta::new())
             .collect::<Vec<_>>();
         Self::from_lines(lines)
     }
 
     pub(super) fn from_lines(lines: Vec<LineMeta>) -> Self {
         let lines = if lines.is_empty() {
-            vec![LineMeta::new(0)]
+            vec![LineMeta::new()]
         } else {
             lines
         };
@@ -104,7 +108,7 @@ impl LineIndex {
         let (_, right) = split_node(tail.as_ref(), end - start);
         let middle = tree_for_lines(&replacement);
         let root =
-            join(join(left, middle), right).unwrap_or_else(|| leaf(Arc::from([LineMeta::new(0)])));
+            join(join(left, middle), right).unwrap_or_else(|| leaf(Arc::from([LineMeta::new()])));
         Self { root }
     }
 
@@ -351,15 +355,15 @@ mod tests {
 
     #[test]
     fn line_index_clone_and_edit_path_share_untouched_metadata() {
-        let index = LineIndex::new(400, 0);
+        let index = LineIndex::new(400);
         let clone = index.clone();
         assert!(index.shares_root_with(&clone));
 
         let original = index.get(5).unwrap();
-        let edited = clone.replace(5, 1, vec![original.with_revision(1)]);
+        let edited = clone.replace(5, 1, vec![original.with_new_layout_revision()]);
 
         assert_eq!(edited.get(5).unwrap().id, original.id);
-        assert_eq!(edited.get(5).unwrap().revision, 1);
+        assert_ne!(edited.get(5).unwrap().revision, original.revision);
         assert_eq!(edited.get(300), index.get(300));
         assert!(index.shared_leaf_count(&edited) >= 2);
         edited.assert_invariants();
@@ -367,10 +371,10 @@ mod tests {
 
     #[test]
     fn line_index_replace_preserves_only_explicit_line_identities() {
-        let index = LineIndex::new(3, 0);
+        let index = LineIndex::new(3);
         let first = index.get(0).unwrap();
         let third = index.get(2).unwrap();
-        let inserted = vec![first.with_revision(1), LineMeta::new(1)];
+        let inserted = vec![first.with_new_layout_revision(), LineMeta::new()];
         let edited = index.replace(0, 2, inserted);
 
         assert_eq!(edited.len(), 3);
@@ -382,7 +386,7 @@ mod tests {
 
     #[test]
     fn line_index_remains_nonempty_when_every_line_is_removed() {
-        let index = LineIndex::new(3, 0).replace(0, 3, Vec::new());
+        let index = LineIndex::new(3).replace(0, 3, Vec::new());
 
         assert_eq!(index.len(), 1);
         assert_eq!(index.get_clamped(usize::MAX), index.get(0).unwrap());

@@ -37,6 +37,7 @@ pub(super) struct LineIndex {
     source_len: usize,
     width: f64,
     height: f32,
+    stable_coordinates: bool,
 }
 
 pub(super) struct LineIndexBuilder {
@@ -46,6 +47,15 @@ pub(super) struct LineIndexBuilder {
     width: f64,
     height: f32,
     band_count: usize,
+    stable_xs: Vec<f64>,
+    stable_width: f64,
+}
+
+pub(super) struct EditWindow {
+    pub(super) new_source: Range<usize>,
+    old_source: Range<usize>,
+    start_index: usize,
+    end_index: usize,
 }
 
 impl LineIndexBuilder {
@@ -57,30 +67,48 @@ impl LineIndexBuilder {
             width: 0.0,
             height: 1.0,
             band_count: 0,
+            stable_xs: Vec::new(),
+            stable_width: 0.0,
         }
     }
 
-    pub(super) fn push(&mut self, band: LineIndex) -> Option<()> {
+    pub(super) fn push(&mut self, band: LineIndex, stable_xs: Vec<f64>) -> Option<()> {
         let band_source_len = u32::try_from(band.source_len).ok()?;
         if band.source_bytes.first().copied() != Some(0)
             || band.source_bytes.last().copied() != Some(band_source_len)
             || band.source_bytes.len() != band.xs.len()
+            || stable_xs.len() != band.xs.len()
+        {
+            return None;
+        }
+        let stable_width = stable_xs.last().copied()?;
+        if stable_xs.first().copied() != Some(0.0)
+            || stable_xs.windows(2).any(|pair| pair[0] > pair[1])
+            || !stable_width.is_finite()
         {
             return None;
         }
         let source_start = u32::try_from(self.source_len).ok()?;
-        for (index, (source_byte, x)) in band.source_bytes.into_iter().zip(band.xs).enumerate() {
+        for (index, ((source_byte, x), stable_x)) in band
+            .source_bytes
+            .into_iter()
+            .zip(band.xs)
+            .zip(stable_xs)
+            .enumerate()
+        {
             if self.band_count > 0 && index == 0 {
                 continue;
             }
             self.source_bytes
                 .push(source_start.checked_add(source_byte)?);
             self.xs.push(self.width + x);
+            self.stable_xs.push(self.stable_width + stable_x);
         }
         self.source_len = self.source_len.checked_add(band.source_len)?;
         self.width += band.width;
         self.height = self.height.max(band.height);
         self.band_count += 1;
+        self.stable_width += stable_width;
         Some(())
     }
 
@@ -95,13 +123,21 @@ impl LineIndexBuilder {
         {
             return None;
         }
+        let use_stable = self.stable_width >= F32_EXACT_INTEGRAL_LIMIT;
+        let xs = if use_stable { self.stable_xs } else { self.xs };
+        let width = if use_stable {
+            self.stable_width
+        } else {
+            self.width
+        };
         Some((
             LineIndex {
                 source_bytes: self.source_bytes,
-                xs: self.xs,
+                xs,
                 source_len: self.source_len,
-                width: self.width,
+                width,
                 height: self.height,
+                stable_coordinates: use_stable,
             },
             self.band_count,
         ))
@@ -237,7 +273,56 @@ impl LineIndex {
             source_len: text.len(),
             width: f64::from(run.line_w),
             height: run.line_height.max(1.0),
+            stable_coordinates: false,
         })
+    }
+
+    pub(super) fn stable_xs(&self, buffer: &glyphon::Buffer) -> Option<Vec<f64>> {
+        let shape = buffer.lines.first()?.shape_opt()?;
+        if shape.rtl || shape.spans.iter().any(|span| span.level.is_rtl()) {
+            return None;
+        }
+        let font_size = buffer.metrics().font_size;
+        let mut stable_xs = Vec::with_capacity(self.source_bytes.len());
+        let mut checkpoint = 0_usize;
+        let mut exact_x = 0.0_f64;
+        for span in &shape.spans {
+            for word in &span.words {
+                for glyph in &word.glyphs {
+                    while checkpoint < self.source_bytes.len()
+                        && self.source_bytes[checkpoint] as usize <= glyph.start
+                    {
+                        stable_xs.push(exact_x);
+                        checkpoint += 1;
+                    }
+                    exact_x += f64::from(glyph.width(font_size).max(0.0));
+                }
+            }
+        }
+        while checkpoint < self.source_bytes.len()
+            && self.source_bytes[checkpoint] as usize == self.source_len
+        {
+            stable_xs.push(exact_x);
+            checkpoint += 1;
+        }
+        (checkpoint == self.source_bytes.len()
+            && stable_xs.len() == self.source_bytes.len()
+            && exact_x.is_finite()
+            && exact_x > 0.0)
+            .then_some(stable_xs)
+    }
+
+    pub(super) fn with_stable_xs(mut self, stable_xs: Vec<f64>) -> Option<Self> {
+        if stable_xs.len() != self.xs.len()
+            || stable_xs.first().copied() != Some(0.0)
+            || stable_xs.windows(2).any(|pair| pair[0] > pair[1])
+        {
+            return None;
+        }
+        self.width = stable_xs.last().copied()?;
+        self.xs = stable_xs;
+        self.stable_coordinates = true;
+        Some(self)
     }
 
     pub(super) fn refine_exact_bands<F>(self, text: &str, mut shape: F) -> Option<(Self, usize)>
@@ -306,6 +391,7 @@ impl LineIndex {
                 source_len: text.len(),
                 width: exact_x,
                 height,
+                stable_coordinates: false,
             },
             band_count,
         ))
@@ -313,6 +399,101 @@ impl LineIndex {
 
     pub(super) fn width(&self) -> f64 {
         self.width
+    }
+
+    pub(super) fn edit_window(
+        &self,
+        old_edit: Range<usize>,
+        inserted_bytes: usize,
+    ) -> Option<EditWindow> {
+        if !self.stable_coordinates
+            || old_edit.start > old_edit.end
+            || old_edit.end > self.source_len
+        {
+            return None;
+        }
+        let terminal = self.source_bytes.len().checked_sub(1)?;
+        let containing_start = self
+            .source_bytes
+            .partition_point(|source| *source <= old_edit.start as u32)
+            .saturating_sub(1)
+            .min(terminal.saturating_sub(1));
+        let start_index = containing_start.saturating_sub(1);
+        let containing_end = self
+            .source_bytes
+            .partition_point(|source| (*source as usize) < old_edit.end)
+            .min(terminal);
+        let end_index = containing_end.saturating_add(1).min(terminal);
+        let old_source =
+            self.source_bytes[start_index] as usize..self.source_bytes[end_index] as usize;
+        let deleted_bytes = old_edit.end - old_edit.start;
+        let new_end = old_source
+            .end
+            .checked_sub(deleted_bytes)?
+            .checked_add(inserted_bytes)?;
+        Some(EditWindow {
+            new_source: old_source.start..new_end,
+            old_source,
+            start_index,
+            end_index,
+        })
+    }
+
+    pub(super) fn splice_edit(&self, window: EditWindow, replacement: LineIndex) -> Option<Self> {
+        if replacement.source_len != window.new_source.len()
+            || replacement.source_bytes.first().copied() != Some(0)
+            || replacement.source_bytes.last().copied()? as usize != replacement.source_len
+        {
+            return None;
+        }
+        let old_segment_width = self.xs[window.end_index] - self.xs[window.start_index];
+        let replacement_segment_width = replacement.xs.last().copied()? - replacement.xs[0];
+        let x_shift = replacement_segment_width - old_segment_width;
+        let byte_shift = window.new_source.len() as i64 - window.old_source.len() as i64;
+        let mut source_bytes = Vec::with_capacity(
+            self.source_bytes.len() - (window.end_index - window.start_index)
+                + replacement.source_bytes.len().saturating_sub(1),
+        );
+        let mut xs = Vec::with_capacity(source_bytes.capacity());
+
+        source_bytes.extend_from_slice(&self.source_bytes[..=window.start_index]);
+        xs.extend_from_slice(&self.xs[..=window.start_index]);
+        let source_origin = self.source_bytes[window.start_index];
+        let x_origin = self.xs[window.start_index];
+        for (&source, &x) in replacement.source_bytes.iter().zip(&replacement.xs).skip(1) {
+            source_bytes.push(source_origin.checked_add(source)?);
+            xs.push(x_origin + x);
+        }
+        for (&source, &x) in self.source_bytes[window.end_index + 1..]
+            .iter()
+            .zip(&self.xs[window.end_index + 1..])
+        {
+            let shifted = i64::from(source).checked_add(byte_shift)?;
+            source_bytes.push(u32::try_from(shifted).ok()?);
+            xs.push(x + x_shift);
+        }
+
+        let source_len = (self.source_len as i64).checked_add(byte_shift)?;
+        let source_len = usize::try_from(source_len).ok()?;
+        let width = self.width + x_shift;
+        if source_bytes.len() < 3
+            || source_bytes.len() != xs.len()
+            || source_bytes.last().copied()? as usize != source_len
+            || source_bytes.windows(2).any(|pair| {
+                pair[0] >= pair[1] || pair[1] - pair[0] > TEXT_AREA_HORIZONTAL_INDEX_MAX_SOURCE_SPAN
+            })
+            || xs.windows(2).any(|pair| pair[0] > pair[1])
+        {
+            return None;
+        }
+        Some(Self {
+            source_bytes,
+            xs,
+            source_len,
+            width,
+            height: self.height.max(replacement.height),
+            stable_coordinates: true,
+        })
     }
 
     pub(super) fn height(&self) -> f32 {
@@ -407,6 +588,7 @@ mod tests {
             source_len,
             width,
             height,
+            stable_coordinates: false,
         }
     }
 

@@ -201,6 +201,19 @@ impl Diagnostics {
                 self.text.text_area_horizontal_index_evictions,
             ),
             (
+                "text_area_horizontal_index_incremental_updates",
+                self.text.text_area_horizontal_index_incremental_updates,
+            ),
+            (
+                "text_area_horizontal_index_incremental_source_bytes",
+                self.text
+                    .text_area_horizontal_index_incremental_source_bytes,
+            ),
+            (
+                "text_area_horizontal_index_incremental_glyphs",
+                self.text.text_area_horizontal_index_incremental_glyphs,
+            ),
+            (
                 "text_area_horizontal_index_source_bytes",
                 self.text.text_area_horizontal_index_source_bytes,
             ),

@@ -1161,6 +1161,172 @@ fn long_ascii_index_streams_bounded_bands_without_whole_line_materialization() {
 }
 
 #[test]
+fn single_line_edit_splices_only_a_guarded_horizontal_index_region() {
+    let mut engine = engine();
+    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(110_000);
+    let mut buffer = Buffer::from_multiline_text(source.clone());
+    let viewport = area::logical(320.0, 80.0);
+    let style = Style::default().with_size(13.0);
+    let initial = Area::new(buffer.clone()).no_wrap();
+    let initial_layout = engine.text_area_paint_layout_for_area_at(
+        &initial,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+
+    let edit_index = source[..source.len() / 2]
+        .rfind("abcdefgh")
+        .map(|index| index + 4)
+        .expect("long source has an interior word position");
+    let mut editor = Editor::new();
+    let mut edit_state = buffer.initial_state();
+    apply_selection(
+        &buffer,
+        &mut edit_state,
+        selection::Operation::set_position(Position::new(edit_index)),
+    );
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("Z")
+    ));
+    let initial_width = initial_layout.layout().content_width_exact();
+    let edited = Area::new(buffer.clone()).with_state(edit_state).no_wrap();
+
+    engine.reset_diagnostics();
+    let layout = engine.text_area_paint_layout_for_area_at(
+        &edited,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+    let rebuilt = Engine::new().text_area_paint_layout_for_area_at(
+        &edited,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    assert!(layout.layout().content_width_exact() > 16_777_216.0);
+    assert_eq!(
+        diagnostics.text_area_horizontal_index_incremental_updates,
+        1
+    );
+    assert_eq!(diagnostics.text_area_horizontal_index_builds, 0);
+    assert!(diagnostics.text_area_horizontal_index_incremental_source_bytes <= 4_096);
+    assert!(diagnostics.text_area_horizontal_index_incremental_glyphs > 0);
+    assert_eq!(diagnostics.text_area_horizontal_index_source_bytes, 0);
+    assert_eq!(diagnostics.text_area_width_source_bytes, 0);
+    assert_eq!(
+        layout.layout().content_width_exact(),
+        rebuilt.layout().content_width_exact(),
+        "guarded splice width must equal a from-scratch stable index",
+    );
+
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::Backspace,
+    ));
+    let restored = Area::new(buffer).with_state(edit_state).no_wrap();
+    engine.reset_diagnostics();
+    let restored_layout = engine.text_area_paint_layout_for_area_at(
+        &restored,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let restored_diagnostics = engine.diagnostics();
+    assert_eq!(
+        restored_diagnostics.text_area_horizontal_index_incremental_updates,
+        1,
+    );
+    assert_eq!(restored_diagnostics.text_area_horizontal_index_builds, 0);
+    assert!(restored_diagnostics.text_area_horizontal_index_incremental_source_bytes <= 4_096);
+    assert_eq!(
+        restored_layout.layout().content_width_exact(),
+        initial_width
+    );
+}
+
+#[test]
+fn independently_edited_clones_cannot_alias_one_horizontal_index_key() {
+    let source = "W0123456789 abcdefghijklmnopqrstuvwxyz ".repeat(8_192);
+    let base = Buffer::from_multiline_text(source.clone());
+    let mut wide = base.clone();
+    let mut narrow = base.clone();
+    let edit_index = source[..source.len() / 2]
+        .rfind("abcdefgh")
+        .map(|index| index + 4)
+        .expect("long source has an interior word position");
+
+    for (buffer, inserted) in [(&mut wide, "W"), (&mut narrow, "i")] {
+        let mut state = buffer.initial_state();
+        apply_selection(
+            buffer,
+            &mut state,
+            selection::Operation::set_position(Position::new(edit_index)),
+        );
+        assert!(apply_edit(
+            &mut Editor::new(),
+            buffer,
+            &mut state,
+            Edit::insert(inserted),
+        ));
+    }
+
+    assert_ne!(wide.line_layout_identity(0), narrow.line_layout_identity(0));
+    assert_ne!(wide.content_version(), narrow.content_version());
+
+    let viewport = area::logical(320.0, 80.0);
+    let style = Style::default().with_size(13.0);
+    let wide_area = Area::new(wide).no_wrap();
+    let narrow_area = Area::new(narrow).no_wrap();
+    let mut shared = engine();
+    let shared_wide = shared.text_area_paint_layout_for_area_at(
+        &wide_area,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let shared_narrow = shared.text_area_paint_layout_for_area_at(
+        &narrow_area,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let cold_wide = engine().text_area_paint_layout_for_area_at(
+        &wide_area,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let cold_narrow = engine().text_area_paint_layout_for_area_at(
+        &narrow_area,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+
+    let shared_wide = shared_wide.layout().content_width_exact();
+    let shared_narrow = shared_narrow.layout().content_width_exact();
+    assert_eq!(shared_wide, cold_wide.layout().content_width_exact());
+    assert_eq!(shared_narrow, cold_narrow.layout().content_width_exact());
+    assert_ne!(shared_wide, shared_narrow);
+}
+
+#[test]
 fn unwindowed_last_line_retains_complete_source_metadata() {
     let mut engine = engine();
     let source = "short terminal line";
