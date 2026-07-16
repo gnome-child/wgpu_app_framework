@@ -1,9 +1,9 @@
 use crate::geometry::area;
-use std::collections::BTreeMap;
 use std::time::Instant;
 
 use super::super::super::{buffer::Buffer, document::Style, surface::Area, view::ViewState};
 use super::super::{
+    constants::TEXT_AREA_RENDER_MAX_WINDOW_LINES,
     content::text_area_estimated_line_height,
     engine::Engine,
     height::{TextAreaHeightIndex, TextAreaHeightKey},
@@ -44,7 +44,10 @@ impl Engine {
         height_index.sync(source, line_count, estimated_line_height);
 
         let scroll_y = state.scroll_y().max(0.0);
-        let mut prepared = BTreeMap::<usize, PreparedLine>::new();
+        // The runway is small and bounded. One contiguous allocation measured
+        // faster than a hash table and avoids one B-tree allocation per line.
+        let mut prepared =
+            Vec::<(usize, PreparedLine)>::with_capacity(TEXT_AREA_RENDER_MAX_WINDOW_LINES);
         let mut final_window =
             render_window(&height_index, scroll_y, viewport.height(), line_count);
 
@@ -89,9 +92,10 @@ impl Engine {
         let mut window_origin_x = 0.0_f32;
 
         for source_line in final_window.start..final_window.end {
-            let Some(line) = prepared.remove(&source_line) else {
+            let Some(index) = prepared.iter().position(|(line, _)| *line == source_line) else {
                 continue;
             };
+            let (_, line) = prepared.swap_remove(index);
             let y = height_index.line_top(source_line) - scroll_y;
             let height = if source_line + 1 == final_window.end {
                 line.height.max(resident_bottom - y)
@@ -157,10 +161,10 @@ impl Engine {
         state: &ViewState,
         window: RenderLineWindow,
         height_index: &mut TextAreaHeightIndex,
-        prepared: &mut BTreeMap<usize, PreparedLine>,
+        prepared: &mut Vec<(usize, PreparedLine)>,
     ) {
         for source_line in window.start..window.end {
-            if prepared.contains_key(&source_line) {
+            if prepared.iter().any(|(line, _)| *line == source_line) {
                 continue;
             }
             let displays = self.text_area_line_displays_at(
@@ -194,7 +198,7 @@ impl Engine {
                 }
                 self.diagnostics.text_area_render_surface_line_reuses += 1;
             }
-            prepared.insert(source_line, PreparedLine { displays, height });
+            prepared.push((source_line, PreparedLine { displays, height }));
         }
     }
 }
