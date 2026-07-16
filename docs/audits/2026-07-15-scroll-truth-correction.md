@@ -1098,6 +1098,89 @@ delta, and the cells exposed by re-census.
   vertical coordinates beyond `2^24`, exact GPU readback, GPU glyph-byte
   high-water, native cadence, and cold-index profiling/reduction remain open.
 
+### S-004/S-009 checkpoint H — bounded complex-LTR fragments and explicit bidi resistance
+
+- **Expanded admission fence.** The ASCII-only predicate from checkpoint G was
+  too narrow: cosmic-text 0.18.2 already partitions a shaped span into
+  `ShapeWord` units at Unicode line-break opportunities and performs explicit
+  punctuation-ligature probes. The streamed index now admits a line when its
+  shaped output is one source-monotonic LTR run and every selected boundary is
+  both a grapheme boundary and a safe word boundary. Hindi, Latin accents, CJK,
+  kana, and Greek therefore use the same bounded source/index/resident-fragment
+  path as ASCII. Paragraph RTL or mixed bidi remains an exact whole-line
+  fallback because cosmic-text resolves bidi order at paragraph scope; inventing
+  a local context radius would violate the complete-pixel law.
+- **Pixels and resistance.** `far_complex_ltr_window_matches_independent_full_line_glyphs`
+  compares the bounded far window against an independently shaped complete line
+  by source clusters, glyph ids, advances, and hit output. The moderate-offset
+  ASCII oracle remains unchanged, and `long_mixed_bidi_line_keeps_the_exact_full_line_fallback`
+  proves that the wider admission fence does not approximate paragraph bidi.
+  Exact commit `c20e9928d2f5` passed 1,229 library tests with four intentional
+  ignores, the three renderer-debug CPU tests with eighteen intentional GPU
+  ignores, and the workspace all-target/all-feature check.
+- **Industry ruling.** This moves the local engine toward Qt's block-oriented
+  large-plain-text behavior and GTK's shared text-view adjustment economics
+  while retaining cosmic-text's actual shaping boundary rather than assuming
+  that Iced/COSMIC supplies a different text engine. Chromium/Firefox's bounded
+  visible-region preparation remains the residency floor. The repository is
+  stronger where unsafe bidi stays exact instead of checkerboarding or silently
+  changing source order, but S-004 remains open for bounded bidi/unbreakable
+  handling, edit maintenance, and the required mixed 64-MiB receipt.
+
+### S-004/S-009 checkpoint I — stable long-line edit splice and measured semantic-change path
+
+- **Newly exposed identity split.** A line cache key used `(LineId, document
+  revision)`. Independently edited clones preserve the same `LineId` and can
+  both advance from revision zero to one with different content, making equal
+  cache keys name unequal glyph geometry. Adding document content identity to
+  every line key was rejected by the full suite because it invalidated every
+  untouched wrapped line after a one-line edit. Changed lines now receive a
+  process-unique immutable layout-revision token, while untouched line tokens
+  remain shared across clones and edits. This preserves both non-aliasing and
+  line-local cache reuse.
+- **Exact edit coordinate law.** A direct splice of the existing banded `f32`
+  positions initially differed from a cold rebuild by 6.78 px on a 320-KiB
+  line: changing a byte can move a later 262-KiB band boundary, and regrouped
+  float accumulation is not a stable extent truth. Summing shape advances in
+  `f64` for every line was also rejected because the existing moderate-offset
+  independent pixel oracles caught divergence from cosmic-text's complete-run
+  positions. The admitted hybrid retains cosmic-text's complete-run coordinates
+  below `2^24`; lines beyond that precision boundary build a partition-stable
+  `f64` advance index from the same shaped glyphs. Only that stable species is
+  eligible for incremental splice.
+- **Guarded incremental work.** A same-line edit records its predecessor/current
+  line identities, replaced local byte range, and inserted length. On a current
+  key miss, the engine locates that exact predecessor, expands the edit to safe
+  checkpoints with one guard on either side, reads and shapes only the new
+  segment, then shifts the unchanged suffix. Insert and backspace on a 4.19-MiB
+  line each shape at most 4,096 source bytes and exactly match a fresh stable
+  index. Complex or unsafe replacement context, absent predecessor identity,
+  wrapped text, and sub-`2^24` lines retain the exact rebuild path.
+- **Metrics and version-7 smoke.** The code-owned schema adds incremental update,
+  source-byte, and glyph counters plus `text-horizontal-edit-4m`, classified as
+  `SemanticChange` and alternating insert/backspace after a cold exact build.
+  The first release 2-warmup/4-sample smoke at commit `08af3eb7` reported a
+  1,168,680-us cold build and 601/722/722/729-us p50/p95/p99/max edit-plus-layout
+  distribution. All four measured edits used the incremental path, shaped 3,278
+  total source bytes/glyphs, performed zero horizontal index rebuilds or full
+  width source visits, checked all four exact offsets, and retained the fixed
+  1,432x640 surface. This is a smoke, not the required three-trial official
+  receipt.
+- **Witnesses, industry line, and remaining owner.**
+  `single_line_edit_splices_only_a_guarded_horizontal_index_region` proves exact
+  insert/delete reconstruction and bounded shaping;
+  `independently_edited_clones_cannot_alias_one_horizontal_index_key` proves the
+  cache-identity correction; the wrapped backspace and line-identity witnesses
+  prove untouched-line reuse. The full all-feature library suite reports 1,235
+  passed and four intentional ignores, renderer-debug's CPU tier reports three
+  passed and eighteen intentional GPU ignores, and workspace checks are green.
+  This meets Qt's incremental block-edit challenge and Chromium/Firefox retained
+  artifact identity while preserving GTK and Iced/COSMIC's single position
+  model. It does not close the cell: `splice_edit` still copies the complete
+  sparse checkpoint arrays, a line-length cost now visible despite bounded
+  source shaping. That owner must become structurally bounded or receive an
+  evidence-backed resistance ruling before the official edit receipt.
+
 ### R-005 — stable variable-height anchor and sole line geometry
 
 - **Bounded question and trace.** Property-only text movement, width/style
