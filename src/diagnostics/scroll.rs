@@ -52,6 +52,31 @@ struct FrameTrace {
     queue_submitted_at: Option<Instant>,
     surface_present_called_at: Option<Instant>,
     input_to_present_submitted_us: Option<u128>,
+    candidate_work: Option<CandidateWork>,
+    render_work: Option<RenderWork>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CandidateWork {
+    layout_recomposes: usize,
+    semantic_commits: usize,
+    scene_node_paints: usize,
+    text_line_shape_calls: usize,
+    text_horizontal_index_source_bytes: usize,
+    text_horizontal_window_source_bytes: usize,
+    text_render_source_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct RenderWork {
+    primitive_prepare_calls: usize,
+    text_prepare_calls: usize,
+    text_shape_calls: usize,
+    content_upload_bytes: usize,
+    property_upload_bytes: usize,
+    gpu_resource_creations: usize,
+    gpu_resource_replacements: usize,
+    gpu_resource_removals: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -187,6 +212,8 @@ impl Scroll {
             queue_submitted_at: None,
             surface_present_called_at: None,
             input_to_present_submitted_us: None,
+            candidate_work: None,
+            render_work: None,
         });
     }
 
@@ -295,6 +322,7 @@ impl Scroll {
         epoch: crate::window::PresentationEpoch,
         property_serial: u64,
         constructed_at: Instant,
+        work: CandidateWork,
     ) {
         self.record_candidate(epoch, property_serial);
         for trace in self
@@ -303,6 +331,31 @@ impl Scroll {
             .filter(|trace| trace.candidate_epoch == Some(epoch))
         {
             trace.candidate_constructed_at = Some(constructed_at);
+            if trace.outcome == TransitionOutcome::NeedsResidency {
+                trace.candidate_work = Some(
+                    trace
+                        .candidate_work
+                        .map_or(work, |current| current.saturating_add(work)),
+                );
+            }
+        }
+    }
+
+    pub(crate) fn record_render_work(
+        &mut self,
+        epoch: crate::window::PresentationEpoch,
+        report: &crate::render::RenderReport,
+    ) {
+        let work = RenderWork::from_report(report);
+        for trace in self.traces.iter_mut().filter(|trace| {
+            trace.candidate_epoch == Some(epoch)
+                && trace.outcome == TransitionOutcome::NeedsResidency
+        }) {
+            trace.render_work = Some(
+                trace
+                    .render_work
+                    .map_or(work, |current| current.saturating_add(work)),
+            );
         }
     }
 
@@ -347,11 +400,14 @@ impl Scroll {
 
     pub(crate) fn trace_receipt_text(&self) -> String {
         let mut receipt = String::new();
-        let _ = writeln!(receipt, "scroll_trace_schema=wgpu_l3.scroll_trace.v2");
+        let _ = writeln!(receipt, "scroll_trace_schema=wgpu_l3.scroll_trace.v3");
         let _ = writeln!(receipt, "scroll_trace_limit={TRACE_LIMIT}");
         let _ = writeln!(receipt, "scroll_trace_count={}", self.traces.len());
         for (index, trace) in self.traces.iter().enumerate() {
             let optional = |value: Option<u64>| {
+                value.map_or_else(|| "none".to_owned(), |value| value.to_string())
+            };
+            let optional_count = |value: Option<usize>| {
                 value.map_or_else(|| "none".to_owned(), |value| value.to_string())
             };
             let latency = trace
@@ -382,7 +438,7 @@ impl Scroll {
                 );
             let _ = writeln!(
                 receipt,
-                "scroll_trace_{index:02}=epoch={},target_key={},first_request_serial={},last_request_serial={},coalesced_inputs={},requested_x={},requested_y={},clamped_x={},clamped_y={},resident_offset_x={},resident_offset_y={},resident_accepted={},outcome={},candidate_epoch={},candidate_attempts={},candidate_property_serial={},gpu_submitted_property_serial={},present_submitted_property_serial={},superseded_by_epoch={},input_to_redraw_request_us={},input_to_redraw_delivery_us={},input_to_candidate_us={},input_to_acquire_start_us={},acquire_wait_us={},input_to_queue_submit_us={},input_to_surface_present_call_us={},input_to_present_submitted_us={}",
+                "scroll_trace_{index:02}=epoch={},target_key={},first_request_serial={},last_request_serial={},coalesced_inputs={},requested_x={},requested_y={},clamped_x={},clamped_y={},resident_offset_x={},resident_offset_y={},resident_accepted={},outcome={},candidate_epoch={},candidate_attempts={},candidate_property_serial={},gpu_submitted_property_serial={},present_submitted_property_serial={},superseded_by_epoch={},input_to_redraw_request_us={},input_to_redraw_delivery_us={},input_to_candidate_us={},input_to_acquire_start_us={},acquire_wait_us={},input_to_queue_submit_us={},input_to_surface_present_call_us={},input_to_present_submitted_us={},residency_layout_recomposes={},residency_semantic_commits={},residency_scene_node_paints={},residency_text_line_shape_calls={},residency_text_horizontal_index_source_bytes={},residency_text_horizontal_window_source_bytes={},residency_text_render_source_bytes={},residency_primitive_prepare_calls={},residency_text_prepare_calls={},residency_text_shape_calls={},residency_content_upload_bytes={},residency_property_upload_bytes={},residency_gpu_resource_creations={},residency_gpu_resource_replacements={},residency_gpu_resource_removals={}",
                 trace.epoch.value(),
                 trace.target_key,
                 trace.first_request_serial,
@@ -418,9 +474,147 @@ impl Scroll {
                 stage_latency(trace.queue_submitted_at),
                 stage_latency(trace.surface_present_called_at),
                 latency,
+                optional_count(trace.candidate_work.map(|work| work.layout_recomposes)),
+                optional_count(trace.candidate_work.map(|work| work.semantic_commits)),
+                optional_count(trace.candidate_work.map(|work| work.scene_node_paints)),
+                optional_count(trace.candidate_work.map(|work| work.text_line_shape_calls)),
+                optional_count(
+                    trace
+                        .candidate_work
+                        .map(|work| work.text_horizontal_index_source_bytes)
+                ),
+                optional_count(
+                    trace
+                        .candidate_work
+                        .map(|work| work.text_horizontal_window_source_bytes)
+                ),
+                optional_count(
+                    trace
+                        .candidate_work
+                        .map(|work| work.text_render_source_bytes)
+                ),
+                optional_count(trace.render_work.map(|work| work.primitive_prepare_calls)),
+                optional_count(trace.render_work.map(|work| work.text_prepare_calls)),
+                optional_count(trace.render_work.map(|work| work.text_shape_calls)),
+                optional_count(trace.render_work.map(|work| work.content_upload_bytes)),
+                optional_count(trace.render_work.map(|work| work.property_upload_bytes)),
+                optional_count(trace.render_work.map(|work| work.gpu_resource_creations)),
+                optional_count(trace.render_work.map(|work| work.gpu_resource_replacements)),
+                optional_count(trace.render_work.map(|work| work.gpu_resource_removals)),
             );
         }
         receipt
+    }
+}
+
+impl CandidateWork {
+    fn saturating_add(self, other: Self) -> Self {
+        Self {
+            layout_recomposes: self
+                .layout_recomposes
+                .saturating_add(other.layout_recomposes),
+            semantic_commits: self.semantic_commits.saturating_add(other.semantic_commits),
+            scene_node_paints: self
+                .scene_node_paints
+                .saturating_add(other.scene_node_paints),
+            text_line_shape_calls: self
+                .text_line_shape_calls
+                .saturating_add(other.text_line_shape_calls),
+            text_horizontal_index_source_bytes: self
+                .text_horizontal_index_source_bytes
+                .saturating_add(other.text_horizontal_index_source_bytes),
+            text_horizontal_window_source_bytes: self
+                .text_horizontal_window_source_bytes
+                .saturating_add(other.text_horizontal_window_source_bytes),
+            text_render_source_bytes: self
+                .text_render_source_bytes
+                .saturating_add(other.text_render_source_bytes),
+        }
+    }
+
+    pub(crate) fn snapshot(diagnostics: Option<&super::Diagnostics>) -> Self {
+        diagnostics.map_or_else(Self::default, |diagnostics| Self {
+            layout_recomposes: diagnostics.frame.layout_recomposes,
+            text_line_shape_calls: diagnostics.text.text_area_line_shape_calls,
+            text_horizontal_index_source_bytes: diagnostics
+                .text
+                .text_area_horizontal_index_source_bytes,
+            text_horizontal_window_source_bytes: diagnostics
+                .text
+                .text_area_horizontal_window_source_bytes,
+            text_render_source_bytes: diagnostics.text.text_area_render_surface_source_bytes,
+            ..Self::default()
+        })
+    }
+
+    pub(crate) fn since(
+        before: Self,
+        diagnostics: Option<&super::Diagnostics>,
+        scene: crate::scene::PaintStats,
+    ) -> Self {
+        let after = Self::snapshot(diagnostics);
+        Self {
+            layout_recomposes: after
+                .layout_recomposes
+                .saturating_sub(before.layout_recomposes),
+            semantic_commits: scene.commits_created(),
+            scene_node_paints: scene.node_paints(),
+            text_line_shape_calls: after
+                .text_line_shape_calls
+                .saturating_sub(before.text_line_shape_calls),
+            text_horizontal_index_source_bytes: after
+                .text_horizontal_index_source_bytes
+                .saturating_sub(before.text_horizontal_index_source_bytes),
+            text_horizontal_window_source_bytes: after
+                .text_horizontal_window_source_bytes
+                .saturating_sub(before.text_horizontal_window_source_bytes),
+            text_render_source_bytes: after
+                .text_render_source_bytes
+                .saturating_sub(before.text_render_source_bytes),
+        }
+    }
+}
+
+impl RenderWork {
+    fn saturating_add(self, other: Self) -> Self {
+        Self {
+            primitive_prepare_calls: self
+                .primitive_prepare_calls
+                .saturating_add(other.primitive_prepare_calls),
+            text_prepare_calls: self
+                .text_prepare_calls
+                .saturating_add(other.text_prepare_calls),
+            text_shape_calls: self.text_shape_calls.saturating_add(other.text_shape_calls),
+            content_upload_bytes: self
+                .content_upload_bytes
+                .saturating_add(other.content_upload_bytes),
+            property_upload_bytes: self
+                .property_upload_bytes
+                .saturating_add(other.property_upload_bytes),
+            gpu_resource_creations: self
+                .gpu_resource_creations
+                .saturating_add(other.gpu_resource_creations),
+            gpu_resource_replacements: self
+                .gpu_resource_replacements
+                .saturating_add(other.gpu_resource_replacements),
+            gpu_resource_removals: self
+                .gpu_resource_removals
+                .saturating_add(other.gpu_resource_removals),
+        }
+    }
+
+    fn from_report(report: &crate::render::RenderReport) -> Self {
+        let stats = report.draw_stats;
+        Self {
+            primitive_prepare_calls: stats.quad_prepare_calls,
+            text_prepare_calls: stats.text_prepare_calls,
+            text_shape_calls: stats.inline_text_shape_calls,
+            content_upload_bytes: stats.content_upload_bytes,
+            property_upload_bytes: stats.property_upload_bytes,
+            gpu_resource_creations: stats.retained_gpu_resource_creations,
+            gpu_resource_replacements: stats.retained_gpu_resource_replacements,
+            gpu_resource_removals: stats.retained_gpu_resource_removals,
+        }
     }
 }
 
@@ -476,7 +670,12 @@ mod tests {
         scroll.record_input(epoch, input);
         scroll.record_redraw_requested(epoch, input + Duration::from_micros(10));
         scroll.record_redraw_delivered(epoch, input + Duration::from_micros(20));
-        scroll.record_candidate_constructed(epoch, 13, input + Duration::from_micros(30));
+        scroll.record_candidate_constructed(
+            epoch,
+            13,
+            input + Duration::from_micros(30),
+            super::CandidateWork::default(),
+        );
         scroll.record_frame_timeline(
             epoch,
             crate::render::FrameTimeline::new(
@@ -607,6 +806,83 @@ mod tests {
         assert!(receipt.contains("candidate_property_serial=11"));
         assert!(receipt.contains("present_submitted_property_serial=11"));
         assert!(receipt.contains("input_to_present_submitted_us=900"));
+    }
+
+    #[test]
+    fn residency_work_is_attributed_to_its_selected_property_generation() {
+        let mut scroll = Scroll::default();
+        let request_epoch = PresentationEpoch::initial().next();
+        let candidate_epoch = request_epoch.next();
+        let now = Instant::now();
+        scroll.record_transition(
+            request_epoch,
+            91,
+            ScrollOffset::new(0, 80),
+            ScrollOffset::new(0, 80),
+            ScrollOffset::new(0, 20),
+            false,
+            "needs-residency",
+        );
+        scroll.record_candidate_constructed(
+            candidate_epoch,
+            17,
+            now,
+            super::CandidateWork {
+                layout_recomposes: 1,
+                semantic_commits: 0,
+                scene_node_paints: 7,
+                text_line_shape_calls: 3,
+                text_horizontal_index_source_bytes: 0,
+                text_horizontal_window_source_bytes: 240,
+                text_render_source_bytes: 240,
+            },
+        );
+        scroll.record_candidate_constructed(
+            candidate_epoch,
+            18,
+            now,
+            super::CandidateWork {
+                layout_recomposes: 2,
+                semantic_commits: 0,
+                scene_node_paints: 1,
+                text_line_shape_calls: 1,
+                text_horizontal_index_source_bytes: 0,
+                text_horizontal_window_source_bytes: 10,
+                text_render_source_bytes: 20,
+            },
+        );
+        let mut draw = crate::render::DrawStats::default();
+        draw.quad_prepare_calls = 2;
+        draw.text_prepare_calls = 1;
+        draw.inline_text_shape_calls = 0;
+        draw.content_upload_bytes = 384;
+        draw.property_upload_bytes = 64;
+        draw.retained_gpu_resource_creations = 1;
+        let report = crate::render::RenderReport::new(Duration::ZERO, Duration::ZERO, now)
+            .with_draw_stats(draw);
+        scroll.record_render_work(candidate_epoch, &report);
+        scroll.record_render_work(candidate_epoch, &report);
+        scroll.record_present_submitted(candidate_epoch, 18, now);
+
+        let receipt = scroll.trace_receipt_text();
+        for field in [
+            "candidate_attempts=2",
+            "candidate_property_serial=18",
+            "present_submitted_property_serial=18",
+            "residency_layout_recomposes=3",
+            "residency_semantic_commits=0",
+            "residency_scene_node_paints=8",
+            "residency_text_line_shape_calls=4",
+            "residency_text_horizontal_window_source_bytes=250",
+            "residency_text_render_source_bytes=260",
+            "residency_primitive_prepare_calls=4",
+            "residency_text_prepare_calls=2",
+            "residency_content_upload_bytes=768",
+            "residency_property_upload_bytes=128",
+            "residency_gpu_resource_creations=2",
+        ] {
+            assert!(receipt.contains(field), "missing residency field {field}");
+        }
     }
 
     #[test]

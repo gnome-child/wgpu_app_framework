@@ -290,6 +290,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let properties = stack.base().properties();
         let property_serial = properties.serial().value();
         let diagnostics = self.diagnostics.get_mut(window);
+        if !refreshes_active {
+            diagnostics.scroll.record_render_work(epoch, &report);
+        }
         diagnostics
             .scroll
             .record_frame_timeline(epoch, frame_timeline);

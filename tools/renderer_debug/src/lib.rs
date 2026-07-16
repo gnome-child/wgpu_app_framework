@@ -556,6 +556,28 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
+    fn payload_neutral_residency_crossings_are_bounded_and_generation_attributed() {
+        for payload in wgpu_l3::diagnostics::ResidencyPayload::ALL {
+            let receipt = pollster::block_on(
+                wgpu_l3::diagnostics::measure_residency_crossing_work(payload, 1.25),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{} residency crossing must remain bounded and atomic at 1.25x: {error}",
+                    payload.name()
+                )
+            });
+            assert!(receipt.trace().contains("outcome=needs-residency"));
+            assert_eq!(receipt.crossing_work().render_plan_rebuilds(), 1);
+            assert_eq!(
+                receipt.post_crossing_property_work().render_plan_reuses(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
     fn horizontal_table_scroll_updates_entering_pixels_at_supported_scales() {
         for scale_factor in [1.0, 1.25, 1.5, 2.0] {
             pollster::block_on(

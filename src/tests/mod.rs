@@ -817,6 +817,7 @@ mod interaction_tests;
 mod layout_scene;
 mod notifications;
 mod platform_tests;
+mod residency_tests;
 mod responder_tests;
 mod runtime_tests;
 mod text_input;

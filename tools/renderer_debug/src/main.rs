@@ -244,6 +244,25 @@ fn run(args: Vec<String>) -> Result<(), String> {
             );
             Ok(())
         }
+        [command] if command == "residency-crossing-work" => {
+            for payload in wgpu_l3::diagnostics::ResidencyPayload::ALL {
+                run_residency_crossing_work(payload, 1.25)?;
+            }
+            Ok(())
+        }
+        [command, payload] if command == "residency-crossing-work" => {
+            let payload = wgpu_l3::diagnostics::ResidencyPayload::from_name(payload)
+                .ok_or_else(|| format!("unknown residency payload: {payload}"))?;
+            run_residency_crossing_work(payload, 1.25)
+        }
+        [command, payload, scale] if command == "residency-crossing-work" => {
+            let payload = wgpu_l3::diagnostics::ResidencyPayload::from_name(payload)
+                .ok_or_else(|| format!("unknown residency payload: {payload}"))?;
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            run_residency_crossing_work(payload, scale)
+        }
         [command] if command == "generation-state-scale-change" => {
             let mut harness = harness(1.0)?;
             let work = harness.compare_scale_change_generation(1.25)?;
@@ -255,7 +274,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | generation-state-scale-change"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | residency-crossing-work [text|table|virtual-list] [scale] | generation-state-scale-change"
                 .to_owned(),
         ),
     }
@@ -267,6 +286,30 @@ fn run_table_scroll_work(scale: f32) -> Result<(), String> {
     )?;
     println!("workload=control-gallery-horizontal-table-scroll scale={scale}");
     print_work("property-hit", work);
+    Ok(())
+}
+
+fn run_residency_crossing_work(
+    payload: wgpu_l3::diagnostics::ResidencyPayload,
+    scale: f32,
+) -> Result<(), String> {
+    let receipt = pollster::block_on(wgpu_l3::diagnostics::measure_residency_crossing_work(
+        payload, scale,
+    ))?;
+    println!(
+        "residency_payload={} scale={} candidate_property_serial={} candidate_cpu_us={} provider_calls={} result=pass",
+        receipt.payload().name(),
+        receipt.scale_factor(),
+        receipt.candidate_property_serial(),
+        receipt.candidate_cpu_us(),
+        receipt.provider_calls(),
+    );
+    print_work("residency-crossing", receipt.crossing_work());
+    print_work(
+        "post-crossing-property",
+        receipt.post_crossing_property_work(),
+    );
+    println!("{}", receipt.trace());
     Ok(())
 }
 

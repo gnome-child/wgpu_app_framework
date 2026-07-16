@@ -2459,6 +2459,43 @@ impl Harness {
         Ok(work.into())
     }
 
+    pub(crate) fn draw_retained_candidate_exact(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> Result<render::DrawStats, String> {
+        let (width, height) = self.physical_extent(commit.size());
+        let (candidate, work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected, _) = self.witness.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if candidate != expected {
+            let differing = candidate
+                .iter()
+                .zip(expected.iter())
+                .filter(|(candidate, expected)| candidate != expected)
+                .count();
+            return Err(format!(
+                "retained residency candidate differs from its exact reference renderer at {differing} pixels"
+            ));
+        }
+        Ok(work)
+    }
+
     pub fn property_economics_work(
         &mut self,
         property_count: usize,

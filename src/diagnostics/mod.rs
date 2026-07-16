@@ -1,6 +1,8 @@
 mod frame;
 mod pipeline;
 mod render;
+#[cfg(feature = "renderer-debug")]
+mod residency;
 mod samples;
 mod scroll;
 #[cfg(feature = "renderer-debug")]
@@ -24,6 +26,10 @@ pub use render::{
     measure_control_gallery_horizontal_table_scroll,
     require_payload_neutral_scroll_negative_controls,
 };
+#[cfg(feature = "renderer-debug")]
+#[doc(hidden)]
+pub use residency::{ResidencyCrossingReceipt, ResidencyPayload, measure_residency_crossing_work};
+pub(crate) use scroll::CandidateWork;
 pub use scroll::Scroll;
 #[cfg(feature = "renderer-debug")]
 #[doc(hidden)]
@@ -438,7 +444,7 @@ mod tests {
             "scroll_property_ticks=0",
             "scroll_needs_residency=0",
             "scroll_request_p95_us=0",
-            "scroll_trace_schema=wgpu_l3.scroll_trace.v2",
+            "scroll_trace_schema=wgpu_l3.scroll_trace.v3",
             "scroll_trace_count=0",
             "frame_scroll_commits=0",
             "text_area_paint_layout_calls=0",

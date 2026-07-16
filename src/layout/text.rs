@@ -105,6 +105,15 @@ pub(crate) struct Service {
 #[derive(Debug, Clone)]
 struct TextAreaAnchorObservation {
     band: text_engine::view::ScrollAnchorBand,
+    geometry: TextAreaAnchorGeometry,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextAreaAnchorGeometry {
+    content: text_engine::buffer::ContentVersion,
+    wrap: view::Wrap,
+    viewport_width: f32,
+    style: text_engine::document::Style,
 }
 
 #[derive(Clone)]
@@ -271,11 +280,21 @@ impl Service {
         let layout_now = text_area.caret_epoch().unwrap_or(now);
         let mut state = text_area.view_state_at(layout_now);
         let preedit = text_area.preedit();
+        let anchor_geometry = TextAreaAnchorGeometry {
+            content: area_model.buffer().content_version(),
+            wrap: text_area.wrap(),
+            viewport_width: logical_viewport.width(),
+            style,
+        };
         let observed_anchor = if preedit.is_none() && !state.caret_visibility_pending() {
             self.text_area_anchor_observations
                 .borrow_mut()
                 .get(&owner)
-                .and_then(|observation| observation.band.anchor_at(state.scroll_y()))
+                .and_then(|observation| {
+                    (observation.geometry != anchor_geometry)
+                        .then(|| observation.band.anchor_at(state.scroll_y()))
+                        .flatten()
+                })
         } else {
             None
         };
@@ -390,7 +409,13 @@ impl Service {
         });
         let mut observations = self.text_area_anchor_observations.borrow_mut();
         if let Some(Some(band)) = next_anchor_band {
-            observations.put(owner, TextAreaAnchorObservation { band });
+            observations.put(
+                owner,
+                TextAreaAnchorObservation {
+                    band,
+                    geometry: anchor_geometry,
+                },
+            );
         } else {
             observations.pop(&owner);
         }

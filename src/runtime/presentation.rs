@@ -1,6 +1,6 @@
 use super::super::{
-    context as command_context, geometry, interaction, layout, response, scene, session, state,
-    view, window,
+    context as command_context, diagnostics, geometry, interaction, layout, response, scene,
+    session, state, view, window,
 };
 use super::{CachedLayout, Runtime, services::Services, work};
 use crate::{animation, ime, text};
@@ -239,10 +239,27 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
     }
 
-    pub(super) fn install_virtual_request(
+    pub(super) fn install_residency_demand(
         &mut self,
         window: window::Id,
-        request: crate::virtual_list::Request,
+        demand: layout::ResidencyDemand,
+    ) {
+        debug_assert_eq!(
+            self.session
+                .interaction(window)
+                .map(|interaction| interaction.scroll().desired_offset(demand.target())),
+            Some(demand.desired()),
+            "residency demand must describe the authoritative desired offset"
+        );
+        for request in demand.virtual_lists() {
+            self.install_virtual_materialization(window, request);
+        }
+    }
+
+    fn install_virtual_materialization(
+        &mut self,
+        window: window::Id,
+        request: &crate::virtual_list::Request,
     ) {
         let mut materializations = self
             .virtual_materializations
@@ -306,8 +323,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             };
 
             let changed = current != offset;
-            let virtual_request = changed
-                .then(|| layout.virtual_request_for_scroll_offset(&target, offset))
+            let residency_demand = changed
+                .then(|| layout.residency_demand(&target, offset))
                 .flatten();
             needs_recompose |= changed;
             if self
@@ -319,8 +336,8 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 )
                 .is_some()
             {
-                if let Some(request) = virtual_request {
-                    self.install_virtual_request(window, request);
+                if let Some(demand) = residency_demand {
+                    self.install_residency_demand(window, demand);
                 }
                 self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
             }
@@ -1108,6 +1125,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
         let frame_started_at = Instant::now();
+        let candidate_work_before =
+            diagnostics::CandidateWork::snapshot(self.diagnostics.get(window));
         let invalidation = need.immediate_invalidation();
         let property_only = need.property_only();
         let revision = self.revision();
@@ -1228,6 +1247,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 assembly_elapsed.as_micros()
             );
         }
+        let candidate_work = diagnostics::CandidateWork::since(
+            candidate_work_before,
+            self.diagnostics.get(window),
+            scene_stats,
+        );
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.pipeline.record_scene_assembly(assembly_elapsed);
         diagnostics.pipeline.record_frame_prepared();
@@ -1236,6 +1260,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             epoch,
             properties.serial().value(),
             Instant::now(),
+            candidate_work,
         );
 
         Some(PreparedFrame {

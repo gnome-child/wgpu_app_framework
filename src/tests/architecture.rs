@@ -824,7 +824,7 @@ fn renderer_measurement_bracket_is_explicit_local_and_receipted() {
         );
     }
     assert!(
-        scroll_diagnostics.contains("scroll_trace_schema=wgpu_l3.scroll_trace.v2")
+        scroll_diagnostics.contains("scroll_trace_schema=wgpu_l3.scroll_trace.v3")
             && diagnostics_boundary.contains("self.scroll.trace_receipt_text()"),
         "the assembled renderer receipt must consume the scroll-owned causal trace"
     );
@@ -6411,6 +6411,64 @@ fn pacing_contract_has_one_redraw_ledger_full_timeline_and_exact_twelve_case_sui
         12,
         "the Tier C pacing suite is an exact twelve-case contract"
     );
+}
+
+#[test]
+fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_suite() {
+    let layout = include_str!("../layout/mod.rs");
+    let scene_residency = include_str!("../scene/residency.rs");
+    let runtime_dispatch = include_str!("../runtime/input/dispatch.rs");
+    let runtime_presentation = include_str!("../runtime/presentation.rs");
+    let runtime_access = include_str!("../runtime/access.rs");
+    let scroll_diagnostics = include_str!("../diagnostics/scroll.rs");
+    let residency_diagnostics = include_str!("../diagnostics/residency.rs");
+    let scroll_bench = include_str!("../diagnostics/scroll_bench.rs");
+    let renderer_debug = include_str!("../../tools/renderer_debug/src/main.rs");
+    let suite = include_str!("residency_tests.rs");
+
+    assert!(
+        layout.contains("pub(crate) struct ScrollProjection")
+            && layout.contains("pub(crate) struct ResidencyDemand")
+            && layout.contains("pub(crate) fn accepted_offsets(")
+            && layout.contains("pub(crate) fn scroll_property_accepts(")
+            && layout.contains("pub(crate) fn residency_demand(")
+            && scene_residency.contains("pub(crate) struct Residency")
+            && scene_residency.contains("pub(crate) fn accepts(")
+            && runtime_dispatch.contains("ScrollTransition::NeedsResidency")
+            && runtime_dispatch.contains("layout.residency_demand(&target, offset)")
+            && !runtime_dispatch.contains("virtual_request_for_scroll_offset"),
+        "every payload must cross one complete accepted-offset interval before its admission algorithm runs"
+    );
+    assert!(
+        runtime_presentation.contains("CandidateWork::snapshot")
+            && runtime_presentation.contains("CandidateWork::since")
+            && runtime_access.contains("record_render_work(epoch, &report)")
+            && scroll_diagnostics.contains("scroll_trace_schema=wgpu_l3.scroll_trace.v3")
+            && scroll_diagnostics.contains("residency_layout_recomposes=")
+            && scroll_diagnostics.contains("residency_text_horizontal_index_source_bytes=")
+            && scroll_diagnostics.contains("residency_content_upload_bytes=")
+            && scroll_diagnostics.contains("residency_gpu_resource_removals=")
+            && runtime_access.contains("if !refreshes_active")
+            && residency_diagnostics.contains("pub enum ResidencyPayload")
+            && residency_diagnostics.contains("MAX_PROVIDER_CALLS")
+            && residency_diagnostics.contains("MAX_POST_CROSSING_PROPERTY_UPLOAD_BYTES")
+            && residency_diagnostics.contains("measure_residency_crossing_work")
+            && renderer_debug.contains("residency-crossing-work")
+            && scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 9")
+            && scroll_bench.contains("cold_transition_class=ColdStart"),
+        "residency work must stay attributed to its selected candidate and render generation"
+    );
+    assert_eq!(
+        suite.matches("residency_case_").count(),
+        18,
+        "the Tier C residency suite is an exact eighteen-case contract"
+    );
+    for payload in ["Payload::Text", "Payload::Table", "Payload::VirtualList"] {
+        assert!(
+            suite.contains(payload),
+            "the payload-neutral residency suite must retain {payload}"
+        );
+    }
 }
 
 #[test]

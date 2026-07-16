@@ -13,7 +13,7 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 8;
+pub const SCROLL_BENCH_VERSION: u32 = 9;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
@@ -108,7 +108,7 @@ impl ScrollBenchReceipt {
     pub fn receipt_text(&self, commit: &str) -> String {
         format!(
             concat!(
-                "scroll-bench-version={} workload={} transition_class={} commit={} ",
+                "scroll-bench-version={} workload={} transition_class={} cold_transition_class=ColdStart commit={} ",
                 "profile={} timer=std-instant os={} architecture={} ",
                 "viewport={}x{} document_bytes={} document_lines={} offset_x={} offset_y={} logical_width={} logical_height={} precision_offsets_required={} precision_offsets_checked={} ",
                 "warmup={} samples={} official_matrix={} cold_us={} p50_us={} p95_us={} p99_us={} max_us={} ",

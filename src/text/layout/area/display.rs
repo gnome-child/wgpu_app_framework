@@ -919,3 +919,34 @@ fn buffer_resident_bytes(source_bytes: usize, glyph_count: usize) -> usize {
             + std::mem::size_of::<glyphon::cosmic_text::ShapeGlyph>(),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streamed_ltr_index_accepts_a_partial_terminal_word() {
+        const SOURCE_BYTES: usize = 1_048_576;
+        const PATTERN: &str = "W0123456789 abcdefghijklmnopqrstuvwxyz ";
+        let mut source = String::with_capacity(SOURCE_BYTES);
+        while source.len() + PATTERN.len() <= SOURCE_BYTES {
+            source.push_str(PATTERN);
+        }
+        source.push_str(&PATTERN[..SOURCE_BYTES - source.len()]);
+        assert!(!source.ends_with(char::is_whitespace));
+        let buffer = Buffer::from_multiline_text(source);
+        let mut font_system = glyphon::FontSystem::new();
+
+        let result = prepare_streamed_ltr_line_index(
+            &mut font_system,
+            &buffer,
+            Style::default().with_size(13.0),
+            0,
+        );
+
+        assert!(
+            result.is_some(),
+            "a safe streamed line must not fall back to one whole-line glyph buffer merely because its final word is partial"
+        );
+    }
+}

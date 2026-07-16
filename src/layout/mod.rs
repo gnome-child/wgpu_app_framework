@@ -68,6 +68,13 @@ pub(crate) struct ScrollProjection {
     residency: ScrollResidency,
 }
 
+#[derive(Clone)]
+pub(crate) struct ResidencyDemand {
+    target: interaction::Target,
+    desired: interaction::ScrollOffset,
+    virtual_lists: Vec<crate::virtual_list::Request>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ScrollResidency {
     Complete(Proof),
@@ -152,6 +159,20 @@ impl ScrollProjection {
             }
             ScrollResidency::Empty | ScrollResidency::Incomplete => None,
         }
+    }
+}
+
+impl ResidencyDemand {
+    pub(crate) fn target(&self) -> &interaction::Target {
+        &self.target
+    }
+
+    pub(crate) fn desired(&self) -> interaction::ScrollOffset {
+        self.desired
+    }
+
+    pub(crate) fn virtual_lists(&self) -> &[crate::virtual_list::Request] {
+        &self.virtual_lists
     }
 }
 
@@ -641,20 +662,35 @@ impl Layout {
             .collect()
     }
 
-    pub(crate) fn virtual_request_for_scroll_offset(
+    pub(crate) fn residency_demand(
         &self,
         target: &interaction::Target,
         offset: interaction::ScrollOffset,
-    ) -> Option<crate::virtual_list::Request> {
-        self.scroll_projections
+    ) -> Option<ResidencyDemand> {
+        let projections = self
+            .scroll_projections
             .iter()
             .filter(|projection| &projection.target == target)
-            .find_map(|projection| {
+            .collect::<Vec<_>>();
+        if projections.is_empty() {
+            return None;
+        }
+        let mut seen = HashSet::new();
+        let virtual_lists = projections
+            .into_iter()
+            .filter_map(|projection| {
                 self.frames
                     .iter()
                     .find(|frame| frame.node_id() == projection.node)?
                     .virtual_list_request_for_offset(offset)
             })
+            .filter(|request| seen.insert(request.id()))
+            .collect();
+        Some(ResidencyDemand {
+            target: target.clone(),
+            desired: offset,
+            virtual_lists,
+        })
     }
 
     pub(crate) fn frame_for_focus(&self, focus: session::Focus) -> Option<&Frame> {

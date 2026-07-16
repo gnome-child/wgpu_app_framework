@@ -258,7 +258,7 @@ impl LineIndex {
         height: f32,
         stable_coordinates: bool,
     ) -> Option<Self> {
-        if checkpoints.len() < 3
+        if checkpoints.len() < 2
             || checkpoints.first().copied()
                 != Some(Checkpoint {
                     source_byte: 0,

@@ -79,6 +79,7 @@ renderer_debug churn <iterations>
 renderer_debug bench <case> <iterations>
 renderer_debug scroll-bench-list
 renderer_debug scroll-bench <workload> [warmup samples]
+renderer_debug residency-crossing-work [text|table|virtual-list] [scale]
 ```
 
 Use `cargo run --release -p renderer_debug -- <arguments>` to invoke them.
@@ -90,12 +91,18 @@ and acceptance currency are preserved with the result.
 `scroll-bench` is the scrolling correction's versioned production-layout
 driver. With no explicit counts it runs the official 64 warmups and 1,024
 measured transitions; smaller counts are useful only for development and are
-marked `official_matrix=false` in the receipt. `text-horizontal-1m` records cold
-and warm timing, source work, cache work, absolute offset, and near/far render-
-window bounds for a one-MiB unwrapped line. `text-vertical-8m` drives an eight-
+marked `official_matrix=false` in the receipt. The receipt classifies measured
+samples with `transition_class` and separately labels initial construction as
+`cold_transition_class=ColdStart`. `text-horizontal-1m` records cold and warm
+timing, source work, cache work, absolute offset, and near/far render-window
+bounds for a one-MiB unwrapped line. `text-vertical-8m` drives an eight-
 MiB variable-height wrapped document through a far resident window and records
 height-index queries/refinements, bounded line-display reuse, source work,
 window dimensions, and anchor-correction counters. Run both in release mode.
+`residency-crossing-work` renders a forward guard crossing and the following
+resident property tick for text, table, and virtual-list payloads. It verifies
+exact retained output, attaches CPU and GPU work to the selected property
+generation, and defaults to the fractional scale 1.25.
 
 `work`, `retention`, `partial-update`, and `churn` expose semantic work rather
 than elapsed time alone: node realization, primitive and text preparation,

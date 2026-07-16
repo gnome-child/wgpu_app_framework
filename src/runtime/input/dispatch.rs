@@ -289,9 +289,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .unwrap_or_default();
             let request = self
                 .presented_layout(window)
-                .and_then(|layout| layout.virtual_request_for_scroll_offset(&target, offset));
+                .and_then(|layout| layout.residency_demand(&target, offset));
             if let Some(request) = request {
-                self.install_virtual_request(window, request);
+                self.install_residency_demand(window, request);
             }
             self.record_scroll_trace(
                 window,
