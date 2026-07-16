@@ -6459,7 +6459,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && residency_diagnostics.contains("MAX_POST_CROSSING_PROPERTY_UPLOAD_BYTES")
             && residency_diagnostics.contains("measure_residency_crossing_work")
             && renderer_debug.contains("residency-crossing-work")
-            && scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 9")
+            && scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 10")
             && scroll_bench.contains("cold_transition_class=ColdStart"),
         "residency work must stay attributed to its selected candidate and render generation"
     );
@@ -6472,6 +6472,37 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
         assert!(
             suite.contains(payload),
             "the payload-neutral residency suite must retain {payload}"
+        );
+    }
+}
+
+#[test]
+fn payload_locality_has_separate_edit_projection_reveal_and_property_scroll_rails() {
+    let scroll_bench = include_str!("../diagnostics/scroll_bench.rs");
+    let layout_scene = include_str!("layout_scene.rs");
+
+    assert!(
+        scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 10")
+            && scroll_bench.contains("text-horizontal-typing-scroll-4m")
+            && scroll_bench.contains("text-horizontal-caret-reveal-4m")
+            && scroll_bench.contains("sample_work_class=")
+            && scroll_bench.contains("cold_work_class=")
+            && scroll_bench.contains("property_scroll_measured=")
+            && scroll_bench.contains("edit_p50_us=")
+            && scroll_bench.contains("projection_p50_us=")
+            && scroll_bench.contains("reveal_p50_us=")
+            && scroll_bench.contains("horizontal_index_incremental_source_bytes_max=")
+            && scroll_bench.contains("fn validate_horizontal_edit_trace(")
+            && scroll_bench.contains("horizontal_edit_trace_rejects_source_work_outside_the_guard"),
+        "large-text receipts must distinguish guarded editing, resident projection, caret reveal, property ticks, and cold extent discovery"
+    );
+    for witness in [
+        "table_payload_edit_preserves_scroll_topology_and_state",
+        "virtual_list_payload_edit_preserves_scroll_topology_and_state",
+    ] {
+        assert!(
+            layout_scene.contains(witness),
+            "payload locality must retain the {witness} witness"
         );
     }
 }

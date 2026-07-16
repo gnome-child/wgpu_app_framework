@@ -462,7 +462,7 @@ impl Commit {
         self.property_topology.len()
     }
 
-    #[cfg(feature = "renderer-debug")]
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn property_topology(&self) -> &[PropertyRef] {
         &self.property_topology
     }

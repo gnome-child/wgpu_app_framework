@@ -93,7 +93,15 @@ driver. With no explicit counts it runs the official 64 warmups and 1,024
 measured transitions; smaller counts are useful only for development and are
 marked `official_matrix=false` in the receipt. The receipt classifies measured
 samples with `transition_class` and separately labels initial construction as
-`cold_transition_class=ColdStart`. `text-horizontal-1m` records cold and warm
+`cold_transition_class=ColdStart`. Version 10 also names `sample_work_class`
+and `cold_work_class`, reports edit/projection/reveal phase percentiles, and
+states `property_scroll_measured=false`: renderer property-tick economics stay
+in their own receipt instead of being inferred from a semantic text trace.
+`text-horizontal-typing-scroll-4m` alternates local character edits while the
+caret's resident horizontal neighborhood moves; `text-horizontal-caret-reveal-4m`
+starts the edited caret outside the viewport and invokes the production reveal
+path before painting. Both report the maximum source span rebuilt by any one
+incremental index splice. `text-horizontal-1m` records cold and warm
 timing, source work, cache work, absolute offset, and near/far render-window
 bounds for a one-MiB unwrapped line. `text-vertical-8m` drives an eight-
 MiB variable-height wrapped document through a far resident window and records

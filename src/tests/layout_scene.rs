@@ -1,6 +1,82 @@
 use super::*;
 use crate::feedback;
 
+fn assert_payload_edit_reuses_scroll_topology_and_state(
+    before: &scene::Presentation,
+    after: &scene::Presentation,
+) {
+    assert_eq!(
+        before.commit().property_topology(),
+        after.commit().property_topology(),
+        "a payload-only edit must retain the property slot topology"
+    );
+    assert_eq!(
+        before.commit().spatial_topology(),
+        after.commit().spatial_topology(),
+        "a payload-only edit must retain the normalized spatial topology"
+    );
+
+    let before_scrolls = before
+        .commit()
+        .nodes()
+        .iter()
+        .filter(|node| node.scroll().is_some())
+        .collect::<Vec<_>>();
+    let after_scroll_count = after
+        .commit()
+        .nodes()
+        .iter()
+        .filter(|node| node.scroll().is_some())
+        .count();
+    assert!(
+        !before_scrolls.is_empty(),
+        "fixture must own a scroll viewport"
+    );
+    assert_eq!(before_scrolls.len(), after_scroll_count);
+
+    for before_node in before_scrolls {
+        let after_node = after
+            .commit()
+            .node(before_node.id())
+            .expect("payload edit must retain each scroll owner identity");
+        assert_eq!(before_node.parent(), after_node.parent());
+        assert_eq!(before_node.scroll(), after_node.scroll());
+        assert_eq!(before_node.scroll_target(), after_node.scroll_target());
+        assert_eq!(
+            before_node.topology_revision(),
+            after_node.topology_revision(),
+            "unchanged scroll ownership/range must retain its topology revision"
+        );
+        assert_eq!(
+            before.properties().scroll_offset(before_node.id()),
+            after.properties().scroll_offset(before_node.id()),
+            "payload edit must preserve the scroll property value"
+        );
+    }
+
+    let mut reused_nodes = 0_usize;
+    let mut rebuilt_nodes = 0_usize;
+    for before_node in before.commit().nodes() {
+        let after_node = after
+            .commit()
+            .node(before_node.id())
+            .expect("payload edit must not replace retained scene identities");
+        if std::sync::Arc::ptr_eq(before_node, after_node) {
+            reused_nodes += 1;
+        } else {
+            rebuilt_nodes += 1;
+        }
+    }
+    assert!(
+        rebuilt_nodes <= 1,
+        "one payload edit may rebuild at most its one retained scene node"
+    );
+    assert!(
+        reused_nodes > 0,
+        "unrelated retained scene nodes must be reused"
+    );
+}
+
 #[derive(Clone)]
 struct MillionRowProvider {
     row_calls: Rc<Cell<usize>>,
@@ -757,6 +833,11 @@ struct MutableKeyProvider {
     keys: Rc<RefCell<Vec<u64>>>,
 }
 
+#[derive(Clone)]
+struct MutableContentProvider {
+    values: Rc<RefCell<Vec<String>>>,
+}
+
 impl crate::virtual_list::Provider for MutableKeyProvider {
     fn len(&self) -> usize {
         self.keys.borrow().len()
@@ -776,6 +857,28 @@ impl crate::virtual_list::Provider for MutableKeyProvider {
     fn row(&self, index: usize) -> view::Node {
         let key = self.keys.borrow()[index];
         view::Node::world_text(format!("Key {key}"), text::Overflow::EllipsisEnd)
+    }
+}
+
+impl crate::virtual_list::Provider for MutableContentProvider {
+    fn len(&self) -> usize {
+        self.values.borrow().len()
+    }
+
+    fn key(&self, index: usize) -> crate::virtual_list::Key {
+        crate::virtual_list::Key::new(index as u64)
+    }
+
+    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        let index = key.value() as usize;
+        (index < self.len()).then_some(index)
+    }
+
+    fn row(&self, index: usize) -> view::Node {
+        view::Node::world_text(
+            self.values.borrow()[index].clone(),
+            text::Overflow::EllipsisEnd,
+        )
     }
 }
 
@@ -5414,6 +5517,112 @@ fn table_edit_commit_keys_move_canonical_current_cell_without_trapping_tab() {
             .map(crate::table::Cell::column),
         Some(interaction::Id::new("name"))
     );
+}
+
+#[test]
+fn table_payload_edit_preserves_scroll_topology_and_state() {
+    let mut app = editable_table_app(EditableTableState {
+        records: (0..12)
+            .map(|key| EditableRecord {
+                key,
+                name: format!("Row {key:02}"),
+                count: key as i64,
+            })
+            .collect(),
+    });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(320, 124);
+    let before = app
+        .show_scene(window, size)
+        .expect("editable table should render before payload edit");
+
+    let cell = crate::table::Cell::new(
+        interaction::Id::new("editable.table"),
+        crate::virtual_list::Key::new(0),
+        interaction::Id::new("name"),
+    );
+    let trigger = app.trigger::<SetRecordName>(SetRecordNameArgs {
+        cell,
+        value: "Edit00".to_owned(),
+    });
+    assert!(app.invoke(trigger).output.is_ok());
+    let projected = app
+        .present(window)
+        .expect("table payload edit should reconcile the retained view");
+    assert!(
+        projected.labels().contains(&"Edit00")
+            || projected
+                .text_areas()
+                .iter()
+                .any(|area| area.buffer().text() == "Edit00"),
+        "edited table payload must reach the retained view: labels={:?}",
+        projected.labels()
+    );
+    let after = app
+        .show_scene(window, size)
+        .expect("editable table should render after payload edit");
+
+    assert_payload_edit_reuses_scroll_topology_and_state(&before, &after);
+    let changes = app
+        .composition(window)
+        .expect("table composition should remain installed")
+        .changes();
+    assert_eq!(changes.changed().len(), 1);
+    assert!(changes.added().is_empty());
+    assert!(changes.removed().is_empty());
+}
+
+#[test]
+fn virtual_list_payload_edit_preserves_scroll_topology_and_state() {
+    let values = Rc::new(RefCell::new(
+        (0..100)
+            .map(|index| format!("Row {index:03}"))
+            .collect::<Vec<_>>(),
+    ));
+    let provider = MutableContentProvider {
+        values: Rc::clone(&values),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Mutable virtual payload"));
+        })
+        .view(move |_, _| {
+            widget::view_node(
+                crate::VirtualList::new("mutable.payload.rows", 20, provider.clone())
+                    .width(view::Dimension::grow())
+                    .height(view::Dimension::fixed(100)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 100);
+    let before = app
+        .show_scene(window, size)
+        .expect("virtual list should render before payload edit");
+
+    values.borrow_mut()[2] = "Edit 002".to_owned();
+    app.request_redraw(window);
+    let after = app
+        .show_scene(window, size)
+        .expect("virtual list should render after payload edit");
+    assert!(
+        after
+            .scene()
+            .texts()
+            .iter()
+            .any(|text| text.value() == "Edit 002"),
+        "edited virtual payload must reach the rendered scene"
+    );
+
+    assert_payload_edit_reuses_scroll_topology_and_state(&before, &after);
+    let changes = app
+        .composition(window)
+        .expect("virtual-list composition should remain installed")
+        .changes();
+    assert_eq!(changes.changed().len(), 1);
+    assert!(changes.added().is_empty());
+    assert!(changes.removed().is_empty());
 }
 
 #[test]

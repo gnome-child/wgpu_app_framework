@@ -13,7 +13,7 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 9;
+pub const SCROLL_BENCH_VERSION: u32 = 10;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
@@ -31,16 +31,20 @@ pub enum ScrollBenchWorkload {
     TextHorizontalAscii64MiB,
     TextHorizontalEdit4MiB,
     TextHorizontalEdit64MiB,
+    TextHorizontalTypingScroll4MiB,
+    TextHorizontalCaretReveal4MiB,
     TextVerticalVariableHeight,
 }
 
 impl ScrollBenchWorkload {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::TextHorizontalLongLine,
         Self::TextHorizontalExactLongLine,
         Self::TextHorizontalAscii64MiB,
         Self::TextHorizontalEdit4MiB,
         Self::TextHorizontalEdit64MiB,
+        Self::TextHorizontalTypingScroll4MiB,
+        Self::TextHorizontalCaretReveal4MiB,
         Self::TextVerticalVariableHeight,
     ];
 
@@ -51,6 +55,8 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalAscii64MiB => "text-horizontal-64m-ascii",
             Self::TextHorizontalEdit4MiB => "text-horizontal-edit-4m",
             Self::TextHorizontalEdit64MiB => "text-horizontal-edit-64m",
+            Self::TextHorizontalTypingScroll4MiB => "text-horizontal-typing-scroll-4m",
+            Self::TextHorizontalCaretReveal4MiB => "text-horizontal-caret-reveal-4m",
             Self::TextVerticalVariableHeight => "text-vertical-8m",
         }
     }
@@ -60,8 +66,32 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalLongLine => "ResidencyCrossing",
             Self::TextHorizontalExactLongLine => "ResidencyCrossing",
             Self::TextHorizontalAscii64MiB => "ResidencyCrossing",
-            Self::TextHorizontalEdit4MiB | Self::TextHorizontalEdit64MiB => "SemanticChange",
+            Self::TextHorizontalEdit4MiB
+            | Self::TextHorizontalEdit64MiB
+            | Self::TextHorizontalTypingScroll4MiB
+            | Self::TextHorizontalCaretReveal4MiB => "SemanticChange",
             Self::TextVerticalVariableHeight => "ResidencyCrossing",
+        }
+    }
+
+    fn sample_work_class(self) -> &'static str {
+        match self {
+            Self::TextHorizontalEdit4MiB | Self::TextHorizontalEdit64MiB => "EditLocality",
+            Self::TextHorizontalTypingScroll4MiB => "EditLocality+ResidentHorizontalProjection",
+            Self::TextHorizontalCaretReveal4MiB => {
+                "EditLocality+CaretReveal+ResidentHorizontalProjection"
+            }
+            Self::TextHorizontalLongLine
+            | Self::TextHorizontalExactLongLine
+            | Self::TextHorizontalAscii64MiB
+            | Self::TextVerticalVariableHeight => "ResidentWindowProjection",
+        }
+    }
+
+    fn cold_work_class(self) -> &'static str {
+        match self {
+            Self::TextVerticalVariableHeight => "ColdLayoutStart",
+            _ => "GlobalExtentColdStart",
         }
     }
 
@@ -78,7 +108,27 @@ impl ScrollBenchWorkload {
                 | Self::TextHorizontalAscii64MiB
                 | Self::TextHorizontalEdit4MiB
                 | Self::TextHorizontalEdit64MiB
+                | Self::TextHorizontalTypingScroll4MiB
+                | Self::TextHorizontalCaretReveal4MiB
         )
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct ScrollBenchPhases {
+    edits: Vec<Duration>,
+    projections: Vec<Duration>,
+    reveals: Vec<Duration>,
+    horizontal_projection_changes: usize,
+    reveal_scroll_changes: usize,
+    reveal_scroll_distance_max: usize,
+}
+
+impl ScrollBenchPhases {
+    fn sort(&mut self) {
+        self.edits.sort_unstable();
+        self.projections.sort_unstable();
+        self.reveals.sort_unstable();
     }
 }
 
@@ -102,19 +152,20 @@ pub struct ScrollBenchReceipt {
     far_window_height: usize,
     precision_offsets_required: bool,
     precision_offsets_checked: bool,
+    phases: ScrollBenchPhases,
 }
 
 impl ScrollBenchReceipt {
     pub fn receipt_text(&self, commit: &str) -> String {
         format!(
             concat!(
-                "scroll-bench-version={} workload={} transition_class={} cold_transition_class=ColdStart commit={} ",
+                "scroll-bench-version={} workload={} transition_class={} cold_transition_class=ColdStart sample_work_class={} cold_work_class={} property_scroll_measured=false commit={} ",
                 "profile={} timer=std-instant os={} architecture={} ",
                 "viewport={}x{} document_bytes={} document_lines={} offset_x={} offset_y={} logical_width={} logical_height={} precision_offsets_required={} precision_offsets_checked={} ",
-                "warmup={} samples={} official_matrix={} cold_us={} p50_us={} p95_us={} p99_us={} max_us={} ",
+                "warmup={} samples={} official_matrix={} cold_us={} p50_us={} p95_us={} p99_us={} max_us={} edit_samples={} edit_p50_us={} edit_p95_us={} edit_p99_us={} edit_max_us={} projection_samples={} projection_p50_us={} projection_p95_us={} projection_p99_us={} projection_max_us={} reveal_samples={} reveal_p50_us={} reveal_p95_us={} reveal_p99_us={} reveal_max_us={} horizontal_projection_changes={} reveal_scroll_changes={} reveal_scroll_distance_max={} ",
                 "near_window_width={} near_window_height={} far_window_width={} far_window_height={} render_window_width_max={} render_window_height_max={} render_window_area_max={} bounded_window={} ",
                 "paint_layout_calls={} visible_lines={} shaped_lines={} line_shape_calls={} render_surface_calls={} render_cache_hits={} render_cache_misses={} render_line_reuses={} ",
-                "horizontal_index_builds={} horizontal_index_hits={} horizontal_index_misses={} horizontal_index_evictions={} horizontal_index_incremental_updates={} horizontal_index_incremental_source_bytes={} horizontal_index_incremental_glyphs={} horizontal_index_source_bytes={} horizontal_index_glyphs={} horizontal_index_checkpoints={} horizontal_exact_band_shapes={} horizontal_exact_band_source_bytes={} horizontal_index_resident_bytes_max={} horizontal_window_shapes={} horizontal_window_source_bytes={} horizontal_resident_source_bytes_max={} horizontal_resident_glyphs_max={} horizontal_resident_bytes_max={} line_cache_resident_bytes_max={} ",
+                "horizontal_index_builds={} horizontal_index_hits={} horizontal_index_misses={} horizontal_index_evictions={} horizontal_index_incremental_updates={} horizontal_index_incremental_source_bytes={} horizontal_index_incremental_source_bytes_max={} horizontal_index_incremental_glyphs={} horizontal_index_incremental_glyphs_max={} horizontal_index_source_bytes={} horizontal_index_glyphs={} horizontal_index_checkpoints={} horizontal_exact_band_shapes={} horizontal_exact_band_source_bytes={} horizontal_index_resident_bytes_max={} horizontal_window_shapes={} horizontal_window_source_bytes={} horizontal_resident_source_bytes_max={} horizontal_resident_glyphs_max={} horizontal_resident_bytes_max={} line_cache_resident_bytes_max={} ",
                 "render_source_lines={} render_source_bytes={} render_total_us={} render_shape_us={} ",
                 "height_index_hits={} height_index_misses={} height_index_queries={} height_index_updates={} height_index_refined_pixels={} anchor_candidates={} anchor_corrections={} anchor_correction_pixels={} anchor_correction_pixels_max={} ",
                 "width_cache_hits={} width_cache_misses={} width_observed_updates={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
@@ -124,6 +175,8 @@ impl ScrollBenchReceipt {
             SCROLL_BENCH_VERSION,
             self.workload.name(),
             self.workload.transition_class(),
+            self.workload.sample_work_class(),
+            self.workload.cold_work_class(),
             commit,
             if cfg!(debug_assertions) {
                 "debug"
@@ -151,6 +204,39 @@ impl ScrollBenchReceipt {
             percentile(&self.samples, 95).as_micros(),
             percentile(&self.samples, 99).as_micros(),
             self.samples.last().copied().unwrap_or_default().as_micros(),
+            self.phases.edits.len(),
+            percentile(&self.phases.edits, 50).as_micros(),
+            percentile(&self.phases.edits, 95).as_micros(),
+            percentile(&self.phases.edits, 99).as_micros(),
+            self.phases
+                .edits
+                .last()
+                .copied()
+                .unwrap_or_default()
+                .as_micros(),
+            self.phases.projections.len(),
+            percentile(&self.phases.projections, 50).as_micros(),
+            percentile(&self.phases.projections, 95).as_micros(),
+            percentile(&self.phases.projections, 99).as_micros(),
+            self.phases
+                .projections
+                .last()
+                .copied()
+                .unwrap_or_default()
+                .as_micros(),
+            self.phases.reveals.len(),
+            percentile(&self.phases.reveals, 50).as_micros(),
+            percentile(&self.phases.reveals, 95).as_micros(),
+            percentile(&self.phases.reveals, 99).as_micros(),
+            self.phases
+                .reveals
+                .last()
+                .copied()
+                .unwrap_or_default()
+                .as_micros(),
+            self.phases.horizontal_projection_changes,
+            self.phases.reveal_scroll_changes,
+            self.phases.reveal_scroll_distance_max,
             self.near_window_width,
             self.near_window_height,
             self.far_window_width,
@@ -177,7 +263,11 @@ impl ScrollBenchReceipt {
             self.diagnostics
                 .text_area_horizontal_index_incremental_source_bytes,
             self.diagnostics
+                .text_area_horizontal_index_incremental_source_bytes_max,
+            self.diagnostics
                 .text_area_horizontal_index_incremental_glyphs,
+            self.diagnostics
+                .text_area_horizontal_index_incremental_glyphs_max,
             self.diagnostics.text_area_horizontal_index_source_bytes,
             self.diagnostics.text_area_horizontal_index_glyphs,
             self.diagnostics.text_area_horizontal_index_checkpoints,
@@ -301,17 +391,40 @@ pub fn run_scroll_bench(
             EXACT_LONG_LINE_BYTES,
             warmup,
             samples,
+            HorizontalEditTrace::FixedFar,
         ),
         ScrollBenchWorkload::TextHorizontalEdit64MiB => run_text_horizontal_edit(
             ScrollBenchWorkload::TextHorizontalEdit64MiB,
             ASCII_64_MIB_LONG_LINE_BYTES,
             warmup,
             samples,
+            HorizontalEditTrace::FixedFar,
+        ),
+        ScrollBenchWorkload::TextHorizontalTypingScroll4MiB => run_text_horizontal_edit(
+            ScrollBenchWorkload::TextHorizontalTypingScroll4MiB,
+            EXACT_LONG_LINE_BYTES,
+            warmup,
+            samples,
+            HorizontalEditTrace::TypingScroll,
+        ),
+        ScrollBenchWorkload::TextHorizontalCaretReveal4MiB => run_text_horizontal_edit(
+            ScrollBenchWorkload::TextHorizontalCaretReveal4MiB,
+            EXACT_LONG_LINE_BYTES,
+            warmup,
+            samples,
+            HorizontalEditTrace::CaretReveal,
         ),
         ScrollBenchWorkload::TextVerticalVariableHeight => {
             run_text_vertical_variable_height(warmup, samples)
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HorizontalEditTrace {
+    FixedFar,
+    TypingScroll,
+    CaretReveal,
 }
 
 fn run_text_horizontal_long_line(
@@ -375,6 +488,8 @@ fn run_text_horizontal_long_line(
     let mut durations = Vec::with_capacity(samples);
     let mut far_window_width = 0_usize;
     let mut far_window_height = 0_usize;
+    let mut previous_offset = None;
+    let mut horizontal_projection_changes = 0_usize;
     for index in 0..samples {
         let offset = horizontal_streamed_offset(
             workload,
@@ -382,6 +497,10 @@ fn run_text_horizontal_long_line(
             warmup.saturating_add(index),
             maximum_offset,
         );
+        if previous_offset.is_some_and(|previous| previous != offset) {
+            horizontal_projection_changes += 1;
+        }
+        previous_offset = Some(offset);
         let started = Instant::now();
         let layout = engine.text_area_paint_layout_for_area_at(
             &area_model,
@@ -399,6 +518,11 @@ fn run_text_horizontal_long_line(
     }
     durations.sort_unstable();
     let diagnostics = engine.diagnostics();
+    let phases = ScrollBenchPhases {
+        projections: durations.clone(),
+        horizontal_projection_changes,
+        ..ScrollBenchPhases::default()
+    };
 
     Ok(ScrollBenchReceipt {
         workload,
@@ -419,6 +543,7 @@ fn run_text_horizontal_long_line(
         far_window_height,
         precision_offsets_required,
         precision_offsets_checked,
+        phases,
     })
 }
 
@@ -427,6 +552,7 @@ fn run_text_horizontal_edit(
     source_bytes: usize,
     warmup: usize,
     samples: usize,
+    trace: HorizontalEditTrace,
 ) -> Result<ScrollBenchReceipt, String> {
     let source = long_line_source(source_bytes);
     let document_bytes = source.len();
@@ -464,7 +590,7 @@ fn run_text_horizontal_edit(
     let (near_window_width, near_window_height) = surface_window(cold_layout.render_surfaces())
         .ok_or_else(|| "text-horizontal-edit-4m produced no cold render surface".to_owned())?;
     let maximum_offset = logical_width.saturating_sub(VIEWPORT_WIDTH as usize);
-    let offset_x = maximum_offset.saturating_mul(3) / 4;
+    let fixed_far_offset = maximum_offset.saturating_mul(3) / 4;
     let precision_offsets_checked = verify_exact_horizontal_offsets(
         &mut engine,
         &cold_area,
@@ -473,6 +599,26 @@ fn run_text_horizontal_edit(
         now,
         maximum_offset,
     )?;
+    let caret_base_offset = if trace == HorizontalEditTrace::FixedFar {
+        0.0
+    } else {
+        engine
+            .ensure_caret_visible_for_area(
+                &cold_area,
+                style,
+                viewport,
+                ViewState::default().ensure_caret_visible(now),
+                None,
+            )
+            .exact_scroll_x()
+            .clamp(0.0, maximum_offset as f64)
+    };
+    let offset_x = match trace {
+        HorizontalEditTrace::FixedFar => fixed_far_offset,
+        HorizontalEditTrace::TypingScroll | HorizontalEditTrace::CaretReveal => {
+            ceil_f64_to_usize(caret_base_offset)
+        }
+    };
 
     for step in 0..warmup {
         let edit = if step % 2 == 0 {
@@ -490,19 +636,47 @@ fn run_text_horizontal_edit(
             ));
         }
         let area_model = Area::new(buffer.clone()).with_state(state).no_wrap();
+        let projection_offset = horizontal_edit_projection_offset(
+            trace,
+            fixed_far_offset,
+            caret_base_offset,
+            step,
+            maximum_offset,
+        );
+        let mut view_state = ViewState::default().with_exact_scroll(projection_offset, 0.0);
+        if trace == HorizontalEditTrace::CaretReveal {
+            view_state = engine.ensure_caret_visible_for_area(
+                &area_model,
+                style,
+                viewport,
+                view_state.ensure_caret_visible(now),
+                None,
+            );
+        }
         black_box(engine.text_area_paint_layout_for_area_at(
             &area_model,
             style,
             viewport,
-            ViewState::default().with_exact_scroll(offset_x as f64, 0.0),
+            view_state,
             now,
         ));
     }
 
     engine.reset_diagnostics();
     let mut durations = Vec::with_capacity(samples);
+    let mut phases = ScrollBenchPhases {
+        edits: Vec::with_capacity(samples),
+        projections: Vec::with_capacity(samples),
+        reveals: if trace == HorizontalEditTrace::CaretReveal {
+            Vec::with_capacity(samples)
+        } else {
+            Vec::new()
+        },
+        ..ScrollBenchPhases::default()
+    };
     let mut far_window_width = 0_usize;
     let mut far_window_height = 0_usize;
+    let mut previous_projection_offset = None;
     for index in 0..samples {
         let step = warmup.saturating_add(index);
         let started = Instant::now();
@@ -511,6 +685,7 @@ fn run_text_horizontal_edit(
         } else {
             Edit::backspace()
         };
+        let edit_started = Instant::now();
         if !editor
             .apply_edit(&mut buffer, &mut state, edit)
             .text_changed()
@@ -520,14 +695,51 @@ fn run_text_horizontal_edit(
                 workload.name()
             ));
         }
+        phases.edits.push(edit_started.elapsed());
         let area_model = Area::new(buffer.clone()).with_state(state).no_wrap();
+        let projection_offset = horizontal_edit_projection_offset(
+            trace,
+            fixed_far_offset,
+            caret_base_offset,
+            step,
+            maximum_offset,
+        );
+        if previous_projection_offset.is_some_and(|previous| previous != projection_offset) {
+            phases.horizontal_projection_changes += 1;
+        }
+        previous_projection_offset = Some(projection_offset);
+        let mut view_state = ViewState::default().with_exact_scroll(projection_offset, 0.0);
+        if trace == HorizontalEditTrace::CaretReveal {
+            let reveal_started = Instant::now();
+            view_state = engine.ensure_caret_visible_for_area(
+                &area_model,
+                style,
+                viewport,
+                view_state.ensure_caret_visible(now),
+                None,
+            );
+            phases.reveals.push(reveal_started.elapsed());
+            let reveal_distance = (view_state.exact_scroll_x() - projection_offset).abs();
+            if reveal_distance <= f64::EPSILON {
+                return Err(format!(
+                    "{} measured reveal {index} did not move hidden caret",
+                    workload.name()
+                ));
+            }
+            phases.reveal_scroll_changes += 1;
+            phases.reveal_scroll_distance_max = phases
+                .reveal_scroll_distance_max
+                .max(ceil_f64_to_usize(reveal_distance));
+        }
+        let projection_started = Instant::now();
         let layout = engine.text_area_paint_layout_for_area_at(
             &area_model,
             style,
             viewport,
-            ViewState::default().with_exact_scroll(offset_x as f64, 0.0),
+            view_state,
             now,
         );
+        phases.projections.push(projection_started.elapsed());
         durations.push(started.elapsed());
         if let Some((width, height)) = surface_window(layout.render_surfaces()) {
             far_window_width = far_window_width.max(width);
@@ -536,7 +748,17 @@ fn run_text_horizontal_edit(
         black_box(layout);
     }
     durations.sort_unstable();
+    phases.sort();
     let diagnostics = engine.diagnostics();
+    validate_horizontal_edit_trace(
+        workload,
+        trace,
+        samples,
+        &phases,
+        diagnostics,
+        far_window_width,
+        far_window_height,
+    )?;
 
     Ok(ScrollBenchReceipt {
         workload,
@@ -557,7 +779,103 @@ fn run_text_horizontal_edit(
         far_window_height,
         precision_offsets_required: true,
         precision_offsets_checked,
+        phases,
     })
+}
+
+fn validate_horizontal_edit_trace(
+    workload: ScrollBenchWorkload,
+    trace: HorizontalEditTrace,
+    samples: usize,
+    phases: &ScrollBenchPhases,
+    diagnostics: TextDiagnostics,
+    far_window_width: usize,
+    far_window_height: usize,
+) -> Result<(), String> {
+    const MAX_GUARDED_EDIT_SOURCE_BYTES: usize = 4_096;
+    if phases.edits.len() != samples || phases.projections.len() != samples {
+        return Err(format!(
+            "{} did not account for every measured edit/projection phase",
+            workload.name()
+        ));
+    }
+    if diagnostics.text_area_horizontal_index_incremental_updates != samples
+        || diagnostics.text_area_horizontal_index_builds != 0
+        || diagnostics.text_area_horizontal_index_source_bytes != 0
+        || diagnostics.text_area_width_source_bytes != 0
+        || diagnostics.text_area_horizontal_index_incremental_source_bytes_max
+            > MAX_GUARDED_EDIT_SOURCE_BYTES
+        || diagnostics.text_area_horizontal_index_incremental_source_bytes
+            > samples.saturating_mul(MAX_GUARDED_EDIT_SOURCE_BYTES)
+    {
+        return Err(format!(
+            "{} escaped guarded edit locality: updates={} builds={} full_source_bytes={} width_source_bytes={} edit_source_bytes={} edit_source_bytes_max={}",
+            workload.name(),
+            diagnostics.text_area_horizontal_index_incremental_updates,
+            diagnostics.text_area_horizontal_index_builds,
+            diagnostics.text_area_horizontal_index_source_bytes,
+            diagnostics.text_area_width_source_bytes,
+            diagnostics.text_area_horizontal_index_incremental_source_bytes,
+            diagnostics.text_area_horizontal_index_incremental_source_bytes_max,
+        ));
+    }
+    if far_window_width > horizontal_window_limit() || far_window_height > vertical_window_limit() {
+        return Err(format!(
+            "{} escaped its resident projection window: {}x{}",
+            workload.name(),
+            far_window_width,
+            far_window_height
+        ));
+    }
+    match trace {
+        HorizontalEditTrace::FixedFar => {
+            if !phases.reveals.is_empty() || phases.reveal_scroll_changes != 0 {
+                return Err(format!(
+                    "{} unexpectedly mixed caret reveal into its edit-only currency",
+                    workload.name()
+                ));
+            }
+        }
+        HorizontalEditTrace::TypingScroll => {
+            if samples > 1 && phases.horizontal_projection_changes < samples / 2 {
+                return Err(format!(
+                    "{} changed horizontal projection only {} times across {samples} samples",
+                    workload.name(),
+                    phases.horizontal_projection_changes
+                ));
+            }
+        }
+        HorizontalEditTrace::CaretReveal => {
+            if phases.reveals.len() != samples || phases.reveal_scroll_changes != samples {
+                return Err(format!(
+                    "{} revealed {}/{} hidden carets across {samples} samples",
+                    workload.name(),
+                    phases.reveals.len(),
+                    phases.reveal_scroll_changes
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn horizontal_edit_projection_offset(
+    trace: HorizontalEditTrace,
+    fixed_far_offset: usize,
+    caret_base_offset: f64,
+    index: usize,
+    maximum_offset: usize,
+) -> f64 {
+    const HIDDEN_CARET_GAP: f64 = 256.0;
+    match trace {
+        HorizontalEditTrace::FixedFar => fixed_far_offset as f64,
+        HorizontalEditTrace::TypingScroll => {
+            let phase = index % 257;
+            let displacement = if phase <= 128 { phase } else { 256 - phase };
+            (caret_base_offset + displacement as f64 * 4.0).min(maximum_offset as f64)
+        }
+        HorizontalEditTrace::CaretReveal => (caret_base_offset - HIDDEN_CARET_GAP).max(0.0),
+    }
 }
 
 fn run_text_vertical_variable_height(
@@ -625,6 +943,10 @@ fn run_text_vertical_variable_height(
     }
     durations.sort_unstable();
     let diagnostics = engine.diagnostics();
+    let phases = ScrollBenchPhases {
+        projections: durations.clone(),
+        ..ScrollBenchPhases::default()
+    };
 
     Ok(ScrollBenchReceipt {
         workload: ScrollBenchWorkload::TextVerticalVariableHeight,
@@ -645,6 +967,7 @@ fn run_text_vertical_variable_height(
         far_window_height,
         precision_offsets_required: false,
         precision_offsets_checked: false,
+        phases,
     })
 }
 
@@ -853,5 +1176,32 @@ mod tests {
         lengths.sort_unstable();
         lengths.dedup();
         assert!(lengths.len() >= 3);
+    }
+
+    #[test]
+    fn horizontal_edit_trace_rejects_source_work_outside_the_guard() {
+        let phases = ScrollBenchPhases {
+            edits: vec![Duration::from_micros(1)],
+            projections: vec![Duration::from_micros(1)],
+            ..ScrollBenchPhases::default()
+        };
+        let diagnostics = TextDiagnostics {
+            text_area_horizontal_index_incremental_updates: 1,
+            text_area_horizontal_index_incremental_source_bytes: 4_097,
+            text_area_horizontal_index_incremental_source_bytes_max: 4_097,
+            ..TextDiagnostics::default()
+        };
+
+        let error = validate_horizontal_edit_trace(
+            ScrollBenchWorkload::TextHorizontalEdit4MiB,
+            HorizontalEditTrace::FixedFar,
+            1,
+            &phases,
+            diagnostics,
+            horizontal_window_limit(),
+            VIEWPORT_HEIGHT as usize,
+        )
+        .expect_err("source-wide edit work must fail the executable benchmark contract");
+        assert!(error.contains("escaped guarded edit locality"));
     }
 }

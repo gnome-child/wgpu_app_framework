@@ -1222,7 +1222,12 @@ fn single_line_edit_splices_only_a_guarded_horizontal_index_region() {
     );
     assert_eq!(diagnostics.text_area_horizontal_index_builds, 0);
     assert!(diagnostics.text_area_horizontal_index_incremental_source_bytes <= 4_096);
+    assert!(diagnostics.text_area_horizontal_index_incremental_source_bytes_max <= 4_096);
     assert!(diagnostics.text_area_horizontal_index_incremental_glyphs > 0);
+    assert!(
+        diagnostics.text_area_horizontal_index_incremental_glyphs_max
+            <= diagnostics.text_area_horizontal_index_incremental_glyphs
+    );
     assert_eq!(diagnostics.text_area_horizontal_index_source_bytes, 0);
     assert_eq!(diagnostics.text_area_width_source_bytes, 0);
     assert!(
@@ -1260,6 +1265,7 @@ fn single_line_edit_splices_only_a_guarded_horizontal_index_region() {
     );
     assert_eq!(restored_diagnostics.text_area_horizontal_index_builds, 0);
     assert!(restored_diagnostics.text_area_horizontal_index_incremental_source_bytes <= 4_096);
+    assert!(restored_diagnostics.text_area_horizontal_index_incremental_source_bytes_max <= 4_096);
     assert!(
         restored_diagnostics.text_area_horizontal_index_resident_bytes_max
             <= initial_index_bytes.saturating_add(128 * 1024),

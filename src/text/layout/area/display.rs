@@ -201,7 +201,17 @@ impl Engine {
             self.diagnostics
                 .text_area_horizontal_index_incremental_source_bytes += shaped_bytes;
             self.diagnostics
+                .text_area_horizontal_index_incremental_source_bytes_max = self
+                .diagnostics
+                .text_area_horizontal_index_incremental_source_bytes_max
+                .max(shaped_bytes);
+            self.diagnostics
                 .text_area_horizontal_index_incremental_glyphs += glyphs;
+            self.diagnostics
+                .text_area_horizontal_index_incremental_glyphs_max = self
+                .diagnostics
+                .text_area_horizontal_index_incremental_glyphs_max
+                .max(glyphs);
             self.diagnostics.text_area_horizontal_exact_band_shapes += 1;
             self.diagnostics
                 .text_area_horizontal_exact_band_source_bytes += shaped_bytes;
