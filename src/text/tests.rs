@@ -1175,6 +1175,9 @@ fn single_line_edit_splices_only_a_guarded_horizontal_index_region() {
         ViewState::default(),
         Instant::now(),
     );
+    let initial_index_bytes = engine
+        .diagnostics()
+        .text_area_horizontal_index_resident_bytes_max;
 
     let edit_index = source[..source.len() / 2]
         .rfind("abcdefgh")
@@ -1222,6 +1225,13 @@ fn single_line_edit_splices_only_a_guarded_horizontal_index_region() {
     assert!(diagnostics.text_area_horizontal_index_incremental_glyphs > 0);
     assert_eq!(diagnostics.text_area_horizontal_index_source_bytes, 0);
     assert_eq!(diagnostics.text_area_width_source_bytes, 0);
+    assert!(
+        diagnostics.text_area_horizontal_index_resident_bytes_max
+            <= initial_index_bytes.saturating_add(64 * 1024),
+        "one local edit must share the untouched checkpoint blocks: initial={} edited={}",
+        initial_index_bytes,
+        diagnostics.text_area_horizontal_index_resident_bytes_max,
+    );
     assert_eq!(
         layout.layout().content_width_exact(),
         rebuilt.layout().content_width_exact(),
@@ -1250,6 +1260,13 @@ fn single_line_edit_splices_only_a_guarded_horizontal_index_region() {
     );
     assert_eq!(restored_diagnostics.text_area_horizontal_index_builds, 0);
     assert!(restored_diagnostics.text_area_horizontal_index_incremental_source_bytes <= 4_096);
+    assert!(
+        restored_diagnostics.text_area_horizontal_index_resident_bytes_max
+            <= initial_index_bytes.saturating_add(128 * 1024),
+        "two local edits must retain bounded checkpoint deltas: initial={} restored={}",
+        initial_index_bytes,
+        restored_diagnostics.text_area_horizontal_index_resident_bytes_max,
+    );
     assert_eq!(
         restored_layout.layout().content_width_exact(),
         initial_width

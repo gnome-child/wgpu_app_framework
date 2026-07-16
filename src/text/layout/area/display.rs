@@ -499,21 +499,24 @@ impl Engine {
         index: HorizontalLineIndex,
     ) -> Rc<HorizontalLineIndex> {
         let index_resident_bytes = index.resident_bytes();
+        let added_resident_bytes = index.exclusive_resident_bytes();
         let index = Rc::new(index);
-        self.text_area_horizontal_indices
+        let replaced = self
+            .text_area_horizontal_indices
             .put(line_key, index.clone());
         let mut resident_bytes = self
-            .text_area_horizontal_indices
-            .iter()
-            .map(|(_, index)| index.resident_bytes())
-            .sum::<usize>();
+            .text_area_horizontal_index_resident_bytes
+            .saturating_add(added_resident_bytes);
+        if let Some(replaced) = replaced {
+            resident_bytes = resident_bytes.saturating_sub(replaced.exclusive_resident_bytes());
+        }
         while resident_bytes > TEXT_AREA_HORIZONTAL_INDEX_CACHE_MAX_RESIDENT_BYTES
             && self.text_area_horizontal_indices.len() > 1
         {
             let Some((_, removed)) = self.text_area_horizontal_indices.pop_lru() else {
                 break;
             };
-            resident_bytes = resident_bytes.saturating_sub(removed.resident_bytes());
+            resident_bytes = resident_bytes.saturating_sub(removed.exclusive_resident_bytes());
             self.diagnostics.text_area_horizontal_index_evictions += 1;
         }
         self.text_area_horizontal_index_resident_bytes = resident_bytes;

@@ -13,7 +13,7 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 7;
+pub const SCROLL_BENCH_VERSION: u32 = 8;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
@@ -30,15 +30,17 @@ pub enum ScrollBenchWorkload {
     TextHorizontalExactLongLine,
     TextHorizontalAscii64MiB,
     TextHorizontalEdit4MiB,
+    TextHorizontalEdit64MiB,
     TextVerticalVariableHeight,
 }
 
 impl ScrollBenchWorkload {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::TextHorizontalLongLine,
         Self::TextHorizontalExactLongLine,
         Self::TextHorizontalAscii64MiB,
         Self::TextHorizontalEdit4MiB,
+        Self::TextHorizontalEdit64MiB,
         Self::TextVerticalVariableHeight,
     ];
 
@@ -48,6 +50,7 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalExactLongLine => "text-horizontal-4m-exact",
             Self::TextHorizontalAscii64MiB => "text-horizontal-64m-ascii",
             Self::TextHorizontalEdit4MiB => "text-horizontal-edit-4m",
+            Self::TextHorizontalEdit64MiB => "text-horizontal-edit-64m",
             Self::TextVerticalVariableHeight => "text-vertical-8m",
         }
     }
@@ -57,7 +60,7 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalLongLine => "ResidencyCrossing",
             Self::TextHorizontalExactLongLine => "ResidencyCrossing",
             Self::TextHorizontalAscii64MiB => "ResidencyCrossing",
-            Self::TextHorizontalEdit4MiB => "SemanticChange",
+            Self::TextHorizontalEdit4MiB | Self::TextHorizontalEdit64MiB => "SemanticChange",
             Self::TextVerticalVariableHeight => "ResidencyCrossing",
         }
     }
@@ -74,6 +77,7 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalExactLongLine
                 | Self::TextHorizontalAscii64MiB
                 | Self::TextHorizontalEdit4MiB
+                | Self::TextHorizontalEdit64MiB
         )
     }
 }
@@ -292,7 +296,18 @@ pub fn run_scroll_bench(
             warmup,
             samples,
         ),
-        ScrollBenchWorkload::TextHorizontalEdit4MiB => run_text_horizontal_edit(warmup, samples),
+        ScrollBenchWorkload::TextHorizontalEdit4MiB => run_text_horizontal_edit(
+            ScrollBenchWorkload::TextHorizontalEdit4MiB,
+            EXACT_LONG_LINE_BYTES,
+            warmup,
+            samples,
+        ),
+        ScrollBenchWorkload::TextHorizontalEdit64MiB => run_text_horizontal_edit(
+            ScrollBenchWorkload::TextHorizontalEdit64MiB,
+            ASCII_64_MIB_LONG_LINE_BYTES,
+            warmup,
+            samples,
+        ),
         ScrollBenchWorkload::TextVerticalVariableHeight => {
             run_text_vertical_variable_height(warmup, samples)
         }
@@ -407,13 +422,18 @@ fn run_text_horizontal_long_line(
     })
 }
 
-fn run_text_horizontal_edit(warmup: usize, samples: usize) -> Result<ScrollBenchReceipt, String> {
-    let source = long_line_source(EXACT_LONG_LINE_BYTES);
+fn run_text_horizontal_edit(
+    workload: ScrollBenchWorkload,
+    source_bytes: usize,
+    warmup: usize,
+    samples: usize,
+) -> Result<ScrollBenchReceipt, String> {
+    let source = long_line_source(source_bytes);
     let document_bytes = source.len();
     let edit_index = source[..source.len() / 2]
         .rfind("abcdefgh")
         .map(|index| index + 4)
-        .ok_or_else(|| "text-horizontal-edit-4m has no interior edit point".to_owned())?;
+        .ok_or_else(|| format!("{} has no interior edit point", workload.name()))?;
     let mut buffer = Buffer::from_multiline_text(source);
     let mut state = buffer.initial_state();
     selection::apply(
@@ -465,7 +485,8 @@ fn run_text_horizontal_edit(warmup: usize, samples: usize) -> Result<ScrollBench
             .text_changed()
         {
             return Err(format!(
-                "text-horizontal-edit-4m warmup edit {step} did not change text"
+                "{} warmup edit {step} did not change text",
+                workload.name()
             ));
         }
         let area_model = Area::new(buffer.clone()).with_state(state).no_wrap();
@@ -495,7 +516,8 @@ fn run_text_horizontal_edit(warmup: usize, samples: usize) -> Result<ScrollBench
             .text_changed()
         {
             return Err(format!(
-                "text-horizontal-edit-4m measured edit {index} did not change text"
+                "{} measured edit {index} did not change text",
+                workload.name()
             ));
         }
         let area_model = Area::new(buffer.clone()).with_state(state).no_wrap();
@@ -517,7 +539,7 @@ fn run_text_horizontal_edit(warmup: usize, samples: usize) -> Result<ScrollBench
     let diagnostics = engine.diagnostics();
 
     Ok(ScrollBenchReceipt {
-        workload: ScrollBenchWorkload::TextHorizontalEdit4MiB,
+        workload,
         warmup,
         samples: durations,
         cold,
