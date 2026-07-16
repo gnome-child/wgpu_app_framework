@@ -18,7 +18,7 @@ pub(crate) struct Draft {
     preference: Preference,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
-    text_caret_rect: Option<geometry::Rect>,
+    text_caret: Option<(crate::composition::tree::NodeId, geometry::Rect)>,
     placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
@@ -36,7 +36,7 @@ struct Entry {
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
-    text_caret_rect: Option<geometry::Rect>,
+    text_caret: Option<(crate::composition::tree::NodeId, geometry::Rect)>,
     placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
@@ -139,7 +139,7 @@ pub(crate) struct Layer {
     backend: Backend,
     popup_material_preference: PopupMaterialPreference,
     popup_border: scene::Color,
-    text_caret_rect: Option<geometry::Rect>,
+    text_caret: Option<(crate::composition::tree::NodeId, geometry::Rect)>,
     placement: Option<geometry::placement::Request>,
     context_fingerprint: Option<crate::popup::ContextFingerprint>,
     accepts_input: bool,
@@ -294,7 +294,7 @@ impl Draft {
             preference: Preference::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
-            text_caret_rect: None,
+            text_caret: None,
             placement: None,
             context_fingerprint: None,
             accepts_input: true,
@@ -322,8 +322,11 @@ impl Draft {
         self
     }
 
-    pub(crate) fn text_caret_rect(mut self, text_caret_rect: Option<geometry::Rect>) -> Self {
-        self.text_caret_rect = text_caret_rect;
+    pub(crate) fn text_caret(
+        mut self,
+        text_caret: Option<(crate::composition::tree::NodeId, geometry::Rect)>,
+    ) -> Self {
+        self.text_caret = text_caret;
         self
     }
 
@@ -376,7 +379,7 @@ impl Entry {
             backend: self.backend,
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
-            text_caret_rect: self.text_caret_rect,
+            text_caret: self.text_caret,
             placement: self.placement,
             context_fingerprint: self.context_fingerprint,
             accepts_input: self.accepts_input,
@@ -422,7 +425,7 @@ impl Ghost {
             backend: Backend::InFrame,
             popup_material_preference: PopupMaterialPreference::System,
             popup_border: scene::Color::rgba(0, 0, 0, 0),
-            text_caret_rect: None,
+            text_caret: None,
             placement: None,
             context_fingerprint: None,
             accepts_input: false,
@@ -472,7 +475,7 @@ impl RetiringPopup {
             backend: Backend::NativePopup,
             popup_material_preference: self.popup_material_preference,
             popup_border: self.popup_border,
-            text_caret_rect: None,
+            text_caret: None,
             placement: self.placement,
             context_fingerprint: self.context_fingerprint,
             accepts_input: false,
@@ -545,8 +548,8 @@ impl Layer {
         self.popup_border
     }
 
-    pub(crate) fn text_caret_rect(&self) -> Option<geometry::Rect> {
-        self.text_caret_rect
+    pub(crate) fn text_caret(&self) -> Option<(crate::composition::tree::NodeId, geometry::Rect)> {
+        self.text_caret
     }
 
     pub(crate) fn placement(&self) -> Option<geometry::placement::Request> {
@@ -915,7 +918,7 @@ impl Store {
                 backend,
                 popup_material_preference: draft.popup_material_preference,
                 popup_border: draft.popup_border,
-                text_caret_rect: draft.text_caret_rect,
+                text_caret: draft.text_caret,
                 placement: draft.placement,
                 context_fingerprint: draft.context_fingerprint,
                 accepts_input: draft.accepts_input,

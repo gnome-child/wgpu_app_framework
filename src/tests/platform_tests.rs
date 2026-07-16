@@ -1326,6 +1326,14 @@ fn skipped_frame_requests_redraw_until_one_receipt_succeeds() {
     assert_eq!(render.frames_present_submitted, 0);
     assert!(
         platform
+            .backend()
+            .events()
+            .iter()
+            .all(|event| !matches!(event, BackendEvent::SetIme { .. })),
+        "a failed present must not expose candidate IME geometry"
+    );
+    assert!(
+        platform
             .host()
             .shell()
             .runtime()
@@ -1353,6 +1361,16 @@ fn skipped_frame_requests_redraw_until_one_receipt_succeeds() {
         .render;
     assert_eq!(render.frames_attempted, 2);
     assert_eq!(render.frames_present_submitted, 1);
+    assert_eq!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .filter(|event| matches!(event, BackendEvent::SetIme { .. }))
+            .count(),
+        1,
+        "the successful retry must apply the selected presentation's IME geometry exactly once"
+    );
     assert!(
         platform
             .host()
@@ -1361,6 +1379,104 @@ fn skipped_frame_requests_redraw_until_one_receipt_succeeds() {
             .presented_layout(window)
             .is_some()
     );
+}
+
+#[test]
+fn present_submitted_ime_geometry_follows_text_scroll_property_snapshot() {
+    let document = (0..160)
+        .map(|line| format!("scroll IME line {line:03}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State {
+            document: TextDocument::from_multiline_text(document),
+            ..text_editor::State::default()
+        }),
+        FakeBackend::default(),
+    );
+    platform.start().expect("platform should start");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("initial redraw should present");
+    let text_area = platform
+        .host()
+        .presentation(window)
+        .expect("initial presentation should exist")
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area should be laid out");
+    let point = geometry::Point::new(text_area.rect().x() + 12, text_area.rect().y() + 12);
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::PointerDown {
+                point,
+                button: pointer::Button::Primary,
+                modifiers: input::Modifiers::default(),
+            },
+        ))
+        .expect("text press should focus and place the caret");
+    platform.backend_mut().events.clear();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("focused frame should present");
+    let before = platform
+        .backend()
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            BackendEvent::SetIme { update } => match update.target() {
+                Some(ime::Target::Parent { area }) => Some(area),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("focused text frame should expose parent IME geometry");
+
+    platform.backend_mut().events.clear();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::Scrolled {
+                point,
+                delta: interaction::ScrollDelta::vertical(20),
+            },
+        ))
+        .expect("resident scroll should update property state");
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("property frame should present");
+    let after = platform
+        .backend()
+        .events()
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            BackendEvent::SetIme { update } => match update.target() {
+                Some(ime::Target::Parent { area }) => Some(area),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("scrolled frame should expose parent IME geometry");
+
+    assert_eq!(after.x(), before.x());
+    assert_eq!(after.y(), before.y() - 20);
+    assert_eq!(after.width(), before.width());
+    assert_eq!(after.height(), before.height());
 }
 
 #[test]
@@ -1697,7 +1813,7 @@ fn command_palette_uses_native_popup_work_when_backend_supports_it() {
 }
 
 #[test]
-fn deferred_parent_preparation_does_not_block_popup_or_ime_realization() {
+fn deferred_parent_preparation_syncs_popup_but_holds_ime_until_submission() {
     let mut platform = Platform::new(
         text_editor::shell(text_editor::State::default()),
         FakeBackend::default().with_native_popups(),
@@ -1757,17 +1873,12 @@ fn deferred_parent_preparation_does_not_block_popup_or_ime_realization() {
         "an independently presentable popup must not wait behind parent GPU preparation"
     );
     assert!(
-        platform.backend().events().iter().any(|event| matches!(
-            event,
-            BackendEvent::SetIme { update }
-                if update.parent() == window
-                    && matches!(
-                        update.target(),
-                        Some(ime::Target::Popup { id, .. })
-                            if id == interaction::CommandPalette::panel_id()
-                    )
-        )),
-        "IME must follow popup synchronization without waiting for parent preparation"
+        platform
+            .backend()
+            .events()
+            .iter()
+            .all(|event| !matches!(event, BackendEvent::SetIme { .. })),
+        "candidate IME geometry must wait while the parent presentation is deferred"
     );
     assert_eq!(
         platform.backend().popup_sync_counts(),
@@ -1806,11 +1917,31 @@ fn deferred_parent_preparation_does_not_block_popup_or_ime_realization() {
         .expect("ready parent should activate from its exact pending state");
 
     assert!(
-        !platform.backend().events().iter().any(|event| matches!(
-            event,
-            BackendEvent::PresentPopup { .. } | BackendEvent::SetIme { .. }
-        )),
-        "activating the parent must not replay already-synchronized popup or IME work"
+        !platform
+            .backend()
+            .events()
+            .iter()
+            .any(|event| matches!(event, BackendEvent::PresentPopup { .. })),
+        "activating the parent must not replay already-synchronized popup work"
+    );
+    assert_eq!(
+        platform
+            .backend()
+            .events()
+            .iter()
+            .filter(|event| matches!(
+                event,
+                BackendEvent::SetIme { update }
+                    if update.parent() == window
+                        && matches!(
+                            update.target(),
+                            Some(ime::Target::Popup { id, .. })
+                                if id == interaction::CommandPalette::panel_id()
+                        )
+            ))
+            .count(),
+        1,
+        "the matching present-submitted parent epoch must release popup IME geometry exactly once"
     );
 }
 

@@ -280,10 +280,6 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 popup_presentations,
             )?;
         }
-        for update in work.ime_updates() {
-            self.backend.set_ime(context, *update)?;
-        }
-
         let mut cursor_updates = work.cursor_updates().to_vec();
         for presentation in work.presentations() {
             self.presentation_continuations
@@ -310,25 +306,92 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         match result {
             PresentResult::Presented(presented) => {
                 let window = presented.window();
+                let epoch = presented.epoch();
+                let present_submitted = presented.present_submitted();
+                let property_serial = presented.property_serial();
+                let ime_projection = presented.ime_projection();
                 self.presentation_continuations.remove(&window);
-                if self.finish_presented(presented, false) {
+                let retry = self.finish_presented(presented, false);
+                self.apply_present_submitted_ime(
+                    context,
+                    window,
+                    epoch,
+                    property_serial,
+                    ime_projection,
+                    present_submitted,
+                )?;
+                if retry {
                     self.request_backend_redraw(context, window)?;
                 }
             }
             PresentResult::PresentedAndDeferred(presented) => {
                 let window = presented.window();
+                let epoch = presented.epoch();
+                let present_submitted = presented.present_submitted();
+                let property_serial = presented.property_serial();
+                let ime_projection = presented.ime_projection();
                 self.finish_presented(presented, false);
+                self.apply_present_submitted_ime(
+                    context,
+                    window,
+                    epoch,
+                    property_serial,
+                    ime_projection,
+                    present_submitted,
+                )?;
                 self.schedule_presentation_continuation(context, window)?;
             }
             PresentResult::ActiveRefreshedAndDeferred(presented) => {
                 let window = presented.window();
+                let epoch = presented.epoch();
+                let present_submitted = presented.present_submitted();
+                let property_serial = presented.property_serial();
+                let ime_projection = presented.ime_projection();
                 self.finish_presented(presented, true);
+                self.apply_present_submitted_ime(
+                    context,
+                    window,
+                    epoch,
+                    property_serial,
+                    ime_projection,
+                    present_submitted,
+                )?;
                 self.schedule_presentation_continuation(context, window)?;
             }
             PresentResult::Deferred(window) => {
                 self.schedule_presentation_continuation(context, window)?;
             }
         }
+        Ok(())
+    }
+
+    fn apply_present_submitted_ime(
+        &mut self,
+        context: &mut B::Context<'_>,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+        property_serial: crate::scene::PropertySerial,
+        ime_projection: crate::ime::Projection,
+        present_submitted: bool,
+    ) -> Result<(), B::Error> {
+        if !present_submitted
+            || self
+                .host
+                .shell()
+                .runtime()
+                .session()
+                .window(window)
+                .and_then(session::Window::present_submitted_epoch)
+                != Some(epoch)
+        {
+            return Ok(());
+        }
+        let update = self.host.shell().runtime().presented_ime_update(
+            window,
+            property_serial,
+            ime_projection,
+        );
+        self.backend.set_ime(context, update)?;
         Ok(())
     }
 

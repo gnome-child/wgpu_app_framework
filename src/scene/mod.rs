@@ -42,7 +42,8 @@ pub(crate) use region::{
 };
 pub(crate) use residency::Residency;
 pub(crate) use spatial::{
-    PropertyState as SpatialPropertyState, ScrollPathId, SpatialBinding, SpatialTopology,
+    PropertyState as SpatialPropertyState, ScrollPathId, SpatialBinding, SpatialSnapshot,
+    SpatialTopology,
 };
 pub(crate) use stack::{Layer, MaterialProjection, Stack};
 pub(crate) use store::{PaintStats, Store};

@@ -4,9 +4,9 @@ use thiserror::Error;
 
 use super::{
     Clip, Commit, ContentProjection, Draw, EffectDeclaration, Group, Node, Primitive, Properties,
-    PropertyKind, PropertyRef, PropertyValue, ScrollDeclaration,
+    PropertyKind, PropertyRef, PropertySerial, PropertyValue, ScrollDeclaration, Stack,
 };
-use crate::{composition, interaction};
+use crate::{composition, geometry, interaction};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ScrollTarget {
@@ -181,6 +181,33 @@ pub(crate) struct SpatialTopology {
     content: Vec<ContentBinding>,
     scroll_paths: Vec<Vec<(composition::tree::NodeId, interaction::ScrollOffset)>>,
     binding_scroll_paths: HashMap<SpatialBinding, ScrollPathId>,
+    frame_scroll_paths: HashMap<composition::tree::NodeId, ScrollPathId>,
+    caret_states: HashMap<composition::tree::NodeId, Vec<PropertyState>>,
+    target_bindings: HashMap<interaction::Target, PresentedTargetBindings>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SpatialSnapshot {
+    property_serial: PropertySerial,
+    layers: Vec<PresentedLayer>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PresentedLayer {
+    commit: std::sync::Arc<Commit>,
+    properties: std::sync::Arc<Properties>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PresentedNode {
+    translation: [i32; 2],
+    clips: Vec<geometry::Rect>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct PresentedTargetBindings {
+    horizontal: Option<(composition::tree::NodeId, interaction::ScrollOffset)>,
+    vertical: Option<(composition::tree::NodeId, interaction::ScrollOffset)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -209,6 +236,10 @@ pub(crate) enum SpatialError {
     TooManyNodes,
     #[error("spatial binding does not reach its declared surface root")]
     InvalidSurfaceRoot,
+    #[error("scene node {0:?} has no candidate-owned frame scroll path")]
+    MissingFramePath(composition::tree::NodeId),
+    #[error("presented content node {0:?} has conflicting spatial projections")]
+    ConflictingPresentedContent(composition::tree::NodeId),
 }
 
 #[derive(Clone, Copy)]
@@ -284,6 +315,9 @@ impl SpatialTopology {
             content: Vec::new(),
             scroll_paths: vec![Vec::new()],
             binding_scroll_paths: HashMap::new(),
+            frame_scroll_paths: HashMap::new(),
+            caret_states: HashMap::new(),
+            target_bindings: HashMap::new(),
         };
         let scene_nodes = nodes
             .iter()
@@ -296,6 +330,8 @@ impl SpatialTopology {
             topology.compile_node_tree(nodes, &scene_nodes, &mut axis_owners)?;
         }
         topology.compile_scroll_paths()?;
+        topology.compile_frame_scroll_paths(nodes)?;
+        topology.compile_presented_indices();
         Ok(topology)
     }
 
@@ -472,7 +508,131 @@ impl SpatialTopology {
             .ok_or(SpatialError::InvalidSurfaceRoot)
     }
 
+    pub(crate) fn translated_content_rect(
+        &self,
+        properties: &Properties,
+        node: composition::tree::NodeId,
+        projection: ContentProjection,
+        rect: geometry::Rect,
+    ) -> Result<Option<geometry::Rect>, SpatialError> {
+        let mut translated = None;
+        for binding in self
+            .content
+            .iter()
+            .filter(|binding| binding.key.node == node && binding.key.projection == projection)
+        {
+            let translation = self.presented_world_scroll_translation(binding.state, properties)?;
+            let candidate = geometry::Rect::new(
+                rect.x().saturating_add(translation[0].round() as i32),
+                rect.y().saturating_add(translation[1].round() as i32),
+                rect.width(),
+                rect.height(),
+            );
+            if let Some(previous) = translated
+                && previous != candidate
+            {
+                return Err(SpatialError::ConflictingPresentedContent(node));
+            }
+            translated = Some(candidate);
+        }
+        Ok(translated)
+    }
+
+    fn translated_caret_rect(
+        &self,
+        properties: &Properties,
+        node: composition::tree::NodeId,
+        rect: geometry::Rect,
+    ) -> Result<Option<geometry::Rect>, SpatialError> {
+        let mut translated = None;
+        for state in self.caret_states.get(&node).into_iter().flatten() {
+            let translation = self.presented_world_scroll_translation(*state, properties)?;
+            let candidate = geometry::Rect::new(
+                rect.x().saturating_add(translation[0].round() as i32),
+                rect.y().saturating_add(translation[1].round() as i32),
+                rect.width(),
+                rect.height(),
+            );
+            if let Some(previous) = translated
+                && previous != candidate
+            {
+                return Err(SpatialError::ConflictingPresentedContent(node));
+            }
+            translated = Some(candidate);
+        }
+        Ok(translated)
+    }
+
+    fn presented_node(
+        &self,
+        commit: &Commit,
+        properties: &Properties,
+        node: composition::tree::NodeId,
+    ) -> Result<PresentedNode, SpatialError> {
+        let path = self
+            .frame_scroll_paths
+            .get(&node)
+            .copied()
+            .ok_or(SpatialError::MissingFramePath(node))?;
+        let entries = self
+            .scroll_paths
+            .get(path.index())
+            .ok_or(SpatialError::InvalidSurfaceRoot)?;
+        let mut translation = [0_i32; 2];
+        let mut clips = Vec::with_capacity(entries.len());
+        for (owner, baseline) in entries.iter().rev() {
+            let declaration = commit
+                .node(*owner)
+                .and_then(|node| node.scroll())
+                .ok_or(SpatialError::MissingScroll(*owner))?;
+            let viewport = declaration.viewport();
+            clips.push(geometry::Rect::new(
+                viewport.x().saturating_add(translation[0]),
+                viewport.y().saturating_add(translation[1]),
+                viewport.width(),
+                viewport.height(),
+            ));
+            let current = properties.scroll_offset(*owner).unwrap_or(*baseline);
+            translation[0] =
+                translation[0].saturating_add(baseline.x().saturating_sub(current.x()));
+            translation[1] =
+                translation[1].saturating_add(baseline.y().saturating_sub(current.y()));
+        }
+        Ok(PresentedNode { translation, clips })
+    }
+
+    fn presented_target_axes(
+        &self,
+        properties: &Properties,
+        target: &interaction::Target,
+    ) -> Option<(Option<i32>, Option<i32>)> {
+        let bindings = self.target_bindings.get(target)?;
+        let value = |binding: Option<(composition::tree::NodeId, interaction::ScrollOffset)>,
+                     axis: interaction::ScrollbarAxis| {
+            binding.map(|(owner, baseline)| {
+                let offset = properties.scroll_offset(owner).unwrap_or(baseline);
+                match axis {
+                    interaction::ScrollbarAxis::Horizontal => offset.x(),
+                    interaction::ScrollbarAxis::Vertical => offset.y(),
+                }
+            })
+        };
+        Some((
+            value(bindings.horizontal, interaction::ScrollbarAxis::Horizontal),
+            value(bindings.vertical, interaction::ScrollbarAxis::Vertical),
+        ))
+    }
+
     fn world_scroll_translation(&self, state: PropertyState, properties: &Properties) -> [f32; 2] {
+        self.presented_world_scroll_translation(state, properties)
+            .unwrap_or_default()
+    }
+
+    fn presented_world_scroll_translation(
+        &self,
+        state: PropertyState,
+        properties: &Properties,
+    ) -> Result<[f32; 2], SpatialError> {
         self.scroll_translation(
             SpatialBinding {
                 spatial: state.spatial.spatial,
@@ -480,7 +640,6 @@ impl SpatialTopology {
             },
             properties,
         )
-        .unwrap_or_default()
     }
 
     fn compile_scroll_paths(&mut self) -> Result<(), SpatialError> {
@@ -528,6 +687,86 @@ impl SpatialTopology {
             self.binding_scroll_paths.insert(binding, path);
         }
         Ok(())
+    }
+
+    fn compile_frame_scroll_paths(
+        &mut self,
+        nodes: &[std::sync::Arc<Node>],
+    ) -> Result<(), SpatialError> {
+        let by_id = nodes
+            .iter()
+            .map(|node| (node.id(), node.as_ref()))
+            .collect::<HashMap<_, _>>();
+        let mut interned = self
+            .scroll_paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                (
+                    path.iter().map(|(owner, _)| *owner).collect::<Vec<_>>(),
+                    ScrollPathId(index as u32),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        for node in nodes {
+            let mut entries = Vec::new();
+            let mut parent = node.parent();
+            while let Some(parent_id) = parent {
+                let parent_node = by_id
+                    .get(&parent_id)
+                    .copied()
+                    .ok_or(SpatialError::UnknownNode(parent_id))?;
+                if let Some(declaration) = parent_node.scroll() {
+                    entries.push((parent_id, declaration.baseline()));
+                }
+                parent = parent_node.parent();
+            }
+            let key = entries.iter().map(|(owner, _)| *owner).collect::<Vec<_>>();
+            let path = if let Some(path) = interned.get(&key).copied() {
+                path
+            } else {
+                let path = ScrollPathId(
+                    u32::try_from(self.scroll_paths.len())
+                        .map_err(|_| SpatialError::TooManyNodes)?,
+                );
+                self.scroll_paths.push(entries);
+                interned.insert(key, path);
+                path
+            };
+            self.frame_scroll_paths.insert(node.id(), path);
+        }
+        Ok(())
+    }
+
+    fn compile_presented_indices(&mut self) {
+        for binding in &self.content {
+            if binding.key.projection == ContentProjection::Caret {
+                let states = self.caret_states.entry(binding.key.node).or_default();
+                if !states.contains(&binding.state) {
+                    states.push(binding.state);
+                }
+            }
+        }
+        for node in &self.nodes {
+            let SpatialNodeKind::Scroll {
+                owner,
+                target: ScrollTarget::Interaction(target),
+                axes,
+                baseline,
+            } = &node.kind
+            else {
+                continue;
+            };
+            let bindings = self.target_bindings.entry(target.clone()).or_default();
+            if axes.horizontal {
+                debug_assert!(bindings.horizontal.is_none());
+                bindings.horizontal = Some((*owner, *baseline));
+            }
+            if axes.vertical {
+                debug_assert!(bindings.vertical.is_none());
+                bindings.vertical = Some((*owner, *baseline));
+            }
+        }
     }
 
     fn scroll_path_entries(
@@ -1036,6 +1275,153 @@ impl SpatialTopology {
     }
 }
 
+impl SpatialSnapshot {
+    pub(crate) fn from_stack(stack: &Stack) -> Result<Self, SpatialError> {
+        let property_serial = stack.base().properties().serial();
+        let mut layers = Vec::with_capacity(
+            stack
+                .layers()
+                .len()
+                .saturating_add(stack.spatial_supplements().len()),
+        );
+        for layer in stack.layers() {
+            layers.push(PresentedLayer {
+                commit: std::sync::Arc::clone(layer.drawable_commit()),
+                properties: layer.property_snapshot(),
+            });
+        }
+        for supplement in stack.spatial_supplements() {
+            layers.push(PresentedLayer {
+                commit: supplement.commit_snapshot(),
+                properties: supplement.property_snapshot(),
+            });
+        }
+        Ok(Self {
+            property_serial,
+            layers,
+        })
+    }
+
+    pub(crate) fn property_serial(&self) -> PropertySerial {
+        self.property_serial
+    }
+
+    pub(crate) fn project_point(
+        &self,
+        node: composition::tree::NodeId,
+        point: geometry::Point,
+        clip: bool,
+    ) -> Option<(geometry::Point, [i32; 2])> {
+        let projection = self.presented_node(node)?;
+        if clip && projection.clips.iter().any(|clip| !clip.contains(point)) {
+            return None;
+        }
+        Some((
+            geometry::Point::new(
+                point.x().saturating_sub(projection.translation[0]),
+                point.y().saturating_sub(projection.translation[1]),
+            ),
+            projection.translation,
+        ))
+    }
+
+    pub(crate) fn translated_rect(
+        &self,
+        node: composition::tree::NodeId,
+        rect: geometry::Rect,
+    ) -> Option<geometry::Rect> {
+        let translation = self.presented_node(node)?.translation;
+        Some(geometry::Rect::new(
+            rect.x().saturating_add(translation[0]),
+            rect.y().saturating_add(translation[1]),
+            rect.width(),
+            rect.height(),
+        ))
+    }
+
+    pub(crate) fn translated_caret_rect(
+        &self,
+        node: composition::tree::NodeId,
+        rect: geometry::Rect,
+    ) -> Option<geometry::Rect> {
+        let mut translated = None;
+        for layer in &self.layers {
+            let candidate = layer
+                .commit
+                .spatial_topology()
+                .translated_caret_rect(&layer.properties, node, rect)
+                .ok()
+                .flatten();
+            let Some(candidate) = candidate else {
+                continue;
+            };
+            if translated.is_some_and(|previous| previous != candidate) {
+                return None;
+            }
+            translated = Some(candidate);
+        }
+        translated
+    }
+
+    pub(crate) fn scroll_offset(
+        &self,
+        target: &interaction::Target,
+    ) -> Option<interaction::ScrollOffset> {
+        let mut horizontal = None;
+        let mut vertical = None;
+        let mut found = false;
+        for layer in &self.layers {
+            let Some((candidate_horizontal, candidate_vertical)) = layer
+                .commit
+                .spatial_topology()
+                .presented_target_axes(&layer.properties, target)
+            else {
+                continue;
+            };
+            found = true;
+            for (current, candidate) in [
+                (&mut horizontal, candidate_horizontal),
+                (&mut vertical, candidate_vertical),
+            ] {
+                if let Some(candidate) = candidate {
+                    if current.is_some_and(|value| value != candidate) {
+                        return None;
+                    }
+                    *current = Some(candidate);
+                }
+            }
+        }
+        found.then(|| {
+            interaction::ScrollOffset::new(
+                horizontal.unwrap_or_default(),
+                vertical.unwrap_or_default(),
+            )
+        })
+    }
+
+    fn presented_node(&self, node: composition::tree::NodeId) -> Option<PresentedNode> {
+        let mut projection = None;
+        for layer in &self.layers {
+            if layer.commit.node(node).is_none() {
+                continue;
+            }
+            let candidate = layer
+                .commit
+                .spatial_topology()
+                .presented_node(&layer.commit, &layer.properties, node)
+                .ok()?;
+            if projection
+                .as_ref()
+                .is_some_and(|previous| previous != &candidate)
+            {
+                return None;
+            }
+            projection = Some(candidate);
+        }
+        projection
+    }
+}
+
 fn close_scope(
     scopes: &mut Vec<Scope>,
     actual: &'static str,
@@ -1173,6 +1559,93 @@ mod tests {
                 .spatial()
                 .is_identity(),
             "scrolling below a surface root must remain in the surface-local binding"
+        );
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    #[test]
+    fn presented_snapshot_distinguishes_fixed_frame_and_moving_content_spaces() {
+        let fixture =
+            crate::scene::renderer_scroll_oracle_fixture(crate::scene::ScrollOracleCase::F03)
+                .expect("group-under-scroll fixture");
+        let rule = fixture
+            .moving
+            .iter()
+            .find(|region| region.name == "ungrouped-rule")
+            .copied()
+            .expect("rule oracle region");
+        let grouped = fixture
+            .moving
+            .iter()
+            .find(|region| region.name == "grouped-quad")
+            .copied()
+            .expect("grouped oracle region");
+        let scroll = composition::tree::NodeId::renderer_fixture(46);
+        let group = composition::tree::NodeId::renderer_fixture(47);
+        let commit = Arc::new(fixture.actual);
+
+        assert_eq!(
+            commit
+                .spatial_topology()
+                .translated_content_rect(
+                    &fixture.tick,
+                    scroll,
+                    ContentProjection::Normal,
+                    rule.initial,
+                )
+                .expect("rule spatial evaluation"),
+            Some(rule.translated),
+            "content on the viewport owner must consume its own scroll binding"
+        );
+        assert_eq!(
+            commit
+                .spatial_topology()
+                .translated_content_rect(
+                    &fixture.tick,
+                    group,
+                    ContentProjection::Normal,
+                    grouped.initial,
+                )
+                .expect("grouped spatial evaluation"),
+            Some(grouped.translated),
+            "surface-local content must regain the outer surface translation exactly once"
+        );
+
+        let stack = Stack::new(
+            Arc::clone(&commit),
+            Arc::clone(&commit),
+            Arc::<[crate::scene::Residency]>::from([]),
+            fixture.tick,
+        );
+        let snapshot = SpatialSnapshot::from_stack(&stack).expect("presented spatial snapshot");
+        assert_eq!(
+            snapshot.translated_rect(scroll, rule.initial),
+            Some(rule.initial),
+            "the viewport owner's frame/hit space remains fixed"
+        );
+        assert_eq!(
+            snapshot.translated_rect(group, grouped.initial),
+            Some(grouped.translated),
+            "a descendant frame consumes the outer scroll"
+        );
+        let translated_center = geometry::Point::new(
+            grouped.translated.x() + grouped.translated.width() / 2,
+            grouped.translated.y() + grouped.translated.height() / 2,
+        );
+        assert_eq!(
+            snapshot.project_point(group, translated_center, true),
+            Some((
+                geometry::Point::new(
+                    grouped.initial.x() + grouped.initial.width() / 2,
+                    grouped.initial.y() + grouped.initial.height() / 2,
+                ),
+                [-20, 0],
+            ))
+        );
+        assert_eq!(
+            snapshot.project_point(group, geometry::Point::new(4, 24), true),
+            None,
+            "the fixed viewport clip must reject points outside the submitted viewport"
         );
     }
 

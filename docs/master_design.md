@@ -608,12 +608,15 @@ explicit synthetic target such as a table divider or input indicator. Those
 sources are alternatives, never parallel optional claims; cell provenance may
 accompany any of them independently.
 
-Hit testing v1 reads layout truth. At fractional scale, painted device-snapped
-edges and integer layout hit edges may differ by less than one device pixel;
-that tolerance is accepted until a real spatial-presentation animation needs
-presentation-space hit acquisition. When that caller exists, pointer hits
-should follow the visible presentation position, while keyboard focus, reveal,
-caret geometry, and scroll remain layout-space concepts.
+Hit testing reads semantic frame geometry through the last
+`present_submitted` scene's spatial evaluator. The candidate commit compiles
+frame paths, content/caret states, fixed clips, and typed scroll-target axes;
+runtime never rebuilds scroll ancestry from layout. Layout remains the owner of
+authored rectangles and hit meaning, while the submitted property snapshot is
+the owner of their current spatial projection. At fractional scale, painted
+device-snapped edges and integer logical hit edges may still differ by less
+than one device pixel; that raster tolerance does not permit candidate or stale
+scroll geometry to enter input.
 
 The OS pointer cursor is a promise about what an ordinary primary press would
 do now. Runtime resolves one private `ResolvedPress` from last-presented,
@@ -920,10 +923,12 @@ from the physical window currently under the pointer. Raw parent/popup
 enter-move-leave events switch that host immediately, reset the old host, and
 apply the stored value to the new host even when logical cursor dedup observes
 no value change. Layout's focused text caret rectangle is the one geometry used
-by caret paint and IME placement. Runtime projects that rectangle onto the
-physical host declared by overlay ownership: parent coordinates for in-frame
-content, popup-local coordinates for a native floating panel. Platform applies
-the IME update only after popup synchronization; native routing disables the
+by caret paint and IME placement. The actual backend presentation carries its
+authored caret node/rectangle and resolves it through the matching
+`present_submitted` spatial/property snapshot: parent coordinates for in-frame
+content, popup-local coordinates for a native floating panel. Popup host
+preparation precedes parent submission, but platform applies no candidate IME
+geometry until that exact parent receipt succeeds. Native routing disables the
 previous popup geometry host, keeps the parent context enabled as the logical
 keyboard authority, and gives the declared parent or popup host the cursor
 area. IME preedit, commit, and disable events received by a popup remain
@@ -1826,21 +1831,26 @@ scroll, resize, focus, hover, animation, and other session or visual changes
 that need not mutate the model. A prepared frame captures an epoch, candidate
 layout, immutable scene stack, and compatible property snapshot, but prepared
 is not presented. Only a successful platform receipt acknowledges the epoch and
-promotes the layout plus the exact sampled property state to visible truth.
-Skipped, lost, occluded, or otherwise unsuccessful attempts leave the prior
-active geometry/properties authoritative.
+promotes the layout plus exact sampled property state to `present_submitted`
+truth. This names queue submission followed by the surface present call; it is
+not scanout or human visibility feedback. Skipped, lost, occluded, or otherwise
+unsuccessful attempts leave the prior submitted geometry/properties
+authoritative.
 
-Presented geometry is the active commit's keyed layout geometry, its compatible
-residency revisions, and the successfully presented property snapshot under the
-established scale/space projection. Scroll requests update desired interaction
-state immediately, but only an admitted offset becomes property truth. Movement
-inside active residency is a property tick: it advances neither semantic nor
-residency revision and performs zero scene paint, text shape/prepare, primitive
-prepare, or content upload. Crossing the resident runway prepares a bounded
-residency revision. Hit testing, hover, capture, cursor, selection, divider
-manipulation, IME, reveal, scrollbar projection, and popup placement all consume
-the same receipted admitted transform; none may read a newer desired offset or
-ask the renderer where it drew.
+Presented geometry is the current `present_submitted` layout plus a lazy
+`SpatialSnapshot` over the actual submitted drawable/property layers and
+geometry-only native-popup supplements. Capturing it is bounded by layer count;
+node, caret, clip, and target-axis queries evaluate topology-compiled paths on
+demand rather than scanning scene nodes on each property frame. Scroll requests
+update desired interaction state immediately, resident acceptance names a
+separate boundary, and neither can replace submitted geometry. Movement inside
+active residency is a property tick: it advances neither semantic nor residency
+revision and performs zero scene paint, text shape/prepare, primitive prepare,
+or content upload. Crossing the resident runway prepares a bounded residency
+revision. Hit testing, hover, capture, cursor, selection, divider manipulation,
+IME, reveal, scrollbar projection, and popup placement consume the same
+receipted transform; none may read a newer desired/candidate offset or ask the
+renderer where it drew.
 
 Pointer input is interpreted through last-presented geometry, because the user
 cannot target a private candidate they never saw. Interaction retains logical

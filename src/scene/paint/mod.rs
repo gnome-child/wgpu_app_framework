@@ -242,7 +242,7 @@ impl Retained {
                     .context_fingerprint(panel.popup_context())
                     .popup_material_preference(popup_material_preference(panel))
                     .popup_border(theme.floating_panel().border())
-                    .text_caret_rect(text_caret_rect_for_panel(layout, panel))
+                    .text_caret(text_caret_for_panel(layout, panel))
                     .accepts_input(panel.panel_accepts_input())
                     .force_group_at_full_opacity(panel.force_overlay_group()),
                 );
@@ -837,7 +837,7 @@ fn paint_overlay_entries(
                     .context_fingerprint(panel.popup_context())
                     .popup_material_preference(popup_material_preference(panel))
                     .popup_border(theme.floating_panel().border())
-                    .text_caret_rect(text_caret_rect_for_panel(layout, panel))
+                    .text_caret(text_caret_for_panel(layout, panel))
                     .accepts_input(panel.panel_accepts_input())
                     .force_group_at_full_opacity(panel.force_overlay_group())
             })
@@ -849,15 +849,15 @@ fn frame_belongs_to_panel(frame: &layout::Frame, panel: &layout::Frame) -> bool 
     frame.node_id() == panel.node_id() || frame.is_descendant_of(panel)
 }
 
-fn text_caret_rect_for_panel(
+fn text_caret_for_panel(
     layout: &layout::Layout,
     panel: &layout::Frame,
-) -> Option<geometry::Rect> {
+) -> Option<(composition::tree::NodeId, geometry::Rect)> {
     layout
         .frames()
         .iter()
         .filter(|frame| frame_belongs_to_panel(frame, panel))
-        .find_map(layout::Frame::text_caret_rect)
+        .find_map(|frame| frame.text_caret_rect().map(|area| (frame.node_id(), area)))
 }
 
 fn popup_material_preference(panel: &layout::Frame) -> overlay::PopupMaterialPreference {

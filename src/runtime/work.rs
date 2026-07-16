@@ -29,7 +29,7 @@ pub(crate) struct Work {
 pub(crate) struct RenderWork {
     presentations: Vec<scene::Presentation>,
     popup_presentations: Option<Vec<overlay::PopupPresentation>>,
-    ime_updates: Vec<ime::Update>,
+    ime_projections: Vec<ime::Projection>,
     requests: Vec<session::Request>,
     cursor_updates: Vec<pointer::Update>,
     pending_tasks: usize,
@@ -132,7 +132,7 @@ impl RenderWork {
     pub(super) fn new(
         presentations: Vec<scene::Presentation>,
         popup_presentations: Option<Vec<overlay::PopupPresentation>>,
-        ime_updates: Vec<ime::Update>,
+        ime_projections: Vec<ime::Projection>,
         requests: Vec<session::Request>,
         cursor_updates: Vec<pointer::Update>,
         pending_tasks: usize,
@@ -143,7 +143,7 @@ impl RenderWork {
         Self {
             presentations,
             popup_presentations,
-            ime_updates,
+            ime_projections,
             requests,
             cursor_updates,
             pending_tasks,
@@ -161,8 +161,8 @@ impl RenderWork {
         self.popup_presentations.as_deref()
     }
 
-    pub(crate) fn ime_updates(&self) -> &[ime::Update] {
-        &self.ime_updates
+    pub(crate) fn ime_projections(&self) -> &[ime::Projection] {
+        &self.ime_projections
     }
 
     pub(crate) fn requests(&self) -> &[session::Request] {
@@ -193,7 +193,7 @@ impl RenderWork {
     pub(crate) fn is_empty(&self) -> bool {
         self.presentations.is_empty()
             && self.popup_presentations.is_none()
-            && self.ime_updates.is_empty()
+            && self.ime_projections.is_empty()
             && self.requests.is_empty()
             && self.cursor_updates.is_empty()
             && self.pending_tasks == 0

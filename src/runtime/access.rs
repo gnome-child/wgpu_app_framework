@@ -393,11 +393,26 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 for (target, offset) in present_submitted_offsets {
                     self.session.accept_resident_scroll(window, target, offset);
                 }
+                let spatial = match super::super::scene::SpatialSnapshot::from_stack(stack) {
+                    Ok(spatial) => spatial,
+                    Err(error) => {
+                        log::error!(
+                            "present-submitted spatial snapshot failed for window {window:?}: {error}"
+                        );
+                        self.presented_geometry.remove(&window);
+                        return false;
+                    }
+                };
+                debug_assert_eq!(
+                    spatial.property_serial(),
+                    stack.base().properties().serial()
+                );
                 self.presented_geometry.insert(
                     window,
                     super::PresentedGeometry {
                         layout: std::sync::Arc::new(layout.clone()),
                         stack: std::sync::Arc::clone(stack),
+                        spatial,
                     },
                 );
                 let location = self
@@ -456,6 +471,28 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
         }
         !present_submitted
+    }
+
+    pub(crate) fn presented_ime_update(
+        &self,
+        window: window::Id,
+        property_serial: super::super::scene::PropertySerial,
+        projection: super::super::ime::Projection,
+    ) -> super::super::ime::Update {
+        let Some(geometry) = self.presented_geometry.get(&window) else {
+            log::error!(
+                "present-submitted IME projection has no presented geometry for window {window:?}"
+            );
+            return projection.disabled();
+        };
+        if geometry.spatial.property_serial() != property_serial {
+            log::error!(
+                "present-submitted IME property mismatch for window {window:?}: geometry={:?} receipt={property_serial:?}",
+                geometry.spatial.property_serial()
+            );
+            return projection.disabled();
+        }
+        projection.resolve(|node, area| geometry.spatial.translated_caret_rect(node, area))
     }
 
     pub(crate) fn presented_layout(

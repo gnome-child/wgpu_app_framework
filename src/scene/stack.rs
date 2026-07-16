@@ -9,6 +9,7 @@ use super::{
 pub(crate) struct Stack {
     clear: Color,
     layers: Vec<Layer>,
+    spatial_supplements: Vec<SpatialSupplement>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,6 +23,12 @@ pub(crate) struct Layer {
     opacity: f32,
     force_group: bool,
     material: MaterialProjection,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SpatialSupplement {
+    commit: Arc<Commit>,
+    properties: Arc<Properties>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +52,7 @@ impl Stack {
         Self {
             clear,
             layers: vec![Layer::base(commit, drawable, residencies, properties)],
+            spatial_supplements: Vec::new(),
         }
     }
 
@@ -52,11 +60,22 @@ impl Stack {
         Self {
             clear,
             layers: vec![layer],
+            spatial_supplements: Vec::new(),
         }
     }
 
     pub(crate) fn push(&mut self, layer: Layer) {
         self.layers.push(layer);
+    }
+
+    pub(crate) fn push_spatial_supplement(
+        &mut self,
+        commit: Arc<Commit>,
+        properties: Arc<Properties>,
+    ) {
+        debug_assert!(properties.require_compatible(&commit).is_ok());
+        self.spatial_supplements
+            .push(SpatialSupplement { commit, properties });
     }
 
     pub(crate) fn clear(&self) -> Color {
@@ -65,6 +84,10 @@ impl Stack {
 
     pub(crate) fn layers(&self) -> &[Layer] {
         &self.layers
+    }
+
+    pub(crate) fn spatial_supplements(&self) -> &[SpatialSupplement] {
+        &self.spatial_supplements
     }
 
     pub(crate) fn base(&self) -> &Layer {
@@ -86,6 +109,22 @@ impl Stack {
         debug_assert!(properties.require_compatible(self.base().commit()).is_ok());
         let mut stack = self.clone();
         stack.layers[0].properties = Arc::new(properties);
+        stack
+    }
+
+    pub(crate) fn with_base_properties_and_spatial_supplements(
+        &self,
+        properties: Properties,
+        supplements: &Self,
+    ) -> Self {
+        let mut stack = self.with_base_properties(properties);
+        stack.spatial_supplements = supplements.spatial_supplements.clone();
+        stack
+    }
+
+    pub(crate) fn with_spatial_supplements(&self, supplements: &Self) -> Self {
+        let mut stack = self.clone();
+        stack.spatial_supplements = supplements.spatial_supplements.clone();
         stack
     }
 
@@ -190,6 +229,10 @@ impl Layer {
         &self.properties
     }
 
+    pub(crate) fn property_snapshot(&self) -> Arc<Properties> {
+        Arc::clone(&self.properties)
+    }
+
     pub(crate) fn residencies(&self) -> &[Residency] {
         &self.residencies
     }
@@ -223,6 +266,16 @@ impl Layer {
                 .all(|(left, right)| {
                     left.scroll() == right.scroll() && left.revision() == right.revision()
                 })
+    }
+}
+
+impl SpatialSupplement {
+    pub(crate) fn commit_snapshot(&self) -> Arc<Commit> {
+        Arc::clone(&self.commit)
+    }
+
+    pub(crate) fn property_snapshot(&self) -> Arc<Properties> {
+        Arc::clone(&self.properties)
     }
 }
 

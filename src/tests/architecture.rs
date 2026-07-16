@@ -4225,20 +4225,25 @@ fn ime_caret_geometry_follows_the_physical_text_host() {
         "caret paint and IME projection must consume one layout-owned rectangle"
     );
     assert!(
-        runtime.contains("layout.text_caret_rect()")
-            && runtime.contains("ime::Target::popup(layer.id(), area, layer.bounds())")
+        runtime.contains("self.layout.text_caret()")
+            && runtime.contains("ime::ProjectionTarget::popup(")
             && runtime.contains("layer.backend() == crate::overlay::Backend::NativePopup"),
-        "runtime must project focused caret geometry through the resolved overlay host"
+        "runtime must preserve focused caret ownership through the resolved overlay host"
     );
     let popup_sync = platform
         .find("self.backend.present_overlay_popups")
         .expect("platform should synchronize popups");
-    let ime_sync = platform[popup_sync..]
-        .find("self.backend.set_ime(context, *update)")
-        .expect("platform should apply IME projection after popup sync");
+    let parent_present = platform[popup_sync..]
+        .find("self.backend.present(context, presentation)")
+        .expect("platform should submit the parent after popup host synchronization");
     assert!(
-        ime_sync > 0,
-        "IME host must exist before its cursor area is applied"
+        parent_present > 0
+            && platform.contains("fn apply_present_submitted_ime(")
+            && platform.contains(".presented_ime_update(")
+            && platform.contains("property_serial,")
+            && platform.contains("ime_projection,")
+            && platform.contains("self.backend.set_ime(context, update)?"),
+        "IME host preparation must precede the parent submission whose exact spatial snapshot resolves its cursor area"
     );
     assert!(
         native_ime.contains("popup.host.window.set_ime_allowed(false)")
@@ -6472,6 +6477,49 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
 }
 
 #[test]
+fn presented_geometry_uses_the_present_submitted_candidate_spatial_snapshot() {
+    let runtime = include_str!("../runtime/mod.rs");
+    let runtime_access = include_str!("../runtime/access.rs");
+    let spatial = include_str!("../scene/spatial.rs");
+    let platform = include_str!("../platform/mod.rs");
+    let runtime_presentation = include_str!("../runtime/presentation.rs");
+    let stack = include_str!("../scene/stack.rs");
+    let shell_presentation = include_str!("../shell/presentation.rs");
+    let snapshot_impl = spatial
+        .split("impl SpatialSnapshot {")
+        .nth(1)
+        .expect("presented spatial evaluator implementation should exist");
+
+    assert!(
+        spatial.contains("pub(crate) struct SpatialSnapshot")
+            && runtime.contains("spatial: scene::SpatialSnapshot")
+            && runtime.contains("self.spatial.project_point(")
+            && runtime_access.contains("SpatialSnapshot::from_stack(stack)")
+            && !runtime.contains("self.layout.scroll_ancestry(node)"),
+        "runtime geometry must evaluate the present-submitted candidate topology instead of rebuilding layout ancestry"
+    );
+    assert!(
+        spatial.contains("layers: Vec<PresentedLayer>")
+            && spatial.contains("frame_scroll_paths")
+            && spatial.contains("caret_states")
+            && spatial.contains("target_bindings")
+            && !snapshot_impl.contains("for node in commit.nodes()")
+            && stack.contains("spatial_supplements: Vec<SpatialSupplement>")
+            && runtime_presentation.contains("stack.push_spatial_supplement("),
+        "present submission must capture Arc-backed lazy topology evaluators, including geometry-only native-popup layers, without scanning every scene node on a warm tick"
+    );
+    assert!(
+        shell_presentation.contains("ime_projection: ime::Projection")
+            && platform.contains("let ime_projection = presented.ime_projection()")
+            && platform.contains("apply_present_submitted_ime")
+            && runtime_access.contains("presented_ime_update(")
+            && !platform.contains("pending_ime_updates")
+            && !platform.contains("work.ime_updates()"),
+        "IME geometry must travel with the actual presentation and resolve only through its successful present-submitted snapshot"
+    );
+}
+
+#[test]
 fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     let interaction = include_str!("../interaction/scroll.rs");
     let dispatch = include_str!("../runtime/input/dispatch.rs");
@@ -6581,6 +6629,7 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
     let presentation = include_str!("../runtime/presentation.rs");
     let scene_commit = include_str!("../scene/commit.rs");
     let scene_paint = include_str!("../scene/paint/mod.rs");
+    let spatial = include_str!("../scene/spatial.rs");
     let retained = include_str!("../render/retained.rs");
 
     assert!(
@@ -6610,8 +6659,11 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
                 .contains("let mut present_submitted_offsets = std::collections::HashMap::new();")
             && access.contains("current.x().max(offset.x())")
             && access.contains("current.y().max(offset.y())")
-            && runtime
-                .contains("projection.target() == target && projection.viewport() == viewport",),
+            && spatial.contains("target_bindings")
+            && spatial.contains("fn presented_target_axes(")
+            && runtime.contains("self.spatial")
+            && runtime.contains(".scroll_offset(target)")
+            && runtime.contains("unwrap_or_else(|| viewport.resolved_scroll())"),
         "shared multi-axis targets must aggregate their projections for clamp/feedback and resolve hit coordinates through the exact viewport"
     );
     assert!(

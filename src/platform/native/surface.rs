@@ -229,14 +229,16 @@ impl Native {
                         match rebased {
                             Ok(properties) => {
                                 activation_from_pending = true;
-                                break completed.prepared.with_activation_properties(properties);
+                                break completed
+                                    .prepared
+                                    .with_activation_properties(properties, &successor);
                             }
                             Err(error) => {
                                 log::debug!(
                                     "activating prepared forward progress while a newer scroll state continues preparation: {error}"
                                 );
                                 activation_from_pending = true;
-                                break completed.prepared;
+                                break completed.prepared.with_spatial_supplements(&successor);
                             }
                         }
                     }
@@ -451,8 +453,8 @@ fn project_onto_active(
     newest: &shell::Presentation,
 ) -> shell::Presentation {
     match active.stack().project_base_properties(newest.properties()) {
-        Some((properties, true)) => active.with_active_properties(properties),
-        Some((_, false)) | None => active.clone(),
+        Some((properties, true)) => active.with_active_properties(properties, newest),
+        Some((_, false)) | None => active.with_spatial_supplements(newest),
     }
 }
 

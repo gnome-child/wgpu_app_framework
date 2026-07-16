@@ -1,6 +1,6 @@
 # Scroll source census
 
-Status: **SC-006 PRESENTATION-CADENCE OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
+Status: **SC-008 PRESENT-SUBMITTED GEOMETRY OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
 
 Date: 2026-07-16
 
@@ -8,7 +8,7 @@ Execution base: `master` after integration commit `cd00554d`
 
 Authority: `docs/audits/2026-07-16-payload-neutral-scroll-architecture-campaign.md`
 
-This is a production-path census, not a claim that every listed path is wrong. It records every known owner, projection, interpreter, representation adapter, scheduling boundary, and diagnostic consumer that can affect scrolling. SC-002 and SC-010 must update this file rather than relying on memory or a narrower symbol search.
+This is a production-path census, not a claim that every listed path is wrong. It records every known owner, projection, interpreter, representation adapter, scheduling boundary, and diagnostic consumer that can affect scrolling. SC-002, SC-008, and SC-010 update this file rather than relying on memory or a narrower symbol search.
 
 ## 1. Fact ownership baseline
 
@@ -18,12 +18,12 @@ This is a production-path census, not a claim that every listed path is wrong. I
 | Target-local fractional remainder plus requested/desired and resident-accepted offset | `src/interaction/scroll.rs::Scroll` | `src/interaction/mod.rs`, `src/session/interaction/scroll.rs` | SC-004 closed state names; SC-005 made interaction the sole fractional accumulator and kept desired/resident offsets integral. |
 | Request, clamp, resident acceptance | `src/runtime/input/dispatch.rs::apply_scroll_transition` | presented layout and virtual request lookup | SC-004 closed the transition vocabulary; desired intent survives residency rejection. |
 | Legal range and resident acceptance | `src/layout/mod.rs::ScrollProjection` and `Layout` methods | `src/layout/viewport.rs`, `src/layout/frame.rs`, `src/scene/residency.rs` | Layout/residency remains range owner; axis ownership becomes typed in SC-002/SC-004. |
-| Node-to-scroll ancestry | `src/layout/mod.rs::scroll_ancestries` | scene paint ordering and runtime point projection | Superseded by normalized topology in SC-002/SC-008, then deleted in SC-010 if no non-spatial consumer remains. |
+| Node-to-scroll ancestry | candidate-owned `src/scene/spatial.rs::SpatialTopology::{frame_scroll_paths,binding_scroll_paths}` for submitted rendering/input; `src/layout/mod.rs::scroll_ancestries` remains a scene-paint construction input | scene paint ordering plus lazy present-submitted frame/content evaluators | Runtime input ancestry was deleted in SC-008. SC-010 owns the remaining layout-to-scene migration/deletion decision. |
 | Candidate property values and dirty indices | `src/scene/paint/mod.rs::property_snapshot` and `src/scene/commit.rs::Properties` | scene stack, renderer, compatibility scene | SC-003 closed stable topology-local indices, block-shared values, and authoritative dirty production independently of spatial replacement. |
 | Candidate spatial ancestry, surface roots, clip/effect references, target identity, and axis ownership | `src/scene/spatial.rs::SpatialTopology`, immutably owned by `src/scene/commit.rs::Commit` | semantic/drawable projection, compatibility emission, retained plan compiler, renderer property adapters | SC-002 closed this ownership replacement. Draw order remains structural input/output, not an ancestry owner. |
 | Requested and present-submitted presentation epochs | private `src/session/window.rs::PresentationState` | runtime candidate selection and successful render feedback | SC-004 closed one owner. Requests advance requested state; retry does not; stale, duplicate, and future receipts cannot advance present-submitted state. |
 | Installed GPU property generation | retained node/scroll `PropertySlot::property_serial` derived from `scene::Properties::{serial, predecessor}` | sparse property preparation and explicit full resynchronization | SC-004 closed skipped-generation recovery. Sparse mutation requires the direct predecessor and exclusive commit ownership. |
-| Runtime-presented geometry | `src/runtime/access.rs::finish_render_report_with_kind` | `src/runtime/mod.rs::PresentedGeometry`, pointer/routing/context menu | SC-004 names the boundary `present_submitted`; SC-008 consumes normalized topology. |
+| Runtime-presented geometry | `src/runtime/access.rs::finish_render_report_with_kind` installs `src/scene/spatial.rs::SpatialSnapshot` from the successful submitted stack | `src/runtime/mod.rs::PresentedGeometry`, pointer/drag/routing/context menu, scrollbar routing, IME | SC-008 closed lazy topology-backed projection. Candidate/skipped geometry cannot replace this snapshot. |
 | Surface acquire, queue submit, and present call | `src/render/surface.rs` | runtime report and scroll/render diagnostics | SC-006 records actual call boundaries. `present_submitted` remains a submit/present-call fact with no scanout claim. |
 | Redraw demand and in-flight deduplication | `src/platform/mod.rs::RedrawRequests` | all backend request, delivery, retry, continuation, and close paths | SC-006 closed one immediate issuance owner. Native runner completion clocks and duplicate demand sets are deleted. |
 
@@ -37,7 +37,7 @@ SC-002 removed the independent scene/renderer ancestry interpreters. Remaining p
 | Compatibility emission adapter | `src/scene/spatial.rs::SpatialTopology::emit_compatibility_until` | runtime frame realization and popup compatibility scenes | Structural grouping/clip emission; all movement comes from normalized world bindings. The old commit-local interpreter is deleted. |
 | Shared resumable retained compiler | `src/render/retained.rs::PendingPlan::advance` | both incremental and direct preparation | Sole plan compiler. Direct preparation executes this compiler with an unbounded slice; `PlanBuilder::build_order` is deleted. |
 | Representation encoder | `src/render/renderer.rs::PlanEncoder` | direct and sampled surface encoding | Consumes compiled bindings for groups, panes, clips, scroll viewports, shapes, and text. Mutable `scroll_translation` ancestry is deleted. |
-| Presented point projection | `src/runtime/mod.rs::PresentedGeometry::project_point` | hit testing, pointer, drag, context routing | Evaluate the last present-submitted normalized topology in SC-008. |
+| Presented spatial evaluator | `src/scene/spatial.rs::SpatialSnapshot`, installed by `src/runtime/access.rs` | hit testing, pointer, drag, context routing, scroll target/axis lookup, caret/IME projection, and native-popup surface input | SC-008 closed. The snapshot captures Arc-backed submitted layers, evaluates precompiled frame paths/caret states/target bindings lazily, and performs no scene-node scan on a warm submission. |
 
 Known payload adapters that must consume the compiled spatial result without independently deriving ancestry:
 
@@ -77,6 +77,9 @@ Known payload adapters that must consume the compiled spatial result without ind
 - `src/runtime/routing.rs`
 - `src/runtime/context_menu.rs`
 - `src/runtime/visual.rs`
+- `src/ime.rs`
+- `src/shell/presentation.rs`
+- `src/shell/work.rs`
 
 ### Layout, viewport, and residency
 
@@ -118,6 +121,7 @@ Known payload adapters that must consume the compiled spatial result without ind
 - `src/platform/native/adapter.rs`
 - `src/platform/native/window.rs`
 - `src/platform/native/popup.rs`
+- `src/platform/native/surface.rs`
 
 ### Diagnostics and executable witnesses
 
@@ -184,6 +188,22 @@ SC-006 presentation-cadence ownership changes:
 - `render::surface` timestamps acquire start/finish, queue submission, and the completed `frame.present()` call. Runtime `present_submitted_at` uses that present-call timestamp rather than later post-present work.
 - Renderer diagnostics and external receipt validation expose redraw requests issued, redraw deliveries, and no-progress redraws in addition to event latency, frame intervals, missed opportunities, CPU stages, acquire, encode/submit/present, and skipped frames.
 - The exact 12-case suite covers steady/burst/delayed demand at 60/90/120/144 Hz. A retained test model proves the deleted completion anchor rejects demand immediately after a present.
+
+SC-007 residency ownership changes:
+
+- `Layout::residency_demand` returns one payload-neutral target/offset demand with optional materialization adapters; text, table, and virtual-list crossings share the same transition boundary.
+- Scroll trace schema v3 attributes candidate and renderer work to the selected candidate/property/present-submitted generation and leaves resident property ticks without cold-work fields.
+- Text cold admission streams bounded source/glyph bands. Exact global no-wrap extent discovery remains separately named `ColdStart`; it does not admit whole-document glyph storage.
+
+SC-008 present-submitted geometry ownership changes:
+
+- `SpatialTopology` compiles frame scroll paths, caret content states, and typed interaction-target axis bindings once with the candidate commit. Fixed frame/hit space and moving content/caret space are distinct named projections of the same topology.
+- `SpatialSnapshot::from_stack` captures only Arc-backed drawable/property layers and native-popup spatial supplements. It does not traverse `commit.nodes()` or eagerly rebuild every translated node on a warm property submission.
+- `PresentedGeometry` delegates point, rectangle, clip, and target-offset queries to that lazy snapshot. Runtime production contains no `scroll_ancestry` read.
+- Native popup layers enter the stack only as geometry-only `SpatialSupplement` records; they never become parent draw layers. Popup-surface hit testing therefore uses the same candidate topology while preserving independent native presentation.
+- IME carries an authored `ime::Projection` with the actual backend presentation. Only a matching successful present-submitted epoch/property serial resolves it through the installed snapshot. Failed, deferred, stale, and superseded candidates cannot expose caret geometry.
+- The end-to-end text witness proves a 20-pixel property scroll moves submitted parent IME geometry by exactly 20 pixels. Popup host preparation may precede parent submission, but popup IME activation waits for that exact parent receipt.
+- No AccessKit/accessibility tree or platform adapter exists in production. SC-008 therefore records the absent consumer and preserves the snapshot seam; it does not claim accessibility bounds were emitted or tested.
 
 ## 4. Property work census
 
@@ -257,7 +277,8 @@ rg -l 'PushScroll|PopScroll|ScrollDeclaration' src tools
 rg -l 'TargetSpace|ScrollBinding|PropertyBinding' src tools
 rg -l 'project_semantic_order|emit_compatibility_until|PendingPlan|PlanBuilder|PlanEncoder' src tools
 rg -l 'SpatialTopology|SpatialBinding|SurfaceRoot|AxisOwnership|ScrollTarget' src tools
-rg -l 'project_point|presented_geometry|record_present_submitted|present_submitted_epoch' src tools
+rg -l 'SpatialSnapshot|frame_scroll_paths|caret_states|target_bindings|spatial_supplement' src tools
+rg -l 'project_point|presented_geometry|presented_ime_update|record_present_submitted|present_submitted_epoch' src tools
 rg -l 'RedrawRequests|request_backend_redraw|request_redraw|RedrawRequested|redraw_no_progress' src tools
 rg -l 'redraw_requested_at|redraw_delivered_at|candidate_constructed_at|acquire_started_at|queue_submitted_at|surface_present_called_at' src tools
 rg -l 'property_upload_bytes|prepare_node_properties|prepare_scroll_properties' src tools

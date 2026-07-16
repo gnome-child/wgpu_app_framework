@@ -36,7 +36,7 @@ struct PreparedFrame {
 struct RealizedFrame {
     presentation: scene::Presentation,
     popup_presentations: Vec<crate::overlay::PopupPresentation>,
-    ime_update: ime::Update,
+    ime_projection: ime::Projection,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -78,7 +78,8 @@ impl PreparedFrame {
             Arc::clone(&self.residencies),
             self.properties.clone(),
         );
-        let ime_target = ime_target_for_layers(self.layout.text_caret_rect(), &self.layers);
+        let ime_projection =
+            ime_projection_for_layers(self.window, self.layout.text_caret(), &self.layers);
         let mut popup_presentations = Vec::new();
 
         for layer in &self.layers {
@@ -100,6 +101,11 @@ impl PreparedFrame {
                             layer,
                             scene::MaterialProjection::Source,
                         ));
+                    } else if layer.kind() == crate::overlay::LayerKind::Live {
+                        stack.push_spatial_supplement(
+                            Arc::clone(layer.commit()),
+                            Arc::clone(layer.properties()),
+                        );
                     }
                 }
                 crate::overlay::LayerKind::Ghost => {
@@ -124,7 +130,7 @@ impl PreparedFrame {
                 self.property_only,
             ),
             popup_presentations,
-            ime_update: ime::Update::new(self.window, ime_target),
+            ime_projection,
         }
     }
 }
@@ -751,11 +757,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         size_for: impl FnMut(window::Id) -> geometry::Size,
     ) -> work::RenderWork {
-        let (presentations, popup_presentations, ime_updates) = self.render_pending(size_for);
+        let (presentations, popup_presentations, ime_projections) = self.render_pending(size_for);
         work::RenderWork::new(
             presentations,
             popup_presentations,
-            ime_updates,
+            ime_projections,
             self.requests(),
             self.session.take_cursor_updates(),
             self.pending_tasks(),
@@ -783,7 +789,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> work::RenderWork {
         let mut presentations = Vec::new();
         let mut popup_presentations = Vec::new();
-        let mut ime_updates = Vec::new();
+        let mut ime_projections = Vec::new();
 
         if let Some(need) = self.frame_need(window) {
             let theme = self.active_theme();
@@ -793,7 +799,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 let realized = prepared.realize();
                 presentations.push(realized.presentation);
                 popup_presentations.extend(realized.popup_presentations);
-                ime_updates.push(realized.ime_update);
+                ime_projections.push(realized.ime_projection);
             }
         }
 
@@ -801,7 +807,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         work::RenderWork::new(
             presentations,
             popup_presentations,
-            ime_updates,
+            ime_projections,
             self.requests(),
             self.session.take_cursor_updates(),
             self.pending_tasks(),
@@ -1411,7 +1417,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     ) -> (
         Vec<scene::Presentation>,
         Option<Vec<crate::overlay::PopupPresentation>>,
-        Vec<ime::Update>,
+        Vec<ime::Projection>,
     ) {
         let windows = self
             .session
@@ -1424,7 +1430,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .collect::<Vec<_>>();
         let mut rendered = Vec::with_capacity(windows.len());
         let mut popup_presentations = Vec::new();
-        let mut ime_updates = Vec::with_capacity(windows.len());
+        let mut ime_projections = Vec::with_capacity(windows.len());
         let theme = self.active_theme();
         let now = Instant::now();
 
@@ -1437,12 +1443,12 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             let realized = prepared.realize();
             rendered.push(realized.presentation);
             popup_presentations.extend(realized.popup_presentations);
-            ime_updates.push(realized.ime_update);
+            ime_projections.push(realized.ime_projection);
         }
 
         let popup_presentations = (!rendered.is_empty()).then_some(popup_presentations);
 
-        (rendered, popup_presentations, ime_updates)
+        (rendered, popup_presentations, ime_projections)
     }
 
     #[cfg(test)]
@@ -1468,23 +1474,40 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     }
 }
 
-fn ime_target_for_layers(
-    parent_caret: Option<geometry::Rect>,
+fn ime_projection_for_layers(
+    parent: window::Id,
+    parent_caret: Option<(crate::composition::tree::NodeId, geometry::Rect)>,
     layers: &[crate::overlay::Layer],
-) -> Option<ime::Target> {
-    layers
+) -> ime::Projection {
+    let target = layers
         .iter()
         .rev()
         .find_map(|layer| {
             (layer.kind() == crate::overlay::LayerKind::Live
                 && layer.backend() == crate::overlay::Backend::NativePopup)
                 .then(|| {
-                    let area = layer.text_caret_rect()?;
-                    Some(ime::Target::popup(layer.id(), area, layer.bounds()))
+                    let (node, area) = layer.text_caret()?;
+                    let area = layer
+                        .commit()
+                        .spatial_topology()
+                        .translated_content_rect(
+                            layer.properties(),
+                            node,
+                            scene::ContentProjection::Caret,
+                            area,
+                        )
+                        .ok()
+                        .flatten()?;
+                    Some(ime::ProjectionTarget::popup(
+                        layer.id(),
+                        area,
+                        layer.bounds(),
+                    ))
                 })
                 .flatten()
         })
-        .or_else(|| parent_caret.map(ime::Target::parent))
+        .or_else(|| parent_caret.map(|(node, area)| ime::ProjectionTarget::parent(node, area)));
+    ime::Projection::new(parent, target)
 }
 
 fn active_descendant_reveal_offset(

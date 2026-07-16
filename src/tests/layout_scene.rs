@@ -2133,7 +2133,7 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
     let hovered = app
         .show_scene(window, size)
         .expect("header hover should present before scrolling");
-    app.handle_input(window, Input::scroll(horizontal, scroll_delta))
+    app.handle_input(window, Input::scroll(horizontal.clone(), scroll_delta))
         .expect("horizontal table scroll should be handled");
 
     let skipped = app
@@ -2173,11 +2173,24 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
         "skipped geometry must not leak into retained hover"
     );
 
+    app.handle_input(window, Input::scroll(horizontal.clone(), scroll_delta))
+        .expect("a newer scroll request should supersede the skipped candidate");
+
     let shown = app
         .show_scene(window, size)
-        .expect("scrolled frame should retry and present");
+        .expect("latest scrolled frame should present");
     assert!(shown.property_only());
     assert!(std::sync::Arc::ptr_eq(hovered.commit(), shown.commit()));
+    assert!(shown.properties().serial() > skipped.properties().serial());
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("window interaction")
+            .scroll()
+            .offset(&horizontal),
+        interaction::ScrollOffset::new(32, 0),
+        "the presented frame must select both requests, not the skipped 16-pixel candidate"
+    );
     let shown_target = app
         .hit_test(window, size, point)
         .and_then(|hit| hit.target().cloned())
@@ -2188,6 +2201,30 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
             .interaction(window)
             .and_then(|interaction| interaction.pointer().hovered()),
         Some(&shown_target)
+    );
+
+    app.finish_render_report(
+        window,
+        skipped.epoch(),
+        skipped.invalidation(),
+        skipped.layout(),
+        skipped.stack(),
+        skipped.property_only(),
+        diagnostics::RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now())
+            .with_present_submitted(true),
+    );
+    assert_eq!(
+        app.presented_properties(window)
+            .expect("latest presented properties")
+            .serial(),
+        shown.properties().serial(),
+        "a late successful receipt for the superseded candidate must not replace presented geometry"
+    );
+    assert_eq!(
+        app.hit_test(window, size, point)
+            .and_then(|hit| hit.target().cloned()),
+        Some(shown_target),
+        "a superseded candidate must not regress hit-test geometry"
     );
 }
 

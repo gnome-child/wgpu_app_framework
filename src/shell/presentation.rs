@@ -1,4 +1,4 @@
-use crate::{geometry, layout, response, scene, state, window};
+use crate::{geometry, ime, layout, response, scene, state, window};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -10,11 +10,15 @@ pub struct Presentation {
     layout: layout::Layout,
     scene: scene::Scene,
     stack: Arc<scene::Stack>,
+    ime_projection: ime::Projection,
     property_only: bool,
 }
 
 impl Presentation {
-    pub(super) fn from_scene_presentation(presentation: scene::Presentation) -> Self {
+    pub(super) fn from_scene_presentation(
+        presentation: scene::Presentation,
+        ime_projection: ime::Projection,
+    ) -> Self {
         Self {
             window: presentation.window(),
             revision: presentation.revision(),
@@ -23,6 +27,7 @@ impl Presentation {
             layout: presentation.layout().clone(),
             scene: presentation.scene().clone(),
             stack: Arc::clone(presentation.stack()),
+            ime_projection,
             property_only: presentation.property_only(),
         }
     }
@@ -79,16 +84,49 @@ impl Presentation {
         &self.stack
     }
 
-    pub(crate) fn with_active_properties(&self, properties: scene::Properties) -> Self {
+    pub(crate) fn ime_projection(&self) -> ime::Projection {
+        self.ime_projection
+    }
+
+    pub(crate) fn with_active_properties(
+        &self,
+        properties: scene::Properties,
+        supplements: &Self,
+    ) -> Self {
         let mut presentation = self.clone();
-        presentation.stack = Arc::new(self.stack.with_base_properties(properties));
+        presentation.stack = Arc::new(
+            self.stack
+                .with_base_properties_and_spatial_supplements(properties, supplements.stack()),
+        );
+        presentation.project_popup_ime_from(supplements);
         presentation.property_only = true;
         presentation
     }
 
-    pub(crate) fn with_activation_properties(&self, properties: scene::Properties) -> Self {
+    pub(crate) fn with_activation_properties(
+        &self,
+        properties: scene::Properties,
+        supplements: &Self,
+    ) -> Self {
         let mut presentation = self.clone();
-        presentation.stack = Arc::new(self.stack.with_base_properties(properties));
+        presentation.stack = Arc::new(
+            self.stack
+                .with_base_properties_and_spatial_supplements(properties, supplements.stack()),
+        );
+        presentation.project_popup_ime_from(supplements);
         presentation
+    }
+
+    pub(crate) fn with_spatial_supplements(&self, supplements: &Self) -> Self {
+        let mut presentation = self.clone();
+        presentation.stack = Arc::new(self.stack.with_spatial_supplements(supplements.stack()));
+        presentation.project_popup_ime_from(supplements);
+        presentation
+    }
+
+    fn project_popup_ime_from(&mut self, supplements: &Self) {
+        if self.ime_projection.targets_popup() || supplements.ime_projection.targets_popup() {
+            self.ime_projection = supplements.ime_projection;
+        }
     }
 }

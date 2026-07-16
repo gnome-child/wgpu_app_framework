@@ -55,6 +55,7 @@ struct CachedLayout {
 struct PresentedGeometry {
     layout: Arc<layout::Layout>,
     stack: Arc<scene::Stack>,
+    spatial: scene::SpatialSnapshot,
 }
 
 impl PresentedGeometry {
@@ -64,37 +65,7 @@ impl PresentedGeometry {
         point: geometry::Point,
         clip: bool,
     ) -> Option<(geometry::Point, [i32; 2])> {
-        let mut translation = [0_i32, 0_i32];
-        let projections = self.layout.scroll_projections();
-        for scroll in self.layout.scroll_ancestry(node) {
-            let projection = projections
-                .iter()
-                .find(|projection| projection.node() == *scroll)?;
-            let viewport = projection.viewport();
-            let visible = viewport.visible_content();
-            let visible = geometry::Rect::new(
-                visible.x().saturating_add(translation[0]),
-                visible.y().saturating_add(translation[1]),
-                visible.width(),
-                visible.height(),
-            );
-            if clip && !visible.contains(point) {
-                return None;
-            }
-            let baseline = viewport.resolved_scroll();
-            let current = self.stack.scroll_offset(*scroll).unwrap_or(baseline);
-            translation[0] =
-                translation[0].saturating_add(baseline.x().saturating_sub(current.x()));
-            translation[1] =
-                translation[1].saturating_add(baseline.y().saturating_sub(current.y()));
-        }
-        Some((
-            geometry::Point::new(
-                point.x().saturating_sub(translation[0]),
-                point.y().saturating_sub(translation[1]),
-            ),
-            translation,
-        ))
+        self.spatial.project_point(node, point, clip)
     }
 
     fn hit_test_on_surface(
@@ -112,17 +83,8 @@ impl PresentedGeometry {
         &self,
         node: composition::tree::NodeId,
         rect: geometry::Rect,
-    ) -> geometry::Rect {
-        let translation = self
-            .project_point(node, geometry::Point::new(0, 0), false)
-            .map(|(_, translation)| translation)
-            .unwrap_or([0, 0]);
-        geometry::Rect::new(
-            rect.x().saturating_add(translation[0]),
-            rect.y().saturating_add(translation[1]),
-            rect.width(),
-            rect.height(),
-        )
+    ) -> Option<geometry::Rect> {
+        self.spatial.translated_rect(node, rect)
     }
 
     fn context_available_for_node(
@@ -131,7 +93,7 @@ impl PresentedGeometry {
     ) -> Option<geometry::Rect> {
         self.layout
             .context_available_for_node(node)
-            .map(|rect| self.translated_rect(node, rect))
+            .and_then(|rect| self.translated_rect(node, rect))
     }
 
     fn focus_node_and_rect(
@@ -141,7 +103,7 @@ impl PresentedGeometry {
         let frame = self.layout.frame_for_focus(focus)?;
         Some((
             frame.node_id(),
-            self.translated_rect(frame.node_id(), frame.rect()),
+            self.translated_rect(frame.node_id(), frame.rect())?,
         ))
     }
 
@@ -185,13 +147,8 @@ impl PresentedGeometry {
                     .map(|(point, _)| point)
             },
             &|target, viewport| {
-                self.layout
-                    .scroll_projections()
-                    .iter()
-                    .find(|projection| {
-                        projection.target() == target && projection.viewport() == viewport
-                    })
-                    .and_then(|projection| self.stack.scroll_offset(projection.node()))
+                self.spatial
+                    .scroll_offset(target)
                     .unwrap_or_else(|| viewport.resolved_scroll())
             },
         )

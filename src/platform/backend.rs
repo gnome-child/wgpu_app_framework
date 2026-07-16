@@ -33,6 +33,22 @@ impl Presented {
     pub(crate) fn window(&self) -> window::Id {
         self.presentation.window()
     }
+
+    pub(crate) fn epoch(&self) -> window::PresentationEpoch {
+        self.presentation.epoch()
+    }
+
+    pub(crate) fn present_submitted(&self) -> bool {
+        self.report.present_submitted()
+    }
+
+    pub(crate) fn property_serial(&self) -> scene::PropertySerial {
+        self.presentation.properties().serial()
+    }
+
+    pub(crate) fn ime_projection(&self) -> ime::Projection {
+        self.presentation.ime_projection()
+    }
 }
 
 pub trait Backend {

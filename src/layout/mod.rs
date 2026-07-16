@@ -757,8 +757,10 @@ impl Layout {
             .any(|frame| frame.target() == Some(target) && frame.table_projection().is_some())
     }
 
-    pub(crate) fn text_caret_rect(&self) -> Option<Rect> {
-        self.frames.iter().find_map(Frame::text_caret_rect)
+    pub(crate) fn text_caret(&self) -> Option<(composition::tree::NodeId, Rect)> {
+        self.frames
+            .iter()
+            .find_map(|frame| frame.text_caret_rect().map(|area| (frame.node_id(), area)))
     }
 
     #[cfg(test)]
