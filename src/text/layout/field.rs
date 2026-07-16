@@ -126,6 +126,7 @@ impl Engine {
         let surface = (area.width() > 0.0 && area.height() > 0.0).then(|| TextAreaSurface {
             x: -state.field_scroll_x(),
             y: vertical_offset,
+            text_x: -state.field_scroll_x(),
             width: content_area.width().max(area.width()) + state.field_scroll_x().max(0.0),
             height: line_height.max(1.0),
             source_line: 0,

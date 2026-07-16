@@ -8135,6 +8135,145 @@ fn text_area_uses_the_same_two_axis_gutter_geometry_as_other_viewports() {
 }
 
 #[test]
+fn text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic_commit() {
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text("horizontal".repeat(4_096)),
+        wrap_text: false,
+        ..text_editor::State::default()
+    });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(520, 180);
+    let initial = app
+        .show_scene(window, size)
+        .expect("long unwrapped text should render");
+    let frame = initial
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("text area frame");
+    let target = frame.target().expect("text scroll target").clone();
+    let point = geometry::Point::new(frame.rect().x() + 8, frame.rect().y() + 8);
+    let projection = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.target() == &target)
+        .expect("text area scroll projection");
+    let node = projection.node();
+    let (minimum, maximum) = projection
+        .accepted_offsets()
+        .expect("initial text runway should be complete");
+    let initial_bounds = projection
+        .resident_bounds()
+        .expect("initial text runway bounds");
+    assert_eq!(minimum.x(), 0);
+    assert!(maximum.x() > 0);
+    assert!(maximum.x() < frame.viewport().expect("text viewport").max_scroll().x());
+    let semantic_commit = std::sync::Arc::clone(initial.commit());
+    let initial_drawable = std::sync::Arc::clone(initial.stack().base().drawable_commit());
+    let initial_residency = initial
+        .stack()
+        .base()
+        .residencies()
+        .iter()
+        .find(|residency| residency.scroll() == node)
+        .expect("initial text residency")
+        .revision();
+    drop(initial);
+
+    let property = app
+        .scroll_at(
+            window,
+            size,
+            point,
+            interaction::ScrollDelta::horizontal(maximum.x()),
+        )
+        .expect("movement inside the text runway should be handled");
+    assert_eq!(property.effect(), &response::Effect::None);
+    let property_frame = app
+        .show_scene(window, size)
+        .expect("in-window text movement should present");
+    assert!(property_frame.property_only());
+    assert!(std::sync::Arc::ptr_eq(
+        &initial_drawable,
+        property_frame.stack().base().drawable_commit()
+    ));
+    drop(property_frame);
+
+    let boundary = app
+        .scroll_at(window, size, point, interaction::ScrollDelta::horizontal(1))
+        .expect("movement beyond the text runway should be handled");
+    assert_eq!(boundary.effect(), &response::Effect::Rebuild);
+    let pending = app
+        .session()
+        .interaction(window)
+        .expect("text interaction")
+        .scroll();
+    assert_eq!(
+        pending.offset(&target),
+        interaction::ScrollOffset::new(maximum.x(), 0)
+    );
+    assert_eq!(
+        pending.desired_offset(&target),
+        interaction::ScrollOffset::new(maximum.x() + 1, 0)
+    );
+
+    let replenished = app
+        .show_scene(window, size)
+        .expect("next bounded text window should present");
+    assert!(
+        std::sync::Arc::ptr_eq(&semantic_commit, replenished.commit()),
+        "text runway replenishment changed semantic projection: {}",
+        semantic_commit.projection_difference(replenished.commit())
+    );
+    assert!(!std::sync::Arc::ptr_eq(
+        &initial_drawable,
+        replenished.stack().base().drawable_commit()
+    ));
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("text interaction")
+            .scroll()
+            .offset(&target),
+        interaction::ScrollOffset::new(maximum.x() + 1, 0)
+    );
+    let next_projection = replenished
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.node() == node)
+        .expect("replenished text projection");
+    let next_bounds = next_projection
+        .resident_bounds()
+        .expect("replenished text runway bounds");
+    assert_eq!(next_bounds.width(), initial_bounds.width());
+    assert_ne!(next_bounds.x(), initial_bounds.x());
+    assert!(
+        next_projection
+            .accepted_offsets()
+            .expect("replenished accepted interval")
+            .1
+            .x()
+            >= maximum.x() + 1
+    );
+    assert_ne!(
+        replenished
+            .stack()
+            .base()
+            .residencies()
+            .iter()
+            .find(|residency| residency.scroll() == node)
+            .expect("replenished text residency")
+            .revision(),
+        initial_residency
+    );
+}
+
+#[test]
 fn two_axis_text_scrollbars_share_activity_but_keep_per_axis_hover_and_mutation() {
     let document = (0..120)
         .map(|line| format!("wide text line {line:03} {}", "horizontal".repeat(80)))

@@ -45,6 +45,7 @@ pub struct TextFieldPaintLayout {
 pub struct TextAreaSurface {
     pub(in crate::text) x: f32,
     pub(in crate::text) y: f32,
+    pub(in crate::text) text_x: f32,
     pub(in crate::text) width: f32,
     pub(in crate::text) height: f32,
     pub(in crate::text) source_line: usize,
@@ -63,6 +64,7 @@ impl fmt::Debug for TextAreaSurface {
         f.debug_struct("TextAreaSurface")
             .field("x", &self.x)
             .field("y", &self.y)
+            .field("text_x", &self.text_x)
             .field("width", &self.width)
             .field("height", &self.height)
             .field("source_line", &self.source_line)
@@ -210,6 +212,13 @@ impl TextAreaSurface {
         )
     }
 
+    pub(crate) fn text_origin(&self, viewport: Rect) -> crate::geometry::Point {
+        crate::geometry::Point::new(
+            viewport.x().saturating_add(self.text_x.round() as i32),
+            viewport.y().saturating_add(self.y.round() as i32),
+        )
+    }
+
     pub fn x(&self) -> f32 {
         self.x
     }
@@ -270,6 +279,7 @@ mod tests {
         let surface = TextAreaSurface {
             x: 0.51,
             y: -3.49,
+            text_x: 0.51,
             width: 20.01,
             height: 10.01,
             source_line: 0,
@@ -285,6 +295,32 @@ mod tests {
         assert_eq!(
             surface.pixel_rect(Rect::new(100, 50, 80, 40)),
             Rect::new(101, 47, 21, 11)
+        );
+    }
+
+    #[test]
+    fn text_surface_keeps_prepared_runway_separate_from_buffer_origin() {
+        let surface = TextAreaSurface {
+            x: -193.0,
+            y: 7.0,
+            text_x: -5_157_889.0,
+            width: 1_432.0,
+            height: 24.0,
+            source_line: 0,
+            source_line_id: None,
+            source_start: 0,
+            source_text_len: 0,
+            buffer: Rc::new(RefCell::new(glyphon::Buffer::new_empty(
+                glyphon::Metrics::new(14.0, 18.0),
+            ))),
+            default_color: Color::BLACK,
+        };
+        let viewport = Rect::new(40, 60, 920, 640);
+
+        assert_eq!(surface.pixel_rect(viewport), Rect::new(-153, 67, 1432, 24));
+        assert_eq!(
+            surface.text_origin(viewport),
+            crate::geometry::Point::new(-5_157_849, 67)
         );
     }
 }

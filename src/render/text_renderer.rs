@@ -665,8 +665,8 @@ fn prepare_text_surface_in_bounds<'a>(
     let clip_top = bounds_rect.origin.y() * scale_factor;
     let clip_right = clip_left + bounds_rect.area.width().max(0.0) * scale_factor;
     let clip_bottom = clip_top + bounds_rect.area.height().max(0.0) * scale_factor;
-    let left = grid.snap_text_origin(text.rect.origin.x());
-    let top = grid.snap_text_origin(text.rect.origin.y());
+    let left = grid.snap_text_origin(text.origin.x());
+    let top = grid.snap_text_origin(text.origin.y());
 
     Some(PreparedText {
         buffer: PreparedTextBuffer::Borrowed(text.buffer.borrow()),

@@ -208,6 +208,7 @@ pub struct Offset {
 #[derive(Clone)]
 pub struct TextSurface {
     rect: geometry::Rect,
+    origin: geometry::Point,
     buffer: text_model::layout::ShapedBuffer,
     default_color: TextColor,
 }
@@ -713,11 +714,13 @@ impl TextViewport {
 impl TextSurface {
     pub(in crate::scene) fn new(
         rect: geometry::Rect,
+        origin: geometry::Point,
         buffer: text_model::layout::ShapedBuffer,
         default_color: TextColor,
     ) -> Self {
         Self {
             rect,
+            origin,
             buffer,
             default_color,
         }
@@ -725,6 +728,10 @@ impl TextSurface {
 
     pub fn rect(&self) -> geometry::Rect {
         self.rect
+    }
+
+    pub(crate) fn origin(&self) -> geometry::Point {
+        self.origin
     }
 
     pub(crate) fn buffer(&self) -> text_model::layout::ShapedBuffer {
@@ -738,6 +745,10 @@ impl TextSurface {
     pub(crate) fn translated(&self, dx: i32, dy: i32) -> Self {
         Self {
             rect: translate_rect(self.rect, dx, dy),
+            origin: geometry::Point::new(
+                self.origin.x().saturating_add(dx),
+                self.origin.y().saturating_add(dy),
+            ),
             buffer: self.buffer.clone(),
             default_color: self.default_color,
         }
@@ -937,6 +948,7 @@ impl fmt::Debug for TextSurface {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TextSurface")
             .field("rect", &self.rect)
+            .field("origin", &self.origin)
             .field("default_color", &self.default_color)
             .finish_non_exhaustive()
     }
@@ -944,7 +956,9 @@ impl fmt::Debug for TextSurface {
 
 impl PartialEq for TextSurface {
     fn eq(&self, other: &Self) -> bool {
-        self.rect == other.rect && self.default_color == other.default_color
+        self.rect == other.rect
+            && self.origin == other.origin
+            && self.default_color == other.default_color
     }
 }
 

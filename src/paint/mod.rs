@@ -89,6 +89,7 @@ pub struct Text {
 #[derive(Clone)]
 pub struct TextSurface {
     pub rect: Rect,
+    pub origin: point::Logical,
     pub buffer: text::layout::ShapedBuffer,
     pub default_color: Color,
 }
@@ -103,6 +104,7 @@ impl fmt::Debug for TextSurface {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TextSurface")
             .field("rect", &self.rect)
+            .field("origin", &self.origin)
             .field("default_color", &self.default_color)
             .finish_non_exhaustive()
     }
@@ -110,7 +112,9 @@ impl fmt::Debug for TextSurface {
 
 impl PartialEq for TextSurface {
     fn eq(&self, other: &Self) -> bool {
-        self.rect == other.rect && self.default_color == other.default_color
+        self.rect == other.rect
+            && self.origin == other.origin
+            && self.default_color == other.default_color
     }
 }
 

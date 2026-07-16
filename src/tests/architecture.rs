@@ -6086,6 +6086,31 @@ fn scroll_residency_uses_owner_local_names_clocks_and_the_existing_stack_handoff
 }
 
 #[test]
+fn bounded_scroll_content_and_transient_rules_cannot_enter_semantic_scene_identity() {
+    let layout = include_str!("../layout/mod.rs");
+    let commit = include_str!("../scene/commit.rs");
+    let store = include_str!("../scene/store.rs");
+
+    assert!(
+        layout.contains("fn residency_content_scroll_node_ids(")
+            && layout.contains(".and_then(|frame| frame.text_area_layout())")
+            && store.contains("let resident_scrolls = layout.residency_content_scroll_node_ids();")
+            && store.contains("&resident_scrolls,"),
+        "bounded text realization must be declared by layout and projected at the semantic/drawable store boundary"
+    );
+    assert!(
+        commit.contains("resident_scrolls: &HashSet<composition::tree::NodeId>")
+            && commit.contains("if resident_scrolls.contains(node)")
+            && commit.contains("*projection != ContentProjection::Caret")
+            && commit.contains("semanticize_transient_content(candidate, order)")
+            && commit.contains("baseline_start: track_start")
+            && commit.contains("remap_semantic_content_indices(order, indices)")
+            && commit.contains("semantic order must only name retained content"),
+        "semantic projection must remove bounded scroll scopes/caret content and canonicalize transient scrollbar geometry while retaining a valid content order"
+    );
+}
+
+#[test]
 fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
     let interaction = include_str!("../interaction/scroll.rs");
     let dispatch = include_str!("../runtime/input/dispatch.rs");

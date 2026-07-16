@@ -174,6 +174,7 @@ pub(super) fn surface_for_segment(
     TextAreaSurface {
         x: -state.scroll_x(),
         y: segment.y,
+        text_x: -state.scroll_x(),
         width: segment.display.width.max(viewport.width()) + state.scroll_x().max(0.0),
         height: segment.display.height.max(1.0),
         source_line: segment.display.source_line,

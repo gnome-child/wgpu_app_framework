@@ -278,6 +278,7 @@ fn to_paint_text_surface(surface: &scene::TextSurface, grid: paint::Grid) -> pai
 
     paint::TextSurface {
         rect: into_paint_rect_at_scale(surface.rect(), grid),
+        origin: point::logical(surface.origin().x() as f32, surface.origin().y() as f32),
         buffer: surface.buffer(),
         default_color: paint::Color::rgba(
             crate::color::srgb_unit_to_linear(r),

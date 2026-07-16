@@ -50,15 +50,14 @@ impl Engine {
         let font_size = style.size().max(1.0);
         let metrics = glyphon::Metrics::relative(font_size, 1.25);
         let surface_height = anchor.height.max(viewport.height() - anchor.y).max(1.0);
-        let surface_width = viewport.width().max(1.0)
-            + state.scroll_x().max(0.0)
-            + TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
+        let scroll_x = state.scroll_x().max(0.0);
+        let (window_origin_x, surface_width) = horizontal_render_window(viewport.width(), scroll_x);
         let surface_width_px = ceil_to_usize(surface_width);
         let surface_height_px = ceil_to_usize(surface_height);
         self.diagnostics.text_area_render_window_origin_x_max = self
             .diagnostics
             .text_area_render_window_origin_x_max
-            .max(ceil_to_usize(state.scroll_x().max(0.0)));
+            .max(ceil_to_usize(window_origin_x));
         self.diagnostics.text_area_render_window_origin_y_max = self
             .diagnostics
             .text_area_render_window_origin_y_max
@@ -196,8 +195,9 @@ impl Engine {
         }
 
         vec![TextAreaSurface {
-            x: -state.scroll_x(),
+            x: window_origin_x - scroll_x,
             y: anchor.y,
+            text_x: -scroll_x,
             width: surface_width,
             height: surface_height,
             source_line: anchor.source_line,
@@ -291,4 +291,55 @@ fn elapsed_micros(start: Instant) -> u128 {
 
 fn ceil_to_usize(value: f32) -> usize {
     value.ceil().clamp(0.0, usize::MAX as f32) as usize
+}
+
+fn horizontal_render_window(viewport_width: f32, scroll_x: f32) -> (f32, f32) {
+    let viewport_width = viewport_width.max(1.0);
+    let overscan = TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN.max(1.0);
+    let width = viewport_width + overscan * 2.0;
+    let desired_origin = (scroll_x - overscan).max(0.0);
+    let origin = (desired_origin / overscan).floor() * overscan;
+    (origin, width)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn horizontal_render_window_is_bounded_and_covers_near_far_and_boundary_offsets() {
+        let viewport = 920.0;
+        let expected_width = viewport + TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN * 2.0;
+
+        for scroll in [
+            0.0,
+            1.0,
+            255.0,
+            256.0,
+            257.0,
+            511.0,
+            512.0,
+            513.0,
+            5_157_889.0,
+        ] {
+            let (origin, width) = horizontal_render_window(viewport, scroll);
+            assert_eq!(width, expected_width);
+            assert!(origin >= 0.0);
+            assert!(origin <= scroll);
+            assert!(origin + width >= scroll + viewport);
+            assert!(scroll - origin <= TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN * 2.0);
+        }
+    }
+
+    #[test]
+    fn horizontal_render_window_reuses_one_bucket_until_its_trailing_guard_is_spent() {
+        let viewport = 920.0;
+        let before = horizontal_render_window(viewport, 510.0);
+        let boundary = horizontal_render_window(viewport, 511.0);
+        let after = horizontal_render_window(viewport, 512.0);
+
+        assert_eq!(before, boundary);
+        assert_eq!(before.1, after.1);
+        assert_eq!(after.0 - before.0, TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN);
+    }
 }

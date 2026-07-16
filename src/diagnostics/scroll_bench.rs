@@ -261,7 +261,7 @@ fn streamed_offset(base: usize, index: usize, maximum: usize) -> usize {
 }
 
 fn bounded_window_limit() -> usize {
-    (VIEWPORT_WIDTH + 2.0 * 64.0).ceil() as usize
+    (VIEWPORT_WIDTH + 2.0 * 256.0).ceil() as usize
 }
 
 fn ceil_to_usize(value: f32) -> usize {

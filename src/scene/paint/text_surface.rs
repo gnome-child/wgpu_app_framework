@@ -9,6 +9,7 @@ pub(in crate::scene) fn surface(
 ) -> TextSurface {
     TextSurface::new(
         surface.pixel_rect(viewport),
+        surface.text_origin(viewport),
         surface.shaped_buffer(),
         text_color(surface.default_color()),
     )

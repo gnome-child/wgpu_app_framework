@@ -449,6 +449,7 @@ delta, and the cells exposed by re-census.
 | S-008 | Pending/active and clock locality | Residency, property, window, and popup progress can block or regress one another | Open | Activation is monotonic and each window/popup retains its local clock |
 | S-009 | Scroll performance fixed point | Existing counters do not fully attribute admission, replenishment, text, allocation, or cadence cost | Open | Metric contract, workload matrix, gates, two clean optimization sweeps, and final receipt hold |
 | S-010 | Native presentation atomicity | Fresh release capture intermittently observed a partially composed deadline frame | Open | Native property, residency, and semantic redraws expose only complete receipted frames; capture artifact versus presentation defect is resolved |
+| S-011 | Text runway versus semantic identity | The first bounded horizontal runway crossing minted a new semantic commit because prepared text and transient rule geometry leaked through the owner node | **Complete; R-011** | Bounded text replenishment changes drawable/residency identity while stable owner content and property topology reuse the semantic commit |
 
 ### R-001 — sole requested/admitted owner
 
@@ -775,6 +776,71 @@ delta, and the cells exposed by re-census.
   normalize the absolute-offset-sized surface; bounded horizontal residency,
   entering-strip preparation, exact far-offset pixels, and GPU/storage high-water
   remain required for S-004.
+
+### S-004/S-009 checkpoint C — bounded horizontal preparation runway
+
+- **Earliest measured owner and correction.** The absolute-offset-sized surface
+  came from using one rectangle as both prepared/cull bounds and glyph-buffer
+  coordinate zero. `TextAreaSurface` now carries those facts separately. Its
+  prepared rectangle is a 256 px bucketed window with one guard on each side;
+  its text origin continues to address the shaped buffer. Scene and paint retain
+  both values, and the text renderer culls/prepares against the bounded rectangle
+  while positioning glyphs from the origin. This follows the industry line
+  represented by Chromium's stable property/layer identity, GTK and Qt scene
+  snapshots, and Iced/COSMIC retained text: viewport-local realization may move
+  without redefining semantic content.
+- **Official release receipt.** On the reference Windows/x86_64 machine, the
+  version-1 official 64-warmup/1,024-sample `text-horizontal-1m` matrix reports
+  identical 1,432 px near and far window widths, 916,480 px maximum logical
+  area, and `bounded_window=true` at x=5,157,889. Warm p50/p95/p99 are
+  2/2/3 us and max is 10 us; all 1,024 samples hit both render and width caches,
+  shape zero lines, visit zero source bytes, and inspect one caret glyph. The
+  historical far width was 5,159,085 px and area 3,301,814,400 px, so prepared
+  surface width and area are now independent of absolute offset for this trace.
+- **Still-red cold/storage fact.** Cold time is 729,572 us, including 220,271 us
+  render shaping and 278,583 us width measurement over the complete 1 MiB line.
+  The shaped buffer is still whole-line storage and glyph placement still carries
+  a far absolute origin. This checkpoint therefore closes only the prepared
+  surface/cull bound; entering-strip glyph shaping/recycling, edit-time width
+  maintenance, far-offset precision witnesses, GPU resident-byte high-water, and
+  the 64 MiB matrix remain open under S-004/S-009.
+- **Witnesses.** `horizontal_render_window_is_bounded_and_covers_near_far_and_boundary_offsets`,
+  `horizontal_render_window_reuses_one_bucket_until_its_trailing_guard_is_spent`,
+  `text_surface_keeps_prepared_runway_separate_from_buffer_origin`, and
+  `text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic_commit`
+  cover the local geometry, bucket reuse, pipeline handoff, requested/admitted
+  boundary, stable size, semantic zero, drawable replacement, and residency
+  revision. The versioned release driver supplies the official timing/work
+  receipt; these results do not claim the full S-004 or S-009 exit theorem.
+
+### R-011 — text runway versus semantic identity
+
+- **Newly exposed source-of-truth violation.** The first end-to-end boundary
+  witness stayed red after the runway became bounded: its next private layout
+  admitted the requested offset and produced a new drawable residency, but the
+  presentation also carried a new semantic commit. `ScrollDeclaration::semantic`
+  already normalized the baseline and resident bounds. The leak was the prepared
+  text viewport plus caret/scrollbar rule geometry still participating in the
+  owner node's semantic content and draw order.
+- **Correction.** Layout explicitly names scroll owners whose painted content is
+  independent residency. Store passes that classification beside virtual row
+  membership into the single semantic projector. The projector removes content
+  inside those bounded scroll scopes, removes caret content, canonicalizes
+  scrollbar-thumb geometry back to its stable track origin, remaps retained
+  content indices, and keeps the owner node plus its scroll/caret/axis property
+  topology and validation envelope. Stable body/theme content remains in the
+  semantic projection, so an actual owner-content change still advances it.
+- **Proof and resistance.** `semantic_projection_excludes_bounded_and_caret_content_and_normalizes_scrollbars`
+  proves changed runway, scroll baseline, caret, and scrollbar geometry reuse one
+  semantic `Arc`, while a body-color change does not. The end-to-end text boundary
+  witness proves admitted progress, a new drawable, a new local residency
+  revision, constant runway size, and pointer-identical semantic commit.
+  `bounded_scroll_content_and_transient_rules_cannot_enter_semantic_scene_identity`
+  ratchets the layout/store/projector handoff. The earlier virtual-list zero-
+  semantic crossing and all 33 caret-focused tests remain green. The checkpoint
+  suite reports 1,210 passed and four intentional ignores; renderer-debug's pure
+  tier reports three passed and eighteen intentional GPU ignores; the workspace
+  all-target/all-feature check is green.
 
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a

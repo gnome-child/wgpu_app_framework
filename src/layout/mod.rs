@@ -622,6 +622,19 @@ impl Layout {
             .collect()
     }
 
+    pub(crate) fn residency_content_scroll_node_ids(&self) -> HashSet<composition::tree::NodeId> {
+        self.scroll_projections
+            .iter()
+            .filter_map(|projection| {
+                self.frames
+                    .iter()
+                    .find(|frame| frame.node_id() == projection.node)
+                    .and_then(|frame| frame.text_area_layout())
+                    .map(|_| projection.node)
+            })
+            .collect()
+    }
+
     pub(crate) fn virtual_request_for_scroll_offset(
         &self,
         target: &interaction::Target,

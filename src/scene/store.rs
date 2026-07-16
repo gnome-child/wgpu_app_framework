@@ -33,9 +33,15 @@ impl Store {
         let (candidate, properties, overlays, stats) =
             retained.paint(layout, clear, theme, visuals, interaction);
         let resident_nodes = layout.virtual_resident_node_ids();
+        let resident_scrolls = layout.residency_content_scroll_node_ids();
         let previous_semantic = self.semantics.get(&window);
-        let commit = Commit::semantic_projection(&candidate, previous_semantic, &resident_nodes)
-            .expect("painted semantic scene must satisfy the commit contract");
+        let commit = Commit::semantic_projection(
+            &candidate,
+            previous_semantic,
+            &resident_nodes,
+            &resident_scrolls,
+        )
+        .expect("painted semantic scene must satisfy the commit contract");
         let semantic_changed =
             previous_semantic.is_none_or(|previous| !Arc::ptr_eq(previous, &commit));
         let drawable = if candidate.revision() == commit.revision() {

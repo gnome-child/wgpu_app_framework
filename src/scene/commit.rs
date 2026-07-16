@@ -432,10 +432,31 @@ impl Commit {
         candidate: &Arc<Self>,
         previous: Option<&Arc<Self>>,
         resident_nodes: &HashSet<composition::tree::NodeId>,
+        resident_scrolls: &HashSet<composition::tree::NodeId>,
     ) -> Result<Arc<Self>, ContractError> {
-        if resident_nodes.is_empty() {
+        let has_transient_projection = candidate.order.as_ref().is_some_and(|order| {
+            order.iter().any(|draw| {
+                matches!(
+                    draw,
+                    Draw::Content {
+                        projection,
+                        ..
+                    } if *projection != ContentProjection::Normal
+                )
+            })
+        });
+        if resident_nodes.is_empty() && resident_scrolls.is_empty() && !has_transient_projection {
             return Ok(Arc::clone(candidate));
         }
+        let mut order = candidate
+            .order
+            .as_ref()
+            .map(|order| semantic_order(order, resident_nodes, resident_scrolls));
+        let semantic_content_overrides = order
+            .as_mut()
+            .map(|order| semanticize_transient_content(candidate, order))
+            .unwrap_or_default();
+        let retained_content = order.as_ref().map(|order| semantic_content_indices(order));
         let nodes = candidate
             .nodes
             .iter()
@@ -449,13 +470,16 @@ impl Commit {
                             .find(|candidate| candidate.id == node.id)
                     }),
                     node,
+                    retained_content
+                        .as_ref()
+                        .map(|indices| indices.get(&node.id).map_or(&[][..], Vec::as_slice)),
+                    &semantic_content_overrides,
                 )
             })
             .collect::<Vec<_>>();
-        let order = candidate
-            .order
-            .as_ref()
-            .map(|order| semantic_order(order, resident_nodes));
+        if let (Some(order), Some(indices)) = (&mut order, &retained_content) {
+            remap_semantic_content_indices(order, indices);
+        }
         let material_regions = candidate
             .material_regions
             .iter()
@@ -718,10 +742,24 @@ impl Commit {
 fn semantic_order(
     order: &[Draw],
     resident_nodes: &HashSet<composition::tree::NodeId>,
+    resident_scrolls: &HashSet<composition::tree::NodeId>,
 ) -> Vec<Draw> {
     let mut projected = Vec::with_capacity(order.len());
     let mut scopes = Vec::new();
+    let mut omitted_scroll_depth = 0_usize;
     for draw in order {
+        if omitted_scroll_depth > 0 {
+            match draw {
+                Draw::PushScroll { .. } => {
+                    omitted_scroll_depth = omitted_scroll_depth.saturating_add(1);
+                }
+                Draw::PopScroll => {
+                    omitted_scroll_depth = omitted_scroll_depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+            continue;
+        }
         match draw {
             Draw::PushClip { node, .. } => {
                 let retained = node.is_none_or(|node| !resident_nodes.contains(&node));
@@ -741,6 +779,10 @@ fn semantic_order(
                 scopes.push((start, Draw::PopGroup));
             }
             Draw::PushScroll { node } => {
+                if resident_scrolls.contains(node) {
+                    omitted_scroll_depth = 1;
+                    continue;
+                }
                 let start = (!resident_nodes.contains(node)).then(|| {
                     let start = projected.len();
                     projected.push(draw.clone());
@@ -761,13 +803,112 @@ fn semantic_order(
                     }
                 }
             }
-            Draw::Content { node, .. } if !resident_nodes.contains(node) => {
+            Draw::Content {
+                node, projection, ..
+            } if !resident_nodes.contains(node) && *projection != ContentProjection::Caret => {
                 projected.push(draw.clone());
             }
             Draw::Content { .. } => {}
         }
     }
     projected
+}
+
+fn semanticize_transient_content(
+    candidate: &Commit,
+    order: &mut [Draw],
+) -> HashMap<(composition::tree::NodeId, usize), Content> {
+    let mut overrides = HashMap::new();
+    let nodes = candidate
+        .nodes
+        .iter()
+        .map(|node| (node.id, node))
+        .collect::<HashMap<_, _>>();
+    for draw in order {
+        let Draw::Content {
+            node,
+            index,
+            projection,
+        } = draw
+        else {
+            continue;
+        };
+        let ContentProjection::ScrollbarThumb {
+            axis,
+            edge,
+            base_thickness,
+            maximum_thickness,
+            baseline_start,
+            baseline_extent,
+            baseline_position,
+            travel,
+            maximum_offset,
+        } = *projection
+        else {
+            continue;
+        };
+        let Some(Content::Quad(quad)) = nodes.get(node).and_then(|node| node.content.get(*index))
+        else {
+            continue;
+        };
+        let track_start = baseline_start.saturating_sub(baseline_position);
+        let (dx, dy) = match axis {
+            interaction::ScrollbarAxis::Horizontal => (0_i32.saturating_sub(baseline_position), 0),
+            interaction::ScrollbarAxis::Vertical => (0, 0_i32.saturating_sub(baseline_position)),
+        };
+        let rect = quad.rect();
+        let rect = geometry::Rect::new(
+            rect.x().saturating_add(dx),
+            rect.y().saturating_add(dy),
+            rect.width(),
+            rect.height(),
+        );
+        overrides.insert((*node, *index), Content::Quad(quad.with_rect(rect)));
+        *projection = ContentProjection::ScrollbarThumb {
+            axis,
+            edge,
+            base_thickness,
+            maximum_thickness,
+            baseline_start: track_start,
+            baseline_extent,
+            baseline_position: 0,
+            travel,
+            maximum_offset,
+        };
+    }
+    overrides
+}
+
+fn semantic_content_indices(order: &[Draw]) -> HashMap<composition::tree::NodeId, Vec<usize>> {
+    let mut indices = HashMap::<_, Vec<_>>::new();
+    let mut seen = HashSet::new();
+    for draw in order {
+        let Draw::Content { node, index, .. } = draw else {
+            continue;
+        };
+        if seen.insert((*node, *index)) {
+            indices.entry(*node).or_default().push(*index);
+        }
+    }
+    for node_indices in indices.values_mut() {
+        node_indices.sort_unstable();
+    }
+    indices
+}
+
+fn remap_semantic_content_indices(
+    order: &mut [Draw],
+    retained: &HashMap<composition::tree::NodeId, Vec<usize>>,
+) {
+    for draw in order {
+        let Draw::Content { node, index, .. } = draw else {
+            continue;
+        };
+        *index = retained
+            .get(node)
+            .and_then(|indices| indices.binary_search(index).ok())
+            .expect("semantic order must only name retained content");
+    }
 }
 
 impl Content {
@@ -1170,10 +1311,29 @@ impl Node {
         }
     }
 
-    fn semantic(previous: Option<&Arc<Self>>, source: &Arc<Self>) -> Arc<Self> {
+    fn semantic(
+        previous: Option<&Arc<Self>>,
+        source: &Arc<Self>,
+        retained_content: Option<&[usize]>,
+        content_overrides: &HashMap<(composition::tree::NodeId, usize), Content>,
+    ) -> Arc<Self> {
         let scroll = source.scroll.map(ScrollDeclaration::semantic);
+        let content = retained_content.map_or_else(
+            || source.content.clone(),
+            |indices| {
+                indices
+                    .iter()
+                    .filter_map(|index| {
+                        content_overrides
+                            .get(&(source.id, *index))
+                            .cloned()
+                            .or_else(|| source.content.get(*index).cloned())
+                    })
+                    .collect()
+            },
+        );
         let content_revision = previous.map_or(source.content_revision, |previous| {
-            if previous.content == source.content {
+            if previous.content == content {
                 previous.content_revision
             } else {
                 previous.content_revision.next()
@@ -1206,7 +1366,7 @@ impl Node {
             geometry_revision,
             topology_revision,
             local_bounds: source.local_bounds,
-            content: source.content.clone(),
+            content,
             properties: source.properties.clone(),
             scroll,
             clip: source.clip,
@@ -1571,18 +1731,7 @@ impl PropertyValue {
                 }
                 _ => false,
             },
-            Self::Caret { .. } => commit.order.as_deref().is_some_and(|order| {
-                order.iter().any(|draw| {
-                    matches!(
-                        draw,
-                        Draw::Content {
-                            node: owner,
-                            projection: ContentProjection::Caret,
-                            ..
-                        } if *owner == node.id
-                    )
-                })
-            }),
+            Self::Caret { .. } => node.declares(PropertyKind::Caret),
             Self::Scrollbar {
                 axis,
                 opacity,
@@ -2522,6 +2671,143 @@ mod tests {
         .expect_err("missing parent must be rejected");
 
         assert!(matches!(error, ContractError::UnknownParent { .. }));
+    }
+
+    #[test]
+    fn semantic_projection_excludes_bounded_and_caret_content_and_normalizes_scrollbars() {
+        let owner = id(1);
+        let size = geometry::Size::new(100, 80);
+        let viewport = geometry::Rect::from_size(size);
+        let content_bounds = geometry::Rect::new(0, 0, 1_000, 80);
+        let resident_bounds = geometry::Rect::new(0, 0, 320, 80);
+        let make_commit = |revision, baseline, body_color, runway_x| {
+            let declaration = ScrollDeclaration::new(
+                viewport,
+                content_bounds,
+                resident_bounds,
+                interaction::ScrollOffset::new(baseline, 0),
+                interaction::ScrollOffset::new(900, 0),
+            )
+            .expect("fixture residency covers its baseline");
+            let node = Node::new(
+                owner,
+                None,
+                content_bounds,
+                vec![
+                    Content::Quad(Quad::new(geometry::Rect::new(0, 0, 100, 80), body_color)),
+                    Content::Rule(Rule::horizontal(
+                        geometry::Rect::new(runway_x, 20, 160, 1),
+                        Color::rgba(230, 230, 230, 255),
+                        1,
+                    )),
+                    Content::Rule(Rule::vertical(
+                        geometry::Rect::new(runway_x + 12, 20, 2, 18),
+                        Color::rgba(255, 255, 255, 255),
+                        2,
+                    )),
+                    Content::Quad(Quad::new(
+                        geometry::Rect::new(baseline, 76, 24, 4),
+                        Color::rgba(160, 160, 160, 255),
+                    )),
+                ],
+            )
+            .with_properties([
+                PropertyKind::ScrollOffset,
+                PropertyKind::Caret,
+                PropertyKind::HorizontalScrollbar,
+            ])
+            .with_scroll(declaration);
+            Arc::new(
+                Commit::from_parts(
+                    revision,
+                    size,
+                    Color::rgba(0, 0, 0, 0),
+                    vec![Arc::new(node)],
+                    Some(vec![
+                        Draw::Content {
+                            node: owner,
+                            index: 0,
+                            projection: ContentProjection::Normal,
+                        },
+                        Draw::PushScroll { node: owner },
+                        Draw::Content {
+                            node: owner,
+                            index: 1,
+                            projection: ContentProjection::Normal,
+                        },
+                        Draw::Content {
+                            node: owner,
+                            index: 2,
+                            projection: ContentProjection::Caret,
+                        },
+                        Draw::PopScroll,
+                        Draw::Content {
+                            node: owner,
+                            index: 3,
+                            projection: ContentProjection::ScrollbarThumb {
+                                axis: interaction::ScrollbarAxis::Horizontal,
+                                edge: 80,
+                                base_thickness: 4,
+                                maximum_thickness: 8,
+                                baseline_start: baseline,
+                                baseline_extent: 24,
+                                baseline_position: baseline,
+                                travel: 76,
+                                maximum_offset: 900,
+                            },
+                        },
+                    ]),
+                    Vec::new(),
+                )
+                .expect("fixture commit satisfies the scene contract"),
+            )
+        };
+
+        let first_drawable = make_commit(Revision::INITIAL, 0, Color::rgba(20, 30, 40, 255), 0);
+        let resident_scrolls = HashSet::from([owner]);
+        let first =
+            Commit::semantic_projection(&first_drawable, None, &HashSet::new(), &resident_scrolls)
+                .expect("first semantic projection");
+        let second_drawable = make_commit(
+            Revision::INITIAL.next(),
+            128,
+            Color::rgba(20, 30, 40, 255),
+            128,
+        );
+        let second = Commit::semantic_projection(
+            &second_drawable,
+            Some(&first),
+            &HashSet::new(),
+            &resident_scrolls,
+        )
+        .expect("replenished semantic projection");
+
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "{}; left={:?}; right={:?}",
+            first.projection_difference(&second),
+            first.nodes()[0],
+            second.nodes()[0]
+        );
+        assert_eq!(first.nodes()[0].content().len(), 2);
+        assert!(first.nodes()[0].declares(PropertyKind::ScrollOffset));
+        assert!(first.nodes()[0].declares(PropertyKind::Caret));
+        assert!(first.nodes()[0].declares(PropertyKind::HorizontalScrollbar));
+
+        let changed_drawable = make_commit(
+            Revision::INITIAL.next().next(),
+            128,
+            Color::rgba(90, 30, 40, 255),
+            128,
+        );
+        let changed = Commit::semantic_projection(
+            &changed_drawable,
+            Some(&second),
+            &HashSet::new(),
+            &resident_scrolls,
+        )
+        .expect("semantic body change projection");
+        assert!(!Arc::ptr_eq(&second, &changed));
     }
 
     #[test]
