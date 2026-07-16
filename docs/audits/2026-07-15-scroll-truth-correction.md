@@ -842,6 +842,54 @@ delta, and the cells exposed by re-census.
   tier reports three passed and eighteen intentional GPU ignores; the workspace
   all-target/all-feature check is green.
 
+### S-004/S-009 checkpoint D — reuse one exact complete observation
+
+- **Measured duplicate owner.** The version-1 cold receipt exposed three complete
+  shapes of the same one-MiB logical line: visible interaction layout, independent
+  whole-document width measurement, and render-surface construction. The latter
+  two contributed 278,583 us and 220,271 us respectively to the 729,572 us cold
+  checkpoint-C receipt even though the first layout already held the exact shaped
+  line. This was duplicated work, not a residency requirement.
+- **Correction and correctness fence.** A no-wrap paint layout may now publish its
+  observed document width only when the ordered display segments cover every
+  logical source line exactly. The render-surface path may reuse the committed
+  one-line display buffer only under the same line-layout identity, style, width,
+  wrap, and direction key. Width continues to use cosmic-text's `line_w`, so
+  trailing-space and scrollbar-extent truth are unchanged. Documents with any
+  unrealized logical line retain the independent document-width measurement;
+  viewport observation can never guess the longest unseen line. The same trace
+  also exposed and corrected last-line source metadata that formerly clamped the
+  terminal range to a zero-length line start.
+- **Versioned metric semantics.** `scroll-bench-version=2` adds observed-width
+  updates and render-line reuses. Render source-line/byte counters now mean actual
+  source visits, so a cache hit or shape reuse records literal zero instead of
+  restating resident metadata. `one_line_text_area_reuses_its_observed_shape_for_width_and_render`
+  compares the reused width with an independent document measurement and proves
+  one line shape, one observed-width update, one render-line reuse, complete
+  terminal metadata, and zero duplicate measure/shape/source work. The existing
+  unrealized-line and render-cache witnesses keep their independent/freshness
+  paths.
+- **Official release receipt.** Exact commit `7d42f30922b3` on the reference
+  Windows/x86_64 machine produced three official 64-warmup/1,024-sample trials.
+  Cold times were 233,336, 233,792, and 233,401 us; the median is 233,401 us,
+  3.13x faster than checkpoint C's 729,572 us. The median warm p50/p95/p99/max
+  are 3/3/4/48 us. Every trial preserves logical width 6,878,106 px, identical
+  1,432 px near/far windows, and 916,480 px bounded area. Each cold receipt records
+  one render-line reuse and one observed-width update with zero render source
+  bytes, render shape time, width source bytes, or width measure time. All 1,024
+  warm samples hit both caches and perform zero line shaping or source visits.
+- **Industry and resistance ruling.** Against the upstream line recorded above,
+  this applies Chromium/Firefox-style retained artifact reuse, GTK/Qt text-layout
+  reuse, and Iced/COSMIC retained-content identity without importing another
+  position owner; it also preserves Flutter's finite viewport-demand boundary.
+  The repository's stronger all-line proof prevents reuse from weakening exact
+  extent truth. This does not close S-004/S-009: the surviving one-line buffer
+  still contains the complete one-MiB line, entering-strip glyph shaping/recycling
+  and GPU resident-byte high-water are unproved, and the 64-MiB/far-precision
+  matrix remains red. The checkpoint suite reports 1,211 passed and four
+  intentional ignores; renderer-debug reports three passed and eighteen ignored
+  GPU tests; the workspace all-target/all-feature check and diff check are green.
+
 When a trace discovers another authority, cache, consumer, widget species,
 backend discrepancy, complexity failure, or material performance owner, append a
 new `S-*` cell before continuing. New cells are not deferred merely because the
