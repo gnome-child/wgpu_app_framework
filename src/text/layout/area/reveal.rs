@@ -78,8 +78,15 @@ impl Engine {
         let source_cursor = projection.cursor();
 
         if state.reveal_intent().should_ensure_caret_visible() {
-            let segments = self
-                .text_area_display_segments(area_model, source, committed, style, viewport, &state);
+            let segments = self.text_area_display_segments(
+                area_model,
+                source,
+                committed,
+                style,
+                viewport,
+                &state,
+                Some(source_cursor.line),
+            );
             if let Some(caret_layout) =
                 text_area_caret_layout_from_segments(area_model, &projection, &state, &segments)
                 && let Some(next) =
@@ -117,7 +124,12 @@ impl Engine {
             .map(|display| display.height.max(1.0))
             .max_by(f32::total_cmp)
             .unwrap_or(estimated_line_height);
-        height_index.update_line(source, cursor_line, display_height);
+        let delta = height_index.update_line(source, cursor_line, display_height);
+        if delta.abs() > f32::EPSILON {
+            self.diagnostics.text_area_height_index_updates += 1;
+            self.diagnostics.text_area_height_index_refined_pixels += delta.abs().ceil() as usize;
+        }
+        self.diagnostics.text_area_height_index_queries += 1;
         let caret_line_top = height_index.line_top(cursor_line);
         let content_height = height_index.total_height().max(viewport.height().max(0.0));
         if committed {
@@ -208,11 +220,29 @@ impl Engine {
             .map(|display| display.height.max(1.0))
             .max_by(f32::total_cmp)
             .unwrap_or(estimated_line_height);
-        height_index.update_line(source, anchor_line, display_height);
+        let delta = height_index.update_line(source, anchor_line, display_height);
+        if delta.abs() > f32::EPSILON {
+            self.diagnostics.text_area_height_index_updates += 1;
+            self.diagnostics.text_area_height_index_refined_pixels += delta.abs().ceil() as usize;
+        }
+        self.diagnostics.text_area_height_index_queries += 1;
         let scroll_y = (height_index.line_top(anchor_line) + anchor.offset_y()).max(0.0);
         self.text_area_height_indices.put(height_key, height_index);
 
         Some(scroll_y)
+    }
+
+    pub(crate) fn record_text_area_anchor_candidate(&mut self) {
+        self.diagnostics.text_area_anchor_candidates += 1;
+    }
+
+    pub(crate) fn record_text_area_anchor_correction(&mut self, pixels: usize) {
+        self.diagnostics.text_area_anchor_corrections += 1;
+        self.diagnostics.text_area_anchor_correction_pixels += pixels;
+        self.diagnostics.text_area_anchor_correction_pixels_max = self
+            .diagnostics
+            .text_area_anchor_correction_pixels_max
+            .max(pixels);
     }
 }
 

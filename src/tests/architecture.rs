@@ -1169,6 +1169,7 @@ fn text_shaping_cache_admission_is_structural() {
     let inline = include_str!("../text/layout/inline.rs");
     let height = include_str!("../text/layout/height.rs");
     let text_area = include_str!("../text/layout/text_area.rs");
+    let render = include_str!("../text/layout/area/render.rs");
 
     assert!(
         cache.contains("fn new(capacity: NonZeroUsize)")
@@ -1181,9 +1182,9 @@ fn text_shaping_cache_admission_is_structural() {
     );
     assert!(
         constants.contains("TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY: NonZeroUsize")
-            && constants.contains("TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY: NonZeroUsize")
             && constants.contains("TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY: NonZeroUsize")
             && constants.contains("MEASURE_CACHE_CAPACITY: usize")
+            && !constants.contains("TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY")
     );
     assert!(
         field.contains(".shape_required(")
@@ -1200,7 +1201,50 @@ fn text_shaping_cache_admission_is_structural() {
     );
     assert!(
         height.contains("LruCache::new(TEXT_AREA_HEIGHT_INDEX_CACHE_CAPACITY)")
-            && text_area.contains("LruCache::new(TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY)")
+            && !text_area.contains("RenderBufferKey")
+            && render.contains("self.text_area_line_displays_at(")
+            && render.contains("height_index.update_line(")
+            && !render.contains("glyphon::Buffer::new_empty")
+    );
+}
+
+#[test]
+fn variable_height_text_has_one_bounded_anchor_feedback_path() {
+    let layout_text = include_str!("../layout/text.rs");
+    let frame = include_str!("../layout/frame.rs");
+    let presentation = include_str!("../runtime/presentation.rs");
+    let text_view = include_str!("../text/view.rs");
+    let paint = include_str!("../text/layout/area/paint.rs");
+    let render = include_str!("../text/layout/area/render.rs");
+    let render_surfaces = paint
+        .find("let render_surfaces = self.text_area_render_surfaces(")
+        .expect("paint must prepare the sole render line geometry");
+    let interaction_segments = paint
+        .find("let segments = if observe {")
+        .expect("paint must project interaction from refined geometry");
+
+    assert!(
+        layout_text.contains("TEXT_AREA_ANCHOR_OBSERVATION_CACHE_CAPACITY: NonZeroUsize")
+            && layout_text.contains("LruCache<composition::tree::NodeId, TextAreaAnchorObservation>")
+            && layout_text.contains("text_area_scroll_y_for_anchor(")
+            && layout_text.contains("resolved_scroll_correction = Some(")
+    );
+    assert!(
+        frame.contains("layout.resolved_scroll_correction().or_else(")
+            && presentation.contains("frame.resolved_scroll_correction()?")
+            && presentation.contains("interaction::ScrollUpdate::Geometry(offset)")
+    );
+    assert!(
+        text_view.contains("struct ScrollAnchorBand")
+            && text_view.contains("pub(crate) fn anchor_at(")
+            && text_view.contains("ScrollAnchor::new(sample.mark")
+    );
+    assert!(
+        render_surfaces < interaction_segments
+            && render.contains("self.text_area_line_displays_at(")
+            && render.contains("height_index.update_line(")
+            && !render.contains("glyphon::Buffer::new_empty")
+            && !render.contains("CachedRenderBuffer")
     );
 }
 

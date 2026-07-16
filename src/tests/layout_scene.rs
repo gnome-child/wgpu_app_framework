@@ -10656,6 +10656,140 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
 }
 
 #[test]
+fn wrapped_text_resize_preserves_the_presented_source_anchor_through_geometry_feedback() {
+    let wrapped = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
+    let document = (0..120)
+        .map(|line| format!("line {line:03} {wrapped}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut app = text_editor::app(text_editor::State {
+        document: TextDocument::from_multiline_text(document),
+        wrap_text: true,
+        ..text_editor::State::default()
+    });
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let wide = geometry::Size::new(620, 220);
+    let initial = app.show_scene(window, wide).expect("initial wrapped scene");
+    let initial_frame = initial
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("wrapped text area");
+    let initial_layout = initial_frame.text_area_layout().expect("text layout");
+    let initial_model = initial_frame.text_area().expect("text model").area_model();
+    let baseline_y = initial_layout.viewport().resolved_scroll().y() as f32;
+    let initial_band = text::view::ScrollAnchorBand::observe(
+        &initial_model,
+        baseline_y,
+        initial_frame.text_area_text_rect().height() as f32,
+        initial_layout.interaction_surfaces(),
+        initial_layout.render_surfaces(),
+    )
+    .expect("initial resident anchor band");
+    let target_surface = initial_layout
+        .render_surfaces()
+        .iter()
+        .filter(|surface| surface.source_line() >= 2)
+        .min_by(|left, right| left.y().total_cmp(&right.y()))
+        .expect("resident runway should include a later source line");
+    let requested_y = (target_surface.y() + target_surface.height().min(12.0) / 2.0)
+        .round()
+        .max(1.0) as i32;
+    let expected_anchor = initial_band
+        .anchor_at(requested_y as f32)
+        .expect("requested property offset should remain inside the anchor band");
+    let target = initial_frame
+        .target()
+        .expect("text area scroll target")
+        .clone();
+    let point = geometry::Point::new(
+        initial_frame.text_area_text_rect().x() + 4,
+        initial_frame.text_area_text_rect().y() + 4,
+    );
+    drop(initial);
+
+    let outcome = app
+        .scroll_at(
+            window,
+            wide,
+            point,
+            interaction::ScrollDelta::vertical(requested_y),
+        )
+        .expect("resident property scroll should be handled");
+    assert!(outcome.is_handled());
+    let _ = app
+        .show_scene(window, wide)
+        .expect("property-scrolled scene should present");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("interaction")
+            .scroll()
+            .offset(&target)
+            .y(),
+        requested_y
+    );
+
+    let narrow = geometry::Size::new(330, 220);
+    let resized = app
+        .show_scene(window, narrow)
+        .expect("narrow wrapped scene should resolve its anchor");
+    let resized_frame = resized
+        .layout()
+        .find_role(view::Role::TextArea)
+        .into_iter()
+        .next()
+        .expect("resized text area");
+    let resized_layout = resized_frame
+        .text_area_layout()
+        .expect("resized text layout");
+    let corrected_y = resized_layout.viewport().resolved_scroll().y();
+    assert_ne!(
+        corrected_y, requested_y,
+        "fixture must exercise a real variable-height geometry correction"
+    );
+    let resized_model = resized_frame
+        .text_area()
+        .expect("resized model")
+        .area_model();
+    let resized_band = text::view::ScrollAnchorBand::observe(
+        &resized_model,
+        corrected_y as f32,
+        resized_frame.text_area_text_rect().height() as f32,
+        resized_layout.interaction_surfaces(),
+        resized_layout.render_surfaces(),
+    )
+    .expect("resized resident anchor band");
+    let restored_anchor = resized_band
+        .anchor_at(corrected_y as f32)
+        .expect("corrected viewport should have a top anchor");
+    assert_eq!(restored_anchor.mark(), expected_anchor.mark());
+    assert!(
+        (restored_anchor.offset_y() - expected_anchor.offset_y()).abs() <= 0.5,
+        "within-line displacement changed: before {}, after {}",
+        expected_anchor.offset_y(),
+        restored_anchor.offset_y()
+    );
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .expect("interaction after correction")
+            .scroll()
+            .desired_offset(&target)
+            .y(),
+        corrected_y,
+        "layout correction must enter the authoritative desired-scroll path"
+    );
+    let diagnostics = app.diagnostics(window).expect("window diagnostics");
+    assert!(diagnostics.text.text_area_anchor_candidates > 0);
+    assert!(diagnostics.text.text_area_anchor_corrections > 0);
+    assert!(diagnostics.text.text_area_anchor_correction_pixels > 0);
+}
+
+#[test]
 fn text_area_input_clamps_to_presented_extent_before_admission() {
     let mut app = text_editor::app(text_editor::State {
         document: TextDocument::from_multiline_text("short\ntext"),

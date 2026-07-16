@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use crate::text as text_engine;
 
-use super::super::{geometry, scene, theme, view};
+use super::super::{composition, geometry, scene, theme, view};
 use super::{Text, text};
 
 pub(crate) struct Engine {
@@ -91,6 +91,7 @@ impl Engine {
 
     pub(super) fn text_area_layout(
         &self,
+        owner: composition::tree::NodeId,
         text_area: &view::TextArea,
         rect: geometry::Rect,
         visible_frame: geometry::Rect,
@@ -100,6 +101,7 @@ impl Engine {
         now: Instant,
     ) -> text::Area {
         self.text.text_area_layout(
+            owner,
             text_area,
             rect,
             visible_frame,

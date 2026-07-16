@@ -32,6 +32,7 @@ impl Engine {
             style,
             viewport,
             &state,
+            None,
         );
         self.text_area_position_at_for_segments(
             &segments,

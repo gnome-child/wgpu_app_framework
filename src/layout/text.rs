@@ -1,19 +1,26 @@
 use std::{
     cell::{Cell, RefCell},
     fmt,
+    num::NonZeroUsize,
     rc::Rc,
     time::Instant,
 };
 
+use lru::LruCache;
+
 use crate::text as text_engine;
 
 use super::super::{
+    composition,
     geometry::{Point, Rect, Size, area},
     interaction, scene,
     theme::Theme,
     view,
 };
 use super::Viewport;
+
+const TEXT_AREA_ANCHOR_OBSERVATION_CACHE_CAPACITY: NonZeroUsize =
+    NonZeroUsize::new(128).unwrap();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Text {
@@ -63,6 +70,13 @@ pub struct Text {
     pub text_area_hit_run_scans: usize,
     pub text_area_height_index_hits: usize,
     pub text_area_height_index_misses: usize,
+    pub text_area_height_index_queries: usize,
+    pub text_area_height_index_updates: usize,
+    pub text_area_height_index_refined_pixels: usize,
+    pub text_area_anchor_candidates: usize,
+    pub text_area_anchor_corrections: usize,
+    pub text_area_anchor_correction_pixels: usize,
+    pub text_area_anchor_correction_pixels_max: usize,
     pub text_area_width_cache_hits: usize,
     pub text_area_width_cache_misses: usize,
     pub text_area_width_observed_updates: usize,
@@ -77,6 +91,13 @@ pub struct Text {
 pub(crate) struct Service {
     inner: Rc<RefCell<text_engine::layout::Engine>>,
     author_text_overflows: Rc<Cell<usize>>,
+    text_area_anchor_observations:
+        Rc<RefCell<LruCache<composition::tree::NodeId, TextAreaAnchorObservation>>>,
+}
+
+#[derive(Debug, Clone)]
+struct TextAreaAnchorObservation {
+    band: text_engine::view::ScrollAnchorBand,
 }
 
 #[derive(Clone)]
@@ -86,6 +107,7 @@ pub(crate) struct Area {
     render_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     viewport: Viewport,
     state: text_engine::view::ViewState,
+    resolved_scroll_correction: Option<interaction::ScrollOffset>,
 }
 
 #[derive(Clone)]
@@ -103,6 +125,9 @@ impl Service {
         Self {
             inner: Rc::new(RefCell::new(text_engine::layout::Engine::new())),
             author_text_overflows: Rc::new(Cell::new(0)),
+            text_area_anchor_observations: Rc::new(RefCell::new(LruCache::new(
+                TEXT_AREA_ANCHOR_OBSERVATION_CACHE_CAPACITY,
+            ))),
         }
     }
 
@@ -223,6 +248,7 @@ impl Service {
 
     pub(super) fn text_area_layout(
         &self,
+        owner: composition::tree::NodeId,
         text_area: &view::TextArea,
         rect: Rect,
         visible_frame: Rect,
@@ -238,8 +264,20 @@ impl Service {
         let layout_now = text_area.caret_epoch().unwrap_or(now);
         let mut state = text_area.view_state_at(layout_now);
         let preedit = text_area.preedit();
+        let observed_anchor = if preedit.is_none() && !state.caret_visibility_pending() {
+            self.text_area_anchor_observations
+                .borrow_mut()
+                .get(&owner)
+                .and_then(|observation| observation.band.anchor_at(state.scroll_y()))
+        } else {
+            None
+        };
+        let mut resolved_scroll_correction = None;
         let paint_layout = {
             let mut engine = self.inner.borrow_mut();
+            if observed_anchor.is_some() {
+                engine.record_text_area_anchor_candidate();
+            }
             if state.caret_visibility_pending() {
                 state = engine.ensure_caret_visible_for_area_with_preedit(
                     &area_model,
@@ -273,11 +311,82 @@ impl Service {
                     layout_now,
                 );
             }
+            if let Some(anchor) = observed_anchor {
+                let before = scroll_component(state.scroll_y());
+                for _ in 0..4 {
+                    let Some(scroll_y) = engine.text_area_scroll_y_for_anchor(
+                        &area_model,
+                        style,
+                        logical_viewport,
+                        state.clone(),
+                        anchor,
+                    ) else {
+                        break;
+                    };
+                    let anchored_state = clamp_text_area_scroll_state(
+                        &state.clone().with_scroll_y(scroll_y),
+                        paint_layout.layout(),
+                        logical_viewport,
+                    );
+                    if scroll_component(anchored_state.scroll_y())
+                        == scroll_component(state.scroll_y())
+                    {
+                        break;
+                    }
+                    state = anchored_state;
+                    paint_layout = engine.text_area_paint_layout_for_area_with_preedit_at(
+                        &area_model,
+                        style,
+                        logical_viewport,
+                        state.clone(),
+                        preedit,
+                        layout_now,
+                    );
+                    let clamped_state = clamp_text_area_scroll_state(
+                        &state,
+                        paint_layout.layout(),
+                        logical_viewport,
+                    );
+                    if clamped_state.scroll_x() != state.scroll_x()
+                        || clamped_state.scroll_y() != state.scroll_y()
+                    {
+                        state = clamped_state;
+                        paint_layout = engine.text_area_paint_layout_for_area_with_preedit_at(
+                            &area_model,
+                            style,
+                            logical_viewport,
+                            state.clone(),
+                            preedit,
+                            layout_now,
+                        );
+                    }
+                }
+                let after = scroll_component(state.scroll_y());
+                if after != before {
+                    engine.record_text_area_anchor_correction(before.abs_diff(after) as usize);
+                    resolved_scroll_correction = Some(scroll_offset_for_text_state(&state));
+                }
+            }
             paint_layout
         };
         let viewport = viewport_for_text_area(rect, paint_layout.layout(), &state)
             .with_visible(visible_frame, visible_content);
         let (layout, interaction_surfaces, render_surfaces) = paint_layout.into_projection_parts();
+        let next_anchor_band = preedit.is_none().then(|| {
+            text_engine::view::ScrollAnchorBand::observe(
+                &area_model,
+                state.scroll_y(),
+                logical_viewport.height(),
+                &interaction_surfaces,
+                &render_surfaces,
+            )
+        });
+        let mut observations = self.text_area_anchor_observations.borrow_mut();
+        if let Some(Some(band)) = next_anchor_band {
+            observations.put(owner, TextAreaAnchorObservation { band });
+        } else {
+            observations.pop(&owner);
+        }
 
         Area {
             layout,
@@ -285,6 +394,7 @@ impl Service {
             render_surfaces,
             viewport,
             state,
+            resolved_scroll_correction,
         }
     }
 
@@ -483,6 +593,16 @@ impl Text {
         self.text_area_hit_run_scans += diagnostics.text_area_hit_run_scans;
         self.text_area_height_index_hits += diagnostics.text_area_height_index_hits;
         self.text_area_height_index_misses += diagnostics.text_area_height_index_misses;
+        self.text_area_height_index_queries += diagnostics.text_area_height_index_queries;
+        self.text_area_height_index_updates += diagnostics.text_area_height_index_updates;
+        self.text_area_height_index_refined_pixels +=
+            diagnostics.text_area_height_index_refined_pixels;
+        self.text_area_anchor_candidates += diagnostics.text_area_anchor_candidates;
+        self.text_area_anchor_corrections += diagnostics.text_area_anchor_corrections;
+        self.text_area_anchor_correction_pixels += diagnostics.text_area_anchor_correction_pixels;
+        self.text_area_anchor_correction_pixels_max = self
+            .text_area_anchor_correction_pixels_max
+            .max(diagnostics.text_area_anchor_correction_pixels_max);
         self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
         self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
         self.text_area_width_observed_updates += diagnostics.text_area_width_observed_updates;
@@ -567,6 +687,16 @@ impl Text {
         self.text_area_hit_run_scans += diagnostics.text_area_hit_run_scans;
         self.text_area_height_index_hits += diagnostics.text_area_height_index_hits;
         self.text_area_height_index_misses += diagnostics.text_area_height_index_misses;
+        self.text_area_height_index_queries += diagnostics.text_area_height_index_queries;
+        self.text_area_height_index_updates += diagnostics.text_area_height_index_updates;
+        self.text_area_height_index_refined_pixels +=
+            diagnostics.text_area_height_index_refined_pixels;
+        self.text_area_anchor_candidates += diagnostics.text_area_anchor_candidates;
+        self.text_area_anchor_corrections += diagnostics.text_area_anchor_corrections;
+        self.text_area_anchor_correction_pixels += diagnostics.text_area_anchor_correction_pixels;
+        self.text_area_anchor_correction_pixels_max = self
+            .text_area_anchor_correction_pixels_max
+            .max(diagnostics.text_area_anchor_correction_pixels_max);
         self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
         self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
         self.text_area_width_observed_updates += diagnostics.text_area_width_observed_updates;
@@ -628,6 +758,10 @@ impl Area {
 
     pub(crate) fn viewport(&self) -> Viewport {
         self.viewport
+    }
+
+    pub(crate) fn resolved_scroll_correction(&self) -> Option<interaction::ScrollOffset> {
+        self.resolved_scroll_correction
     }
 }
 

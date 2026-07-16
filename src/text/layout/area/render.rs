@@ -1,31 +1,22 @@
 use crate::geometry::area;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::collections::BTreeMap;
 use std::time::Instant;
 
-use super::super::super::{
-    buffer::Buffer,
-    document::Style,
-    surface::{Area, AreaWrap},
-    view::ViewState,
-};
+use super::super::super::{buffer::Buffer, document::Style, surface::Area, view::ViewState};
 use super::super::{
     content::text_area_estimated_line_height,
     engine::Engine,
-    glyph::{glyph_wrap, set_cosmic_buffer_text, text_area_shaping_for_text},
     height::{TextAreaHeightIndex, TextAreaHeightKey},
-    horizontal::prepared_window as horizontal_render_window,
     output::TextAreaSurface,
-    system, text_area,
-    text_area::{
-        CachedRenderBuffer as CachedTextAreaRenderBuffer, LineDisplayKey as TextAreaLineDisplayKey,
-        LineWindowKey as TextAreaLineWindowKey, RenderAnchor as TextAreaRenderAnchor,
-        RenderBufferKey as TextAreaRenderBufferKey,
-    },
+    text_area::{self, LineDisplay as TextAreaLineDisplay, RenderLineWindow},
 };
 
-#[cfg(test)]
-use super::super::constants::TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN;
+const TEXT_AREA_RENDER_REFINEMENT_PASSES: usize = 4;
+
+struct PreparedLine {
+    displays: Vec<TextAreaLineDisplay>,
+    height: f32,
+}
 
 impl Engine {
     pub(super) fn text_area_render_surfaces(
@@ -40,24 +31,93 @@ impl Engine {
         let total_started = Instant::now();
         self.diagnostics.text_area_render_surface_calls += 1;
 
-        let anchor_started = Instant::now();
-        let Some(anchor) =
-            self.text_area_render_anchor(area_model, source, committed, style, viewport, state)
-        else {
-            self.diagnostics.text_area_render_surface_anchor_us += elapsed_micros(anchor_started);
-            self.diagnostics.text_area_render_surface_total_us += elapsed_micros(total_started);
-            return Vec::new();
+        let line_count = source.logical_line_count().max(1);
+        let estimated_line_height = text_area_estimated_line_height(style);
+        let height_key = TextAreaHeightKey::new(area_model, style, viewport.width());
+        let mut height_index = if committed {
+            self.text_area_height_indices
+                .pop(&height_key)
+                .unwrap_or_else(|| TextAreaHeightIndex::new(line_count, estimated_line_height))
+        } else {
+            TextAreaHeightIndex::new(line_count, estimated_line_height)
         };
-        let anchor_us = elapsed_micros(anchor_started);
-        self.diagnostics.text_area_render_surface_anchor_us += anchor_us;
+        height_index.sync(source, line_count, estimated_line_height);
 
-        let font_size = style.size().max(1.0);
-        let metrics = glyphon::Metrics::relative(font_size, 1.25);
-        let surface_height = anchor.height.max(viewport.height() - anchor.y).max(1.0);
-        let scroll_x = state.scroll_x().max(0.0);
-        let (window_origin_x, surface_width) = horizontal_render_window(viewport.width(), scroll_x);
-        let surface_width_px = ceil_to_usize(surface_width);
-        let surface_height_px = ceil_to_usize(surface_height);
+        let scroll_y = state.scroll_y().max(0.0);
+        let mut prepared = BTreeMap::<usize, PreparedLine>::new();
+        let mut final_window =
+            render_window(&height_index, scroll_y, viewport.height(), line_count);
+
+        for _ in 0..TEXT_AREA_RENDER_REFINEMENT_PASSES {
+            let window = final_window;
+            self.prepare_text_area_render_lines(
+                area_model,
+                source,
+                committed,
+                style,
+                viewport,
+                state,
+                window,
+                &mut height_index,
+                &mut prepared,
+            );
+            final_window = render_window(&height_index, scroll_y, viewport.height(), line_count);
+            if final_window == window {
+                break;
+            }
+        }
+        self.prepare_text_area_render_lines(
+            area_model,
+            source,
+            committed,
+            style,
+            viewport,
+            state,
+            final_window,
+            &mut height_index,
+            &mut prepared,
+        );
+
+        self.diagnostics.text_area_height_index_queries +=
+            final_window.end.saturating_sub(final_window.start) + 2;
+        let window_y = height_index.line_top(final_window.start) - scroll_y;
+        let window_bottom = height_index.line_top(final_window.end) - scroll_y;
+        let resident_bottom = window_bottom.max(viewport.height());
+        let resident_height = (resident_bottom - window_y).max(1.0);
+        let mut surfaces = Vec::new();
+        let mut resident_width = 0.0_f32;
+        let mut window_origin_x = 0.0_f32;
+
+        for source_line in final_window.start..final_window.end {
+            let Some(line) = prepared.remove(&source_line) else {
+                continue;
+            };
+            let y = height_index.line_top(source_line) - scroll_y;
+            let height = if source_line + 1 == final_window.end {
+                line.height.max(resident_bottom - y)
+            } else {
+                line.height
+            };
+            for display in line.displays {
+                resident_width = resident_width.max(display.surface_width);
+                window_origin_x = window_origin_x.max(display.surface_x + state.scroll_x());
+                surfaces.push(TextAreaSurface {
+                    x: display.surface_x,
+                    y,
+                    text_x: display.text_x,
+                    width: display.surface_width,
+                    height,
+                    source_line,
+                    source_line_id: display.source_line_id,
+                    source_start: display.source_start,
+                    source_line_byte_start: display.source_line_byte_start,
+                    source_text_len: display.source_text_len,
+                    buffer: display.buffer,
+                    default_color: style.color(),
+                });
+            }
+        }
+
         self.diagnostics.text_area_render_window_origin_x_max = self
             .diagnostics
             .text_area_render_window_origin_x_max
@@ -65,283 +125,29 @@ impl Engine {
         self.diagnostics.text_area_render_window_origin_y_max = self
             .diagnostics
             .text_area_render_window_origin_y_max
-            .max(ceil_to_usize(state.scroll_y().max(0.0)));
+            .max(ceil_to_usize(scroll_y));
         self.diagnostics.text_area_render_window_width_max = self
             .diagnostics
             .text_area_render_window_width_max
-            .max(surface_width_px);
+            .max(ceil_to_usize(resident_width));
         self.diagnostics.text_area_render_window_height_max = self
             .diagnostics
             .text_area_render_window_height_max
-            .max(surface_height_px);
+            .max(ceil_to_usize(resident_height));
         self.diagnostics.text_area_render_window_area_max = self
             .diagnostics
             .text_area_render_window_area_max
-            .max(surface_width_px.saturating_mul(surface_height_px));
-        if area_model.wrap() == AreaWrap::None {
-            let mut y = anchor.y;
-            let mut surfaces =
-                Vec::with_capacity(anchor.source_line_end.saturating_sub(anchor.source_line));
-            for source_line in anchor.source_line..anchor.source_line_end {
-                let displays = self.text_area_line_displays_at(
-                    area_model,
-                    source,
-                    committed,
-                    style,
-                    viewport,
-                    state,
-                    source_line,
-                );
-                let line_height = displays
-                    .iter()
-                    .map(|display| display.height.max(1.0))
-                    .max_by(f32::total_cmp)
-                    .unwrap_or_else(|| text_area_estimated_line_height(style));
-                let resident_height = if source_line + 1 == anchor.source_line_end {
-                    line_height.max(anchor.y + surface_height - y)
-                } else {
-                    line_height
-                };
-                for display in displays {
-                    if display.cache_hit {
-                        self.diagnostics.text_area_render_surface_cache_hits += 1;
-                    } else {
-                        self.diagnostics.text_area_render_surface_cache_misses += 1;
-                        self.diagnostics.text_area_render_surface_source_lines += 1;
-                        self.diagnostics.text_area_render_surface_source_bytes +=
-                            display.source_text_len;
-                    }
-                    self.diagnostics.text_area_render_surface_line_reuses += 1;
-                    surfaces.push(TextAreaSurface {
-                        x: window_origin_x - scroll_x,
-                        y,
-                        text_x: display.text_x,
-                        width: surface_width,
-                        height: resident_height,
-                        source_line,
-                        source_line_id: display.source_line_id,
-                        source_start: display.source_start,
-                        source_line_byte_start: display.source_line_byte_start,
-                        source_text_len: display.source_text_len,
-                        buffer: display.buffer,
-                        default_color: style.color(),
-                    });
-                }
-                y += line_height;
-            }
-            self.diagnostics.text_area_render_surface_total_us += elapsed_micros(total_started);
-            return surfaces;
-        }
-        let layout_width = match area_model.wrap() {
-            AreaWrap::None => None,
-            AreaWrap::WordOrGlyph => Some(viewport.width().max(0.0)),
-        };
-        let key_width = layout_width.unwrap_or(0.0);
-        let key = TextAreaRenderBufferKey::new(
-            area_model,
-            source,
-            style,
-            key_width,
-            anchor.source_line,
-            anchor.source_line_end,
-        );
-        let source_lines = anchor.source_line_end.saturating_sub(anchor.source_line);
-
-        let mut cache_hit = false;
-        let mut line_reuse = false;
-        let mut text_us = 0;
-        let mut buffer_us = 0;
-        let mut attrs_us = 0;
-        let mut size_us = 0;
-        let mut shape_us = 0;
-        let buffer = if committed
-            && let Some(key) = key.as_ref()
-            && let Some(cached) = self.text_area_render_buffers.get(key)
-        {
-            cache_hit = true;
-            self.diagnostics.text_area_render_surface_cache_hits += 1;
-            cached.buffer.clone()
-        } else {
-            self.diagnostics.text_area_render_surface_cache_misses += 1;
-            let line_buffer = if committed && source_lines == 1 {
-                let line_key = TextAreaLineDisplayKey::new(
-                    area_model,
-                    source,
-                    style,
-                    viewport.width().max(0.0),
-                    anchor.source_line,
-                );
-                let source_text_len = source.inner.document.line_text_len(anchor.source_line);
-                line_key
-                    .map(|key| TextAreaLineWindowKey::new(key, 0, source_text_len))
-                    .and_then(|key| self.text_area_line_displays.get(&key))
-                    .map(|cached| cached.buffer)
-            } else {
-                None
-            };
-            let buffer = if let Some(buffer) = line_buffer {
-                line_reuse = true;
-                self.diagnostics.text_area_render_surface_line_reuses += 1;
-                buffer
-            } else {
-                let attrs = system::attrs_for_style(style);
-
-                let text_started = Instant::now();
-                let text = source.text_for_line_range(anchor.source_line, anchor.source_line_end);
-                text_us = elapsed_micros(text_started);
-                self.diagnostics.text_area_render_surface_text_us += text_us;
-                self.diagnostics.text_area_render_surface_source_lines += source_lines;
-                self.diagnostics.text_area_render_surface_source_bytes += text.len();
-
-                let buffer_started = Instant::now();
-                let mut buffer = glyphon::Buffer::new_empty(metrics);
-                buffer_us = elapsed_micros(buffer_started);
-
-                let size_started = Instant::now();
-                buffer.set_wrap(&mut self.font_system, glyph_wrap(area_model.wrap()));
-                buffer.set_size(&mut self.font_system, layout_width, None);
-                size_us = elapsed_micros(size_started);
-                self.diagnostics.text_area_render_surface_size_us += size_us;
-
-                let attrs_started = Instant::now();
-                let attrs = glyphon::AttrsList::new(&attrs);
-                attrs_us = elapsed_micros(attrs_started);
-                self.diagnostics.text_area_render_surface_attrs_us += attrs_us;
-
-                let buffer_started = Instant::now();
-                let shaping = text_area_shaping_for_text(style, &text);
-                set_cosmic_buffer_text(&mut buffer, &text, attrs, shaping);
-                buffer_us += elapsed_micros(buffer_started);
-                self.diagnostics.text_area_render_surface_buffer_us += buffer_us;
-
-                let shape_started = Instant::now();
-                buffer.shape_until_scroll(&mut self.font_system, false);
-                shape_us = elapsed_micros(shape_started);
-                self.diagnostics.text_area_render_surface_shape_us += shape_us;
-
-                Rc::new(RefCell::new(buffer))
-            };
-            if committed && let Some(key) = key {
-                self.text_area_render_buffers.put(
-                    key,
-                    CachedTextAreaRenderBuffer {
-                        buffer: buffer.clone(),
-                    },
-                );
-            }
-            buffer
-        };
-        let metadata_started = Instant::now();
-        let (source_start, source_text_len) = {
-            let inner = &source.inner;
-            let start = inner.document.line_start(anchor.source_line);
-            let line_count = source.logical_line_count();
-            let end = if anchor.source_line_end >= line_count {
-                source.len()
-            } else {
-                inner.document.line_start(anchor.source_line_end)
-            };
-            (start, end.saturating_sub(start))
-        };
-        let metadata_us = elapsed_micros(metadata_started);
-        self.diagnostics.text_area_render_surface_metadata_us += metadata_us;
-        let total_us = elapsed_micros(total_started);
-        self.diagnostics.text_area_render_surface_total_us += total_us;
-
-        if std::env::var_os("WGPU_L3_SCROLL_TRACE").is_some() {
-            eprintln!(
-                concat!(
-                    "[wgpu_l3 text-surface] ",
-                    "lines={}..{} count={} bytes={} cache_hit={} line_reuse={} ",
-                    "viewport={:.1}x{:.1} scroll={:.1},{:.1} surface={:.1}x{:.1} ",
-                    "anchor={}us text={}us buffer={}us attrs={}us size={}us shape={}us meta={}us total={}us"
-                ),
-                anchor.source_line,
-                anchor.source_line_end,
-                source_lines,
-                source_text_len,
-                cache_hit,
-                line_reuse,
-                viewport.width(),
-                viewport.height(),
-                state.scroll_x(),
-                state.scroll_y(),
-                surface_width,
-                surface_height,
-                anchor_us,
-                text_us,
-                buffer_us,
-                attrs_us,
-                size_us,
-                shape_us,
-                metadata_us,
-                total_us,
-            );
-        }
-
-        vec![TextAreaSurface {
-            x: window_origin_x - scroll_x,
-            y: anchor.y,
-            text_x: -scroll_x,
-            width: surface_width,
-            height: surface_height,
-            source_line: anchor.source_line,
-            source_line_id: source
-                .line_layout_identity(anchor.source_line)
-                .map(|identity| identity.id),
-            source_start,
-            source_line_byte_start: 0,
-            source_text_len,
-            buffer,
-            default_color: style.color(),
-        }]
-    }
-
-    fn text_area_render_anchor(
-        &mut self,
-        area_model: &Area,
-        source: &Buffer,
-        committed: bool,
-        style: Style,
-        viewport: area::Logical,
-        state: &ViewState,
-    ) -> Option<TextAreaRenderAnchor> {
-        let line_count = source.logical_line_count().max(1);
-        let estimated_line_height = text_area_estimated_line_height(style);
-        let height_key = TextAreaHeightKey::new(area_model, style, viewport.width());
-        let mut height_index = if committed {
-            self.text_area_height_indices
-                .pop(&height_key)
-                .unwrap_or_else(|| TextAreaHeightIndex::new(line_count, estimated_line_height))
-        } else {
-            TextAreaHeightIndex::new(line_count, estimated_line_height)
-        };
-        height_index.sync(source, line_count, estimated_line_height);
-
-        let scroll_y = state.scroll_y().max(0.0);
-        let visible_line = height_index.line_at_y(scroll_y);
-        let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
-        let visible_line_end = visible_line.saturating_add(visible_lines).min(line_count);
-        let window = text_area::render_line_window(visible_line, visible_line_end, line_count);
-        let source_line = window.start;
-        let source_line_end = window.end;
-        let y = height_index.line_top(source_line) - scroll_y;
-        let height =
-            (height_index.line_top(source_line_end) - height_index.line_top(source_line)).max(1.0);
+            .max(ceil_to_usize(resident_width).saturating_mul(ceil_to_usize(resident_height)));
 
         if committed {
             self.text_area_height_indices.put(height_key, height_index);
         }
-
-        Some(TextAreaRenderAnchor {
-            source_line,
-            source_line_end,
-            y,
-            height,
-        })
+        self.diagnostics.text_area_render_surface_total_us += elapsed_micros(total_started);
+        surfaces
     }
 
-    pub(super) fn record_text_area_render_window(
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_text_area_render_lines(
         &mut self,
         area_model: &Area,
         source: &Buffer,
@@ -349,26 +155,60 @@ impl Engine {
         style: Style,
         viewport: area::Logical,
         state: &ViewState,
+        window: RenderLineWindow,
+        height_index: &mut TextAreaHeightIndex,
+        prepared: &mut BTreeMap<usize, PreparedLine>,
     ) {
-        let line_count = source.logical_line_count().max(1);
-        let estimated_line_height = text_area_estimated_line_height(style);
-        let height_key = TextAreaHeightKey::new(area_model, style, viewport.width());
-        let mut height_index = if committed {
-            self.text_area_height_indices
-                .pop(&height_key)
-                .unwrap_or_else(|| TextAreaHeightIndex::new(line_count, estimated_line_height))
-        } else {
-            TextAreaHeightIndex::new(line_count, estimated_line_height)
-        };
-        height_index.sync(source, line_count, estimated_line_height);
-        let scroll_y = state.scroll_y().max(0.0);
-        let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
-        self.diagnostics.text_area_visible_logical_lines += visible_lines;
-
-        if committed {
-            self.text_area_height_indices.put(height_key, height_index);
+        for source_line in window.start..window.end {
+            if prepared.contains_key(&source_line) {
+                continue;
+            }
+            let displays = self.text_area_line_displays_at(
+                area_model,
+                source,
+                committed,
+                style,
+                viewport,
+                state,
+                source_line,
+            );
+            let height = displays
+                .iter()
+                .map(|display| display.height.max(1.0))
+                .max_by(f32::total_cmp)
+                .unwrap_or_else(|| text_area_estimated_line_height(style));
+            let delta = height_index.update_line(source, source_line, height);
+            if delta.abs() > f32::EPSILON {
+                self.diagnostics.text_area_height_index_updates += 1;
+                self.diagnostics.text_area_height_index_refined_pixels +=
+                    delta.abs().ceil() as usize;
+            }
+            for display in &displays {
+                if display.cache_hit {
+                    self.diagnostics.text_area_render_surface_cache_hits += 1;
+                } else {
+                    self.diagnostics.text_area_render_surface_cache_misses += 1;
+                    self.diagnostics.text_area_render_surface_source_lines += 1;
+                    self.diagnostics.text_area_render_surface_source_bytes +=
+                        display.source_text_len;
+                }
+                self.diagnostics.text_area_render_surface_line_reuses += 1;
+            }
+            prepared.insert(source_line, PreparedLine { displays, height });
         }
     }
+}
+
+fn render_window(
+    height_index: &TextAreaHeightIndex,
+    scroll_y: f32,
+    viewport_height: f32,
+    line_count: usize,
+) -> RenderLineWindow {
+    let visible_line = height_index.line_at_y(scroll_y);
+    let visible_lines = height_index.visible_line_count(scroll_y, viewport_height);
+    let visible_line_end = visible_line.saturating_add(visible_lines).min(line_count);
+    text_area::render_line_window(visible_line, visible_line_end, line_count)
 }
 
 fn elapsed_micros(start: Instant) -> u128 {
@@ -376,47 +216,5 @@ fn elapsed_micros(start: Instant) -> u128 {
 }
 
 fn ceil_to_usize(value: f32) -> usize {
-    value.ceil().clamp(0.0, usize::MAX as f32) as usize
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn horizontal_render_window_is_bounded_and_covers_near_far_and_boundary_offsets() {
-        let viewport = 920.0;
-        let expected_width = viewport + TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN * 2.0;
-
-        for scroll in [
-            0.0,
-            1.0,
-            255.0,
-            256.0,
-            257.0,
-            511.0,
-            512.0,
-            513.0,
-            5_157_889.0,
-        ] {
-            let (origin, width) = horizontal_render_window(viewport, scroll);
-            assert_eq!(width, expected_width);
-            assert!(origin >= 0.0);
-            assert!(origin <= scroll);
-            assert!(origin + width >= scroll + viewport);
-            assert!(scroll - origin <= TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN * 2.0);
-        }
-    }
-
-    #[test]
-    fn horizontal_render_window_reuses_one_bucket_until_its_trailing_guard_is_spent() {
-        let viewport = 920.0;
-        let before = horizontal_render_window(viewport, 510.0);
-        let boundary = horizontal_render_window(viewport, 511.0);
-        let after = horizontal_render_window(viewport, 512.0);
-
-        assert_eq!(before, boundary);
-        assert_eq!(before.1, after.1);
-        assert_eq!(after.0 - before.0, TEXT_AREA_RENDER_HORIZONTAL_OVERSCAN);
-    }
+    value.ceil().max(0.0).min(usize::MAX as f32) as usize
 }

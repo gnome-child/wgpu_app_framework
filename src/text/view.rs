@@ -1,4 +1,5 @@
 use crate::geometry::{area, point};
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 const TEXT_FIELD_CARET_BLINK_INTERVAL: Duration = Duration::from_millis(500);
@@ -38,6 +39,20 @@ pub enum RevealIntent {
 pub struct ScrollAnchor {
     mark: Mark,
     offset_y: f32,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScrollAnchorBand {
+    baseline_scroll_y: f32,
+    viewport_height: f32,
+    samples: Vec<ScrollAnchorSample>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScrollAnchorSample {
+    mark: Mark,
+    y: f32,
+    height: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -115,6 +130,76 @@ impl ScrollAnchor {
 
     pub fn offset_y(self) -> f32 {
         self.offset_y
+    }
+}
+
+impl ScrollAnchorBand {
+    pub(crate) fn observe(
+        area_model: &Area,
+        baseline_scroll_y: f32,
+        viewport_height: f32,
+        interaction_surfaces: &[TextAreaSurface],
+        render_surfaces: &[TextAreaSurface],
+    ) -> Option<Self> {
+        let source = area_model.buffer();
+        let line_starts = source.line_start_offsets();
+        let mut samples = Vec::<ScrollAnchorSample>::new();
+        for surface in interaction_surfaces.iter().chain(render_surfaces) {
+            let shaped = surface.shaped_buffer();
+            let buffer = shaped.borrow();
+            let mut rows = BTreeMap::<usize, (f32, f32)>::new();
+            for run in buffer.layout_runs() {
+                let top = run.line_top;
+                let bottom = top + run.line_height.max(1.0);
+                rows.entry(run.line_i)
+                    .and_modify(|(row_top, row_bottom)| {
+                        *row_top = row_top.min(top);
+                        *row_bottom = row_bottom.max(bottom);
+                    })
+                    .or_insert((top, bottom));
+            }
+            drop(buffer);
+            if rows.is_empty() {
+                rows.insert(0, (0.0, surface.height().max(1.0)));
+            }
+            for (local_line, (top, bottom)) in rows {
+                let source_line = surface.source_line().saturating_add(local_line);
+                let source_start = line_starts
+                    .get(source_line)
+                    .copied()
+                    .unwrap_or(surface.source_start());
+                let sample = ScrollAnchorSample {
+                    mark: source.mark_for_position(Position::new(source_start)),
+                    y: surface.y() + top,
+                    height: (bottom - top).max(1.0),
+                };
+                if !samples.iter().any(|current| {
+                    current.mark == sample.mark
+                        && current.y.to_bits() == sample.y.to_bits()
+                        && current.height.to_bits() == sample.height.to_bits()
+                }) {
+                    samples.push(sample);
+                }
+            }
+        }
+        (!samples.is_empty()).then_some(Self {
+            baseline_scroll_y: baseline_scroll_y.max(0.0),
+            viewport_height: viewport_height.max(0.0),
+            samples,
+        })
+    }
+
+    pub(crate) fn anchor_at(&self, scroll_y: f32) -> Option<ScrollAnchor> {
+        let delta_y = scroll_y.max(0.0) - self.baseline_scroll_y;
+        self.samples
+            .iter()
+            .filter_map(|sample| {
+                let y = sample.y - delta_y;
+                let bottom = y + sample.height;
+                (bottom > 0.0 && y < self.viewport_height).then_some((sample, y))
+            })
+            .min_by(|(_, left_y), (_, right_y)| left_y.total_cmp(right_y))
+            .map(|(sample, y)| ScrollAnchor::new(sample.mark, (-y).max(0.0)))
     }
 }
 
@@ -213,11 +298,14 @@ impl View {
         area_model: &Area,
         observed: ObservedArea<'_>,
     ) -> Option<ScrollAnchor> {
-        top_visible_surface(
-            observed.interaction_surfaces(),
+        ScrollAnchorBand::observe(
+            area_model,
+            observed.scroll().y(),
             observed.viewport().area().height(),
+            observed.interaction_surfaces(),
+            &[],
         )
-        .map(|surface| scroll_anchor_for_surface(area_model, surface))
+        .and_then(|band| band.anchor_at(observed.scroll().y()))
     }
 
     pub fn scroll_anchor_for_text_area(
@@ -225,10 +313,14 @@ impl View {
         observed: ObservedArea<'_>,
         render_surfaces: &[TextAreaSurface],
     ) -> Option<ScrollAnchor> {
-        Self::scroll_anchor_for_observed_area(area_model, observed).or_else(|| {
-            top_visible_surface(render_surfaces, observed.viewport().area().height())
-                .map(|surface| scroll_anchor_for_surface(area_model, surface))
-        })
+        ScrollAnchorBand::observe(
+            area_model,
+            observed.scroll().y(),
+            observed.viewport().area().height(),
+            observed.interaction_surfaces(),
+            render_surfaces,
+        )
+        .and_then(|band| band.anchor_at(observed.scroll().y()))
     }
 
     pub fn state_after_caret_blink_reset(state: ViewState, now: Instant) -> ViewState {
@@ -246,64 +338,6 @@ impl View {
     pub fn state_after_text_edit(state: ViewState, now: Instant) -> ViewState {
         state.ensure_caret_visible(now)
     }
-}
-
-fn top_visible_surface(
-    surfaces: &[TextAreaSurface],
-    viewport_height: f32,
-) -> Option<&TextAreaSurface> {
-    let viewport_height = viewport_height.max(0.0);
-    surfaces
-        .iter()
-        .filter(|surface| {
-            let bottom = surface.y() + surface.height().max(1.0);
-            bottom > 0.0 && surface.y() < viewport_height
-        })
-        .min_by(|a, b| a.y().total_cmp(&b.y()))
-}
-
-fn scroll_anchor_for_surface(area_model: &Area, surface: &TextAreaSurface) -> ScrollAnchor {
-    let viewport_y = (-surface.y()).max(0.0);
-    let surface_buffer = surface.buffer();
-    let buffer = surface_buffer.borrow();
-    let mut anchor_run = None::<(f32, f32, usize)>;
-
-    for run in buffer.layout_runs() {
-        let top = run.line_top;
-        let bottom = top + run.line_height.max(1.0);
-        let distance = if viewport_y >= top && viewport_y < bottom {
-            0.0
-        } else if viewport_y < top {
-            top - viewport_y
-        } else {
-            viewport_y - bottom
-        };
-
-        if anchor_run
-            .as_ref()
-            .is_none_or(|(best_distance, best_top, _)| {
-                distance < *best_distance || (distance == *best_distance && top < *best_top)
-            })
-        {
-            anchor_run = Some((distance, top, run.line_i));
-        }
-    }
-    drop(buffer);
-
-    let source = area_model.buffer();
-    let (line_top, source_start) = if let Some((_, line_top, local_line)) = anchor_run {
-        let source_line = surface.source_line().saturating_add(local_line);
-        let source_start = source
-            .line_start_offsets()
-            .get(source_line)
-            .copied()
-            .unwrap_or(surface.source_start());
-        (line_top, source_start)
-    } else {
-        (0.0, surface.source_start())
-    };
-    let mark = source.mark_for_position(Position::new(source_start));
-    ScrollAnchor::new(mark, (viewport_y - line_top).max(0.0))
 }
 
 #[derive(Debug, Clone, PartialEq)]

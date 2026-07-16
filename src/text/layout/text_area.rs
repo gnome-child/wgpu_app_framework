@@ -12,8 +12,7 @@ use super::super::{
 };
 use super::constants::{
     TEXT_AREA_HORIZONTAL_INDEX_CACHE_CAPACITY, TEXT_AREA_LINE_DISPLAY_CACHE_CAPACITY,
-    TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY, TEXT_AREA_RENDER_GUARD_LINES,
-    TEXT_AREA_RENDER_MAX_WINDOW_LINES,
+    TEXT_AREA_RENDER_GUARD_LINES, TEXT_AREA_RENDER_MAX_WINDOW_LINES,
 };
 use super::horizontal::LineIndex as HorizontalLineIndex;
 use super::key::{StyleKey, finite_bits};
@@ -24,14 +23,6 @@ use super::shaping_cache::ShapingCache;
 pub(super) enum Observation {
     RenderOnly,
     Observe,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct RenderAnchor {
-    pub(super) source_line: usize,
-    pub(super) source_line_end: usize,
-    pub(super) y: f32,
-    pub(super) height: f32,
 }
 
 #[derive(Clone)]
@@ -74,11 +65,6 @@ pub(in crate::text) struct RenderLineWindow {
     pub(super) end: usize,
 }
 
-#[derive(Clone)]
-pub(in crate::text) struct CachedRenderBuffer {
-    pub(in crate::text) buffer: Rc<RefCell<glyphon::Buffer>>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::text) struct LineDisplayKey {
     line: LineLayoutIdentity,
@@ -93,15 +79,6 @@ pub(in crate::text) struct LineWindowKey {
     line: LineDisplayKey,
     source_start: usize,
     source_end: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::text) struct RenderBufferKey {
-    lines: Vec<LineLayoutIdentity>,
-    style: StyleKey,
-    width: u32,
-    wrap: AreaWrap,
-    direction: TextDirection,
 }
 
 impl LineDisplayKey {
@@ -129,30 +106,6 @@ impl LineWindowKey {
             source_start,
             source_end,
         }
-    }
-}
-
-impl RenderBufferKey {
-    pub(super) fn new(
-        area_model: &Area,
-        buffer: &Buffer,
-        style: Style,
-        width: f32,
-        source_line_start: usize,
-        source_line_end: usize,
-    ) -> Option<Self> {
-        let source_line_end = source_line_end.min(buffer.logical_line_count());
-        let lines = (source_line_start.min(source_line_end)..source_line_end)
-            .map(|line| buffer.line_layout_identity(line))
-            .collect::<Option<Vec<_>>>()?;
-
-        Some(Self {
-            lines,
-            style: StyleKey::new(style),
-            width: finite_bits(width.max(0.0)),
-            wrap: area_model.wrap(),
-            direction: style.direction(),
-        })
     }
 }
 
@@ -193,10 +146,6 @@ pub(super) fn line_display_cache() -> ShapingCache<LineWindowKey, CachedLineDisp
 
 pub(super) fn horizontal_index_cache() -> LruCache<LineDisplayKey, Rc<HorizontalLineIndex>> {
     LruCache::new(TEXT_AREA_HORIZONTAL_INDEX_CACHE_CAPACITY)
-}
-
-pub(super) fn render_buffer_cache() -> LruCache<RenderBufferKey, CachedRenderBuffer> {
-    LruCache::new(TEXT_AREA_RENDER_BUFFER_CACHE_CAPACITY)
 }
 
 pub(super) fn render_line_window(

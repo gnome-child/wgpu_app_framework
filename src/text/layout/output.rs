@@ -253,6 +253,7 @@ impl TextAreaSurface {
         self.source_text_len
     }
 
+    #[cfg(test)]
     pub(in crate::text) fn buffer(&self) -> Rc<RefCell<glyphon::Buffer>> {
         self.buffer.clone()
     }

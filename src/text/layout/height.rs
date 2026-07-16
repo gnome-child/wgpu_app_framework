@@ -67,15 +67,15 @@ impl TextAreaHeightIndex {
         }
     }
 
-    pub(super) fn update_line(&mut self, source: &Buffer, line: usize, height: f32) {
+    pub(super) fn update_line(&mut self, source: &Buffer, line: usize, height: f32) -> f32 {
         if line >= self.line_count {
-            return;
+            return 0.0;
         }
         let height = height.max(1.0);
         if let Some(identity) = source.line_layout_identity(line) {
             self.measured.insert(identity, height);
         }
-        self.update_resolved_line(line, height);
+        self.update_resolved_line(line, height)
     }
 
     pub(super) fn line_height(&self, line: usize) -> f32 {
@@ -120,16 +120,17 @@ impl TextAreaHeightIndex {
         line.saturating_sub(start).max(1)
     }
 
-    fn update_resolved_line(&mut self, line: usize, height: f32) {
+    fn update_resolved_line(&mut self, line: usize, height: f32) -> f32 {
         let old = self
             .resolved
             .insert(line, height)
             .unwrap_or(self.estimated_line_height);
         let delta = height - old;
         if delta.abs() <= f32::EPSILON {
-            return;
+            return 0.0;
         }
         self.add_measured_delta(line, delta);
+        delta
     }
 
     fn rebuild_resolved(&mut self, source: &Buffer) {
@@ -147,7 +148,7 @@ impl TextAreaHeightIndex {
                 continue;
             };
             self.measured.insert(identity, height);
-            self.update_resolved_line(line, height);
+            let _ = self.update_resolved_line(line, height);
         }
 
         self.resolved_dirty = false;

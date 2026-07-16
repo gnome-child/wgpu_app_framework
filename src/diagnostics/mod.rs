@@ -308,6 +308,41 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
+            "text_area_height_index_queries={}",
+            self.text.text_area_height_index_queries
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_height_index_updates={}",
+            self.text.text_area_height_index_updates
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_height_index_refined_pixels={}",
+            self.text.text_area_height_index_refined_pixels
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_anchor_candidates={}",
+            self.text.text_area_anchor_candidates
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_anchor_corrections={}",
+            self.text.text_area_anchor_corrections
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_anchor_correction_pixels={}",
+            self.text.text_area_anchor_correction_pixels
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_anchor_correction_pixels_max={}",
+            self.text.text_area_anchor_correction_pixels_max
+        );
+        let _ = writeln!(
+            receipt,
             "text_area_width_cache_hits={}",
             self.text.text_area_width_cache_hits
         );

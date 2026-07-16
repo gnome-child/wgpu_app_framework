@@ -71,6 +71,7 @@ impl Engine {
             if let Some(index) = self.text_area_height_indices.get_mut(&key) {
                 index.sync(source, line_count, estimated_line_height);
                 self.diagnostics.text_area_height_index_hits += 1;
+                self.diagnostics.text_area_height_index_queries += 1;
                 return index.total_height().max(viewport.height().max(0.0));
             }
             self.diagnostics.text_area_height_index_misses += 1;
@@ -482,6 +483,7 @@ impl Engine {
         style: Style,
         viewport: area::Logical,
         state: &ViewState,
+        pinned_line: Option<usize>,
     ) -> Vec<TextAreaDisplaySegment> {
         let estimated_line_height = text_area_estimated_line_height(style);
         let line_count = source.logical_line_count().max(1);
@@ -496,6 +498,7 @@ impl Engine {
         height_index.sync(source, line_count, estimated_line_height);
 
         let scroll_y = state.scroll_y().max(0.0);
+        self.diagnostics.text_area_height_index_queries += 2;
         let first_visible = height_index.line_at_y(scroll_y);
         let visible_lines = height_index.visible_line_count(scroll_y, viewport.height());
         let visible_line_end = first_visible
@@ -544,13 +547,43 @@ impl Engine {
                 .unwrap_or_else(|| height_index.line_height(line));
             if let Some(displays) = displays {
                 realized_lines += 1;
-                height_index.update_line(source, line, display_height);
+                let delta = height_index.update_line(source, line, display_height);
+                if delta.abs() > f32::EPSILON {
+                    self.diagnostics.text_area_height_index_updates += 1;
+                    self.diagnostics.text_area_height_index_refined_pixels +=
+                        delta.abs().ceil() as usize;
+                }
                 segments.extend(displays.into_iter().map(|display| TextAreaDisplaySegment {
                     display,
                     y: segment_y,
                 }));
             }
             y += display_height;
+        }
+        if let Some(line) = pinned_line
+            .map(|line| line.min(line_count.saturating_sub(1)))
+            .filter(|line| *line < source_line_start || *line >= source_line_end)
+        {
+            let pinned_y = height_index.line_top(line) - scroll_y;
+            let displays = self.text_area_line_displays_at(
+                area_model, source, committed, style, viewport, state, line,
+            );
+            let display_height = displays
+                .iter()
+                .map(|display| display.height.max(1.0))
+                .max_by(f32::total_cmp)
+                .unwrap_or(estimated_line_height);
+            let delta = height_index.update_line(source, line, display_height);
+            if delta.abs() > f32::EPSILON {
+                self.diagnostics.text_area_height_index_updates += 1;
+                self.diagnostics.text_area_height_index_refined_pixels +=
+                    delta.abs().ceil() as usize;
+            }
+            realized_lines += 1;
+            segments.extend(displays.into_iter().map(|display| TextAreaDisplaySegment {
+                display,
+                y: pinned_y,
+            }));
         }
         self.diagnostics.text_area_visible_logical_lines += visible_lines;
         self.diagnostics.text_area_layout_segments += segments.len();

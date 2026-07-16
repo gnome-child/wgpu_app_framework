@@ -20,7 +20,7 @@ use super::surface::{Area, Field};
 use super::{Buffer, Color, Document, Edit, edit, layout};
 use super::{
     Preedit,
-    view::{ViewState, Viewport, Visibility},
+    view::{ScrollAnchorBand, ViewState, Viewport, Visibility},
 };
 
 thread_local! {
@@ -642,9 +642,9 @@ fn undo_restored_clone_reuses_line_keyed_text_area_caches() {
         content_area,
     );
     let render = engine.diagnostics();
-    assert_eq!(
-        render.text_area_render_surface_cache_hits, 1,
-        "undo snapshot with a fresh buffer id should reuse render buffers: {render:?}"
+    assert!(
+        render.text_area_render_surface_cache_hits > 0,
+        "undo snapshot with a fresh buffer id should reuse resident line displays: {render:?}"
     );
     assert_eq!(render.text_area_render_surface_cache_misses, 0);
     assert_eq!(
@@ -721,7 +721,7 @@ fn text_diagnostics_record_visible_text_area_cache_work() {
 }
 
 #[test]
-fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
+fn text_area_render_lines_are_shaped_once_and_reused_without_resize() {
     let mut engine = engine();
     let buffer = Buffer::from_multiline_text(
         "one two three four five\nsix seven eight nine ten\neleven twelve thirteen",
@@ -743,9 +743,12 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
         content_area,
     );
     let first_diagnostics = engine.diagnostics();
-    assert_eq!(first.render_surfaces().len(), 1);
+    assert_eq!(first.render_surfaces().len(), 3);
     assert_eq!(first.interaction_surfaces().len(), 0);
-    assert_eq!(first_diagnostics.text_area_render_surface_cache_misses, 1);
+    assert_eq!(
+        first_diagnostics.text_area_render_surface_cache_misses,
+        first.render_surfaces().len()
+    );
     assert_eq!(first_diagnostics.text_area_render_surface_cache_hits, 0);
     let first_surface = first.render_surfaces().first().expect("render surface");
     assert_eq!(
@@ -754,17 +757,21 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
     );
     assert_eq!(
         first_diagnostics.text_area_render_window_height_max,
-        first_surface.height().ceil() as usize
+        first
+            .render_surfaces()
+            .iter()
+            .map(|surface| surface.y() + surface.height())
+            .max_by(f32::total_cmp)
+            .unwrap()
+            .ceil() as usize
     );
     assert_eq!(
         first_diagnostics.text_area_render_window_area_max,
-        (first_surface.width().ceil() as usize)
-            .saturating_mul(first_surface.height().ceil() as usize)
+        first_diagnostics
+            .text_area_render_window_width_max
+            .saturating_mul(first_diagnostics.text_area_render_window_height_max)
     );
-    assert!(
-        first_diagnostics.text_area_render_surface_shape_us > 0,
-        "a cold render surface should perform the one required text layout pass"
-    );
+    assert_eq!(first_diagnostics.text_area_render_surface_shape_us, 0);
 
     engine.reset_diagnostics();
     let cached = engine.text_area_render_layout_for_area_at(
@@ -776,9 +783,12 @@ fn text_area_render_buffer_is_shaped_once_and_reused_without_resize() {
         content_area,
     );
     let cached_diagnostics = engine.diagnostics();
-    assert_eq!(cached.render_surfaces().len(), 1);
+    assert_eq!(cached.render_surfaces().len(), 3);
     assert_eq!(cached.interaction_surfaces().len(), 0);
-    assert_eq!(cached_diagnostics.text_area_render_surface_cache_hits, 1);
+    assert_eq!(
+        cached_diagnostics.text_area_render_surface_cache_hits,
+        cached.render_surfaces().len()
+    );
     assert_eq!(cached_diagnostics.text_area_render_surface_cache_misses, 0);
     assert_eq!(
         cached_diagnostics.text_area_render_surface_size_us, 0,
@@ -827,7 +837,7 @@ delta",
 }
 
 #[test]
-fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
+fn text_area_render_lines_reuse_the_resident_window_after_small_scroll() {
     let mut engine = engine();
     let text = (0..200)
         .map(|line| format!("line {line:03}"))
@@ -852,7 +862,7 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
     let first_surface = first
         .render_surfaces()
         .first()
-        .expect("initial render layout should prepare one text surface");
+        .expect("initial render layout should prepare resident line surfaces");
 
     engine.reset_diagnostics();
     let scrolled = engine.text_area_render_layout_for_area_at(
@@ -867,14 +877,17 @@ fn text_area_render_buffer_reuses_chunk_after_small_scroll() {
     let scrolled_surface = scrolled
         .render_surfaces()
         .first()
-        .expect("scrolled render layout should prepare one text surface");
+        .expect("scrolled render layout should prepare resident line surfaces");
 
     assert_eq!(
         scrolled_surface.source_line(),
         first_surface.source_line(),
-        "source windows should be chunked, not rebuilt for every visible line"
+        "the guarded source window should remain stable for a small scroll"
     );
-    assert_eq!(diagnostics.text_area_render_surface_cache_hits, 1);
+    assert_eq!(
+        diagnostics.text_area_render_surface_cache_hits,
+        scrolled.render_surfaces().len()
+    );
     assert_eq!(diagnostics.text_area_render_surface_cache_misses, 0);
     assert_eq!(
         diagnostics.text_area_render_surface_source_lines, 0,
@@ -1081,17 +1094,21 @@ fn one_line_text_area_reuses_its_observed_shape_for_width_and_render() {
     assert_eq!(diagnostics.text_area_width_source_lines, 0);
     assert_eq!(diagnostics.text_area_width_source_bytes, 0);
     assert_eq!(diagnostics.text_area_width_measure_us, 0);
+    assert_eq!(diagnostics.text_area_render_surface_cache_hits, 0);
     assert_eq!(
-        diagnostics.text_area_render_surface_cache_hits,
-        layout.render_surfaces().len()
+        diagnostics.text_area_render_surface_cache_misses,
+        layout.render_surfaces().len(),
+        "the cold sole line-display path should shape each resident fragment once"
     );
-    assert_eq!(diagnostics.text_area_render_surface_cache_misses, 0);
     assert_eq!(
         diagnostics.text_area_render_surface_line_reuses,
         layout.render_surfaces().len()
     );
-    assert_eq!(diagnostics.text_area_render_surface_source_lines, 0);
-    assert_eq!(diagnostics.text_area_render_surface_source_bytes, 0);
+    assert_eq!(
+        diagnostics.text_area_render_surface_source_lines,
+        layout.render_surfaces().len()
+    );
+    assert!(diagnostics.text_area_render_surface_source_bytes < source_len);
     assert_eq!(diagnostics.text_area_render_surface_shape_us, 0);
     let render_surface = &layout.render_surfaces()[0];
     assert!(render_surface.source_text_len() < source_len);
@@ -3671,6 +3688,101 @@ fn text_area_reveal_scroll_uses_wrapped_visual_caret_row() {
     let caret = layout.caret().expect("wrapped row caret should be visible");
     assert!(caret.y() >= 0.0);
 }
+
+#[test]
+fn resident_anchor_band_preserves_source_line_and_within_line_offset_across_reflow() {
+    let mut engine = engine();
+    let wrapped =
+        "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron";
+    let text = (0..40)
+        .map(|line| format!("line {line:02} {wrapped}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let buffer = Buffer::from_multiline_text(text);
+    let area_model = Area::new(buffer.clone()).read_only();
+    let style = Style::default().with_size(16.0);
+    let wide = area::logical(260.0, 80.0);
+    let narrow = area::logical(110.0, 80.0);
+    let now = Instant::now();
+
+    let wide_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        wide,
+        ViewState::default(),
+        now,
+    );
+    let target_surface = wide_layout
+        .interaction_surfaces()
+        .iter()
+        .filter(|surface| surface.source_line() >= 2)
+        .min_by(|left, right| left.y().total_cmp(&right.y()))
+        .expect("fixture should shape a resident line below the first two");
+    let property_scroll_y = target_surface.y() + target_surface.height().min(20.0) / 2.0;
+    let wide_band = ScrollAnchorBand::observe(
+        &area_model,
+        0.0,
+        wide.height(),
+        wide_layout.interaction_surfaces(),
+        wide_layout.render_surfaces(),
+    )
+    .expect("the resident runway should produce an anchor band");
+    let anchor = wide_band
+        .anchor_at(property_scroll_y)
+        .expect("a property tick inside the resident runway should resolve an anchor");
+    let anchor_line = buffer
+        .position_for_mark(anchor.mark())
+        .map(|position| buffer.cursor_for_text_index(position.index).line)
+        .expect("resident anchor mark should resolve in the source");
+    assert!(
+        anchor_line >= 2,
+        "fixture must anchor below the first lines"
+    );
+
+    let old_state = ViewState::default().with_scroll_y(property_scroll_y);
+    let _ = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        narrow,
+        old_state.clone(),
+        now,
+    );
+    let corrected_scroll_y = engine
+        .text_area_scroll_y_for_anchor(&area_model, style, narrow, old_state, anchor)
+        .expect("the stable source mark should resolve after reflow");
+    assert_ne!(
+        corrected_scroll_y.round() as i32,
+        property_scroll_y as i32,
+        "reflow must expose the numeric-offset drift this witness guards"
+    );
+
+    let corrected_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        narrow,
+        ViewState::default().with_scroll_y(corrected_scroll_y),
+        now,
+    );
+    let corrected_band = ScrollAnchorBand::observe(
+        &area_model,
+        corrected_scroll_y,
+        narrow.height(),
+        corrected_layout.interaction_surfaces(),
+        corrected_layout.render_surfaces(),
+    )
+    .expect("corrected layout should retain an anchor band");
+    let restored = corrected_band
+        .anchor_at(corrected_scroll_y)
+        .expect("corrected viewport should retain its top anchor");
+    assert_eq!(restored.mark(), anchor.mark());
+    assert!(
+        (restored.offset_y() - anchor.offset_y()).abs() <= TEXT_LAYOUT_VISUAL_LINE_EPSILON,
+        "within-line displacement changed: before {}, after {}",
+        anchor.offset_y(),
+        restored.offset_y()
+    );
+}
+
 #[test]
 fn text_area_reveal_scroll_keeps_caret_inside_vertical_viewport() {
     let mut engine = engine();

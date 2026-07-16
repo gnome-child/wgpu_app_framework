@@ -295,6 +295,7 @@ impl Frame {
                 let display_model = projected_text_area(&model, projection.as_ref());
                 let color = text_area_color(node, theme);
                 let layout = engine.text_area_layout(
+                    node_id,
                     &display_model,
                     text_rect,
                     geometry.visible_frame(),
@@ -398,6 +399,7 @@ impl Frame {
                     let display_model = projected_text_area(&text_area, projection.as_ref());
                     let color = text_area_color(node, theme);
                     let layout = engine.text_area_layout(
+                        node_id,
                         &display_model,
                         text_rect,
                         geometry.visible_frame(),
@@ -1028,7 +1030,11 @@ impl Frame {
             FrameContent::Text(
                 TextContent::Area { model, layout, .. }
                 | TextContent::InactiveField { model, layout, .. },
-            ) if model.scroll_reveal_requested() => Some(layout.viewport().resolved_scroll()),
+            ) => layout.resolved_scroll_correction().or_else(|| {
+                model
+                    .scroll_reveal_requested()
+                    .then(|| layout.viewport().resolved_scroll())
+            }),
             _ => None,
         }
     }

@@ -178,6 +178,7 @@ impl Engine {
             style,
             viewport,
             &state,
+            Some(projection.cursor().line),
         );
         let layout = self.text_area_layout_from_segments(SegmentLayoutRequest {
             area_model,
@@ -315,6 +316,14 @@ impl Engine {
 
         let observe = observation == TextAreaObservation::Observe;
 
+        let render_surfaces = self.text_area_render_surfaces(
+            request.area_model,
+            &projection.buffer,
+            committed,
+            request.style,
+            request.viewport,
+            &request.state,
+        );
         let segments = if observe {
             self.text_area_display_segments(
                 request.area_model,
@@ -323,16 +332,12 @@ impl Engine {
                 request.style,
                 request.viewport,
                 &request.state,
+                request
+                    .state
+                    .caret_visibility_pending()
+                    .then_some(projection.cursor().line),
             )
         } else {
-            self.record_text_area_render_window(
-                request.area_model,
-                &projection.buffer,
-                committed,
-                request.style,
-                request.viewport,
-                &request.state,
-            );
             Vec::new()
         };
         let layout = self.text_area_layout_from_segments(SegmentLayoutRequest {
@@ -357,14 +362,6 @@ impl Engine {
                 )
             })
             .collect();
-        let render_surfaces = self.text_area_render_surfaces(
-            request.area_model,
-            &projection.buffer,
-            committed,
-            request.style,
-            request.viewport,
-            &request.state,
-        );
         TextAreaPaintLayout {
             layout,
             interaction_surfaces: surfaces,
