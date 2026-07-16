@@ -92,7 +92,10 @@ driver. With no explicit counts it runs the official 64 warmups and 1,024
 measured transitions; smaller counts are useful only for development and are
 marked `official_matrix=false` in the receipt. `text-horizontal-1m` records cold
 and warm timing, source work, cache work, absolute offset, and near/far render-
-window bounds for a one-MiB unwrapped line. Run it in release mode.
+window bounds for a one-MiB unwrapped line. `text-vertical-8m` drives an eight-
+MiB variable-height wrapped document through a far resident window and records
+height-index queries/refinements, bounded line-display reuse, source work,
+window dimensions, and anchor-correction counters. Run both in release mode.
 
 `work`, `retention`, `partial-update`, and `churn` expose semantic work rather
 than elapsed time alone: node realization, primitive and text preparation,

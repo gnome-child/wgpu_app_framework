@@ -10,31 +10,38 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 3;
+pub const SCROLL_BENCH_VERSION: u32 = 4;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
 const LONG_LINE_BYTES: usize = 1_048_576;
+const VERTICAL_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
 const VIEWPORT_WIDTH: f32 = 920.0;
 const VIEWPORT_HEIGHT: f32 = 640.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollBenchWorkload {
     TextHorizontalLongLine,
+    TextVerticalVariableHeight,
 }
 
 impl ScrollBenchWorkload {
-    pub const ALL: [Self; 1] = [Self::TextHorizontalLongLine];
+    pub const ALL: [Self; 2] = [
+        Self::TextHorizontalLongLine,
+        Self::TextVerticalVariableHeight,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::TextHorizontalLongLine => "text-horizontal-1m",
+            Self::TextVerticalVariableHeight => "text-vertical-8m",
         }
     }
 
     pub fn transition_class(self) -> &'static str {
         match self {
             Self::TextHorizontalLongLine => "ResidencyCrossing",
+            Self::TextVerticalVariableHeight => "ResidencyCrossing",
         }
     }
 
@@ -56,9 +63,13 @@ pub struct ScrollBenchReceipt {
     document_bytes: usize,
     document_lines: usize,
     logical_width: usize,
+    logical_height: usize,
     offset_x: usize,
+    offset_y: usize,
     near_window_width: usize,
+    near_window_height: usize,
     far_window_width: usize,
+    far_window_height: usize,
 }
 
 impl ScrollBenchReceipt {
@@ -67,15 +78,16 @@ impl ScrollBenchReceipt {
             concat!(
                 "scroll-bench-version={} workload={} transition_class={} commit={} ",
                 "profile={} timer=std-instant os={} architecture={} ",
-                "viewport={}x{} document_bytes={} document_lines={} offset_x={} logical_width={} ",
+                "viewport={}x{} document_bytes={} document_lines={} offset_x={} offset_y={} logical_width={} logical_height={} ",
                 "warmup={} samples={} official_matrix={} cold_us={} p50_us={} p95_us={} p99_us={} max_us={} ",
-                "near_window_width={} far_window_width={} render_window_width_max={} render_window_height_max={} render_window_area_max={} bounded_window={} ",
+                "near_window_width={} near_window_height={} far_window_width={} far_window_height={} render_window_width_max={} render_window_height_max={} render_window_area_max={} bounded_window={} ",
                 "paint_layout_calls={} visible_lines={} shaped_lines={} line_shape_calls={} render_surface_calls={} render_cache_hits={} render_cache_misses={} render_line_reuses={} ",
                 "horizontal_index_builds={} horizontal_index_source_bytes={} horizontal_index_glyphs={} horizontal_index_checkpoints={} horizontal_index_resident_bytes_max={} horizontal_window_shapes={} horizontal_window_source_bytes={} horizontal_resident_source_bytes_max={} horizontal_resident_glyphs_max={} horizontal_resident_bytes_max={} line_cache_resident_bytes_max={} ",
                 "render_source_lines={} render_source_bytes={} render_total_us={} render_shape_us={} ",
+                "height_index_hits={} height_index_misses={} height_index_queries={} height_index_updates={} height_index_refined_pixels={} anchor_candidates={} anchor_corrections={} anchor_correction_pixels={} anchor_correction_pixels_max={} ",
                 "width_cache_hits={} width_cache_misses={} width_observed_updates={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
                 "cold_horizontal_index_builds={} cold_horizontal_index_source_bytes={} cold_horizontal_index_glyphs={} cold_horizontal_index_checkpoints={} cold_horizontal_index_resident_bytes_max={} cold_horizontal_window_shapes={} cold_horizontal_window_source_bytes={} cold_horizontal_resident_source_bytes_max={} cold_horizontal_resident_glyphs_max={} cold_horizontal_resident_bytes_max={} cold_line_cache_resident_bytes_max={} ",
-                "cold_render_line_reuses={} cold_render_source_bytes={} cold_render_shape_us={} cold_width_observed_updates={} cold_width_source_bytes={} cold_width_measure_us={}"
+                "cold_render_line_reuses={} cold_render_source_bytes={} cold_render_shape_us={} cold_height_index_queries={} cold_height_index_updates={} cold_height_index_refined_pixels={} cold_anchor_candidates={} cold_anchor_corrections={} cold_anchor_correction_pixels={} cold_width_observed_updates={} cold_width_source_bytes={} cold_width_measure_us={}"
             ),
             SCROLL_BENCH_VERSION,
             self.workload.name(),
@@ -93,7 +105,9 @@ impl ScrollBenchReceipt {
             self.document_bytes,
             self.document_lines,
             self.offset_x,
+            self.offset_y,
             self.logical_width,
+            self.logical_height,
             self.warmup,
             self.samples.len(),
             self.warmup >= OFFICIAL_PROPERTY_WARMUP
@@ -104,11 +118,14 @@ impl ScrollBenchReceipt {
             percentile(&self.samples, 99).as_micros(),
             self.samples.last().copied().unwrap_or_default().as_micros(),
             self.near_window_width,
+            self.near_window_height,
             self.far_window_width,
+            self.far_window_height,
             self.diagnostics.text_area_render_window_width_max,
             self.diagnostics.text_area_render_window_height_max,
             self.diagnostics.text_area_render_window_area_max,
-            self.far_window_width <= bounded_window_limit(),
+            self.far_window_width <= horizontal_window_limit()
+                && self.far_window_height <= vertical_window_limit(),
             self.diagnostics.text_area_paint_layout_calls,
             self.diagnostics.text_area_visible_logical_lines,
             self.diagnostics.text_area_shaped_logical_lines,
@@ -134,6 +151,15 @@ impl ScrollBenchReceipt {
             self.diagnostics.text_area_render_surface_source_bytes,
             self.diagnostics.text_area_render_surface_total_us,
             self.diagnostics.text_area_render_surface_shape_us,
+            self.diagnostics.text_area_height_index_hits,
+            self.diagnostics.text_area_height_index_misses,
+            self.diagnostics.text_area_height_index_queries,
+            self.diagnostics.text_area_height_index_updates,
+            self.diagnostics.text_area_height_index_refined_pixels,
+            self.diagnostics.text_area_anchor_candidates,
+            self.diagnostics.text_area_anchor_corrections,
+            self.diagnostics.text_area_anchor_correction_pixels,
+            self.diagnostics.text_area_anchor_correction_pixels_max,
             self.diagnostics.text_area_width_cache_hits,
             self.diagnostics.text_area_width_cache_misses,
             self.diagnostics.text_area_width_observed_updates,
@@ -164,6 +190,12 @@ impl ScrollBenchReceipt {
             self.cold_diagnostics.text_area_render_surface_line_reuses,
             self.cold_diagnostics.text_area_render_surface_source_bytes,
             self.cold_diagnostics.text_area_render_surface_shape_us,
+            self.cold_diagnostics.text_area_height_index_queries,
+            self.cold_diagnostics.text_area_height_index_updates,
+            self.cold_diagnostics.text_area_height_index_refined_pixels,
+            self.cold_diagnostics.text_area_anchor_candidates,
+            self.cold_diagnostics.text_area_anchor_corrections,
+            self.cold_diagnostics.text_area_anchor_correction_pixels,
             self.cold_diagnostics.text_area_width_observed_updates,
             self.cold_diagnostics.text_area_width_source_bytes,
             self.cold_diagnostics.text_area_width_measure_us,
@@ -190,6 +222,9 @@ pub fn run_scroll_bench(
     match workload {
         ScrollBenchWorkload::TextHorizontalLongLine => {
             run_text_horizontal_long_line(warmup, samples)
+        }
+        ScrollBenchWorkload::TextVerticalVariableHeight => {
+            run_text_vertical_variable_height(warmup, samples)
         }
     }
 }
@@ -219,10 +254,8 @@ fn run_text_horizontal_long_line(
     let cold = cold_started.elapsed();
     let cold_diagnostics = engine.diagnostics();
     let logical_width = ceil_to_usize(cold_layout.layout().content_area().width());
-    let near_window_width = cold_layout
-        .render_surfaces()
-        .first()
-        .map(|surface| ceil_to_usize(surface.width()))
+    let logical_height = ceil_to_usize(cold_layout.layout().content_area().height());
+    let (near_window_width, near_window_height) = surface_window(cold_layout.render_surfaces())
         .ok_or_else(|| "text-horizontal-1m produced no cold render surface".to_owned())?;
     let maximum_offset = logical_width.saturating_sub(VIEWPORT_WIDTH as usize);
     let offset_x = maximum_offset.saturating_mul(3) / 4;
@@ -241,6 +274,7 @@ fn run_text_horizontal_long_line(
     engine.reset_diagnostics();
     let mut durations = Vec::with_capacity(samples);
     let mut far_window_width = 0_usize;
+    let mut far_window_height = 0_usize;
     for index in 0..samples {
         let offset = streamed_offset(offset_x, warmup.saturating_add(index), maximum_offset);
         let started = Instant::now();
@@ -252,13 +286,10 @@ fn run_text_horizontal_long_line(
             now,
         );
         durations.push(started.elapsed());
-        far_window_width = far_window_width.max(
-            layout
-                .render_surfaces()
-                .first()
-                .map(|surface| ceil_to_usize(surface.width()))
-                .unwrap_or_default(),
-        );
+        if let Some((width, height)) = surface_window(layout.render_surfaces()) {
+            far_window_width = far_window_width.max(width);
+            far_window_height = far_window_height.max(height);
+        }
         black_box(layout);
     }
     durations.sort_unstable();
@@ -274,9 +305,99 @@ fn run_text_horizontal_long_line(
         document_bytes,
         document_lines,
         logical_width,
+        logical_height,
         offset_x,
+        offset_y: 0,
         near_window_width,
+        near_window_height,
         far_window_width,
+        far_window_height,
+    })
+}
+
+fn run_text_vertical_variable_height(
+    warmup: usize,
+    samples: usize,
+) -> Result<ScrollBenchReceipt, String> {
+    let source = vertical_document_source();
+    let document_bytes = source.len();
+    let area_model = Area::new(Buffer::from_multiline_text(source)).read_only();
+    let document_lines = area_model.buffer().logical_line_count();
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+    let mut engine = Engine::new();
+    let now = Instant::now();
+
+    engine.reset_diagnostics();
+    let cold_started = Instant::now();
+    let cold_layout = engine.text_area_paint_layout_for_area_at(
+        &area_model,
+        style,
+        viewport,
+        ViewState::default(),
+        now,
+    );
+    let cold = cold_started.elapsed();
+    let cold_diagnostics = engine.diagnostics();
+    let logical_width = ceil_to_usize(cold_layout.layout().content_area().width());
+    let logical_height = ceil_to_usize(cold_layout.layout().content_area().height());
+    let (near_window_width, near_window_height) = surface_window(cold_layout.render_surfaces())
+        .ok_or_else(|| "text-vertical-8m produced no cold render surface".to_owned())?;
+    let maximum_offset = logical_height.saturating_sub(VIEWPORT_HEIGHT as usize);
+    let offset_y = maximum_offset.saturating_mul(3) / 4;
+
+    for index in 0..warmup {
+        let offset = streamed_offset(offset_y, index, maximum_offset);
+        black_box(engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            ViewState::default().with_scroll_y(offset as f32),
+            now,
+        ));
+    }
+
+    engine.reset_diagnostics();
+    let mut durations = Vec::with_capacity(samples);
+    let mut far_window_width = 0_usize;
+    let mut far_window_height = 0_usize;
+    for index in 0..samples {
+        let offset = streamed_offset(offset_y, warmup.saturating_add(index), maximum_offset);
+        let started = Instant::now();
+        let layout = engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            ViewState::default().with_scroll_y(offset as f32),
+            now,
+        );
+        durations.push(started.elapsed());
+        if let Some((width, height)) = surface_window(layout.render_surfaces()) {
+            far_window_width = far_window_width.max(width);
+            far_window_height = far_window_height.max(height);
+        }
+        black_box(layout);
+    }
+    durations.sort_unstable();
+    let diagnostics = engine.diagnostics();
+
+    Ok(ScrollBenchReceipt {
+        workload: ScrollBenchWorkload::TextVerticalVariableHeight,
+        warmup,
+        samples: durations,
+        cold,
+        cold_diagnostics,
+        diagnostics,
+        document_bytes,
+        document_lines,
+        logical_width,
+        logical_height,
+        offset_x: 0,
+        offset_y,
+        near_window_width,
+        near_window_height,
+        far_window_width,
+        far_window_height,
     })
 }
 
@@ -290,6 +411,31 @@ fn long_line_source() -> String {
     source
 }
 
+fn vertical_document_source() -> String {
+    const SHORT: &str = "short variable-height line";
+    const MEDIUM: &str = "medium wrapped line alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
+    const LONG: &str = "long wrapped line alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega";
+    let patterns = [SHORT, MEDIUM, LONG, MEDIUM];
+    let mut source = String::with_capacity(VERTICAL_DOCUMENT_BYTES);
+    let mut line = 0_usize;
+    while source.len() < VERTICAL_DOCUMENT_BYTES {
+        let pattern = patterns[line % patterns.len()];
+        let separator = usize::from(!source.is_empty());
+        let remaining = VERTICAL_DOCUMENT_BYTES.saturating_sub(source.len());
+        if remaining <= separator {
+            source.push_str(&"x".repeat(remaining));
+            break;
+        }
+        if separator == 1 {
+            source.push('\n');
+        }
+        let available = VERTICAL_DOCUMENT_BYTES.saturating_sub(source.len());
+        source.push_str(&pattern[..pattern.len().min(available)]);
+        line += 1;
+    }
+    source
+}
+
 fn streamed_offset(base: usize, index: usize, maximum: usize) -> usize {
     let phase = index % 257;
     let displacement = if phase <= 128 { phase } else { 256 - phase };
@@ -297,8 +443,30 @@ fn streamed_offset(base: usize, index: usize, maximum: usize) -> usize {
         .min(maximum)
 }
 
-fn bounded_window_limit() -> usize {
+fn horizontal_window_limit() -> usize {
     (VIEWPORT_WIDTH + 2.0 * 256.0).ceil() as usize
+}
+
+fn vertical_window_limit() -> usize {
+    16_384
+}
+
+fn surface_window(surfaces: &[crate::text::layout::TextAreaSurface]) -> Option<(usize, usize)> {
+    let first = surfaces.first()?;
+    let mut left = first.x();
+    let mut top = first.y();
+    let mut right = first.x() + first.width();
+    let mut bottom = first.y() + first.height();
+    for surface in &surfaces[1..] {
+        left = left.min(surface.x());
+        top = top.min(surface.y());
+        right = right.max(surface.x() + surface.width());
+        bottom = bottom.max(surface.y() + surface.height());
+    }
+    Some((
+        ceil_to_usize((right - left).max(0.0)),
+        ceil_to_usize((bottom - top).max(0.0)),
+    ))
 }
 
 fn ceil_to_usize(value: f32) -> usize {
@@ -340,5 +508,16 @@ mod tests {
         assert_eq!(percentile(&samples, 50), Duration::from_micros(3));
         assert_eq!(percentile(&samples, 95), Duration::from_micros(4));
         assert_eq!(percentile(&samples, 99), Duration::from_micros(4));
+    }
+
+    #[test]
+    fn vertical_scroll_source_is_exact_and_variable_height() {
+        let source = vertical_document_source();
+        assert_eq!(source.len(), VERTICAL_DOCUMENT_BYTES);
+        assert!(source.lines().count() > 10_000);
+        let mut lengths = source.lines().take(8).map(str::len).collect::<Vec<_>>();
+        lengths.sort_unstable();
+        lengths.dedup();
+        assert!(lengths.len() >= 3);
     }
 }
