@@ -961,6 +961,78 @@ delta, and the cells exposed by re-census.
   `2^24`/maximum pixel output, GPU resident glyph bytes, the 64-MiB matrix, and
   edit-time incremental index maintenance remain unproved.
 
+### S-004/S-009 checkpoint F — exact large horizontal truth and packed indices
+
+- **Newly censused precision owner.** The text control projected the session's
+  integral `ScrollOffset` through `as f32` before visible-line lookup, resident
+  window selection, caret reveal, extent clamping, and viewport construction.
+  Consequently `16_777_217` could become `16_777_216` even though generic and
+  table chrome retained the integer. Clamp-change detection then compared the
+  same rounded accessors and could fail to install a corrected state. This was
+  a text-only second representation truth, not a renderer limitation.
+- **Exact logical path.** `ViewState` now retains lossless `f64` logical values
+  for the framework's complete `i32` session domain. The production text-area
+  projection enters through an integral constructor; viewport offsets, content
+  extents, clamping, horizontal index lookup, metrics, and caret reveal consume
+  the exact value. Only the difference between an exact resident-window origin
+  and the exact admitted value narrows to the bounded `f32` surface coordinate
+  used by glyphon and the renderer. Compatibility accessors remain floating but
+  no longer decide the framework-owned offset or extent.
+- **Shaper-preserving exact width.** Naively summing glyph widths was rejected:
+  the independent glyph oracle caught lost kerning, shifted far fragments, and
+  incorrect hits. Lines whose complete shaped width reaches `2^24` are instead
+  re-shaped once in at most 262,144-byte, word-safe LTR ASCII bands. Each band's
+  local shaped advances remain below the float precision boundary and are
+  accumulated into exact `f64` checkpoints. The ordinary one-MiB path performs
+  zero band shapes; complex, bidi, and unbreakable resistance paths remain
+  explicitly outside this admission fence.
+- **Memory optimization and metrics.** Exact checkpoint coordinates initially
+  made each `(u32, f64)` record occupy 16 padded bytes. Commit `1797f5657c3a`
+  split byte positions and x coordinates into parallel arrays, reducing the
+  four-MiB index from 3,441,504 to 2,581,128 bytes and the one-MiB index from
+  860,400 to 645,300 bytes: exactly 25% with unchanged lookup behavior. Version
+  5 receipts add exact-band shape/source work and explicit required/checked
+  precision fields so the extra cold work cannot hide inside a generic shape
+  count.
+- **Official precision receipt.** Exact commit `1797f5657c3a` produced three
+  official `text-horizontal-4m-exact` trials. Cold times were 1,958,357,
+  1,894,816, and 1,907,691 us; the median is 1,907,691 us. The median trial's
+  warm p50/p95/p99/max are 8/8/15/44 us. Every trial reports logical width
+  27,538,192 px, `precision_offsets_required=true`, and
+  `precision_offsets_checked=true` at 16,777,215, 16,777,216, 16,777,217, and
+  24,000,001. Near and far preparation remains exactly 1,432x640
+  (916,480 px). Cold construction performs one complete index shape plus 17
+  exact bands over 4,194,304 source bytes; the warm 1,024-transition trace
+  performs only two entering-fragment shapes over 39 bytes, retains at most 273
+  source bytes/glyphs and 50,505 estimated active bytes, and records zero width
+  source visits or measurement.
+- **One-MiB non-regression receipt.** The same commit's three official
+  `text-horizontal-1m` trials report cold times 267,878, 274,597, and 273,367 us;
+  the median is 273,367 us, 1.0% above checkpoint E's 270,578 us and inside the
+  five-percent gate. The median trial's warm p50/p95/p99/max are 7/7/9/55 us,
+  with zero exact-band shapes and the same 1,432x640 bound. Thus precision work
+  is paid only by content that needs it; ordinary warm movement does not regress.
+- **Witnesses and industry ruling.** Integral session-to-text round trips,
+  exact checkpoint selection, renderer-local unit deltas, exact-band merging,
+  caret accumulation, and the versioned release trace cover the CPU/layout
+  contract. The full library suite reports 1,226 passed and four intentional
+  ignores; renderer-debug CPU tests and workspace all-target/all-feature checks
+  are green. This meets GTK/Qt's shared adjustment/central-viewport expectation
+  without their floating value becoming authoritative, preserves Iced/COSMIC's
+  one state beneath a fixed clip, and matches Chromium and Firefox's bounded
+  local raster/displayport coordinates while keeping an exact main-thread
+  logical position. Flutter's explicit position/dimension correction remains
+  the closest lifecycle comparison; the repository adds exact integral
+  admission and complete-pixel gating. WebRender-style spatial separation and
+  block-editor indexing beyond the named frameworks support the banded design,
+  but do not excuse its remaining resistance paths.
+- **Remaining red paths.** S-004/S-009 remain open. Vertical text height/index
+  coordinates still narrow before the large-offset boundary; complex/bidi and
+  unbreakable long lines still retain whole-line buffers; cold construction
+  still walks and shapes the complete line; incremental edit maintenance,
+  exact GPU pixel/readback at these offsets, GPU resident glyph-byte high-water,
+  and the 64-MiB mixed-long-line matrix remain unproved.
+
 ### R-005 — stable variable-height anchor and sole line geometry
 
 - **Bounded question and trace.** Property-only text movement, width/style
