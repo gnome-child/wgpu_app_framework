@@ -1429,6 +1429,116 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
 }
 
 #[cfg(feature = "renderer-debug")]
+pub async fn compare_group_under_scroll_first_tick(scale_factor: f32) -> Result<(), String> {
+    let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
+    harness.compare_group_under_scroll_first_tick()
+}
+
+#[cfg(feature = "renderer-debug")]
+pub async fn compare_payload_neutral_scroll_oracles(scale_factor: f32) -> Result<(), String> {
+    let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
+    let mut failures = Vec::new();
+    for case in crate::scene::ScrollOracleCase::ALL {
+        if let Err(error) = harness.compare_scroll_oracle_case(case) {
+            failures.push(format!("{}: {error}", case.name()));
+        }
+    }
+    if !failures.is_empty() {
+        return Err(format!(
+            "{} Tier A cases failed at {scale_factor}x: {}",
+            failures.len(),
+            failures.join(" | ")
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "renderer-debug")]
+pub async fn require_payload_neutral_scroll_negative_controls() -> Result<(), String> {
+    use crate::{render::debug::ScrollOracleMutation, scene::ScrollOracleCase};
+
+    let controls = [
+        (
+            "N01",
+            ScrollOracleCase::F01,
+            1.0,
+            ScrollOracleMutation::MissingTranslation,
+            "opaque-quad did not vacate",
+        ),
+        (
+            "N02-1.0",
+            ScrollOracleCase::F03,
+            1.0,
+            ScrollOracleMutation::LegacyGroupBinding,
+            "grouped-quad",
+        ),
+        (
+            "N02-1.25",
+            ScrollOracleCase::F03,
+            1.25,
+            ScrollOracleMutation::LegacyGroupBinding,
+            "grouped-quad",
+        ),
+        (
+            "N02-1.5",
+            ScrollOracleCase::F03,
+            1.5,
+            ScrollOracleMutation::LegacyGroupBinding,
+            "grouped-quad",
+        ),
+        (
+            "N02-1.75",
+            ScrollOracleCase::F03,
+            1.75,
+            ScrollOracleMutation::LegacyGroupBinding,
+            "grouped-quad",
+        ),
+        (
+            "N02-2.0",
+            ScrollOracleCase::F03,
+            2.0,
+            ScrollOracleMutation::LegacyGroupBinding,
+            "grouped-quad",
+        ),
+        (
+            "N03",
+            ScrollOracleCase::F04,
+            1.25,
+            ScrollOracleMutation::DoubleSurfaceTranslation,
+            "grouped-text-below-scroll did not",
+        ),
+        (
+            "N04",
+            ScrollOracleCase::F05,
+            1.5,
+            ScrollOracleMutation::MovingFixedClip,
+            "fixed fixed-outer-chrome moved",
+        ),
+        (
+            "N05",
+            ScrollOracleCase::F07,
+            2.0,
+            ScrollOracleMutation::RuleOnlyMovement,
+            "table-fill",
+        ),
+        (
+            "N06",
+            ScrollOracleCase::F06,
+            1.75,
+            ScrollOracleMutation::DivergentIncrementalPlan,
+            "plans diverged",
+        ),
+    ];
+    for (name, case, scale, mutation, expected_error) in controls {
+        let mut harness = crate::render::debug::Harness::new(scale).await?;
+        harness
+            .require_scroll_oracle_negative_control(case, mutation, expected_error)
+            .map_err(|error| format!("{name} failed: {error}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "renderer-debug")]
 pub async fn measure_control_gallery_horizontal_table_scroll(
     scale_factor: f32,
 ) -> Result<crate::renderer_debug::Work, String> {

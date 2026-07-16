@@ -128,6 +128,15 @@ Known payload adapters that must consume the compiled spatial result without ind
 - `tools/generate_scroll_pairwise_manifest.py`
 - `docs/audits/fixtures/scroll-pairwise-manifest-v1.json`
 
+SC-001 adds these test-only spatial witnesses without changing production ownership:
+
+- `src/scene/commit.rs::renderer_scroll_oracle_fixture` owns the eight independently authored actual/static-expected Tier A fixture pairs and discriminating regions;
+- `src/render/debug.rs::Harness::compare_scroll_oracle_case` owns per-object, fixed-region, full-image, and direct/incremental-plan validation;
+- `src/render/retained.rs::Plan::debug_signature` and the renderer debug adapter expose complete recursive retained-plan structure for equality only;
+- `tools/renderer_debug` exposes `tier-a-scroll-oracle` and `tier-a-negative-controls` as executable GPU witnesses.
+
+These are oracle/observation paths. They are not an alternate spatial source of truth and must not become production consumers.
+
 ## 4. Property work census
 
 Current warm property uploads are emitted by:

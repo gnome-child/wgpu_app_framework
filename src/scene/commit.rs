@@ -2445,6 +2445,1245 @@ pub(crate) fn renderer_scroll_text_runway_pair()
 }
 
 #[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_group_under_scroll_pair()
+-> Result<((Commit, Properties, Properties), (Commit, Properties)), ContractError> {
+    const DELTA: i32 = 20;
+
+    let scroll = composition::tree::NodeId::renderer_fixture(46);
+    let group = composition::tree::NodeId::renderer_fixture(47);
+    let expected_rule = composition::tree::NodeId::renderer_fixture(48);
+    let expected_group = composition::tree::NodeId::renderer_fixture(49);
+    let size = geometry::Size::new(112, 64);
+    let viewport = geometry::Rect::new(8, 8, 96, 48);
+    let content_bounds = geometry::Rect::new(8, 8, 140, 48);
+    let declaration = ScrollDeclaration::new(
+        viewport,
+        content_bounds,
+        content_bounds,
+        interaction::ScrollOffset::default(),
+        interaction::ScrollOffset::new(44, 0),
+    )
+    .expect("group-under-scroll fixture has complete resident coverage");
+    let rule_rect = geometry::Rect::new(92, 12, 4, 40);
+    let group_rect = geometry::Rect::new(52, 20, 16, 24);
+    let rule_color = Color::rgba(242, 179, 26, 255);
+    let group_color = Color::rgba(230, 51, 38, 255);
+
+    let scroll_node = Node::new(
+        scroll,
+        None,
+        content_bounds,
+        vec![Content::Rule(Rule::vertical(rule_rect, rule_color, 3))],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(declaration);
+    let group_node = Node::new(
+        group,
+        Some(scroll),
+        group_rect,
+        vec![Content::Quad(Quad::new(group_rect, group_color))],
+    );
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(46),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(scroll_node), Arc::new(group_node)],
+        Some(vec![
+            Draw::PushScroll { node: scroll },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PushGroup {
+                node: group,
+                bounds: group_rect,
+                opacity: 1.0,
+            },
+            Draw::Content {
+                node: group,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopGroup,
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = Properties::new(
+        &actual,
+        PropertySerial::INITIAL,
+        vec![PropertyValue::ScrollOffset {
+            node: scroll,
+            value: interaction::ScrollOffset::default(),
+        }],
+        Vec::new(),
+    )?;
+    let tick = Properties::new(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        vec![PropertyValue::ScrollOffset {
+            node: scroll,
+            value: interaction::ScrollOffset::new(DELTA, 0),
+        }],
+        vec![PropertyRef::new(scroll, PropertyKind::ScrollOffset)],
+    )?;
+
+    let translated_rule = geometry::Rect::new(
+        rule_rect.x().saturating_sub(DELTA),
+        rule_rect.y(),
+        rule_rect.width(),
+        rule_rect.height(),
+    );
+    let translated_group = geometry::Rect::new(
+        group_rect.x().saturating_sub(DELTA),
+        group_rect.y(),
+        group_rect.width(),
+        group_rect.height(),
+    );
+    let expected_rule_node = Node::new(
+        expected_rule,
+        None,
+        translated_rule,
+        vec![Content::Rule(Rule::vertical(
+            translated_rule,
+            rule_color,
+            3,
+        ))],
+    );
+    let expected_group_node = Node::new(
+        expected_group,
+        None,
+        translated_group,
+        vec![Content::Quad(Quad::new(translated_group, group_color))],
+    );
+    let expected = Commit::from_parts(
+        Revision::renderer_fixture(47),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(expected_rule_node), Arc::new(expected_group_node)],
+        Some(vec![
+            Draw::Content {
+                node: expected_rule,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PushGroup {
+                node: expected_group,
+                bounds: translated_group,
+                opacity: 1.0,
+            },
+            Draw::Content {
+                node: expected_group,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopGroup,
+        ]),
+        Vec::new(),
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+
+    Ok(((actual, initial, tick), (expected, expected_properties)))
+}
+
+#[cfg(feature = "renderer-debug")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollOracleCase {
+    F01,
+    F02,
+    F03,
+    F04,
+    F05,
+    F06,
+    F07,
+    F08,
+}
+
+#[cfg(feature = "renderer-debug")]
+impl ScrollOracleCase {
+    pub(crate) const ALL: [Self; 8] = [
+        Self::F01,
+        Self::F02,
+        Self::F03,
+        Self::F04,
+        Self::F05,
+        Self::F06,
+        Self::F07,
+        Self::F08,
+    ];
+
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::F01 => "F01",
+            Self::F02 => "F02",
+            Self::F03 => "F03",
+            Self::F04 => "F04",
+            Self::F05 => "F05",
+            Self::F06 => "F06",
+            Self::F07 => "F07",
+            Self::F08 => "F08",
+        }
+    }
+}
+
+#[cfg(feature = "renderer-debug")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollOracleRegion {
+    pub(crate) name: &'static str,
+    pub(crate) initial: geometry::Rect,
+    pub(crate) translated: geometry::Rect,
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) struct ScrollOracleFixture {
+    pub(crate) actual: Commit,
+    pub(crate) initial: Properties,
+    pub(crate) tick: Properties,
+    pub(crate) expected: Commit,
+    pub(crate) expected_properties: Properties,
+    pub(crate) moving: Vec<ScrollOracleRegion>,
+    pub(crate) fixed: Vec<(&'static str, geometry::Rect)>,
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_scroll_oracle_fixture(
+    case: ScrollOracleCase,
+) -> Result<ScrollOracleFixture, ContractError> {
+    match case {
+        ScrollOracleCase::F01 => renderer_scroll_oracle_f01(),
+        ScrollOracleCase::F02 => renderer_scroll_oracle_f02(),
+        ScrollOracleCase::F03 => {
+            let ((actual, initial, tick), (expected, expected_properties)) =
+                renderer_group_under_scroll_pair()?;
+            Ok(ScrollOracleFixture {
+                actual,
+                initial,
+                tick,
+                expected,
+                expected_properties,
+                moving: vec![
+                    ScrollOracleRegion {
+                        name: "ungrouped-rule",
+                        initial: geometry::Rect::new(92, 12, 4, 40),
+                        translated: geometry::Rect::new(72, 12, 4, 40),
+                    },
+                    ScrollOracleRegion {
+                        name: "grouped-quad",
+                        initial: geometry::Rect::new(52, 20, 16, 24),
+                        translated: geometry::Rect::new(32, 20, 16, 24),
+                    },
+                ],
+                fixed: Vec::new(),
+            })
+        }
+        ScrollOracleCase::F04 => renderer_scroll_oracle_f04(),
+        ScrollOracleCase::F05 => renderer_scroll_oracle_f05(),
+        ScrollOracleCase::F06 => renderer_scroll_oracle_f06(),
+        ScrollOracleCase::F07 => renderer_scroll_oracle_f07(),
+        ScrollOracleCase::F08 => renderer_scroll_oracle_f08(),
+    }
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_oracle_scroll_declaration(
+    viewport: geometry::Rect,
+    content_bounds: geometry::Rect,
+    maximum: interaction::ScrollOffset,
+) -> ScrollDeclaration {
+    ScrollDeclaration::new(
+        viewport,
+        content_bounds,
+        content_bounds,
+        interaction::ScrollOffset::default(),
+        maximum,
+    )
+    .expect("renderer scroll oracle has complete resident coverage")
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_oracle_properties(
+    commit: &Commit,
+    serial: PropertySerial,
+    offsets: &[(composition::tree::NodeId, interaction::ScrollOffset)],
+    changed: &[composition::tree::NodeId],
+) -> Result<Properties, ContractError> {
+    Properties::new(
+        commit,
+        serial,
+        offsets
+            .iter()
+            .map(|(node, value)| PropertyValue::ScrollOffset {
+                node: *node,
+                value: *value,
+            })
+            .collect(),
+        changed
+            .iter()
+            .map(|node| PropertyRef::new(*node, PropertyKind::ScrollOffset))
+            .collect(),
+    )
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f01() -> Result<ScrollOracleFixture, ContractError> {
+    let scroll = composition::tree::NodeId::renderer_fixture(501);
+    let expected_node = composition::tree::NodeId::renderer_fixture(502);
+    let size = geometry::Size::new(112, 64);
+    let viewport = geometry::Rect::new(8, 8, 96, 48);
+    let bounds = geometry::Rect::new(8, 8, 140, 48);
+    let quad = geometry::Rect::new(52, 20, 16, 24);
+    let rule = geometry::Rect::new(92, 12, 4, 40);
+    let actual_node = Node::new(
+        scroll,
+        None,
+        bounds,
+        vec![
+            Content::Quad(Quad::new(quad, Color::rgba(38, 179, 230, 255))),
+            Content::Rule(Rule::vertical(rule, Color::rgba(242, 179, 26, 255), 3)),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(renderer_oracle_scroll_declaration(
+        viewport,
+        bounds,
+        interaction::ScrollOffset::new(44, 0),
+    ));
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(501),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(actual_node)],
+        Some(vec![
+            Draw::PushScroll { node: scroll },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[(scroll, interaction::ScrollOffset::default())],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[scroll],
+    )?;
+    let translated_quad = geometry::Rect::new(32, 20, 16, 24);
+    let translated_rule = geometry::Rect::new(72, 12, 4, 40);
+    let expected_node = Node::new(
+        expected_node,
+        None,
+        bounds,
+        vec![
+            Content::Quad(Quad::new(translated_quad, Color::rgba(38, 179, 230, 255))),
+            Content::Rule(Rule::vertical(
+                translated_rule,
+                Color::rgba(242, 179, 26, 255),
+                3,
+            )),
+        ],
+    );
+    let expected = Commit::new(
+        Revision::renderer_fixture(502),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![expected_node],
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![
+            ScrollOracleRegion {
+                name: "opaque-quad",
+                initial: quad,
+                translated: translated_quad,
+            },
+            ScrollOracleRegion {
+                name: "independent-rule",
+                initial: rule,
+                translated: translated_rule,
+            },
+        ],
+        fixed: Vec::new(),
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f02() -> Result<ScrollOracleFixture, ContractError> {
+    let scroll = composition::tree::NodeId::renderer_fixture(511);
+    let expected_node = composition::tree::NodeId::renderer_fixture(512);
+    let size = geometry::Size::new(112, 96);
+    let viewport = geometry::Rect::new(8, 8, 96, 80);
+    let bounds = geometry::Rect::new(8, 8, 96, 120);
+    let text = geometry::Rect::new(12, 58, 40, 20);
+    let quad = geometry::Rect::new(68, 60, 20, 16);
+    let actual_node = Node::new(
+        scroll,
+        None,
+        bounds,
+        vec![
+            Content::Text(Text::new(
+                text,
+                "Move",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+            Content::Quad(Quad::new(quad, Color::rgba(38, 191, 89, 255))),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(renderer_oracle_scroll_declaration(
+        viewport,
+        bounds,
+        interaction::ScrollOffset::new(0, 40),
+    ));
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(511),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(actual_node)],
+        Some(vec![
+            Draw::PushScroll { node: scroll },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[(scroll, interaction::ScrollOffset::default())],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[(scroll, interaction::ScrollOffset::new(0, 20))],
+        &[scroll],
+    )?;
+    let translated_text = geometry::Rect::new(12, 38, 40, 20);
+    let translated_quad = geometry::Rect::new(68, 40, 20, 16);
+    let expected_node = Node::new(
+        expected_node,
+        None,
+        bounds,
+        vec![
+            Content::Text(Text::new(
+                translated_text,
+                "Move",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+            Content::Quad(Quad::new(translated_quad, Color::rgba(38, 191, 89, 255))),
+        ],
+    );
+    let expected = Commit::new(
+        Revision::renderer_fixture(512),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![expected_node],
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![
+            ScrollOracleRegion {
+                name: "text",
+                initial: text,
+                translated: translated_text,
+            },
+            ScrollOracleRegion {
+                name: "opaque-quad",
+                initial: quad,
+                translated: translated_quad,
+            },
+        ],
+        fixed: Vec::new(),
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f04() -> Result<ScrollOracleFixture, ContractError> {
+    let group = composition::tree::NodeId::renderer_fixture(521);
+    let scroll = composition::tree::NodeId::renderer_fixture(522);
+    let expected_group = composition::tree::NodeId::renderer_fixture(523);
+    let expected_content = composition::tree::NodeId::renderer_fixture(524);
+    let size = geometry::Size::new(112, 72);
+    let group_bounds = geometry::Rect::new(8, 8, 96, 56);
+    let content_bounds = geometry::Rect::new(8, 8, 140, 56);
+    let text = geometry::Rect::new(52, 18, 36, 20);
+    let quad = geometry::Rect::new(88, 40, 16, 16);
+    let group_node = Node::new(group, None, group_bounds, Vec::new());
+    let scroll_node = Node::new(
+        scroll,
+        Some(group),
+        content_bounds,
+        vec![
+            Content::Text(Text::new(
+                text,
+                "Fx",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+            Content::Quad(Quad::new(quad, Color::rgba(217, 64, 230, 255))),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(renderer_oracle_scroll_declaration(
+        group_bounds,
+        content_bounds,
+        interaction::ScrollOffset::new(44, 0),
+    ));
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(521),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(group_node), Arc::new(scroll_node)],
+        Some(vec![
+            Draw::PushGroup {
+                node: group,
+                bounds: group_bounds,
+                opacity: 1.0,
+            },
+            Draw::PushScroll { node: scroll },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+            Draw::PopGroup,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[(scroll, interaction::ScrollOffset::default())],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[scroll],
+    )?;
+    let translated_text = geometry::Rect::new(32, 18, 36, 20);
+    let translated_quad = geometry::Rect::new(68, 40, 16, 16);
+    let expected_group_node = Node::new(expected_group, None, group_bounds, Vec::new());
+    let expected_content_node = Node::new(
+        expected_content,
+        Some(expected_group),
+        content_bounds,
+        vec![
+            Content::Text(Text::new(
+                translated_text,
+                "Fx",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+            Content::Quad(Quad::new(translated_quad, Color::rgba(217, 64, 230, 255))),
+        ],
+    );
+    let expected = Commit::from_parts(
+        Revision::renderer_fixture(522),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![
+            Arc::new(expected_group_node),
+            Arc::new(expected_content_node),
+        ],
+        Some(vec![
+            Draw::PushGroup {
+                node: expected_group,
+                bounds: group_bounds,
+                opacity: 1.0,
+            },
+            Draw::Content {
+                node: expected_content,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: expected_content,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopGroup,
+        ]),
+        Vec::new(),
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![
+            ScrollOracleRegion {
+                name: "grouped-text-below-scroll",
+                initial: text,
+                translated: translated_text,
+            },
+            ScrollOracleRegion {
+                name: "grouped-quad-below-scroll",
+                initial: quad,
+                translated: translated_quad,
+            },
+        ],
+        fixed: Vec::new(),
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f05() -> Result<ScrollOracleFixture, ContractError> {
+    let chrome = composition::tree::NodeId::renderer_fixture(531);
+    let scroll = composition::tree::NodeId::renderer_fixture(532);
+    let expected_chrome = composition::tree::NodeId::renderer_fixture(533);
+    let expected_content = composition::tree::NodeId::renderer_fixture(534);
+    let size = geometry::Size::new(112, 72);
+    let outer_clip = Clip::new(geometry::Rect::new(8, 8, 96, 56));
+    let inner_clip = Clip::new(geometry::Rect::new(48, 12, 48, 48));
+    let translated_inner_clip = Clip::new(geometry::Rect::new(28, 12, 48, 48));
+    let content_bounds = geometry::Rect::new(8, 8, 140, 56);
+    let chrome_rect = geometry::Rect::new(8, 8, 4, 56);
+    let content = geometry::Rect::new(44, 18, 56, 32);
+    let translated_content = geometry::Rect::new(24, 18, 56, 32);
+    let chrome_node = Node::new(
+        chrome,
+        None,
+        chrome_rect,
+        vec![Content::Quad(Quad::new(
+            chrome_rect,
+            Color::rgba(242, 179, 26, 255),
+        ))],
+    );
+    let scroll_node = Node::new(
+        scroll,
+        None,
+        content_bounds,
+        vec![Content::Quad(Quad::new(
+            content,
+            Color::rgba(38, 140, 217, 255),
+        ))],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(renderer_oracle_scroll_declaration(
+        geometry::Rect::new(8, 8, 96, 56),
+        content_bounds,
+        interaction::ScrollOffset::new(44, 0),
+    ));
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(531),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(chrome_node), Arc::new(scroll_node)],
+        Some(vec![
+            Draw::PushClip {
+                node: None,
+                clip: outer_clip,
+            },
+            Draw::Content {
+                node: chrome,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PushScroll { node: scroll },
+            Draw::PushClip {
+                node: None,
+                clip: inner_clip,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopClip,
+            Draw::PopScroll,
+            Draw::PopClip,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[(scroll, interaction::ScrollOffset::default())],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[scroll],
+    )?;
+    let expected_chrome_node = Node::new(
+        expected_chrome,
+        None,
+        chrome_rect,
+        vec![Content::Quad(Quad::new(
+            chrome_rect,
+            Color::rgba(242, 179, 26, 255),
+        ))],
+    );
+    let expected_content_node = Node::new(
+        expected_content,
+        None,
+        content_bounds,
+        vec![Content::Quad(Quad::new(
+            translated_content,
+            Color::rgba(38, 140, 217, 255),
+        ))],
+    );
+    let expected = Commit::from_parts(
+        Revision::renderer_fixture(532),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![
+            Arc::new(expected_chrome_node),
+            Arc::new(expected_content_node),
+        ],
+        Some(vec![
+            Draw::PushClip {
+                node: None,
+                clip: outer_clip,
+            },
+            Draw::Content {
+                node: expected_chrome,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PushClip {
+                node: None,
+                clip: translated_inner_clip,
+            },
+            Draw::Content {
+                node: expected_content,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopClip,
+            Draw::PopClip,
+        ]),
+        Vec::new(),
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![ScrollOracleRegion {
+            name: "inner-clipped-content",
+            initial: geometry::Rect::new(84, 22, 12, 20),
+            translated: geometry::Rect::new(32, 22, 12, 20),
+        }],
+        fixed: vec![("fixed-outer-chrome", chrome_rect)],
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f06() -> Result<ScrollOracleFixture, ContractError> {
+    let outer = composition::tree::NodeId::renderer_fixture(541);
+    let group = composition::tree::NodeId::renderer_fixture(542);
+    let inner = composition::tree::NodeId::renderer_fixture(543);
+    let rows = composition::tree::NodeId::renderer_fixture(544);
+    let expected_group = composition::tree::NodeId::renderer_fixture(545);
+    let expected_rows = composition::tree::NodeId::renderer_fixture(546);
+    let size = geometry::Size::new(112, 96);
+    let viewport = geometry::Rect::new(8, 8, 96, 80);
+    let outer_bounds = geometry::Rect::new(8, 8, 96, 120);
+    let group_bounds = geometry::Rect::new(8, 8, 96, 80);
+    let inner_bounds = geometry::Rect::new(8, 8, 96, 120);
+    let text = geometry::Rect::new(16, 58, 36, 20);
+    let row = geometry::Rect::new(60, 60, 32, 16);
+    let outer_node = Node::new(outer, None, outer_bounds, Vec::new())
+        .with_properties([PropertyKind::ScrollOffset])
+        .with_scroll(renderer_oracle_scroll_declaration(
+            viewport,
+            outer_bounds,
+            interaction::ScrollOffset::new(0, 40),
+        ));
+    let group_node = Node::new(group, Some(outer), group_bounds, Vec::new());
+    let inner_node = Node::new(inner, Some(group), inner_bounds, Vec::new())
+        .with_properties([PropertyKind::ScrollOffset])
+        .with_scroll(renderer_oracle_scroll_declaration(
+            viewport,
+            inner_bounds,
+            interaction::ScrollOffset::new(0, 40),
+        ));
+    let rows_node = Node::new(
+        rows,
+        Some(inner),
+        inner_bounds,
+        vec![
+            Content::Text(Text::new(
+                text,
+                "Row",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+            Content::Quad(Quad::new(row, Color::rgba(230, 51, 38, 255))),
+        ],
+    );
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(541),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![
+            Arc::new(outer_node),
+            Arc::new(group_node),
+            Arc::new(inner_node),
+            Arc::new(rows_node),
+        ],
+        Some(vec![
+            Draw::PushScroll { node: outer },
+            Draw::PushGroup {
+                node: group,
+                bounds: group_bounds,
+                opacity: 1.0,
+            },
+            Draw::PushScroll { node: inner },
+            Draw::Content {
+                node: rows,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: rows,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+            Draw::PopGroup,
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[
+            (outer, interaction::ScrollOffset::default()),
+            (inner, interaction::ScrollOffset::default()),
+        ],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[
+            (outer, interaction::ScrollOffset::default()),
+            (inner, interaction::ScrollOffset::new(0, 20)),
+        ],
+        &[inner],
+    )?;
+    let translated_text = geometry::Rect::new(16, 38, 36, 20);
+    let translated_row = geometry::Rect::new(60, 40, 32, 16);
+    let expected_group_node = Node::new(expected_group, None, group_bounds, Vec::new());
+    let expected_rows_node = Node::new(
+        expected_rows,
+        Some(expected_group),
+        inner_bounds,
+        vec![
+            Content::Text(Text::new(
+                translated_text,
+                "Row",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+            Content::Quad(Quad::new(translated_row, Color::rgba(230, 51, 38, 255))),
+        ],
+    );
+    let expected = Commit::from_parts(
+        Revision::renderer_fixture(542),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(expected_group_node), Arc::new(expected_rows_node)],
+        Some(vec![
+            Draw::PushGroup {
+                node: expected_group,
+                bounds: group_bounds,
+                opacity: 1.0,
+            },
+            Draw::Content {
+                node: expected_rows,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: expected_rows,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopGroup,
+        ]),
+        Vec::new(),
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![
+            ScrollOracleRegion {
+                name: "nested-group-text",
+                initial: text,
+                translated: translated_text,
+            },
+            ScrollOracleRegion {
+                name: "nested-virtual-row",
+                initial: row,
+                translated: translated_row,
+            },
+        ],
+        fixed: Vec::new(),
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f07() -> Result<ScrollOracleFixture, ContractError> {
+    let scroll = composition::tree::NodeId::renderer_fixture(551);
+    let expected_node = composition::tree::NodeId::renderer_fixture(552);
+    let size = geometry::Size::new(112, 88);
+    let viewport = geometry::Rect::new(8, 8, 96, 72);
+    let bounds = geometry::Rect::new(8, 8, 148, 72);
+    let fill = geometry::Rect::new(52, 16, 32, 48);
+    let rule = geometry::Rect::new(88, 12, 4, 56);
+    let text = geometry::Rect::new(100, 28, 36, 20);
+    let actual_node = Node::new(
+        scroll,
+        None,
+        bounds,
+        vec![
+            Content::Quad(Quad::new(fill, Color::rgba(26, 77, 153, 255))),
+            Content::Rule(Rule::vertical(rule, Color::rgba(242, 179, 26, 255), 3)),
+            Content::Text(Text::new(
+                text,
+                "Cell",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+        ],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(renderer_oracle_scroll_declaration(
+        viewport,
+        bounds,
+        interaction::ScrollOffset::new(52, 0),
+    ));
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(551),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![Arc::new(actual_node)],
+        Some(vec![
+            Draw::PushScroll { node: scroll },
+            Draw::Content {
+                node: scroll,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: scroll,
+                index: 2,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[(scroll, interaction::ScrollOffset::default())],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[scroll],
+    )?;
+    let translated_fill = geometry::Rect::new(32, 16, 32, 48);
+    let translated_rule = geometry::Rect::new(68, 12, 4, 56);
+    let translated_text = geometry::Rect::new(80, 28, 36, 20);
+    let expected_node = Node::new(
+        expected_node,
+        None,
+        bounds,
+        vec![
+            Content::Quad(Quad::new(translated_fill, Color::rgba(26, 77, 153, 255))),
+            Content::Rule(Rule::vertical(
+                translated_rule,
+                Color::rgba(242, 179, 26, 255),
+                3,
+            )),
+            Content::Text(Text::new(
+                translated_text,
+                "Cell",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+        ],
+    );
+    let expected = Commit::new(
+        Revision::renderer_fixture(552),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![expected_node],
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![
+            ScrollOracleRegion {
+                name: "table-fill",
+                initial: fill,
+                translated: translated_fill,
+            },
+            ScrollOracleRegion {
+                name: "table-rule",
+                initial: rule,
+                translated: translated_rule,
+            },
+            ScrollOracleRegion {
+                name: "table-text",
+                initial: text,
+                translated: translated_text,
+            },
+        ],
+        fixed: Vec::new(),
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
+fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
+    let horizontal = composition::tree::NodeId::renderer_fixture(561);
+    let vertical = composition::tree::NodeId::renderer_fixture(562);
+    let body = composition::tree::NodeId::renderer_fixture(563);
+    let expected_header = composition::tree::NodeId::renderer_fixture(564);
+    let expected_body = composition::tree::NodeId::renderer_fixture(565);
+    let size = geometry::Size::new(112, 96);
+    let viewport = geometry::Rect::new(8, 8, 96, 80);
+    let horizontal_bounds = geometry::Rect::new(8, 8, 148, 80);
+    let vertical_bounds = geometry::Rect::new(8, 8, 148, 120);
+    let header = geometry::Rect::new(88, 12, 32, 16);
+    let cell = geometry::Rect::new(64, 60, 32, 20);
+    let rule = geometry::Rect::new(100, 48, 4, 40);
+    let text = geometry::Rect::new(108, 62, 32, 18);
+    let horizontal_node = Node::new(
+        horizontal,
+        None,
+        horizontal_bounds,
+        vec![Content::Quad(Quad::new(
+            header,
+            Color::rgba(38, 140, 217, 255),
+        ))],
+    )
+    .with_properties([PropertyKind::ScrollOffset])
+    .with_scroll(renderer_oracle_scroll_declaration(
+        viewport,
+        horizontal_bounds,
+        interaction::ScrollOffset::new(52, 0),
+    ));
+    let vertical_node = Node::new(vertical, Some(horizontal), vertical_bounds, Vec::new())
+        .with_properties([PropertyKind::ScrollOffset])
+        .with_scroll(renderer_oracle_scroll_declaration(
+            viewport,
+            vertical_bounds,
+            interaction::ScrollOffset::new(0, 40),
+        ));
+    let body_node = Node::new(
+        body,
+        Some(vertical),
+        vertical_bounds,
+        vec![
+            Content::Quad(Quad::new(cell, Color::rgba(26, 77, 153, 255))),
+            Content::Rule(Rule::vertical(rule, Color::rgba(242, 179, 26, 255), 3)),
+            Content::Text(Text::new(
+                text,
+                "XY",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+        ],
+    );
+    let actual = Commit::from_parts(
+        Revision::renderer_fixture(561),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![
+            Arc::new(horizontal_node),
+            Arc::new(vertical_node),
+            Arc::new(body_node),
+        ],
+        Some(vec![
+            Draw::PushScroll { node: horizontal },
+            Draw::Content {
+                node: horizontal,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PushScroll { node: vertical },
+            Draw::Content {
+                node: body,
+                index: 0,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: body,
+                index: 1,
+                projection: ContentProjection::Normal,
+            },
+            Draw::Content {
+                node: body,
+                index: 2,
+                projection: ContentProjection::Normal,
+            },
+            Draw::PopScroll,
+            Draw::PopScroll,
+        ]),
+        Vec::new(),
+    )?;
+    let initial = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL,
+        &[
+            (horizontal, interaction::ScrollOffset::default()),
+            (vertical, interaction::ScrollOffset::default()),
+        ],
+        &[],
+    )?;
+    let tick = renderer_oracle_properties(
+        &actual,
+        PropertySerial::INITIAL.next(),
+        &[
+            (horizontal, interaction::ScrollOffset::new(20, 0)),
+            (vertical, interaction::ScrollOffset::new(0, 20)),
+        ],
+        &[horizontal, vertical],
+    )?;
+    let translated_header = geometry::Rect::new(68, 12, 32, 16);
+    let translated_cell = geometry::Rect::new(44, 40, 32, 20);
+    let translated_rule = geometry::Rect::new(80, 28, 4, 40);
+    let translated_text = geometry::Rect::new(88, 42, 32, 18);
+    let expected_header_node = Node::new(
+        expected_header,
+        None,
+        horizontal_bounds,
+        vec![Content::Quad(Quad::new(
+            translated_header,
+            Color::rgba(38, 140, 217, 255),
+        ))],
+    );
+    let expected_body_node = Node::new(
+        expected_body,
+        None,
+        vertical_bounds,
+        vec![
+            Content::Quad(Quad::new(translated_cell, Color::rgba(26, 77, 153, 255))),
+            Content::Rule(Rule::vertical(
+                translated_rule,
+                Color::rgba(242, 179, 26, 255),
+                3,
+            )),
+            Content::Text(Text::new(
+                translated_text,
+                "XY",
+                Color::rgba(230, 230, 235, 255),
+                TextWrap::None,
+            )),
+        ],
+    );
+    let expected = Commit::new(
+        Revision::renderer_fixture(562),
+        size,
+        Color::rgba(0, 0, 0, 255),
+        vec![expected_header_node, expected_body_node],
+    )?;
+    let expected_properties = Properties::empty(&expected)?;
+    Ok(ScrollOracleFixture {
+        actual,
+        initial,
+        tick,
+        expected,
+        expected_properties,
+        moving: vec![
+            ScrollOracleRegion {
+                name: "split-axis-header",
+                initial: header,
+                translated: translated_header,
+            },
+            ScrollOracleRegion {
+                name: "diagonal-cell",
+                initial: cell,
+                translated: translated_cell,
+            },
+            ScrollOracleRegion {
+                name: "diagonal-rule",
+                initial: rule,
+                translated: translated_rule,
+            },
+            ScrollOracleRegion {
+                name: "diagonal-text",
+                initial: text,
+                translated: translated_text,
+            },
+        ],
+        fixed: Vec::new(),
+    })
+}
+
+#[cfg(feature = "renderer-debug")]
 pub(crate) fn renderer_scroll_semantic_pair()
 -> Result<((Commit, Properties), (Commit, Properties)), ContractError> {
     let (initial, initial_properties) = renderer_scroll_fixture()?;

@@ -48,7 +48,7 @@ struct ReadyDebugCommit {
     properties: crate::scene::PropertySerial,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(in crate::render) enum PlanStep {
     Layer(PreparedLayer),
     Shapes(render::retained::ShapeBatch),
@@ -60,7 +60,7 @@ pub(in crate::render) enum PlanStep {
     Scroll(PreparedScroll),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(in crate::render) struct PreparedLayer {
     pub(in crate::render) state_index: usize,
     pub(in crate::render) bounds: Rect,
@@ -69,21 +69,21 @@ pub(in crate::render) struct PreparedLayer {
     pub(in crate::render) render_batches: Vec<PlanStep>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(in crate::render) struct PreparedPane {
     pub(in crate::render) pane: paint::Pane,
     pub(in crate::render) base: Option<render::retained::ShapeBatch>,
     pub(in crate::render) surface_layers: Vec<Option<render::retained::ShapeBatch>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(in crate::render) struct PreparedClip {
     pub(in crate::render) node: Option<crate::composition::tree::NodeId>,
     pub(in crate::render) fallback: paint::Clip,
     pub(in crate::render) scene_origin: [f32; 2],
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(in crate::render) struct PreparedGroup {
     pub(in crate::render) node: Option<crate::composition::tree::NodeId>,
     pub(in crate::render) bounds: Rect,
@@ -91,7 +91,7 @@ pub(in crate::render) struct PreparedGroup {
     pub(in crate::render) render_batches: Vec<PlanStep>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(in crate::render) struct PreparedScroll {
     pub(in crate::render) node: crate::composition::tree::NodeId,
     pub(in crate::render) viewport: paint::Rect,
@@ -981,6 +981,21 @@ impl Renderer {
     #[cfg(feature = "renderer-debug")]
     pub(super) fn retained_state_counts_debug(&self) -> (usize, usize) {
         self.retained.debug_state_counts()
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(super) fn retained_plan_signature_debug(
+        &self,
+        commit: &std::sync::Arc<crate::scene::Commit>,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> Option<String> {
+        let viewport = render::Viewport::from_logical_area(
+            area::logical(width as f32 / scale_factor, height as f32 / scale_factor),
+            scale_factor,
+        );
+        self.retained.debug_plan_signature(commit, viewport)
     }
 
     #[cfg(feature = "renderer-debug")]

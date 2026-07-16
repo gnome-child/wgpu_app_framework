@@ -291,6 +291,45 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
+    fn grouped_and_ungrouped_geometry_share_the_first_scroll_tick() {
+        for scale_factor in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            pollster::block_on(wgpu_l3::diagnostics::compare_group_under_scroll_first_tick(
+                scale_factor,
+            ))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "grouped and ungrouped payloads must occupy the independently authored first-tick geometry at {scale_factor}x: {error}"
+                )
+            });
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn tier_a_payloads_share_one_first_tick_spatial_contract() {
+        for scale_factor in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            pollster::block_on(
+                wgpu_l3::diagnostics::compare_payload_neutral_scroll_oracles(scale_factor),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "all eight payload-neutral Tier A fixtures must pass at {scale_factor}x: {error}"
+                )
+            });
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn tier_a_negative_controls_fail_the_intended_assertions() {
+        pollster::block_on(
+            wgpu_l3::diagnostics::require_payload_neutral_scroll_negative_controls(),
+        )
+        .expect("all ten Tier A negative executions must fail their intended oracle assertion");
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
     fn retained_scroll_tick_realizes_text_entering_from_the_runway() {
         let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
         harness.require_scroll_text_runway().expect(

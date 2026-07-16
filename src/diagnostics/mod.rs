@@ -20,7 +20,9 @@ pub use render::{
     compare_control_gallery_incremental_activation,
     compare_control_gallery_pending_property_refresh, compare_control_gallery_pending_transition,
     compare_control_gallery_property_tick, compare_control_gallery_slow_scroll,
+    compare_group_under_scroll_first_tick, compare_payload_neutral_scroll_oracles,
     measure_control_gallery_horizontal_table_scroll,
+    require_payload_neutral_scroll_negative_controls,
 };
 pub use scroll::Scroll;
 #[cfg(feature = "renderer-debug")]

@@ -191,8 +191,45 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             run_table_scroll_work(scale)
         }
+        [command] if command == "group-scroll-oracle" => {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                run_group_scroll_oracle(scale)?;
+            }
+            Ok(())
+        }
+        [command, scale] if command == "group-scroll-oracle" => {
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            if !scale.is_finite() || scale <= 0.0 {
+                return Err("scale must be a positive number".to_owned());
+            }
+            run_group_scroll_oracle(scale)
+        }
+        [command] if command == "tier-a-scroll-oracle" => {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                run_tier_a_scroll_oracle(scale)?;
+            }
+            Ok(())
+        }
+        [command, scale] if command == "tier-a-scroll-oracle" => {
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            if !scale.is_finite() || scale <= 0.0 {
+                return Err("scale must be a positive number".to_owned());
+            }
+            run_tier_a_scroll_oracle(scale)
+        }
+        [command] if command == "tier-a-negative-controls" => {
+            pollster::block_on(
+                wgpu_l3::diagnostics::require_payload_neutral_scroll_negative_controls(),
+            )?;
+            println!("oracle=tier-a-negative-controls executions=10 result=pass");
+            Ok(())
+        }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale]"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls"
                 .to_owned(),
         ),
     }
@@ -204,6 +241,20 @@ fn run_table_scroll_work(scale: f32) -> Result<(), String> {
     )?;
     println!("workload=control-gallery-horizontal-table-scroll scale={scale}");
     print_work("property-hit", work);
+    Ok(())
+}
+
+fn run_group_scroll_oracle(scale: f32) -> Result<(), String> {
+    pollster::block_on(wgpu_l3::diagnostics::compare_group_under_scroll_first_tick(
+        scale,
+    ))?;
+    println!("oracle=group-under-scroll-first-tick scale={scale} result=pass");
+    Ok(())
+}
+
+fn run_tier_a_scroll_oracle(scale: f32) -> Result<(), String> {
+    pollster::block_on(wgpu_l3::diagnostics::compare_payload_neutral_scroll_oracles(scale))?;
+    println!("oracle=tier-a-payload-neutral-first-tick scale={scale} cases=8 result=pass");
     Ok(())
 }
 

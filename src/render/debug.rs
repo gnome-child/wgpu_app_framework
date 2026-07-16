@@ -26,6 +26,16 @@ pub enum Case {
     TransparentPopup,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollOracleMutation {
+    MissingTranslation,
+    LegacyGroupBinding,
+    DoubleSurfaceTranslation,
+    MovingFixedClip,
+    RuleOnlyMovement,
+    DivergentIncrementalPlan,
+}
+
 impl Case {
     pub const ALL: [Self; 18] = [
         Self::Empty,
@@ -1751,6 +1761,395 @@ impl Harness {
         }
     }
 
+    pub(crate) fn compare_group_under_scroll_first_tick(&mut self) -> Result<(), String> {
+        self.compare_scroll_oracle_case(scene::ScrollOracleCase::F03)
+    }
+
+    pub(crate) fn compare_scroll_oracle_case(
+        &mut self,
+        case: scene::ScrollOracleCase,
+    ) -> Result<(), String> {
+        let scene::ScrollOracleFixture {
+            actual,
+            initial,
+            tick,
+            expected,
+            expected_properties,
+            moving,
+            fixed,
+        } = scene::renderer_scroll_oracle_fixture(case).map_err(|error| error.to_string())?;
+        if actual.size() != expected.size() {
+            return Err(format!(
+                "{} oracle commits use different extents",
+                case.name()
+            ));
+        }
+        let actual = std::sync::Arc::new(actual);
+        let expected = std::sync::Arc::new(expected);
+        self.require_direct_incremental_plan_match(&actual, &initial)?;
+        let (width, height) = self.physical_extent(actual.size());
+        let (initial_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &actual,
+            &initial,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (tick_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &actual,
+            &tick,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected_pixels, _) = self.witness.draw_commit_offscreen_debug(
+            &self.context,
+            &expected,
+            &expected_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+
+        self.validate_scroll_oracle_pixels(
+            case,
+            width,
+            height,
+            &initial_pixels,
+            &tick_pixels,
+            &expected_pixels,
+            &moving,
+            &fixed,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn validate_scroll_oracle_pixels(
+        &self,
+        case: scene::ScrollOracleCase,
+        width: u32,
+        height: u32,
+        initial_pixels: &[[f32; 4]],
+        tick_pixels: &[[f32; 4]],
+        expected_pixels: &[[f32; 4]],
+        moving: &[scene::ScrollOracleRegion],
+        fixed: &[(&'static str, crate::geometry::Rect)],
+    ) -> Result<(), String> {
+        let delta = pixel_delta;
+        const MATCH_TOLERANCE: f32 = 4.0 / 255.0;
+        const DISCRIMINATING_DELTA: f32 = 32.0 / 255.0;
+        let physical_region = |region: crate::geometry::Rect| {
+            let left = (region.x() as f32 * self.scale_factor)
+                .floor()
+                .clamp(0.0, width as f32) as u32;
+            let top = (region.y() as f32 * self.scale_factor)
+                .floor()
+                .clamp(0.0, height as f32) as u32;
+            let right = (region.right() as f32 * self.scale_factor)
+                .ceil()
+                .clamp(0.0, width as f32) as u32;
+            let bottom = (region.bottom() as f32 * self.scale_factor)
+                .ceil()
+                .clamp(0.0, height as f32) as u32;
+            (left, top, right, bottom)
+        };
+        let compare_region = |region: crate::geometry::Rect,
+                              candidate: &[[f32; 4]],
+                              reference: &[[f32; 4]],
+                              threshold: f32| {
+            let (left, top, right, bottom) = physical_region(region);
+            let mut count = 0_usize;
+            let mut maximum = 0.0_f32;
+            for y in top..bottom {
+                for x in left..right {
+                    let index = (y * width + x) as usize;
+                    let pixel_delta = delta(candidate[index], reference[index]);
+                    count = count.saturating_add(usize::from(pixel_delta > threshold));
+                    maximum = maximum.max(pixel_delta);
+                }
+            }
+            (count, maximum)
+        };
+        for region in moving {
+            for (position, bounds) in [("old", region.initial), ("translated", region.translated)] {
+                let (discriminating, _) = compare_region(
+                    bounds,
+                    &initial_pixels,
+                    &expected_pixels,
+                    DISCRIMINATING_DELTA,
+                );
+                if discriminating == 0 {
+                    return Err(format!(
+                        "{} {} {position}-position region is not discriminating at {}x: {bounds:?}",
+                        case.name(),
+                        region.name,
+                        self.scale_factor
+                    ));
+                }
+                let (mismatched, maximum) =
+                    compare_region(bounds, &tick_pixels, &expected_pixels, MATCH_TOLERANCE);
+                if mismatched > 0 {
+                    let behavior = if position == "old" {
+                        "did not vacate its old position"
+                    } else {
+                        "did not occupy its translated position"
+                    };
+                    return Err(format!(
+                        "{} {} {behavior} on the first property tick at {}x: mismatched_pixels={mismatched} maximum_channel_delta={maximum}",
+                        case.name(),
+                        region.name,
+                        self.scale_factor
+                    ));
+                }
+            }
+        }
+        for (name, bounds) in fixed {
+            let (expected_mismatch, expected_maximum) =
+                compare_region(*bounds, initial_pixels, expected_pixels, MATCH_TOLERANCE);
+            if expected_mismatch > 0 {
+                return Err(format!(
+                    "{} fixed {name} region changes in the manually authored expected commit at {}x: mismatched_pixels={expected_mismatch} maximum_channel_delta={expected_maximum}",
+                    case.name(),
+                    self.scale_factor
+                ));
+            }
+            let (tick_mismatch, tick_maximum) =
+                compare_region(*bounds, tick_pixels, expected_pixels, MATCH_TOLERANCE);
+            if tick_mismatch > 0 {
+                return Err(format!(
+                    "{} fixed {name} moved on the first property tick at {}x: mismatched_pixels={tick_mismatch} maximum_channel_delta={tick_maximum}",
+                    case.name(),
+                    self.scale_factor
+                ));
+            }
+        }
+
+        let (differing, maximum_delta) = tick_pixels.iter().zip(expected_pixels.iter()).fold(
+            (0_usize, 0.0_f32),
+            |(count, maximum), (candidate, expected)| {
+                let pixel_delta = delta(*candidate, *expected);
+                (
+                    count.saturating_add(usize::from(pixel_delta > MATCH_TOLERANCE)),
+                    maximum.max(pixel_delta),
+                )
+            },
+        );
+        if differing > 0 {
+            return Err(format!(
+                "{} first tick differs from its manually translated static commit at {differing} pixels at {}x (maximum channel delta {maximum_delta})",
+                case.name(),
+                self.scale_factor
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn require_scroll_oracle_negative_control(
+        &mut self,
+        case: scene::ScrollOracleCase,
+        mutation: ScrollOracleMutation,
+        expected_error: &str,
+    ) -> Result<(), String> {
+        let scene::ScrollOracleFixture {
+            actual,
+            initial,
+            tick: _,
+            expected,
+            expected_properties,
+            moving,
+            fixed,
+        } = scene::renderer_scroll_oracle_fixture(case).map_err(|error| error.to_string())?;
+        let actual = std::sync::Arc::new(actual);
+        if mutation == ScrollOracleMutation::DivergentIncrementalPlan {
+            let (direct, mut incremental) =
+                self.direct_incremental_plan_signatures(&actual, &initial)?;
+            incremental.push_str(";negative-control-divergence");
+            let error = compare_plan_signatures(&direct, &incremental)
+                .expect_err("the divergent-plan control must fail plan equality");
+            if !error.contains(expected_error) {
+                return Err(format!(
+                    "{} {mutation:?} failed with the wrong assertion: {error}",
+                    case.name()
+                ));
+            }
+            return Ok(());
+        }
+
+        let expected = std::sync::Arc::new(expected);
+        let (width, height) = self.physical_extent(actual.size());
+        let (initial_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &actual,
+            &initial,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let (expected_pixels, _) = self.witness.draw_commit_offscreen_debug(
+            &self.context,
+            &expected,
+            &expected_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        self.validate_scroll_oracle_pixels(
+            case,
+            width,
+            height,
+            &initial_pixels,
+            &expected_pixels,
+            &expected_pixels,
+            &moving,
+            &fixed,
+        )?;
+
+        let physical_region = |region: crate::geometry::Rect| {
+            let left = (region.x() as f32 * self.scale_factor)
+                .floor()
+                .clamp(0.0, width as f32) as u32;
+            let top = (region.y() as f32 * self.scale_factor)
+                .floor()
+                .clamp(0.0, height as f32) as u32;
+            let right = (region.right() as f32 * self.scale_factor)
+                .ceil()
+                .clamp(0.0, width as f32) as u32;
+            let bottom = (region.bottom() as f32 * self.scale_factor)
+                .ceil()
+                .clamp(0.0, height as f32) as u32;
+            (left, top, right, bottom)
+        };
+        let copy_region =
+            |destination: &mut [[f32; 4]], source: &[[f32; 4]], region: crate::geometry::Rect| {
+                let (left, top, right, bottom) = physical_region(region);
+                for y in top..bottom {
+                    for x in left..right {
+                        let index = (y * width + x) as usize;
+                        destination[index] = source[index];
+                    }
+                }
+            };
+        let mut mutated = expected_pixels.clone();
+        match mutation {
+            ScrollOracleMutation::MissingTranslation => mutated.clone_from(&initial_pixels),
+            ScrollOracleMutation::LegacyGroupBinding => {
+                let region = moving
+                    .iter()
+                    .find(|region| region.name == "grouped-quad")
+                    .ok_or_else(|| "legacy group control has no grouped quad".to_owned())?;
+                copy_region(&mut mutated, &initial_pixels, region.initial);
+                copy_region(&mut mutated, &initial_pixels, region.translated);
+            }
+            ScrollOracleMutation::DoubleSurfaceTranslation => {
+                for region in &moving {
+                    copy_region(&mut mutated, &initial_pixels, region.translated);
+                }
+            }
+            ScrollOracleMutation::MovingFixedClip => {
+                let (_, region) = fixed
+                    .first()
+                    .copied()
+                    .ok_or_else(|| "moving fixed-clip control has no fixed region".to_owned())?;
+                let (left, top, right, bottom) = physical_region(region);
+                for y in top..bottom {
+                    for x in left..right {
+                        mutated[(y * width + x) as usize] = [0.0, 0.0, 0.0, 1.0];
+                    }
+                }
+            }
+            ScrollOracleMutation::RuleOnlyMovement => {
+                mutated.clone_from(&initial_pixels);
+                let region = moving
+                    .iter()
+                    .find(|region| region.name == "table-rule")
+                    .ok_or_else(|| "rule-only control has no table rule".to_owned())?;
+                copy_region(&mut mutated, &expected_pixels, region.initial);
+                copy_region(&mut mutated, &expected_pixels, region.translated);
+            }
+            ScrollOracleMutation::DivergentIncrementalPlan => unreachable!(),
+        }
+        let error = self
+            .validate_scroll_oracle_pixels(
+                case,
+                width,
+                height,
+                &initial_pixels,
+                &mutated,
+                &expected_pixels,
+                &moving,
+                &fixed,
+            )
+            .expect_err("a Tier A negative mutation must fail its oracle assertion");
+        if !error.contains(expected_error) {
+            return Err(format!(
+                "{} {mutation:?} failed with the wrong assertion: {error}",
+                case.name()
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_direct_incremental_plan_match(
+        &self,
+        commit: &std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> Result<(), String> {
+        let (direct, incremental) = self.direct_incremental_plan_signatures(commit, properties)?;
+        compare_plan_signatures(&direct, &incremental)
+    }
+
+    fn direct_incremental_plan_signatures(
+        &self,
+        commit: &std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> Result<(String, String), String> {
+        let (width, height) = self.physical_extent(commit.size());
+        let format = render::surface::Format::from_wgpu(wgpu::TextureFormat::Rgba8Unorm);
+        let mut direct = render::Renderer::new(&self.context, format);
+        direct.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        let direct_signature = direct
+            .retained_plan_signature_debug(commit, width, height, self.scale_factor)
+            .ok_or_else(|| "direct retained construction produced no plan signature".to_owned())?;
+
+        let mut incremental = render::Renderer::new(&self.context, format);
+        let mut incremental_signature = None;
+        for _ in 0..512 {
+            let _ = incremental.synchronize_commit_offscreen_debug(
+                &self.context,
+                commit,
+                properties,
+                width,
+                height,
+                self.scale_factor,
+                Duration::ZERO,
+            )?;
+            incremental_signature =
+                incremental.retained_plan_signature_debug(commit, width, height, self.scale_factor);
+            if incremental_signature.is_some() {
+                break;
+            }
+        }
+        let incremental_signature = incremental_signature.ok_or_else(|| {
+            "incremental retained construction did not converge to a plan".to_owned()
+        })?;
+        Ok((direct_signature, incremental_signature))
+    }
+
     pub(crate) fn require_retained_scroll_region_change(
         &mut self,
         commit: &std::sync::Arc<scene::Commit>,
@@ -2033,4 +2432,21 @@ fn render_commit_image(
             elapsed: started.elapsed(),
         },
     ))
+}
+
+fn pixel_delta(left: [f32; 4], right: [f32; 4]) -> f32 {
+    left.into_iter()
+        .zip(right)
+        .map(|(left, right)| (left - right).abs())
+        .fold(0.0_f32, f32::max)
+}
+
+fn compare_plan_signatures(direct: &str, incremental: &str) -> Result<(), String> {
+    if direct == incremental {
+        Ok(())
+    } else {
+        Err(format!(
+            "direct and incremental retained plans diverged: direct={direct}; incremental={incremental}"
+        ))
+    }
 }

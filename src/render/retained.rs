@@ -332,6 +332,14 @@ impl Plan {
     pub(in crate::render) fn requires_surface_sampling(&self) -> bool {
         self.requires_surface_sampling
     }
+
+    #[cfg(feature = "renderer-debug")]
+    fn debug_signature(&self) -> String {
+        format!(
+            "batches={:?};property_bindings={:?};requires_surface_sampling={}",
+            self.batches, self.property_bindings, self.requires_surface_sampling
+        )
+    }
 }
 
 impl PlanFacts {
@@ -955,6 +963,16 @@ impl Realizer {
     #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn debug_state_counts(&self) -> (usize, usize) {
         (self.plans.len(), self.pending.len())
+    }
+
+    #[cfg(feature = "renderer-debug")]
+    pub(in crate::render) fn debug_plan_signature(
+        &self,
+        commit: &Arc<scene::Commit>,
+        viewport: render::Viewport,
+    ) -> Option<String> {
+        self.find_plan(commit, viewport, &Projection::source())
+            .map(|plan| plan.debug_signature())
     }
 
     #[cfg(feature = "renderer-debug")]
