@@ -6573,8 +6573,9 @@ fn eager_scroll_container_contract_separates_policy_operations_and_projection() 
     );
     assert!(
         algorithm.contains("for _ in 0..2")
-            && algorithm.contains("introduction_passes = introduction_passes.saturating_add(1)")
-            && algorithm.contains("scroll_axis_policy_shows(")
+            && chrome.contains("pub(super) fn introduce(")
+            && chrome.contains("self.introduction_passes.saturating_add(1)")
+            && chrome.contains("axis_policy_shows(")
             && algorithm.contains("chrome::container_geometry(")
             && measure.contains("container.horizontal_sizing")
             && measure.contains("container.vertical_sizing")
@@ -6955,14 +6956,34 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
     let retained = include_str!("../render/retained.rs");
 
     assert!(
-        chrome.contains("pub(super) fn viewport_geometry(")
-            && chrome.contains("reserve_gutters(rect, theme, axes)")
+        chrome.contains("pub(super) fn resolve_container(")
             && chrome.contains("pub(super) fn container_geometry(")
             && chrome.contains("reserve_container_gutters(rect, theme, container)")
-            && algorithm.matches("chrome::container_geometry(").count() >= 2
-            && algorithm.matches("chrome::viewport_geometry(").count() >= 2
-            && frame.matches("chrome::viewport_geometry(").count() >= 2,
-        "eager containers must derive clips from their resolved policy while native table, virtual-list, and text viewports retain centralized fixed geometry"
+            && algorithm.matches("chrome::container_geometry(").count() >= 4
+            && frame.matches("chrome::container_geometry(").count() >= 2
+            && frame.contains("TextContent::Area { container, .. }")
+            && algorithm.contains(".with_virtual_list(viewport, request, container_layout)")
+            && algorithm.matches("chrome::viewport_geometry(").count() == 1
+            && frame.matches("chrome::viewport_geometry(").count() == 1,
+        "eager, native text, and native list must resolve one container contract while table and inactive text retain their domain-specific fixed geometry"
+    );
+    let virtual_list_layout = algorithm
+        .split("fn layout_virtual_list(")
+        .nth(1)
+        .and_then(|source| source.split("fn child_clip(").next())
+        .expect("native virtual-list layout should remain inspectable");
+    let text_area_layout = frame
+        .split("node::Content::TextArea(model) =>")
+        .nth(1)
+        .and_then(|source| source.split("node::Content::Button(_)").next())
+        .expect("native text-area layout should remain inspectable");
+    assert!(
+        virtual_list_layout.contains("model.request_for_viewport(")
+            && virtual_list_layout.contains("measured_sequence.borrow_mut()")
+            && !virtual_list_layout.contains("scroll_stack_placement(")
+            && text_area_layout.contains("engine.text_area_layout(")
+            && !text_area_layout.contains("scroll_stack_placement("),
+        "native text and list must retain domain layout and never route through the eager viewport adapter"
     );
     let table_scroll = builder
         .split("pub(crate) fn table_scroll(")

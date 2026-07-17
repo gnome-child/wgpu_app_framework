@@ -12,6 +12,7 @@ impl Node {
     pub(crate) fn scene_key(&self) -> super::SceneKey {
         super::SceneKey {
             content: self.content.clone(),
+            scroll_container: self.scroll_container,
             axis: self.axis,
             style: self.style.clone(),
             label: self.label.clone(),
@@ -145,7 +146,7 @@ impl Node {
     }
 
     pub(crate) fn scroll_container(&self) -> Option<super::ScrollContainer> {
-        self.content.scroll_container()
+        self.scroll_container
     }
 
     pub(crate) fn virtual_list_model(&self) -> Option<&crate::virtual_list::Model> {
@@ -226,7 +227,14 @@ impl Node {
 
     #[allow(dead_code)]
     pub(super) fn set_scroll_container(&mut self, container: super::ScrollContainer) {
-        self.content.set_scroll_container(container);
+        assert!(
+            matches!(
+                self.role(),
+                Role::Scroll | Role::TextArea | Role::VirtualList
+            ),
+            "only scroll-container nodes accept scroll policy"
+        );
+        self.scroll_container = Some(container);
     }
 
     pub(super) fn standard_menu_extensions(&self) -> Option<&[super::standard_menu::Extension]> {

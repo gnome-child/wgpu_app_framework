@@ -158,7 +158,6 @@ impl Node {
     pub fn scroll() -> Self {
         Self::new(Content::Scroll(Scroll::Ordinary {
             offset: interaction::ScrollOffset::default(),
-            container: None,
         }))
         .with_axis(Axis::Vertical)
     }
@@ -481,6 +480,7 @@ impl Node {
     fn new(content: Content) -> Self {
         Self {
             content,
+            scroll_container: None,
             id: None,
             axis: None,
             style: Style::default(),

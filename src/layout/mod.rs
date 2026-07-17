@@ -1343,7 +1343,7 @@ impl Layout {
             .filter(|frame| {
                 frame.viewport().is_some()
                     && frame.target().is_some()
-                    && frame.scroll_container_layout().is_some()
+                    && frame.is_eager_scroll_container()
                     && (frame.node_id() == descendant.node_id()
                         || descendant.is_descendant_of(frame))
             })

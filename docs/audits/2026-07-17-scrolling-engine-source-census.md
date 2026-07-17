@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-004 RE-CENSUS — CONTAINER AND EAGER ADAPTER CONNECTED**
+Status: **SE-005 RE-CENSUS — NATIVE TEXT AND LIST CONNECTED**
 
 Date: 2026-07-17
 
@@ -31,10 +31,10 @@ around the scrolling-engine rewrite.
 | Desired/preparation/range/runway projection | `src/layout/mod.rs::ScrollProjection` | runtime presentation, scene residency | Split: adjustment owns canonical range/value; residency/presentation privately owns coverage/preparation/admission. |
 | Deepest-first scroll ancestor chain | `src/layout/mod.rs::scroll_target_chain_at_surface_projected` | runtime pointer scrolling | Connected scroll-container routing. It selects the deepest visible scroll frame, retains only its ancestors, deduplicates shared targets, and never pre-filters on one coupled-axis consume predicate. |
 | Exact applied/remaining result | `src/interaction/scroll.rs::ScrollOutcome`, `src/runtime/input/dispatch.rs::dispatch_scroll_event` | nested direct and kinetic dispatch | Connected scroll-container outcome. Actual fixed-point changes are measured after each target transition and the independent x/y remainder is handed to the next ancestor. |
-| Generic frame viewport layout and authored container contract | `src/view/node/content.rs::ScrollContainer`, `src/layout/algorithm.rs`, `src/layout/frame.rs` | arbitrary eager widget content | Connected eager viewport adapter. It owns per-axis policy, presentation, sizing, direction, and bounded monotonic chrome introduction without residency knowledge; native views bypass it for domain realization. |
+| Generic frame viewport layout and authored container contract | `src/view/node/mod.rs::Node`, `src/view/node/content.rs::ScrollContainer`, `src/layout/chrome.rs`, `src/layout/algorithm.rs`, `src/layout/frame.rs` | eager widgets, native text, native virtual lists | Connected container contract. Policy belongs to the container node; all three species resolve and retain per-axis policy, presentation, direction, and monotonic chrome introduction. Eager child stacks alone use the viewport adapter; text shaping and list measurement/materialization remain native. |
 | Scrollbar track/thumb geometry and drag-to-offset mapping | `src/layout/chrome.rs` | runtime routing and scene chrome | Connected scroll-container chrome projected from the matching axis adjustment and resolved per-frame policy/presentation/direction. |
 | Scrollbar opacity, hover/press thickness, fade deadline | `src/runtime/visual.rs`, `src/scene/visual.rs` | scene chrome painting | Scroll container presentation/chrome; overlay/layout consumption and axis behavior become distinct policies. |
-| Theme `OverlayAuto` / `GutterAlways` | `src/theme/mod.rs`, `src/theme/toml.rs` | eager default resolution plus native layout chrome | Appearance default. Ordinary eager layout resolves it into independent axis behavior plus overlay/consuming presentation; authored container state is no longer a theme-presentation alias. |
+| Theme `OverlayAuto` / `GutterAlways` | `src/theme/mod.rs`, `src/theme/toml.rs` | shared eager/text/list default resolution plus table layout chrome | Appearance default. Shared container resolution maps it to independent axis behavior plus overlay/consuming presentation while each native domain constrains unsupported axes. Authored container state is not a theme-presentation alias. |
 | Text reveal/caret correction and height/width indexes | `src/text/layout/**`, `src/runtime/input/text/**` | text area layout, IME, selection | Native text owns domain layout and anchor geometry; container owns scrolling and ancestor reveal. |
 | Virtual-list provider identity/count/query | `src/virtual_list.rs::Provider` | virtual list model/request construction | List model. Current query-only contract lacks observable mutation, content revision, uniqueness enforcement, and slot lifecycle. |
 | Virtual-list measurements and variable-height region | `src/virtual_list.rs::Measurements`, `src/virtual_list/variable.rs` | list layout and correction | Native list/list model. Preserve anchored correction; separate membership identity from recycled slot identity. |
@@ -50,10 +50,10 @@ around the scrolling-engine rewrite.
 
 No current scroll state is unassigned. Missing target concepts are recorded as
 gaps rather than assigned phantom owners: a platform accessibility adapter,
-observable list mutation, factory slot lifecycle, and proved native text/list
-container sharing. The existing ordinary `Scroll` frame is now the complete
-proved eager viewport adapter slice; SE-005 owns the next native vertical
-slices.
+observable list mutation, and factory slot lifecycle. Ordinary eager `Scroll`,
+native text, and native virtual-list frames now prove one private container
+contract while retaining three distinct layout implementations; SE-006 owns the
+next list-model vertical slice.
 
 ## 2. Production entrance census
 
@@ -168,15 +168,17 @@ platform gesture entrance.
    vertical Always/Automatic/Never/External behavior, overlay/consuming
    presentation, sizing, direction, and bounded convergence are separate
    container facts.
-6. Closed by SE-004 for the generic container: direct wheel/touchpad,
+6. Closed by SE-005 across eager, text, and list containers: direct wheel/touchpad,
    programmatic, scrollbar, keyboard, and ordinary focus reveal operations use
-   canonical adjustment/session ownership. Native text/list sharing remains
-   SE-005.
+   canonical adjustment/session ownership; native caret/row selection remains
+   domain-owned and both native species retain the shared resolved contract.
 7. Partially closed by SE-004: generic accessible lower/upper/page/value and
    seven actions project from canonical adjustments. No platform accessibility
    adapter exists yet.
-8. No existing public trait is justified by three application-meaningful
-   implementations; framework-private typed dispatch remains the default.
+8. SE-005 decision: no public trait is justified. The three real framework
+   implementations share behavior, but applications cannot implement a native
+   scroller without private layout/frame/residency types. Framework-private typed
+   dispatch remains the proved boundary.
 
 ## 5. SE-001 delta
 
@@ -292,7 +294,46 @@ SE-005 through SE-009 must compare those paths and attribute any delta to native
 list realization/provider/residency/scheduling work rather than assuming a
 shared adjustment defect.
 
-## 9. Repeatable census commands
+## 9. SE-005 delta
+
+SE-005 moves the private `ScrollContainer` value from the ordinary eager content
+variant to `view::Node`, includes it in the node scene key, and permits only
+ordinary scroll, text-area, and virtual-list roles to author it. This makes
+policy a container fact rather than eager-content data and creates no public
+scrolling path.
+
+`layout::chrome::resolve_container` now maps theme defaults or authored state,
+constrains unsupported native axes, and owns monotonic Always/Automatic policy
+introduction. `Frame::TextContent::Area` and virtual-list geometry retain the
+resolved `ContainerLayout`; chrome, direction, keyboard target traversal, and
+accessibility consume it exactly as they do for eager frames. Text layout keeps
+its shaping/projection path. Uniform and variable list layout keep provider
+requests, measured extents, anchor correction, and row placement. Neither calls
+the eager stack-placement adapter.
+
+One-shot generic focus reveal now filters on explicit eager-container identity,
+not merely retained container state. Native text caret reveal, virtual active-row
+reveal, and table split-axis merging therefore remain the target-selection
+owners. No `Scrollable` trait or virtualization-shaped public abstraction was
+added.
+
+The boundary census found 380 entrance, 1,214 scroll-state/session, 2,021
+routing/container, 104 presentation-clock, and 1,018 list/lifecycle source hits.
+The ten routing and four list additions are the shared container connection and
+its witnesses, not new state owners. The only broad public-name hits remain the
+unrelated file-dialog `session::Request` and `RequestKind`. The complete
+all-target/all-feature suite passed 1,403 library tests with four intentional
+hardware ignores, three renderer-debug tests with 27 hardware ignores, and two
+example tests; all 18 Python checks and the frozen release table-scroll smoke
+also passed.
+
+The diagnostic discriminator remains active: large text documents scroll
+cleanly while large virtual lists lag even after sharing adjustment, session,
+container, and chrome behavior. SE-006 must inspect list membership/provider and
+slot lifecycle; SE-007 must inspect list residency/admission/scheduling without
+redirecting that evidence into the clean text path.
+
+## 10. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:

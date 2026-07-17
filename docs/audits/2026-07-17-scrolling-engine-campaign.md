@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-004 CLOSED — SE-005 NEXT**
+Status: **SE-005 CLOSED — SE-006 NEXT**
 
 Date: 2026-07-17
 
@@ -48,8 +48,8 @@ vertical slices exist.
 | SE-002 — Axis adjustment | **closed** | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
 | SE-003 — Sessions and nested handoff | **closed** | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
 | SE-004 — Container and eager adapter | **closed** | One ordinary eager widget exercises the full container contract. |
-| SE-005 — Native text and list | next | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
-| SE-006 — List model/factory lifecycle | queued | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
+| SE-005 — Native text and list | **closed** | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
+| SE-006 — List model/factory lifecycle | next | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
 | SE-007 — Private residency/presentation | queued | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
 | SE-008 — Names and public break | queued | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
 | SE-009 — Performance and closure | queued | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
@@ -468,7 +468,61 @@ SE-004 adds no public scrolling path and settles no SE-008 name. Native text and
 list sharing the same adjustment/container behavior without passing through the
 eager adapter is the first unmet exit and belongs to SE-005.
 
-## 10. Resume protocol
+## 10. SE-005 native text-and-list receipt
+
+The private container policy now belongs to the scroll-container node rather
+than the eager content variant. Ordinary eager content, native text areas, and
+native virtual lists therefore carry one authored/default contract without
+pretending that their content models or layout algorithms are interchangeable.
+The node scene key observes policy changes, while scroll offsets remain outside
+semantic scene state as before.
+
+`layout::chrome` now owns theme-default resolution, domain-allowed axes, the
+initial Always set, and monotonic Automatic introduction. Eager layout continues
+to place ordinary child stacks. Native text instead resolves its own shaped
+viewport and repeats domain layout only when consuming chrome actually changes
+geometry. Fixed and variable virtual lists resolve the same container around
+their own content-height, measurement, anchoring, and materialization request
+logic. Overlay introduction reuses the already-computed native result; a
+consuming variable-list gutter remeasures only after the available width changes.
+
+Each native frame retains the resolved presentation, direction, axes, and
+introduction count beside its viewport. Chrome, RTL direction, keyboard target
+selection, accessible operations, canonical adjustments, sessions, and nested
+handoff consequently observe the same container result across all three species.
+Native text and list do not call eager `scroll_stack_placement`. Generic one-shot
+focus reveal now tests eager-container identity explicitly rather than using the
+presence of container state as a proxy, preserving native caret/row target
+selection and the existing table multi-axis reveal merge.
+
+No public `Scrollable` trait is introduced. Applications cannot currently
+implement a native scroller without private node, frame, layout, adjustment, and
+residency types, so an open implementation axis has not been earned. Framework-
+private typed dispatch is the proved boundary; public names remain open until
+SE-008. The behavioral witness configures one consuming RTL Automatic policy on
+eager, text, and list nodes, observes identical one-pass vertical chrome and
+gutter geometry, and separately proves only the ordinary node is an eager
+adapter. Architecture gates retain text shaping and list request/measurement
+ownership and reject routing either native species through the eager adapter.
+
+Verification passed:
+
+- 1,403 library tests, with four intentional hardware ignores;
+- three renderer-debug non-hardware tests, with 27 intentional hardware
+  ignores, plus two example tests;
+- all 18 manifest/receipt/census Python checks; and
+- release `table-scroll-work 1.25`, reproducing 528 property bytes, 17
+  visits/lookups, one dirty index, two write ranges, zero content rebuild or
+  preparation, zero GPU resource churn, and one retained-plan reuse.
+
+SE-005 deliberately changes no list provider, materialization, residency, or
+scheduling lifecycle. Large text remaining clean while large virtual lists lag
+after both use the same container contract is therefore stronger evidence
+against the common adjustment/input/chrome path. Observable membership,
+same-key revision, unique identity, and setup/bind/unbind/teardown remain the
+first unmet exit and belong to SE-006.
+
+## 11. Resume protocol
 
 At every task entrance and after every context compaction:
 

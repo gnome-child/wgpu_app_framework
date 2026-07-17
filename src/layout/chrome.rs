@@ -73,6 +73,37 @@ impl ContainerLayout {
         }
     }
 
+    pub(super) fn initial(container: crate::view::ScrollContainer) -> Self {
+        Self::new(
+            Axes::new(
+                container.horizontal_policy == crate::view::ScrollAxisPolicy::Always,
+                container.vertical_policy == crate::view::ScrollAxisPolicy::Always,
+            ),
+            container.chrome,
+            container.direction,
+            0,
+        )
+    }
+
+    pub(super) fn introduce(self, container: crate::view::ScrollContainer, overflow: Axes) -> Self {
+        let axes = Axes::new(
+            self.axes.horizontal()
+                || axis_policy_shows(container.horizontal_policy, overflow.horizontal()),
+            self.axes.vertical()
+                || axis_policy_shows(container.vertical_policy, overflow.vertical()),
+        );
+        if axes == self.axes {
+            self
+        } else {
+            Self::new(
+                axes,
+                container.chrome,
+                container.direction,
+                self.introduction_passes.saturating_add(1),
+            )
+        }
+    }
+
     pub(super) const fn axes(self) -> Axes {
         self.axes
     }
@@ -85,9 +116,52 @@ impl ContainerLayout {
         self.direction
     }
 
-    #[cfg(test)]
     pub(crate) const fn introduction_passes(self) -> u8 {
         self.introduction_passes
+    }
+}
+
+pub(super) fn resolve_container(
+    authored: Option<crate::view::ScrollContainer>,
+    theme: &theme::Theme,
+    allowed: Axes,
+    horizontal_sizing: crate::view::ScrollSizing,
+    vertical_sizing: crate::view::ScrollSizing,
+) -> crate::view::ScrollContainer {
+    let (policy, chrome) = match theme.scrollbar().metrics.policy {
+        theme::ScrollbarPolicy::OverlayAuto => (
+            crate::view::ScrollAxisPolicy::Automatic,
+            crate::view::ScrollChromePresentation::Overlay,
+        ),
+        theme::ScrollbarPolicy::GutterAlways => (
+            crate::view::ScrollAxisPolicy::Always,
+            crate::view::ScrollChromePresentation::Consuming,
+        ),
+    };
+    let mut container = authored.unwrap_or_else(|| {
+        crate::view::ScrollContainer::new(
+            policy,
+            policy,
+            chrome,
+            horizontal_sizing,
+            vertical_sizing,
+            crate::view::ScrollDirection::LeftToRight,
+        )
+    });
+    if !allowed.horizontal() {
+        container.horizontal_policy = crate::view::ScrollAxisPolicy::Never;
+    }
+    if !allowed.vertical() {
+        container.vertical_policy = crate::view::ScrollAxisPolicy::Never;
+    }
+    container
+}
+
+fn axis_policy_shows(policy: crate::view::ScrollAxisPolicy, overflow: bool) -> bool {
+    match policy {
+        crate::view::ScrollAxisPolicy::Always => true,
+        crate::view::ScrollAxisPolicy::Automatic => overflow,
+        crate::view::ScrollAxisPolicy::Never | crate::view::ScrollAxisPolicy::External => false,
     }
 }
 

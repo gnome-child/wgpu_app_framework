@@ -6826,6 +6826,95 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
 }
 
 #[test]
+fn eager_text_and_list_share_container_policy_without_sharing_domain_layout() {
+    let container = view::ScrollContainer::new(
+        view::ScrollAxisPolicy::Never,
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollChromePresentation::Consuming,
+        view::ScrollSizing::Natural,
+        view::ScrollSizing::Minimum,
+        view::ScrollDirection::RightToLeft,
+    );
+    let fixed = view::Style::new()
+        .with_width(view::Dimension::fixed(120))
+        .with_height(view::Dimension::fixed(60));
+    let eager = view::Node::scroll()
+        .with_interaction_id("native.contract.eager")
+        .with_scroll_container(container)
+        .with_style(fixed.clone())
+        .child(
+            view::Node::panel()
+                .with_style(view::Style::new().with_height(view::Dimension::fixed(180))),
+        );
+    let text = view::Node::text_area_state(
+        view::TextArea::new(
+            (0..20)
+                .map(|line| format!("line {line}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+        .with_focus(session::Focus::text("native.contract.text")),
+    )
+    .with_scroll_container(container)
+    .with_style(fixed.clone());
+    let list = crate::Widget::into_node(
+        crate::VirtualList::new("native.contract.list", 20, StableExtentProvider)
+            .height(view::Dimension::fixed(60))
+            .width(view::Dimension::fixed(120)),
+    )
+    .with_scroll_container(container);
+    let view = view::View::new(
+        view::Node::root().child(
+            view::Node::stack(view::Axis::Vertical)
+                .child(eager)
+                .child(text)
+                .child(list),
+        ),
+    );
+    let mut theme = Theme::dark();
+    theme.scrollbar_mut().metrics.thickness = 10;
+    let mut engine = layout::Engine::new();
+    let layout = layout::Layout::compose_with_theme(
+        &view,
+        geometry::Size::new(120, 180),
+        &mut engine,
+        &theme,
+    );
+
+    let frames = [
+        layout.find_role(view::Role::Scroll)[0],
+        layout.find_role(view::Role::TextArea)[0],
+        layout.find_role(view::Role::VirtualList)[0],
+    ];
+    for frame in frames {
+        let resolved = frame
+            .scroll_container_layout()
+            .expect("all three scroll species must retain resolved container policy");
+        let viewport = frame
+            .viewport()
+            .expect("scroll species must own a viewport");
+        assert_eq!(
+            resolved.presentation(),
+            view::ScrollChromePresentation::Consuming
+        );
+        assert_eq!(resolved.introduction_passes(), 1);
+        assert_eq!(viewport.rect().x(), frame.rect().x() + 10);
+        assert_eq!(viewport.rect().width(), frame.rect().width() - 10);
+        let target = frame.target().expect("scroll species must own a target");
+        let axes = layout
+            .chrome()
+            .iter()
+            .filter(|chrome| chrome.scroll_target() == target)
+            .map(layout::Chrome::axis)
+            .collect::<Vec<_>>();
+        assert_eq!(axes, vec![interaction::ScrollbarAxis::Vertical]);
+    }
+    assert!(frames[0].is_eager_scroll_container());
+    assert!(!frames[1].is_eager_scroll_container());
+    assert!(!frames[2].is_eager_scroll_container());
+}
+
+#[test]
 fn eager_scroll_keyboard_and_accessible_actions_share_rtl_adjustment_semantics() {
     let container = view::ScrollContainer::new(
         view::ScrollAxisPolicy::Automatic,

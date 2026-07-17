@@ -197,41 +197,23 @@ fn layout_scroll(
     }
 
     let container = eager_scroll_container(node, ctx.theme);
-    let mut axes = chrome::Axes::new(
-        container.horizontal_policy == view::ScrollAxisPolicy::Always,
-        container.vertical_policy == view::ScrollAxisPolicy::Always,
-    );
-    let mut introduction_passes = 0_u8;
-    let mut container_layout =
-        chrome::ContainerLayout::new(axes, container.chrome, container.direction, 0);
+    let mut container_layout = chrome::ContainerLayout::initial(container);
     let mut geometry = chrome::container_geometry(rect, clip, ctx.theme, container_layout);
     let mut placement =
         scroll_stack_placement(node, geometry.viewport(), ctx.engine, ctx.theme, ctx.keymap);
     for _ in 0..2 {
         let viewport = geometry.viewport();
-        let next = chrome::Axes::new(
-            axes.horizontal()
-                || scroll_axis_policy_shows(
-                    container.horizontal_policy,
-                    placement.content.width() > viewport.width(),
-                ),
-            axes.vertical()
-                || scroll_axis_policy_shows(
-                    container.vertical_policy,
-                    placement.content.height() > viewport.height(),
-                ),
+        let next = container_layout.introduce(
+            container,
+            chrome::Axes::new(
+                placement.content.width() > viewport.width(),
+                placement.content.height() > viewport.height(),
+            ),
         );
-        if next == axes {
+        if next == container_layout {
             break;
         }
-        axes = next;
-        introduction_passes = introduction_passes.saturating_add(1);
-        container_layout = chrome::ContainerLayout::new(
-            axes,
-            container.chrome,
-            container.direction,
-            introduction_passes,
-        );
+        container_layout = next;
         geometry = chrome::container_geometry(rect, clip, ctx.theme, container_layout);
         placement =
             scroll_stack_placement(node, geometry.viewport(), ctx.engine, ctx.theme, ctx.keymap);
@@ -271,42 +253,19 @@ fn layout_scroll(
 }
 
 fn eager_scroll_container(node: &view::Node, theme: &theme::Theme) -> view::ScrollContainer {
-    if let Some(container) = node.scroll_container() {
-        return container;
-    }
-
     let (horizontal_sizing, vertical_sizing) = match node.axis() {
         Some(view::Axis::Horizontal) => (view::ScrollSizing::Minimum, view::ScrollSizing::Natural),
         Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
             (view::ScrollSizing::Natural, view::ScrollSizing::Minimum)
         }
     };
-    let (policy, chrome) = match theme.scrollbar().metrics.policy {
-        theme::ScrollbarPolicy::OverlayAuto => (
-            view::ScrollAxisPolicy::Automatic,
-            view::ScrollChromePresentation::Overlay,
-        ),
-        theme::ScrollbarPolicy::GutterAlways => (
-            view::ScrollAxisPolicy::Always,
-            view::ScrollChromePresentation::Consuming,
-        ),
-    };
-    view::ScrollContainer::new(
-        policy,
-        policy,
-        chrome,
+    chrome::resolve_container(
+        node.scroll_container(),
+        theme,
+        chrome::Axes::BOTH,
         horizontal_sizing,
         vertical_sizing,
-        view::ScrollDirection::LeftToRight,
     )
-}
-
-fn scroll_axis_policy_shows(policy: view::ScrollAxisPolicy, overflow: bool) -> bool {
-    match policy {
-        view::ScrollAxisPolicy::Always => true,
-        view::ScrollAxisPolicy::Automatic => overflow,
-        view::ScrollAxisPolicy::Never | view::ScrollAxisPolicy::External => false,
-    }
 }
 
 fn layout_table_scroll(
@@ -429,19 +388,24 @@ fn layout_virtual_list(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let geometry = chrome::viewport_geometry(rect, clip, ctx.theme, chrome::Axes::VERTICAL);
-    let viewport_rect = geometry.viewport();
-    let visible_frame = geometry.visible_frame();
-    let visible_content = geometry.visible_content();
+    let container = chrome::resolve_container(
+        node.scroll_container(),
+        ctx.theme,
+        chrome::Axes::VERTICAL,
+        view::ScrollSizing::Natural,
+        view::ScrollSizing::Minimum,
+    );
+    let mut container_layout = chrome::ContainerLayout::initial(container);
     if let Some(measurements) = model.measurements() {
         layout_variable_virtual_list(
             node,
             retained,
             path,
             rect,
-            geometry,
             floating_layer,
             clip,
+            container,
+            container_layout,
             model,
             measurements,
             ctx,
@@ -452,6 +416,26 @@ fn layout_virtual_list(
     let content_height = (model.len() as i64)
         .saturating_mul(row_height as i64)
         .min(i32::MAX as i64) as i32;
+    let mut geometry = chrome::container_geometry(rect, clip, ctx.theme, container_layout);
+    loop {
+        let next = container_layout.introduce(
+            container,
+            chrome::Axes::new(false, content_height > geometry.viewport().height()),
+        );
+        if next == container_layout {
+            break;
+        }
+        debug_assert!(next.introduction_passes() <= 1);
+        let next_geometry = chrome::container_geometry(rect, clip, ctx.theme, next);
+        container_layout = next;
+        if next_geometry == geometry {
+            break;
+        }
+        geometry = next_geometry;
+    }
+    let viewport_rect = geometry.viewport();
+    let visible_frame = geometry.visible_frame();
+    let visible_content = geometry.visible_content();
     let viewport = Viewport::new(
         viewport_rect,
         Size::new(viewport_rect.width(), content_height),
@@ -463,7 +447,7 @@ fn layout_virtual_list(
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)
-        .with_virtual_list(viewport, request);
+        .with_virtual_list(viewport, request, container_layout);
     ctx.frames.push(frame);
 
     for (index, child) in node.children().iter().enumerate() {
@@ -497,50 +481,67 @@ fn layout_variable_virtual_list(
     retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
-    geometry: chrome::ViewportGeometry,
     floating_layer: bool,
     clip: Option<Clip>,
+    container: view::ScrollContainer,
+    mut container_layout: chrome::ContainerLayout,
     model: &crate::virtual_list::Model,
     measured_sequence: crate::virtual_list::Measurements,
     ctx: &mut LayoutContext<'_>,
 ) {
+    let provider = model.provider();
+    let requested_offset = node.scroll_offset();
+    let table_projection = ctx.table_projection.clone();
+    let row_height_floor = model.row_height();
+    let (geometry, offset_y, content_height, request) = loop {
+        let geometry = chrome::container_geometry(rect, clip, ctx.theme, container_layout);
+        let viewport_rect = geometry.viewport();
+        {
+            let mut region = measured_sequence.borrow_mut();
+            region.set_width(viewport_rect.width(), provider);
+        }
+        let _ = model.request_for_viewport(requested_offset.y(), viewport_rect.height());
+        let row_measurements = node.children().iter().filter_map(|child| {
+            let row = child.provided_row()?;
+            let table_intrinsic = table_projection.as_ref().and_then(|projection| {
+                table_stack_intrinsic_height(child, projection, ctx.engine, ctx.theme, ctx.keymap)
+            });
+            let height = table_intrinsic
+                .map(|height| height.max(row_height_floor))
+                .unwrap_or_else(|| {
+                    intrinsic_or_fixed_height_for_width(
+                        child,
+                        viewport_rect.width(),
+                        ctx.engine,
+                        ctx.theme,
+                        ctx.keymap,
+                    )
+                });
+            Some((row.key(), height.max(1)))
+        });
+        let (offset_y, content_height) = {
+            let mut region = measured_sequence.borrow_mut();
+            let offset_y = region.refine(row_measurements, provider);
+            (offset_y, region.content_height())
+        };
+        let request = model.request_for_viewport(offset_y, viewport_rect.height());
+        let next = container_layout.introduce(
+            container,
+            chrome::Axes::new(false, content_height > viewport_rect.height()),
+        );
+        if next == container_layout {
+            break (geometry, offset_y, content_height, request);
+        }
+        debug_assert!(next.introduction_passes() <= 1);
+        let next_geometry = chrome::container_geometry(rect, clip, ctx.theme, next);
+        container_layout = next;
+        if next_geometry == geometry {
+            break (geometry, offset_y, content_height, request);
+        }
+    };
     let viewport_rect = geometry.viewport();
     let visible_frame = geometry.visible_frame();
     let visible_content = geometry.visible_content();
-    let provider = model.provider();
-    let requested_offset = node.scroll_offset();
-    {
-        let mut region = measured_sequence.borrow_mut();
-        region.set_width(viewport_rect.width(), provider);
-    }
-    let _ = model.request_for_viewport(requested_offset.y(), viewport_rect.height());
-
-    let table_projection = ctx.table_projection.clone();
-    let row_height_floor = model.row_height();
-    let row_measurements = node.children().iter().filter_map(|child| {
-        let row = child.provided_row()?;
-        let table_intrinsic = table_projection.as_ref().and_then(|projection| {
-            table_stack_intrinsic_height(child, projection, ctx.engine, ctx.theme, ctx.keymap)
-        });
-        let height = table_intrinsic
-            .map(|height| height.max(row_height_floor))
-            .unwrap_or_else(|| {
-                intrinsic_or_fixed_height_for_width(
-                    child,
-                    viewport_rect.width(),
-                    ctx.engine,
-                    ctx.theme,
-                    ctx.keymap,
-                )
-            });
-        Some((row.key(), height.max(1)))
-    });
-    let (offset_y, content_height) = {
-        let mut region = measured_sequence.borrow_mut();
-        let offset_y = region.refine(row_measurements, provider);
-        (offset_y, region.content_height())
-    };
-    let request = model.request_for_viewport(offset_y, viewport_rect.height());
     let viewport = Viewport::new(
         viewport_rect,
         Size::new(viewport_rect.width(), content_height),
@@ -551,7 +552,7 @@ fn layout_variable_virtual_list(
     let row_clip = Some(Clip::new(visible_content));
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)
-        .with_virtual_list(viewport, request);
+        .with_virtual_list(viewport, request, container_layout);
     ctx.frames.push(frame);
 
     let region = measured_sequence.borrow();

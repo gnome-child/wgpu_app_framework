@@ -113,6 +113,7 @@ pub(crate) enum PanelAttachment {
 #[derive(Clone)]
 pub struct Node {
     content: Content,
+    scroll_container: Option<ScrollContainer>,
     id: Option<interaction::Id>,
     axis: Option<Axis>,
     style: Style,
@@ -137,6 +138,7 @@ pub struct Node {
 #[derive(Clone)]
 pub(crate) struct SceneKey {
     content: Content,
+    scroll_container: Option<ScrollContainer>,
     axis: Option<Axis>,
     style: Style,
     label: Option<String>,
@@ -154,6 +156,7 @@ pub(crate) struct SceneKey {
 impl PartialEq for SceneKey {
     fn eq(&self, other: &Self) -> bool {
         self.content.same_scene_state(&other.content)
+            && self.scroll_container == other.scroll_container
             && self.axis == other.axis
             && self.style == other.style
             && self.label == other.label

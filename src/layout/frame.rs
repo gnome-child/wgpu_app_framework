@@ -86,6 +86,7 @@ enum TextContent {
         display_model: view::TextArea,
         layout: text::Area,
         text_rect: Rect,
+        container: super::chrome::ContainerLayout,
         world_overflow: Option<text_model::Overflow>,
         world_wrap: Option<view::Wrap>,
         world_align: Option<view::Align>,
@@ -154,6 +155,7 @@ struct VirtualListContent {
 struct VirtualGeometry {
     viewport: Viewport,
     request: crate::virtual_list::Request,
+    container: super::chrome::ContainerLayout,
 }
 
 #[derive(Clone)]
@@ -289,26 +291,48 @@ impl Frame {
                 let model = model.clone();
                 let base_text_rect =
                     table_cell_text_rect_for(node, rect, None, Some(&model), engine, theme);
-                let geometry = chrome::viewport_geometry(
-                    base_text_rect,
-                    clip,
+                let allowed_axes = text_area_scroll_axes(node);
+                let container = chrome::resolve_container(
+                    node.scroll_container(),
                     theme,
-                    text_area_scroll_axes(node),
+                    allowed_axes,
+                    view::ScrollSizing::Natural,
+                    view::ScrollSizing::Minimum,
                 );
-                let text_rect = geometry.viewport();
-                let projection = text_area_projection(node, &model, text_rect, engine, theme);
-                let display_model = projected_text_area(&model, projection.as_ref());
                 let color = text_area_color(node, theme);
-                let layout = engine.text_area_layout(
-                    node_id,
-                    &display_model,
-                    text_rect,
-                    geometry.visible_frame(),
-                    geometry.visible_content(),
-                    theme,
-                    color,
-                    now,
-                );
+                let mut container_layout = chrome::ContainerLayout::initial(container);
+                let (display_model, layout, text_rect, projection) = loop {
+                    let geometry =
+                        chrome::container_geometry(base_text_rect, clip, theme, container_layout);
+                    let text_rect = geometry.viewport();
+                    let projection = text_area_projection(node, &model, text_rect, engine, theme);
+                    let display_model = projected_text_area(&model, projection.as_ref());
+                    let layout = engine.text_area_layout(
+                        node_id,
+                        &display_model,
+                        text_rect,
+                        geometry.visible_frame(),
+                        geometry.visible_content(),
+                        theme,
+                        color,
+                        now,
+                    );
+                    let maximum = layout.viewport().max_scroll();
+                    let next = container_layout.introduce(
+                        container,
+                        chrome::Axes::new(maximum.x() > 0, maximum.y() > 0),
+                    );
+                    if next == container_layout {
+                        break (display_model, layout, text_rect, projection);
+                    }
+                    debug_assert!(next.introduction_passes() <= 2);
+                    let next_geometry =
+                        chrome::container_geometry(base_text_rect, clip, theme, next);
+                    container_layout = next;
+                    if next_geometry == geometry {
+                        break (display_model, layout, text_rect, projection);
+                    }
+                };
                 let (label, _) = frame_label(node, rect, projection, engine, theme);
                 (
                     FrameContent::Text(TextContent::Area {
@@ -316,6 +340,7 @@ impl Frame {
                         display_model,
                         layout,
                         text_rect,
+                        container: container_layout,
                         world_overflow: node.world_text_overflow(),
                         world_wrap: node.world_text_wrap(),
                         world_align: node.world_text_align(),
@@ -632,10 +657,15 @@ impl Frame {
         mut self,
         viewport: Viewport,
         request: crate::virtual_list::Request,
+        container: super::chrome::ContainerLayout,
     ) -> Self {
         match &mut self.content {
             FrameContent::VirtualList(content) => {
-                content.geometry = Some(VirtualGeometry { viewport, request });
+                content.geometry = Some(VirtualGeometry {
+                    viewport,
+                    request,
+                    container,
+                });
             }
             _ => panic!("only VirtualList frame content accepts virtual geometry"),
         }
@@ -954,8 +984,22 @@ impl Frame {
     pub(crate) fn scroll_container_layout(&self) -> Option<super::chrome::ContainerLayout> {
         match &self.content {
             FrameContent::Scroll(ScrollContent::Ordinary { container, .. }) => *container,
+            FrameContent::Text(TextContent::Area { container, .. }) => Some(*container),
+            FrameContent::VirtualList(content) => {
+                content.geometry.as_ref().map(|geometry| geometry.container)
+            }
             _ => None,
         }
+    }
+
+    pub(crate) fn is_eager_scroll_container(&self) -> bool {
+        matches!(
+            self.content,
+            FrameContent::Scroll(ScrollContent::Ordinary {
+                container: Some(_),
+                ..
+            })
+        )
     }
 
     pub(crate) fn property_scroll_viewport(&self) -> Option<Viewport> {
