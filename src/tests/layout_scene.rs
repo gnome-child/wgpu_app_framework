@@ -10711,6 +10711,36 @@ fn scroll_target_at_ignores_clipped_viewports() {
 }
 
 #[test]
+fn scroll_target_chain_is_deepest_first_and_contains_only_ancestors() {
+    let mut app = nested_clipped_scroll_app();
+    app.start();
+
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(240, 180);
+    let rendered = app
+        .show_scene(window, size)
+        .expect("nested scrolls should render");
+    let outer = scroll_frame_with_label(&rendered, "Outer Scroll");
+    let inner = scroll_frame_with_label(&rendered, "Inner Scroll");
+    let outer_viewport = outer.viewport().expect("outer viewport").rect();
+    let inner_viewport = inner.viewport().expect("inner viewport").rect();
+    let point = geometry::Point::new(
+        outer_viewport.x().max(inner_viewport.x()) + 1,
+        outer_viewport.y().max(inner_viewport.y()) + 1,
+    );
+    assert!(outer_viewport.contains(point) && inner_viewport.contains(point));
+    assert!(outer.clip_contains(point) && inner.clip_contains(point));
+
+    assert_eq!(
+        rendered.layout().scroll_target_chain_at(point),
+        vec![
+            inner.target().expect("inner target").clone(),
+            outer.target().expect("outer target").clone(),
+        ]
+    );
+}
+
+#[test]
 fn fully_clipped_viewports_project_no_scrollbar_chrome() {
     let mut app = nested_clipped_scroll_app();
     app.start();

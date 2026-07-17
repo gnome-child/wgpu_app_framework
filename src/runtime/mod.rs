@@ -132,26 +132,16 @@ impl PresentedGeometry {
             })
     }
 
-    fn scroll_target_at_surface(
+    fn scroll_target_chain_at_surface(
         &self,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
         surface: crate::popup::Surface,
-    ) -> Option<interaction::Target> {
-        self.layout.scroll_target_at_surface_projected(
-            point,
-            delta,
-            surface,
-            &|node, point| {
+    ) -> Vec<interaction::Target> {
+        self.layout
+            .scroll_target_chain_at_surface_projected(point, surface, &|node, point| {
                 self.project_point(node, point, true)
                     .map(|(point, _)| point)
-            },
-            &|target, viewport| {
-                self.spatial
-                    .scroll_offset(target)
-                    .unwrap_or_else(|| viewport.resolved_scroll())
-            },
-        )
+            })
     }
 }
 
@@ -159,10 +149,20 @@ type VirtualMaterializations =
     HashMap<crate::interaction::Id, crate::virtual_list::Materialization>;
 type VirtualMeasurements = HashMap<crate::interaction::Id, crate::virtual_list::Measurements>;
 
+const KINETIC_FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(4);
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct AnimationSchedules {
     paint: animation::Schedule,
     properties: animation::Schedule,
+}
+
+#[derive(Debug, Clone)]
+struct KineticScroll {
+    targets: Vec<interaction::Target>,
+    source: interaction::ScrollSource,
+    velocity: interaction::ScrollDelta,
+    last_tick: std::time::Instant,
 }
 
 impl AnimationSchedules {
@@ -368,6 +368,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     view: Option<ViewCallback<M, V>>,
     started_ran: bool,
     animation_schedules: departed::WindowMap<AnimationSchedules>,
+    kinetic_scrolls: departed::WindowMap<KineticScroll>,
     visual_animations: visual::Animations,
     overlays: overlay::Store,
     overlay_capabilities: overlay::Capabilities,
@@ -406,6 +407,7 @@ impl<M: state::State> Runtime<M> {
             view: None,
             started_ran: false,
             animation_schedules: departed::WindowMap::default(),
+            kinetic_scrolls: departed::WindowMap::default(),
             visual_animations: visual::Animations::default(),
             overlays: overlay::Store::new(),
             overlay_capabilities: overlay::Capabilities::default(),

@@ -25,6 +25,7 @@ pub(crate) enum Action {
     },
     PointerUpOutside,
     PointerLeft,
+    #[allow(dead_code)]
     Scroll {
         target: interaction::Target,
         delta: interaction::ScrollDelta,
@@ -113,6 +114,7 @@ impl Action {
         Self::PointerLeft
     }
 
+    #[allow(dead_code)]
     pub(crate) fn scroll(target: interaction::Target, delta: interaction::ScrollDelta) -> Self {
         Self::Scroll { target, delta }
     }

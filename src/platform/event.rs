@@ -5,7 +5,10 @@ use std::time::Duration;
 use crate::text;
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent as WinitWindowEvent},
+    event::{
+        ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase,
+        WindowEvent as WinitWindowEvent,
+    },
     keyboard::{Key as WinitKey, ModifiersState, NamedKey},
 };
 
@@ -98,9 +101,9 @@ impl Events {
                     button: pointer_button(*button),
                 },
             },
-            WinitWindowEvent::MouseWheel { delta, .. } => host::WindowEvent::Scrolled {
+            WinitWindowEvent::MouseWheel { delta, phase, .. } => host::WindowEvent::Scrolled {
                 point: self.pointer(window),
-                delta: scroll_delta(*delta, scale_factor),
+                delta: scroll_delta_with_phase(*delta, scale_factor, *phase),
             },
             WinitWindowEvent::ModifiersChanged(next) => {
                 self.modifiers = modifiers(next.state());
@@ -150,9 +153,9 @@ impl Events {
                     button: pointer_button(*button),
                 },
             },
-            WinitWindowEvent::MouseWheel { delta, .. } => host::WindowEvent::Scrolled {
+            WinitWindowEvent::MouseWheel { delta, phase, .. } => host::WindowEvent::Scrolled {
                 point: self.pointer(parent),
-                delta: scroll_delta(*delta, popup_scale_factor),
+                delta: scroll_delta_with_phase(*delta, popup_scale_factor, *phase),
             },
             WinitWindowEvent::ModifiersChanged(next) => {
                 self.modifiers = modifiers(next.state());
@@ -284,6 +287,38 @@ pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::
         MouseScrollDelta::PixelDelta(position) => {
             interaction::ScrollDelta::from_physical_pixels(position.x, -position.y, scale_factor)
         }
+    }
+}
+
+fn scroll_delta_with_phase(
+    delta: MouseScrollDelta,
+    scale_factor: f64,
+    phase: TouchPhase,
+) -> interaction::ScrollDelta {
+    let (source, unit) = match delta {
+        MouseScrollDelta::LineDelta(..) => (
+            interaction::ScrollSource::Wheel,
+            interaction::ScrollUnit::Line,
+        ),
+        MouseScrollDelta::PixelDelta(..) => (
+            interaction::ScrollSource::Touchpad,
+            interaction::ScrollUnit::Pixel,
+        ),
+    };
+    scroll_delta(delta, scale_factor).with_session(
+        source,
+        unit,
+        std::time::Instant::now(),
+        scroll_phase(phase),
+    )
+}
+
+fn scroll_phase(phase: TouchPhase) -> interaction::ScrollPhase {
+    match phase {
+        TouchPhase::Started => interaction::ScrollPhase::Begin,
+        TouchPhase::Moved => interaction::ScrollPhase::Update,
+        TouchPhase::Ended => interaction::ScrollPhase::End,
+        TouchPhase::Cancelled => interaction::ScrollPhase::Cancel,
     }
 }
 

@@ -3,6 +3,30 @@ use crate::{interaction, window as app_window};
 use super::super::Session;
 
 impl Session {
+    pub(crate) fn handle_scroll_session(
+        &mut self,
+        id: app_window::Id,
+        target: &interaction::Target,
+        event: interaction::ScrollEvent,
+    ) -> interaction::ScrollSessionDisposition {
+        let Some(window) = self.window_mut(id) else {
+            return interaction::ScrollSessionDisposition::Ignored;
+        };
+        window.interaction.handle_scroll_session(target, event)
+    }
+
+    pub(crate) fn resolve_scroll_edge(
+        &mut self,
+        id: app_window::Id,
+        target: &interaction::Target,
+        outcome: interaction::ScrollOutcome,
+    ) -> interaction::ScrollOutcome {
+        let Some(window) = self.window_mut(id) else {
+            return outcome;
+        };
+        window.interaction.resolve_scroll_edge(target, outcome)
+    }
+
     pub(crate) fn configure_scroll(
         &mut self,
         id: app_window::Id,

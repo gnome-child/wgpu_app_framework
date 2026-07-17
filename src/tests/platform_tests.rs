@@ -332,6 +332,71 @@ fn pixel_scroll_trace_preserves_continuous_sum() {
 }
 
 #[test]
+fn wheel_phase_source_unit_and_timestamp_survive_platform_translation() {
+    use winit::event::{DeviceId, MouseScrollDelta, TouchPhase, WindowEvent as WinitWindowEvent};
+
+    let window = window::Id::new(314);
+    let mut events = platform::Events::new();
+    let phases = [
+        (TouchPhase::Started, interaction::ScrollPhase::Begin),
+        (TouchPhase::Moved, interaction::ScrollPhase::Update),
+        (TouchPhase::Ended, interaction::ScrollPhase::End),
+        (TouchPhase::Cancelled, interaction::ScrollPhase::Cancel),
+    ];
+    let mut previous_timestamp = None;
+
+    for (winit_phase, expected_phase) in phases {
+        let translated = events
+            .window_event(
+                window,
+                &WinitWindowEvent::MouseWheel {
+                    device_id: DeviceId::dummy(),
+                    delta: MouseScrollDelta::LineDelta(0.25, -0.5),
+                    phase: winit_phase,
+                },
+            )
+            .expect("wheel phase should translate");
+        let host::Event::Window {
+            event: host::WindowEvent::Scrolled { delta, .. },
+            ..
+        } = translated
+        else {
+            panic!("expected translated main-window scroll event");
+        };
+        let sample = delta.session_event(interaction::ScrollSource::Programmatic);
+        assert_eq!(sample.source(), interaction::ScrollSource::Wheel);
+        assert_eq!(sample.unit(), interaction::ScrollUnit::Line);
+        assert_eq!(sample.phase(), expected_phase);
+        if let Some(previous) = previous_timestamp {
+            assert!(sample.timestamp() >= previous);
+        }
+        previous_timestamp = Some(sample.timestamp());
+    }
+
+    let translated = events
+        .window_event(
+            window,
+            &WinitWindowEvent::MouseWheel {
+                device_id: DeviceId::dummy(),
+                delta: MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition::new(1.0, -2.0)),
+                phase: TouchPhase::Moved,
+            },
+        )
+        .expect("touchpad pixel scroll should translate");
+    let host::Event::Window {
+        event: host::WindowEvent::Scrolled { delta, .. },
+        ..
+    } = translated
+    else {
+        panic!("expected translated touchpad scroll event");
+    };
+    let sample = delta.session_event(interaction::ScrollSource::Programmatic);
+    assert_eq!(sample.source(), interaction::ScrollSource::Touchpad);
+    assert_eq!(sample.unit(), interaction::ScrollUnit::Pixel);
+    assert_eq!(sample.phase(), interaction::ScrollPhase::Update);
+}
+
+#[test]
 fn rejected_per_event_rounding_loses_fractional_pixel_sum() {
     let legacy_visual_sum = (0..5).map(|_| 0.4_f64.round() as i32).sum::<i32>();
     let aggregate_visual_sum = (5.0_f64 * 0.4).trunc() as i32;

@@ -1178,6 +1178,54 @@ impl Layout {
             .cloned()
     }
 
+    pub(crate) fn scroll_target_chain_at_surface_projected(
+        &self,
+        point: Point,
+        surface: crate::popup::Surface,
+        project: &impl Fn(composition::tree::NodeId, Point) -> Option<Point>,
+    ) -> Vec<interaction::Target> {
+        let accepts_point = |frame: &Frame| {
+            let Some(point) = project(frame.node_id(), point) else {
+                return false;
+            };
+            self.surface_accepts_frame(surface, frame)
+                && frame.viewport().is_some_and(|viewport| {
+                    viewport.rect().contains(point) && frame.clip_contains(point)
+                })
+                && frame.target().is_some()
+        };
+        let Some(deepest) = self.frames.iter().rev().find(|frame| accepts_point(frame)) else {
+            return Vec::new();
+        };
+        let mut frames = self
+            .frames
+            .iter()
+            .filter(|frame| {
+                accepts_point(frame)
+                    && (frame.node_id() == deepest.node_id() || deepest.is_descendant_of(frame))
+            })
+            .collect::<Vec<_>>();
+        frames.sort_by_key(|frame| std::cmp::Reverse(frame.path_depth()));
+
+        let mut targets = Vec::new();
+        for target in frames.into_iter().filter_map(Frame::target) {
+            if !targets.contains(target) {
+                targets.push(target.clone());
+            }
+        }
+        targets
+    }
+
+    #[cfg(any(test, feature = "renderer-debug"))]
+    #[allow(dead_code)]
+    pub(crate) fn scroll_target_chain_at(&self, point: Point) -> Vec<interaction::Target> {
+        self.scroll_target_chain_at_surface_projected(
+            point,
+            crate::popup::Surface::Parent,
+            &|_, point| Some(point),
+        )
+    }
+
     fn surface_accepts_frame(&self, surface: crate::popup::Surface, frame: &Frame) -> bool {
         let owner = self.native_popup_owner(frame);
         match surface {

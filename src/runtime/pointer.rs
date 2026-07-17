@@ -697,19 +697,29 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
         self.session.set_pointer_location(window, point, surface);
+        let event = delta.session_event(interaction::ScrollSource::Wheel);
         let Some(geometry) = self.presented_geometry.get(&window).cloned() else {
-            return Ok(input::Outcome::ignored());
+            return Ok(self
+                .dispatch_scroll_event(window, Vec::new(), event)
+                .into_input());
         };
-        let viewport_target = geometry.scroll_target_at_surface(point, delta, surface);
-        let Some(target) = viewport_target.or_else(|| {
-            geometry
+        let mut targets = geometry.scroll_target_chain_at_surface(point, surface);
+        if targets.is_empty()
+            && let Some(target) = geometry
                 .hit_test_on_surface(point, surface)
                 .and_then(|hit| hit.target().cloned())
-        }) else {
-            return Ok(input::Outcome::ignored());
-        };
+        {
+            targets.push(target);
+        }
+        if targets.is_empty() {
+            return Ok(self
+                .dispatch_scroll_event(window, targets, event)
+                .into_input());
+        }
 
-        self.handle_view(window, view::Action::scroll(target, delta))
+        Ok(self
+            .dispatch_scroll_event(window, targets, event)
+            .into_input())
     }
 
     fn dismiss_overlays_for_press(&mut self, window: window::Id, resolved: &ResolvedPress) -> bool {

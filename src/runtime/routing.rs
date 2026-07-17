@@ -197,7 +197,12 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     .map(|scroll| scroll.desired_offset(&target))
                     .unwrap_or_default();
                 let offset = scrollbar_offset(axis, current, offset);
-                self.handle_input(window, input::Input::scroll_to(target, offset))
+                Ok(self.scroll_to_with_source(
+                    window,
+                    target,
+                    offset,
+                    interaction::ScrollSource::Scrollbar,
+                ))
             }
             view::Action::ToggleMenu(menu) => {
                 self.handle_input(window, input::Input::toggle_menu(menu))

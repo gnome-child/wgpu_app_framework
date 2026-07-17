@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-002 CLOSED — SE-003 NEXT**
+Status: **SE-003 CLOSED — SE-004 NEXT**
 
 Date: 2026-07-17
 
@@ -46,8 +46,8 @@ vertical slices exist.
 | SE-000 — Freeze evidence and ownership | **closed** | Baseline is reproducible; the freeze evidence is preserved; every current scroll state has an assigned layer. |
 | SE-001 — Green behavioral oracles | **closed** | Independent models cover motion, sessions, handoff, sources, policy, reveal, mutation, anchoring, and accessibility; deliberate faulty adapters prove every witness. |
 | SE-002 — Axis adjustment | **closed** | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
-| SE-003 — Sessions and nested handoff | next | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
-| SE-004 — Container and eager adapter | queued | One ordinary eager widget exercises the full container contract. |
+| SE-003 — Sessions and nested handoff | **closed** | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
+| SE-004 — Container and eager adapter | next | One ordinary eager widget exercises the full container contract. |
 | SE-005 — Native text and list | queued | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
 | SE-006 — List model/factory lifecycle | queued | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
 | SE-007 — Private residency/presentation | queued | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
@@ -346,7 +346,61 @@ decision. Winit phase loss, source-neutral sessions, terminal velocity,
 kinetic interruption, and exact per-axis child/ancestor remainder propagation
 remain the first unmet exit and belong to SE-003.
 
-## 8. Resume protocol
+## 8. SE-003 session and nested-handoff receipt
+
+Winit main-window and popup wheel input now preserves `TouchPhase` as an
+internal Begin/Update/End/Cancel session sample. The private sample retains
+source, original unit, monotonic timestamp, phase, and optional velocity while
+the public `ScrollDelta` constructor and x/y accessors remain unchanged. Line
+wheel input and pixel touchpad input enter the same normalized motion law with
+their original source/unit classification intact.
+
+Each scroll target owns a private session beside its two adjustments. The
+session rejects stale timestamps, tracks terminal velocity, accepts explicit
+deceleration, clears cancellation state, and interrupts kinetic state on new
+direct input. Touchpad/touchscreen terminal velocity drives real runtime
+deceleration through the existing animation scheduler at a bounded four
+millisecond cadence. Exponential drag is integrated in logical coordinates;
+blocked axes stop independently, and direct relative, absolute, or scrollbar
+input retires the active kinetic chain immediately. Departed windows remove
+kinetic state through the standard listener ledger.
+
+Pointer routing no longer selects the first viewport that can consume either
+axis. Layout identifies the deepest containing scroll frame, retains only its
+scroll ancestors, orders them deepest first, and deduplicates shared targets.
+Runtime dispatch applies the current exact remainder at each target, measures
+the actual fixed-point offset change, and passes the resulting x/y remainder
+to the next ancestor. The existing property-tick/residency transition remains
+the only mutation path and diagnostics aggregate once per physical input.
+
+`ScrollOutcome` carries exact applied and remaining displacement independently
+per axis. Default edges remain canonically clamped. A private elastic mode
+absorbs only the final outer remainder into separate elastic displacement, so
+default visuals do not change and ancestor handoff is never swallowed.
+
+Production witnesses cover platform phase/source/unit/timestamp preservation;
+session lifecycle, stale input, terminal velocity, cancellation, deceleration,
+and interruption; exact fractional diagonal clamp/reversal outcomes; a
+three-target child/middle/outer handoff; deepest-first layout ancestry; real
+post-End kinetic motion; and independent kinetic boundary stopping. The 20
+production-independent SE-001 oracles remain green.
+
+Verification passed:
+
+- 1,395 library tests, with four intentional hardware ignores;
+- three renderer-debug non-hardware tests, with 27 intentional hardware
+  ignores, plus two example tests;
+- all 18 manifest/receipt/census Python checks; and
+- release `table-scroll-work 1.25`, reproducing 528 property bytes, 17
+  visits/lookups, one dirty index, two write ranges, zero content rebuild or
+  preparation, zero GPU resource churn, and one retained-plan reuse.
+
+SE-003 adds no public scrolling path and settles no SE-008 name. Keyboard
+operations, nested reveal, independent per-axis policy, sizing, RTL placement,
+and accessible range/value/actions remain the first unmet exit and belong to
+SE-004.
+
+## 9. Resume protocol
 
 At every task entrance and after every context compaction:
 

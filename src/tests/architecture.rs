@@ -6475,6 +6475,19 @@ fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
         "pixel and fractional-line input must cross the platform boundary without per-event integer rounding"
     );
     assert!(
+        platform
+            .matches("WinitWindowEvent::MouseWheel { delta, phase, .. }")
+            .count()
+            == 2
+            && platform.contains("scroll_delta_with_phase(*delta, scale_factor, *phase)")
+            && platform.contains("scroll_delta_with_phase(*delta, popup_scale_factor, *phase)")
+            && platform.contains("TouchPhase::Started => interaction::ScrollPhase::Begin")
+            && platform.contains("TouchPhase::Moved => interaction::ScrollPhase::Update")
+            && platform.contains("TouchPhase::Ended => interaction::ScrollPhase::End")
+            && platform.contains("TouchPhase::Cancelled => interaction::ScrollPhase::Cancel"),
+        "main and popup wheel adapters must preserve source-neutral session phase instead of dropping winit TouchPhase"
+    );
+    assert!(
         interaction.contains("struct Coordinate {")
             && interaction.contains("whole: i64")
             && interaction.contains("fraction: u32")
@@ -6496,6 +6509,40 @@ fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
     assert_eq!(
         suite_cases, 20,
         "the Tier C input-precision suite is an exact twenty-case contract"
+    );
+}
+
+#[test]
+fn scroll_session_contract_routes_exact_child_first_remainders() {
+    let interaction = include_str!("../interaction/scroll.rs");
+    let layout = include_str!("../layout/mod.rs");
+    let pointer = include_str!("../runtime/pointer.rs");
+    let dispatch = include_str!("../runtime/input/dispatch.rs");
+
+    assert!(
+        interaction.contains("pub(crate) struct ScrollEvent {")
+            && interaction.contains("pub(crate) enum ScrollSource {")
+            && interaction.contains("pub(crate) enum ScrollUnit {")
+            && interaction.contains("pub(crate) enum ScrollPhase {")
+            && interaction.contains("Deceleration,")
+            && interaction.contains("pub(crate) struct ScrollOutcome {")
+            && interaction.contains("applied: ScrollDelta")
+            && interaction.contains("remaining: ScrollDelta")
+            && interaction.contains("kinetic_velocity: Option<ScrollDelta>")
+            && interaction.contains("self.kinetic_velocity = None;")
+            && interaction.contains("EdgeBehavior::Elastic"),
+        "one internal source-neutral session must own lifecycle, velocity, interruption, edge behavior, and exact outcome"
+    );
+    assert!(
+        layout.contains("scroll_target_chain_at_surface_projected(")
+            && layout.contains("std::cmp::Reverse(frame.path_depth())")
+            && layout.contains("deepest.is_descendant_of(frame)")
+            && pointer.contains("geometry.scroll_target_chain_at_surface(point, surface)")
+            && dispatch.contains("for target in &targets")
+            && dispatch.contains("event.with_delta(outcome.remaining())")
+            && dispatch.contains("ScrollOutcome::from_offsets(")
+            && dispatch.contains("outcome = outcome.then("),
+        "pointer scrolling must dispatch the deepest target first and propagate exact independent-axis remainder only through its ancestors"
     );
 }
 
@@ -6847,6 +6894,8 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
     let layout = include_str!("../layout/mod.rs");
     let builder = include_str!("../view/node/builder.rs");
     let access = include_str!("../runtime/access.rs");
+    let dispatch = include_str!("../runtime/input/dispatch.rs");
+    let pointer = include_str!("../runtime/pointer.rs");
     let runtime = include_str!("../runtime/mod.rs");
     let presentation = include_str!("../runtime/presentation.rs");
     let scene_commit = include_str!("../scene/commit.rs");
@@ -6882,10 +6931,13 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
             && spatial.contains("target_bindings")
             && spatial.contains("fn presented_target_axes(")
             && spatial.contains(".with_axis_from(")
-            && runtime.contains("self.spatial")
-            && runtime.contains(".scroll_offset(target)")
-            && runtime.contains("unwrap_or_else(|| viewport.resolved_scroll())"),
-        "shared multi-axis targets must aggregate their projections for clamp/feedback and resolve hit coordinates through the exact viewport"
+            && layout.contains("scroll_target_chain_at_surface_projected(")
+            && layout.contains("deepest.is_descendant_of(frame)")
+            && runtime.contains("scroll_target_chain_at_surface(")
+            && pointer.contains("geometry.scroll_target_chain_at_surface(point, surface)")
+            && dispatch.contains("ScrollOutcome::from_offsets(")
+            && dispatch.contains("event.with_delta(outcome.remaining())"),
+        "shared multi-axis targets must aggregate their projections while nested input routes child-first with exact per-axis remainder"
     );
     assert!(
         chrome.contains("fn rounded_product_ratio(")

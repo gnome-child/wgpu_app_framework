@@ -545,14 +545,25 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     pub(crate) fn animation_schedule(&self) -> animation::Schedule {
-        self.animation_schedules
+        let visual = self
+            .animation_schedules
             .iter()
             .filter(|(window, _)| self.session.contains(**window))
             .map(|(_, schedules)| schedules.combined())
-            .fold(animation::Schedule::Idle, animation::Schedule::merge)
+            .fold(animation::Schedule::Idle, animation::Schedule::merge);
+        let kinetic = self
+            .kinetic_scrolls
+            .iter()
+            .filter(|(window, _)| self.session.contains(**window))
+            .map(|(_, kinetic)| {
+                animation::Schedule::At(kinetic.last_tick + super::KINETIC_FRAME_INTERVAL)
+            })
+            .fold(animation::Schedule::Idle, animation::Schedule::merge);
+        visual.merge(kinetic)
     }
 
     pub(crate) fn invalidate_due_animation_frames(&mut self, now: Instant) {
+        self.advance_kinetic_scrolls(now);
         let due = self
             .animation_schedules
             .iter()

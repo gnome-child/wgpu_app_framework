@@ -10,7 +10,10 @@ pub use crate::identity::Id;
 pub(crate) use command_palette::CommandPalette;
 pub use menu::Menu;
 pub(crate) use pointer::Pointer;
-pub(crate) use scroll::{Scroll, ScrollUpdate};
+pub(crate) use scroll::{
+    Scroll, ScrollEvent, ScrollOutcome, ScrollPhase, ScrollSessionDisposition, ScrollSource,
+    ScrollUnit, ScrollUpdate,
+};
 pub use scroll::{ScrollDelta, ScrollOffset};
 pub(crate) use selection::Selections;
 pub(crate) use table::Tables;
@@ -326,6 +329,22 @@ impl Interaction {
         update: scroll::ScrollUpdate,
     ) -> Option<ScrollOffset> {
         self.scroll.request(target, update)
+    }
+
+    pub(super) fn handle_scroll_session(
+        &mut self,
+        target: &Target,
+        event: ScrollEvent,
+    ) -> ScrollSessionDisposition {
+        self.scroll.handle_session_event(target, event)
+    }
+
+    pub(super) fn resolve_scroll_edge(
+        &mut self,
+        target: &Target,
+        outcome: ScrollOutcome,
+    ) -> ScrollOutcome {
+        self.scroll.resolve_edge(target, outcome)
     }
 
     pub(super) fn configure_scroll(

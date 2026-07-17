@@ -603,6 +603,7 @@ impl SpatialTopology {
         Ok(PresentedNode { translation, clips })
     }
 
+    #[allow(dead_code)]
     fn presented_target_axes(
         &self,
         properties: &Properties,
@@ -1358,6 +1359,7 @@ impl SpatialSnapshot {
         translated
     }
 
+    #[allow(dead_code)]
     pub(crate) fn scroll_offset(
         &self,
         target: &interaction::Target,

@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-002 RE-CENSUS — AXIS ADJUSTMENT CONNECTED**
+Status: **SE-003 RE-CENSUS — SESSIONS AND NESTED HANDOFF CONNECTED**
 
 Date: 2026-07-17
 
@@ -18,7 +18,8 @@ around the scrolling-engine rewrite.
 
 | Current fact/state | Current owner | Current consumers | Target layer/disposition |
 |---|---|---|---|
-| Winit wheel delta | `src/platform/event.rs::scroll_delta` | host/shell input adaptation | Scroll container input adapter. Pixel and fractional-line values survive, but `TouchPhase` is currently discarded. |
+| Winit wheel delta and phase | `src/platform/event.rs::scroll_delta_with_phase` | host/shell input adaptation | Connected scroll-container entrance. Pixel and fractional-line values survive with source, unit, timestamp, and Begin/Update/End/Cancel phase metadata. |
+| Per-target input session and active kinetic chain | `src/interaction/scroll.rs::ScrollSession`, `src/runtime/mod.rs::KineticScroll` | runtime nested dispatch and animation scheduling | Connected scroll-container state. It owns monotonic phase, velocity/deceleration, interruption, clamped/elastic edge resolution, and the current child-first kinetic target chain. |
 | Pointer location used for wheel targeting | `src/platform/event.rs::WindowEvents` | host event and runtime routing | Scroll container session entrance; pointer state itself remains platform input state. |
 | Per-axis canonical value and range geometry | `src/interaction/scroll.rs::AxisAdjustment` | `Scroll::request`, configuration, exact projection helpers | Connected target layer: independent horizontal/vertical fixed-point coordinates, lower/upper/page/step/page-increment configuration, clamping, and per-axis revision. |
 | Desired and resident-accepted x/y offsets | `src/interaction/scroll.rs::ScrollEntry` | session, runtime transition, layout projection | Desired is derived from the two adjustments; resident-accepted remains a private residency receipt and never competes for canonical ownership. |
@@ -28,7 +29,8 @@ around the scrolling-engine rewrite.
 | Programmatic relative/absolute/geometry requests | `src/input/mod.rs`, `src/runtime/input/dispatch.rs` | session interaction and layout | Scroll container source-neutral operation using the same session/outcome path as direct input. |
 | Viewport rect/content/page geometry, max range, clamped resolution | `src/layout/viewport.rs::Viewport`, `Layout::scroll_adjustment_geometry` | layout routing, adjustment configuration, chrome, reveal, scene | Connected target layer: each presented target configures both adjustments from aggregated max/page geometry; eager adapter/container still owns generic geometry. Native views supply domain extents. |
 | Desired/preparation/range/runway projection | `src/layout/mod.rs::ScrollProjection` | runtime presentation, scene residency | Split: adjustment owns canonical range/value; residency/presentation privately owns coverage/preparation/admission. |
-| One-target “can consume any axis” decision | `src/layout/viewport.rs::can_consume_from`, `src/layout/mod.rs::scroll_target_at` | runtime pointer scrolling | Scroll container nested handoff. Replace with child-first applied/remainder result independently per axis. |
+| Deepest-first scroll ancestor chain | `src/layout/mod.rs::scroll_target_chain_at_surface_projected` | runtime pointer scrolling | Connected scroll-container routing. It selects the deepest visible scroll frame, retains only its ancestors, deduplicates shared targets, and never pre-filters on one coupled-axis consume predicate. |
+| Exact applied/remaining result | `src/interaction/scroll.rs::ScrollOutcome`, `src/runtime/input/dispatch.rs::dispatch_scroll_event` | nested direct and kinetic dispatch | Connected scroll-container outcome. Actual fixed-point changes are measured after each target transition and the independent x/y remainder is handed to the next ancestor. |
 | Generic frame viewport layout | `src/layout/frame.rs`, `src/layout/mod.rs` | eager panels plus native text/table/list frames | Viewport adapter for arbitrary eager content; native views bypass it for domain realization. |
 | Scrollbar track/thumb geometry and drag-to-offset mapping | `src/layout/chrome.rs` | runtime routing and scene chrome | Scroll container chrome projected from the matching axis adjustment. |
 | Scrollbar opacity, hover/press thickness, fade deadline | `src/runtime/visual.rs`, `src/scene/visual.rs` | scene chrome painting | Scroll container presentation/chrome; overlay/layout consumption and axis behavior become distinct policies. |
@@ -47,18 +49,19 @@ around the scrolling-engine rewrite.
 | Scroll, residency, frame, property, memory diagnostics | `src/diagnostics/**`, `src/render/report.rs` | receipts and benchmark gates | Diagnostic observers only; never behavioral owners. |
 
 No current scroll state is unassigned. Missing target concepts are recorded as
-gaps rather than assigned phantom owners: source-neutral sessions, terminal
-velocity/deceleration, exact applied/remainder outcomes, independent axis
-policy, accessible range/value/actions, observable list mutation, and factory
-slot lifecycle. The existing ordinary `Scroll` frame is now the proved eager
-viewport adapter slice; SE-004 still owns its complete container contract.
+gaps rather than assigned phantom owners: independent axis policy, sizing and
+RTL placement, generic keyboard/reveal operations, accessible
+range/value/actions, observable list mutation, and factory slot lifecycle. The
+existing ordinary `Scroll` frame is now the proved eager viewport adapter
+slice; SE-004 still owns its complete container contract.
 
 ## 2. Production entrance census
 
 ### Direct platform input
 
 - `src/platform/event.rs`: maps main-window and popup `MouseWheel` to a host
-  `Scrolled` event; both matches ignore winit phase.
+  `Scrolled` event while retaining winit phase and wheel/touchpad unit/source
+  metadata privately inside the delta.
 - `src/host/event.rs`: host scroll payload.
 - `src/shell/event.rs` and `src/shell/input.rs`: shell adaptation.
 - `src/platform/native/surface.rs`: main/popup surface input and native
@@ -79,8 +82,10 @@ viewport adapter slice; SE-004 still owns its complete container contract.
 - `src/interaction/scroll.rs` and `src/session/interaction/scroll.rs`: generic
   reveal, active-descendant reveal, and relative/absolute/geometry requests.
 
-These sources currently converge only after target selection. SE-003 makes
-them inputs to one source-neutral session/outcome contract.
+Direct wheel/touchpad input, public relative/absolute programmatic input, and
+scrollbar absolute input now converge on the session/transition contract.
+Keyboard and reveal remain SE-004 container operations; touchscreen is in the
+internal source vocabulary but has no current platform gesture entrance.
 
 ## 3. Owner and consumer census by stage
 
@@ -147,11 +152,10 @@ them inputs to one source-neutral session/outcome contract.
 
 ## 4. Verified gaps at the freeze
 
-1. `WinitWindowEvent::MouseWheel { delta, .. }` drops phase for main and popup
-   windows.
-2. `Viewport::can_consume_from` answers whether any axis can move, then
-   `Layout::scroll_target_at` chooses one target. The dispatch path has no
-   applied/remainder outcome and no independent per-axis ancestor handoff.
+1. Closed by SE-003: main and popup `MouseWheel` retain phase plus source/unit
+   metadata through host and shell adaptation.
+2. Closed by SE-003: production pointer routing uses a deepest-first ancestor
+   chain and exact applied/remainder outcome independently per axis.
 3. Closed by SE-002: `ScrollOffset` retains its public integral accessors but
    privately carries a wide fixed-point coordinate; fractional deltas update
    and submit continuously without an integral-pixel gate.
@@ -160,8 +164,9 @@ them inputs to one source-neutral session/outcome contract.
    lifecycle.
 5. `OverlayAuto` and `GutterAlways` are theme presentation modes, not
    independent horizontal/vertical behavior.
-6. Reveal, programmatic scrolling, scrollbar drag, direct wheel input, and
-   specialized keyboard behavior do not share one session/outcome operation.
+6. Partially closed by SE-003: direct wheel/touchpad, programmatic scrolling,
+   and scrollbar drag share session/transition ownership. Keyboard and reveal
+   join as full container operations in SE-004.
 7. There is no generic accessible range/value/action projection or platform
    accessibility adapter.
 8. No existing public trait is justified by three application-meaningful
@@ -210,14 +215,50 @@ hits. Inspection found no new owner or public forbidden-name candidate. The
 two broad forbidden-name hits remain the unrelated file-dialog
 `session::Request` and `RequestKind` described in SE-001.
 
-## 7. Repeatable census commands
+## 7. SE-003 delta
+
+SE-003 retains winit phase, source, unit, and monotonic timestamp metadata in a
+private `ScrollDelta` sample without changing its public x/y surface. Each
+target now owns a `ScrollSession`; runtime owns only the active per-window
+kinetic chain and schedules deceleration through the existing animation clock
+at a four-millisecond minimum cadence. New direct input removes that chain
+even when submitted geometry is temporarily unavailable, and departed windows
+remove it through the normal listener ledger.
+
+`Layout::scroll_target_chain_at_surface_projected` replaces the production
+single-target consume probe with a deepest-first, ancestor-only target chain.
+`Runtime::dispatch_scroll_event` measures actual fixed-point changes after
+each existing scroll transition, produces an independent x/y `ScrollOutcome`,
+and hands only the exact remainder to the next ancestor. Clamped edges remain
+the default; private elastic state absorbs only the final outer remainder and
+does not compete with the canonical adjustments.
+
+Direct wheel/touchpad input, programmatic relative/absolute input, and
+scrollbar drag now converge on session/transition ownership. Keyboard and
+reveal enter the complete container contract in SE-004. Nine production
+witnesses cover metadata preservation, session lifecycle and stale input,
+terminal velocity and cancellation, fractional diagonal boundary/reversal
+outcomes, three-target handoff, deepest-first ancestry, real kinetic motion,
+direct interruption, and independent kinetic-axis stopping.
+
+The boundary census found 334 entrance, 1,194 scroll-state/session, 1,951
+routing/container, 104 presentation-clock, and 1,014 list/lifecycle source
+hits. Inspection found no new owner or public forbidden-name candidate. The
+only broad public-name hits remain the unrelated file-dialog
+`session::Request` and `RequestKind` described in SE-001. The complete
+all-target/all-feature suite passed 1,395 library tests with four intentional
+hardware ignores, three renderer-debug tests with 27 hardware ignores, and two
+example tests; all 18 Python manifest/receipt/census checks and the frozen
+release table-scroll smoke also passed.
+
+## 8. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:
 
 ```text
 rg -n -g '*.rs' 'MouseWheel|Scrolled|Input::Scroll|Input::ScrollTo|scroll_to|reveal' src examples
-rg -n -g '*.rs' 'ScrollOffset|ScrollDelta|ScrollProjection|resident_offset|desired_offset|present_submitted' src examples
+rg -n -g '*.rs' 'ScrollOffset|ScrollDelta|ScrollEvent|ScrollOutcome|ScrollProjection|kinetic_scrolls|resident_offset|desired_offset|present_submitted' src examples
 rg -n -g '*.rs' 'scroll_target|can_consume|viewport|scrollbar|OverlayAuto|GutterAlways' src examples
 rg -n -g '*.rs' 'candidate_epoch|candidate_property_serial|gpu_submitted_property_serial|present_submitted_property_serial|RedrawRequests' src examples
 rg -n -g '*.rs' 'Provider|VirtualList|Measurements|items_changed|bind|unbind|teardown' src examples

@@ -40,7 +40,7 @@ impl<T> notification::Listener<window::Departed> for WindowMap<T> {
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(super) fn deliver_departed(&mut self) {
         for window in self.session.take_departed() {
-            let listeners: [&mut dyn notification::Listener<window::Departed>; 12] = [
+            let listeners: [&mut dyn notification::Listener<window::Departed>; 13] = [
                 &mut self.layout_cache,
                 &mut self.scene,
                 &mut self.presented_geometry,
@@ -49,6 +49,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 &mut self.virtual_measurements,
                 &mut self.overlays,
                 &mut self.animation_schedules,
+                &mut self.kinetic_scrolls,
                 &mut self.visual_animations,
                 &mut self.composition,
                 &mut self.diagnostics,
@@ -83,6 +84,7 @@ pub(crate) struct WindowResidues {
     pub(crate) virtual_measurements: usize,
     pub(crate) overlays: usize,
     pub(crate) animation_schedules: usize,
+    pub(crate) kinetic_scrolls: usize,
     pub(crate) visual_animations: usize,
     pub(crate) composition: usize,
     pub(crate) diagnostics: usize,
@@ -100,6 +102,7 @@ impl WindowResidues {
             + self.virtual_measurements
             + self.overlays
             + self.animation_schedules
+            + self.kinetic_scrolls
             + self.visual_animations
             + self.composition
             + self.diagnostics
@@ -121,6 +124,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             virtual_measurements: usize::from(self.virtual_measurements.contains_key(&window)),
             overlays: self.overlays.residue_count(window),
             animation_schedules: usize::from(self.animation_schedules.contains_key(&window)),
+            kinetic_scrolls: usize::from(self.kinetic_scrolls.contains_key(&window)),
             visual_animations: self.visual_animations.residue_count(window),
             composition: usize::from(self.composition.get(window).is_some()),
             diagnostics: usize::from(self.diagnostics.get(window).is_some()),

@@ -5,6 +5,7 @@ use super::{ScrollbarAxis, Target};
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Scroll {
     offsets: Vec<ScrollEntry>,
+    sessions: HashMap<Target, ScrollSession>,
     reveal_requests: Vec<Reveal>,
     next_revision: u64,
     revisions: HashMap<Target, u64>,
@@ -16,6 +17,18 @@ struct ScrollEntry {
     horizontal: AxisAdjustment,
     vertical: AxisAdjustment,
     resident_accepted: ScrollOffset,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ScrollSession {
+    active_source: Option<ScrollSource>,
+    active_unit: Option<ScrollUnit>,
+    last_timestamp: Option<std::time::Instant>,
+    last_update: Option<(std::time::Instant, ScrollDelta)>,
+    velocity: ScrollDelta,
+    kinetic_velocity: Option<ScrollDelta>,
+    edge_behavior: EdgeBehavior,
+    elastic_displacement: ScrollDelta,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -52,13 +65,90 @@ pub struct ScrollOffset {
     y: Coordinate,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct ScrollDelta {
     x: f64,
     y: f64,
+    sample: Option<ScrollSample>,
 }
 
 impl Eq for ScrollDelta {}
+
+impl PartialEq for ScrollDelta {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == other.y
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScrollSample {
+    source: ScrollSource,
+    unit: ScrollUnit,
+    timestamp: std::time::Instant,
+    phase: ScrollPhase,
+    velocity: [f64; 2],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollEvent {
+    source: ScrollSource,
+    unit: ScrollUnit,
+    timestamp: std::time::Instant,
+    phase: ScrollPhase,
+    delta: ScrollDelta,
+    velocity: ScrollDelta,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum ScrollSource {
+    Wheel,
+    Touchpad,
+    Touchscreen,
+    Scrollbar,
+    Keyboard,
+    Reveal,
+    Programmatic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollUnit {
+    Line,
+    Pixel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum ScrollPhase {
+    Begin,
+    Update,
+    End,
+    Cancel,
+    Deceleration,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollOutcome {
+    applied: ScrollDelta,
+    remaining: ScrollDelta,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollSessionDisposition {
+    Ignored,
+    Tracked,
+    Apply(ScrollDelta),
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum EdgeBehavior {
+    #[default]
+    Clamped,
+    Elastic {
+        resistance_millis: u16,
+    },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollUpdate {
@@ -68,8 +158,36 @@ pub(crate) enum ScrollUpdate {
 }
 
 impl Scroll {
+    pub(super) fn handle_session_event(
+        &mut self,
+        target: &Target,
+        event: ScrollEvent,
+    ) -> ScrollSessionDisposition {
+        self.sessions
+            .entry(target.clone())
+            .or_default()
+            .handle(event)
+    }
+
+    pub(super) fn resolve_edge(
+        &mut self,
+        target: &Target,
+        outcome: ScrollOutcome,
+    ) -> ScrollOutcome {
+        self.sessions
+            .entry(target.clone())
+            .or_default()
+            .resolve_edge(outcome)
+    }
+
     pub(crate) fn revision(&self, target: &Target) -> u64 {
         self.revisions.get(target).copied().unwrap_or_default()
+    }
+
+    pub(crate) fn kinetic_velocity(&self, target: &Target) -> Option<ScrollDelta> {
+        self.sessions
+            .get(target)
+            .and_then(|session| session.kinetic_velocity)
     }
 
     pub(crate) fn resident_offset(&self, target: &Target) -> ScrollOffset {
@@ -220,12 +338,16 @@ impl Scroll {
         removed_elements: &[super::Id],
     ) -> bool {
         let before_offsets = self.offsets.len();
+        let before_sessions = self.sessions.len();
         let before_reveals = self.reveal_requests.len();
         let before_revisions = self.revisions.len();
         self.offsets.retain(|entry| {
             !entry
                 .target
                 .matches_removed_identity(removed_nodes, removed_elements, &[])
+        });
+        self.sessions.retain(|target, _| {
+            !target.matches_removed_identity(removed_nodes, removed_elements, &[])
         });
         self.reveal_requests.retain(|request| {
             !request
@@ -236,6 +358,7 @@ impl Scroll {
             !target.matches_removed_identity(removed_nodes, removed_elements, &[])
         });
         before_offsets != self.offsets.len()
+            || before_sessions != self.sessions.len()
             || before_reveals != self.reveal_requests.len()
             || before_revisions != self.revisions.len()
     }
@@ -321,6 +444,138 @@ impl AxisAdjustment {
 
     fn update(&mut self, delta: f64) {
         self.set(self.value.add_delta(delta));
+    }
+}
+
+impl ScrollSession {
+    fn handle(&mut self, event: ScrollEvent) -> ScrollSessionDisposition {
+        if self
+            .last_timestamp
+            .is_some_and(|timestamp| event.timestamp < timestamp)
+        {
+            return ScrollSessionDisposition::Ignored;
+        }
+        self.last_timestamp = Some(event.timestamp);
+        self.active_unit = Some(event.unit);
+
+        match event.phase {
+            ScrollPhase::Begin => {
+                self.interrupt(event.source, event.timestamp);
+                self.active_unit = Some(event.unit);
+                if !event.delta.is_zero() {
+                    self.observe_update(event);
+                }
+                disposition_for(event.delta)
+            }
+            ScrollPhase::Update => {
+                if self.active_source != Some(event.source) {
+                    self.interrupt(event.source, event.timestamp);
+                    self.active_unit = Some(event.unit);
+                } else {
+                    self.kinetic_velocity = None;
+                }
+                self.observe_update(event);
+                disposition_for(event.delta)
+            }
+            ScrollPhase::End => {
+                if self
+                    .active_source
+                    .is_some_and(|source| source != event.source)
+                {
+                    return ScrollSessionDisposition::Ignored;
+                }
+                if !event.delta.is_zero() {
+                    self.observe_update(event);
+                }
+                self.active_source = None;
+                let terminal = if event.velocity.is_zero() {
+                    self.velocity
+                } else {
+                    event.velocity
+                };
+                self.kinetic_velocity = (!terminal.is_zero()).then_some(terminal);
+                self.last_update = None;
+                disposition_for(event.delta)
+            }
+            ScrollPhase::Cancel => {
+                if self
+                    .active_source
+                    .is_some_and(|source| source != event.source)
+                {
+                    return ScrollSessionDisposition::Ignored;
+                }
+                self.active_source = None;
+                self.last_update = None;
+                self.velocity = ScrollDelta::default();
+                self.kinetic_velocity = None;
+                self.elastic_displacement = ScrollDelta::default();
+                ScrollSessionDisposition::Tracked
+            }
+            ScrollPhase::Deceleration => {
+                if self.kinetic_velocity.is_none() {
+                    return ScrollSessionDisposition::Ignored;
+                }
+                if !event.velocity.is_zero() {
+                    self.kinetic_velocity = Some(event.velocity);
+                } else if event.delta.is_zero() {
+                    self.kinetic_velocity = None;
+                }
+                disposition_for(event.delta)
+            }
+        }
+    }
+
+    fn interrupt(&mut self, source: ScrollSource, timestamp: std::time::Instant) {
+        self.active_source = Some(source);
+        self.last_timestamp = Some(timestamp);
+        self.last_update = None;
+        self.velocity = ScrollDelta::default();
+        self.kinetic_velocity = None;
+        self.elastic_displacement = ScrollDelta::default();
+    }
+
+    fn observe_update(&mut self, event: ScrollEvent) {
+        self.velocity = if !event.velocity.is_zero() {
+            event.velocity
+        } else if let Some((timestamp, _)) = self.last_update {
+            let seconds = event
+                .timestamp
+                .saturating_duration_since(timestamp)
+                .as_secs_f64();
+            if seconds > 0.0 {
+                event.delta.scaled(1.0 / seconds)
+            } else {
+                self.velocity
+            }
+        } else {
+            self.velocity
+        };
+        self.last_update = Some((event.timestamp, event.delta));
+    }
+
+    fn resolve_edge(&mut self, outcome: ScrollOutcome) -> ScrollOutcome {
+        let EdgeBehavior::Elastic { resistance_millis } = self.edge_behavior else {
+            return outcome;
+        };
+        if outcome.remaining.is_zero() {
+            return outcome;
+        }
+        let resistance = f64::from(resistance_millis.clamp(1, 1_000)) / 1_000.0;
+        self.elastic_displacement = self
+            .elastic_displacement
+            .plus(outcome.remaining.scaled(resistance));
+        ScrollOutcome {
+            applied: outcome.applied.plus(outcome.remaining),
+            remaining: ScrollDelta::default(),
+        }
+    }
+}
+
+fn disposition_for(delta: ScrollDelta) -> ScrollSessionDisposition {
+    if delta.is_zero() {
+        ScrollSessionDisposition::Tracked
+    } else {
+        ScrollSessionDisposition::Apply(delta)
     }
 }
 
@@ -496,6 +751,10 @@ impl ScrollOffset {
         ]
     }
 
+    pub(crate) fn delta_to(self, current: Self) -> ScrollDelta {
+        ScrollDelta::from_logical_pixels(current.x.difference(self.x), current.y.difference(self.y))
+    }
+
     #[cfg(test)]
     fn precise_x(self) -> f64 {
         self.x.as_f64()
@@ -504,6 +763,11 @@ impl ScrollOffset {
     #[cfg(test)]
     fn precise_y(self) -> f64 {
         self.y.as_f64()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn precise_components_for_test(self) -> [f64; 2] {
+        [self.x.as_f64(), self.y.as_f64()]
     }
 }
 
@@ -524,6 +788,7 @@ impl ScrollDelta {
         Self {
             x: normalized_scroll_component(x),
             y: normalized_scroll_component(y),
+            sample: None,
         }
     }
 
@@ -543,6 +808,160 @@ impl ScrollDelta {
     pub fn y(self) -> f64 {
         self.y
     }
+
+    pub(crate) fn with_session(
+        mut self,
+        source: ScrollSource,
+        unit: ScrollUnit,
+        timestamp: std::time::Instant,
+        phase: ScrollPhase,
+    ) -> Self {
+        self.sample = Some(ScrollSample {
+            source,
+            unit,
+            timestamp,
+            phase,
+            velocity: [0.0, 0.0],
+        });
+        self
+    }
+
+    pub(crate) fn session_event(self, fallback: ScrollSource) -> ScrollEvent {
+        let sample = self.sample.unwrap_or(ScrollSample {
+            source: fallback,
+            unit: ScrollUnit::Pixel,
+            timestamp: std::time::Instant::now(),
+            phase: ScrollPhase::Update,
+            velocity: [0.0, 0.0],
+        });
+        ScrollEvent {
+            source: sample.source,
+            unit: sample.unit,
+            timestamp: sample.timestamp,
+            phase: sample.phase,
+            delta: Self {
+                sample: None,
+                ..self
+            },
+            velocity: ScrollDelta::from_logical_pixels(sample.velocity[0], sample.velocity[1]),
+        }
+    }
+
+    pub(crate) fn is_zero(self) -> bool {
+        self.x == 0.0 && self.y == 0.0
+    }
+
+    fn plus(self, other: Self) -> Self {
+        Self::from_logical_pixels(self.x + other.x, self.y + other.y)
+    }
+
+    fn scaled(self, factor: f64) -> Self {
+        Self::from_logical_pixels(self.x * factor, self.y * factor)
+    }
+
+    fn subtract_applied(self, applied: Self) -> Self {
+        let tolerance = 1.0 / Coordinate::SCALE as f64;
+        let normalize = |value: f64| if value.abs() <= tolerance { 0.0 } else { value };
+        Self::from_logical_pixels(normalize(self.x - applied.x), normalize(self.y - applied.y))
+    }
+}
+
+impl ScrollEvent {
+    pub(crate) fn new(
+        source: ScrollSource,
+        unit: ScrollUnit,
+        timestamp: std::time::Instant,
+        phase: ScrollPhase,
+        delta: ScrollDelta,
+    ) -> Self {
+        Self {
+            source,
+            unit,
+            timestamp,
+            phase,
+            delta: ScrollDelta {
+                sample: None,
+                ..delta
+            },
+            velocity: ScrollDelta::default(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn with_velocity(mut self, velocity: ScrollDelta) -> Self {
+        self.velocity = ScrollDelta {
+            sample: None,
+            ..velocity
+        };
+        self
+    }
+
+    pub(crate) fn with_delta(mut self, delta: ScrollDelta) -> Self {
+        self.delta = ScrollDelta {
+            sample: None,
+            ..delta
+        };
+        self
+    }
+
+    pub(crate) fn delta(self) -> ScrollDelta {
+        self.delta
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn phase(self) -> ScrollPhase {
+        self.phase
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn source(self) -> ScrollSource {
+        self.source
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn unit(self) -> ScrollUnit {
+        self.unit
+    }
+
+    pub(crate) fn timestamp(self) -> std::time::Instant {
+        self.timestamp
+    }
+}
+
+impl ScrollOutcome {
+    pub(crate) fn from_offsets(
+        input: ScrollDelta,
+        before: ScrollOffset,
+        after: ScrollOffset,
+    ) -> Self {
+        let applied = before.delta_to(after);
+        Self {
+            applied,
+            remaining: input.subtract_applied(applied),
+        }
+    }
+
+    pub(crate) fn unconsumed(input: ScrollDelta) -> Self {
+        Self {
+            applied: ScrollDelta::default(),
+            remaining: input,
+        }
+    }
+
+    pub(crate) fn then(self, next: Self) -> Self {
+        Self {
+            applied: self.applied.plus(next.applied),
+            remaining: next.remaining,
+        }
+    }
+
+    pub(crate) fn applied(self) -> ScrollDelta {
+        self.applied
+    }
+
+    pub(crate) fn remaining(self) -> ScrollDelta {
+        self.remaining
+    }
 }
 
 fn normalized_scroll_component(value: f64) -> f64 {
@@ -555,6 +974,176 @@ fn normalized_scroll_component(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scroll_session_preserves_lifecycle_velocity_deceleration_and_interruption() {
+        let mut session = ScrollSession::default();
+        let started = std::time::Instant::now();
+        let begin = ScrollEvent::new(
+            ScrollSource::Touchpad,
+            ScrollUnit::Pixel,
+            started,
+            ScrollPhase::Begin,
+            ScrollDelta::from_logical_pixels(0.25, 0.5),
+        );
+        assert_eq!(
+            session.handle(begin),
+            ScrollSessionDisposition::Apply(ScrollDelta::from_logical_pixels(0.25, 0.5))
+        );
+
+        let updated_at = started + std::time::Duration::from_millis(10);
+        let update = ScrollEvent::new(
+            ScrollSource::Touchpad,
+            ScrollUnit::Pixel,
+            updated_at,
+            ScrollPhase::Update,
+            ScrollDelta::from_logical_pixels(1.25, -0.5),
+        );
+        assert_eq!(
+            session.handle(update),
+            ScrollSessionDisposition::Apply(ScrollDelta::from_logical_pixels(1.25, -0.5))
+        );
+
+        let ended_at = updated_at + std::time::Duration::from_millis(10);
+        let terminal = ScrollDelta::from_logical_pixels(80.0, -25.0);
+        assert_eq!(
+            session.handle(
+                ScrollEvent::new(
+                    ScrollSource::Touchpad,
+                    ScrollUnit::Pixel,
+                    ended_at,
+                    ScrollPhase::End,
+                    ScrollDelta::default(),
+                )
+                .with_velocity(terminal),
+            ),
+            ScrollSessionDisposition::Tracked
+        );
+        assert_eq!(session.kinetic_velocity, Some(terminal));
+
+        let deceleration = ScrollDelta::from_logical_pixels(0.75, -0.25);
+        assert_eq!(
+            session.handle(ScrollEvent::new(
+                ScrollSource::Touchpad,
+                ScrollUnit::Pixel,
+                ended_at + std::time::Duration::from_millis(10),
+                ScrollPhase::Deceleration,
+                deceleration,
+            )),
+            ScrollSessionDisposition::Apply(deceleration)
+        );
+
+        let interrupted_at = ended_at + std::time::Duration::from_millis(20);
+        assert_eq!(
+            session.handle(ScrollEvent::new(
+                ScrollSource::Wheel,
+                ScrollUnit::Line,
+                interrupted_at,
+                ScrollPhase::Begin,
+                ScrollDelta::vertical(28),
+            )),
+            ScrollSessionDisposition::Apply(ScrollDelta::vertical(28))
+        );
+        assert_eq!(session.active_source, Some(ScrollSource::Wheel));
+        assert_eq!(session.active_unit, Some(ScrollUnit::Line));
+        assert_eq!(session.kinetic_velocity, None);
+        assert_eq!(session.velocity, ScrollDelta::default());
+
+        assert_eq!(
+            session.handle(ScrollEvent::new(
+                ScrollSource::Wheel,
+                ScrollUnit::Line,
+                updated_at,
+                ScrollPhase::Update,
+                ScrollDelta::vertical(1),
+            )),
+            ScrollSessionDisposition::Ignored,
+            "a stale sample must not mutate the active direct-input session"
+        );
+        assert_eq!(session.active_source, Some(ScrollSource::Wheel));
+
+        assert_eq!(
+            session.handle(ScrollEvent::new(
+                ScrollSource::Wheel,
+                ScrollUnit::Line,
+                interrupted_at + std::time::Duration::from_millis(1),
+                ScrollPhase::Cancel,
+                ScrollDelta::default(),
+            )),
+            ScrollSessionDisposition::Tracked
+        );
+        assert_eq!(session.active_source, None);
+        assert_eq!(session.kinetic_velocity, None);
+    }
+
+    #[test]
+    fn scroll_outcome_preserves_exact_independent_axis_remainders() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("outcome.axes", "Outcome Axes");
+        scroll.configure(
+            target.clone(),
+            ScrollOffset::new(10, 100),
+            ScrollOffset::new(5, 20),
+        );
+
+        let input = ScrollDelta::from_logical_pixels(12.25, 40.5);
+        let before = scroll.desired_offset(&target);
+        let after = scroll
+            .request(target.clone(), ScrollUpdate::Relative(input))
+            .expect("diagonal input should change both configured axes");
+        let outcome = ScrollOutcome::from_offsets(input, before, after);
+        assert_eq!(
+            outcome.applied(),
+            ScrollDelta::from_logical_pixels(10.0, 40.5)
+        );
+        assert_eq!(
+            outcome.remaining(),
+            ScrollDelta::from_logical_pixels(2.25, 0.0)
+        );
+
+        let reverse = ScrollDelta::from_logical_pixels(-12.0, -50.0);
+        let before = after;
+        let after = scroll
+            .request(target, ScrollUpdate::Relative(reverse))
+            .expect("reverse input should move both axes back to their lower bounds");
+        let outcome = ScrollOutcome::from_offsets(reverse, before, after);
+        assert_eq!(
+            outcome.applied(),
+            ScrollDelta::from_logical_pixels(-10.0, -40.5)
+        );
+        assert_eq!(
+            outcome.remaining(),
+            ScrollDelta::from_logical_pixels(-2.0, -9.5)
+        );
+    }
+
+    #[test]
+    fn clamped_edges_handoff_remainder_while_elastic_edges_absorb_it_privately() {
+        let outcome = ScrollOutcome {
+            applied: ScrollDelta::from_logical_pixels(10.0, 20.0),
+            remaining: ScrollDelta::from_logical_pixels(2.0, -4.0),
+        };
+        let mut clamped = ScrollSession::default();
+        assert_eq!(clamped.resolve_edge(outcome), outcome);
+        assert_eq!(clamped.elastic_displacement, ScrollDelta::default());
+
+        let mut elastic = ScrollSession {
+            edge_behavior: EdgeBehavior::Elastic {
+                resistance_millis: 250,
+            },
+            ..ScrollSession::default()
+        };
+        let resolved = elastic.resolve_edge(outcome);
+        assert_eq!(
+            resolved.applied(),
+            ScrollDelta::from_logical_pixels(12.0, 16.0)
+        );
+        assert_eq!(resolved.remaining(), ScrollDelta::default());
+        assert_eq!(
+            elastic.elastic_displacement,
+            ScrollDelta::from_logical_pixels(0.5, -1.0)
+        );
+    }
 
     #[test]
     fn target_label_does_not_change_scroll_identity() {
