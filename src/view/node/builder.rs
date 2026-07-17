@@ -158,8 +158,16 @@ impl Node {
     pub fn scroll() -> Self {
         Self::new(Content::Scroll(Scroll::Ordinary {
             offset: interaction::ScrollOffset::default(),
+            container: None,
         }))
         .with_axis(Axis::Vertical)
+    }
+
+    // Authored internally until SE-008 settles the public container vocabulary.
+    #[allow(dead_code)]
+    pub(crate) fn with_scroll_container(mut self, container: super::ScrollContainer) -> Self {
+        self.set_scroll_container(container);
+        self
     }
 
     pub(crate) fn table_scroll(model: crate::table::Model) -> Self {

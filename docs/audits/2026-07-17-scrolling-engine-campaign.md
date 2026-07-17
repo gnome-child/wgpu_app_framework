@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-003 CLOSED — SE-004 NEXT**
+Status: **SE-004 CLOSED — SE-005 NEXT**
 
 Date: 2026-07-17
 
@@ -47,8 +47,8 @@ vertical slices exist.
 | SE-001 — Green behavioral oracles | **closed** | Independent models cover motion, sessions, handoff, sources, policy, reveal, mutation, anchoring, and accessibility; deliberate faulty adapters prove every witness. |
 | SE-002 — Axis adjustment | **closed** | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
 | SE-003 — Sessions and nested handoff | **closed** | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
-| SE-004 — Container and eager adapter | next | One ordinary eager widget exercises the full container contract. |
-| SE-005 — Native text and list | queued | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
+| SE-004 — Container and eager adapter | **closed** | One ordinary eager widget exercises the full container contract. |
+| SE-005 — Native text and list | next | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
 | SE-006 — List model/factory lifecycle | queued | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
 | SE-007 — Private residency/presentation | queued | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
 | SE-008 — Names and public break | queued | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
@@ -400,7 +400,75 @@ operations, nested reveal, independent per-axis policy, sizing, RTL placement,
 and accessible range/value/actions remain the first unmet exit and belong to
 SE-004.
 
-## 9. Resume protocol
+## 9. SE-004 container and eager-adapter receipt
+
+The ordinary eager `Scroll` node now carries a framework-private container
+contract beside its existing offset. Horizontal and vertical policy are
+independent `Always`/`Automatic`/`Never`/`External` choices; overlay versus
+layout-consuming chrome, horizontal and vertical minimum/natural sizing, and
+left-to-right versus right-to-left direction are separate facts. The default
+adapter resolves the existing theme into this contract at layout time, so
+native text, table, and list frames retain their domain layout while the eager
+adapter proves arbitrary widget content without learning residency vocabulary.
+All names and the authoring builder remain private pending SE-008.
+
+Eager layout performs one initial placement followed by at most two monotonic
+scrollbar-introduction passes. A consuming bar reserves only its resolved axis;
+an overlay never consumes layout; a second bar may appear after the first
+reduces the viewport; and an introduced bar is never removed within the layout
+cycle. Overlay eager content can overflow both axes without changing ordinary
+non-scroll overlay placement. Always-visible non-overflow bars project a full
+track thumb, External retains adjustment geometry without internal chrome, and
+right-to-left consuming vertical chrome occupies the left gutter.
+
+Step, page, start, end, and absolute-value operations all read and update the
+canonical adjustment while preserving the other axis. Unmodified arrow,
+PageUp/PageDown, Home, and End keys traverse scroll ancestors deepest first;
+specialized text, table, list, palette, and shortcut handling remains ahead of
+the generic adapter. RTL horizontal physical arrows and logical start/end are
+resolved deliberately. Accessible lower, upper, page, canonical value, and all
+seven actions project from the same adjustment before any platform adapter
+exists.
+
+Keyboard focus reveal is a one-shot container operation, not a permanent pin.
+It computes minimal displacement through every ordinary eager scroll ancestor,
+translating the descendant rectangle after each inner offset. Existing native
+active-descendant reveal retains its multi-projection axis merge, so table
+horizontal and vertical projections sharing one target continue to combine
+before admission. Reveal changes carry the Reveal source through the session
+path; unchanged geometry does not manufacture session activity.
+
+Production witnesses cover independent policy and presentation, two-pass
+cross-axis convergence, min/natural sizing, arbitrary two-axis eager content,
+Always/External/Never behavior, RTL placement and operations, canonical
+accessible projection/actions, runtime step/page/home/end dispatch, nested
+focus reveal, and post-reveal manual scrolling. The complete reveal family and
+the 20 production-independent SE-001 oracles remain green.
+
+Verification passed:
+
+- 1,402 library tests, with four intentional hardware ignores;
+- three renderer-debug non-hardware tests, with 27 intentional hardware
+  ignores, plus two example tests;
+- all 18 manifest/receipt/census Python checks; and
+- release `table-scroll-work 1.25`, reproducing 528 property bytes, 17
+  visits/lookups, one dirty index, two write ranges, zero content rebuild or
+  preparation, zero GPU resource churn, and one retained-plan reuse.
+
+A user-observed diagnostic distinction is now an explicit SE-005 through
+SE-009 comparison case: large text documents scroll cleanly while large virtual
+lists exhibit lag under the shared engine. Until measured otherwise, the
+working hypothesis is list-specific realization, provider, residency-admission,
+or scheduling work rather than the common adjustment/input path. SE-005 must
+first connect native text and list to the proved container behavior without
+erasing that contrast; SE-006 and SE-007 then own list lifecycle and residency
+causes directly.
+
+SE-004 adds no public scrolling path and settles no SE-008 name. Native text and
+list sharing the same adjustment/container behavior without passing through the
+eager adapter is the first unmet exit and belongs to SE-005.
+
+## 10. Resume protocol
 
 At every task entrance and after every context compaction:
 

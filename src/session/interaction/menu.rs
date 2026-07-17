@@ -104,6 +104,9 @@ fn restore_menu_focus(window: &mut Window) -> bool {
 
     let changed = window.focus.as_ref() != Some(&focus);
     let input_changed = window.interaction.clear_text_preedit();
+    if changed {
+        window.focus_reveal_pending = focus.is_visible();
+    }
     window.focus = Some(focus);
 
     changed || input_changed

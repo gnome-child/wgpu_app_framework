@@ -1326,9 +1326,11 @@ fn project_scrollbar(
 ) {
     let theme_scrollbar = theme.scrollbar();
     let visual = visuals.scrollbar(chrome.target());
-    let base_thickness = match theme_scrollbar.metrics.policy {
-        crate::theme::ScrollbarPolicy::GutterAlways => theme_scrollbar.metrics.thickness.max(1),
-        crate::theme::ScrollbarPolicy::OverlayAuto => {
+    let base_thickness = match chrome.presentation() {
+        crate::view::ScrollChromePresentation::Consuming => {
+            theme_scrollbar.metrics.thickness.max(1)
+        }
+        crate::view::ScrollChromePresentation::Overlay => {
             theme_scrollbar.appearance.overlay_thickness.max(1)
         }
     };

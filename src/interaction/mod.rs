@@ -11,8 +11,8 @@ pub(crate) use command_palette::CommandPalette;
 pub use menu::Menu;
 pub(crate) use pointer::Pointer;
 pub(crate) use scroll::{
-    Scroll, ScrollEvent, ScrollOutcome, ScrollPhase, ScrollSessionDisposition, ScrollSource,
-    ScrollUnit, ScrollUpdate,
+    AccessibleScrollAction, AccessibleScrollAxis, Scroll, ScrollEvent, ScrollOperation,
+    ScrollOutcome, ScrollPhase, ScrollSessionDisposition, ScrollSource, ScrollUnit, ScrollUpdate,
 };
 pub use scroll::{ScrollDelta, ScrollOffset};
 pub(crate) use selection::Selections;

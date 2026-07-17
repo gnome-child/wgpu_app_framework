@@ -157,6 +157,61 @@ pub(crate) enum ScrollUpdate {
     Geometry(ScrollOffset),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum ScrollOperation {
+    StepBackward,
+    StepForward,
+    PageBackward,
+    PageForward,
+    ToStart,
+    ToEnd,
+    SetValue(f64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AccessibleScrollAction {
+    StepBackward,
+    StepForward,
+    PageBackward,
+    PageForward,
+    ToStart,
+    ToEnd,
+    SetValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct AccessibleScrollAxis {
+    lower: f64,
+    upper: f64,
+    page: f64,
+    value: f64,
+    actions: [AccessibleScrollAction; 7],
+}
+
+// Projected internally until the SE-008 public naming and platform-adapter decision.
+#[allow(dead_code)]
+impl AccessibleScrollAxis {
+    pub(crate) const fn lower(self) -> f64 {
+        self.lower
+    }
+
+    pub(crate) const fn upper(self) -> f64 {
+        self.upper
+    }
+
+    pub(crate) const fn page(self) -> f64 {
+        self.page
+    }
+
+    pub(crate) const fn value(self) -> f64 {
+        self.value
+    }
+
+    pub(crate) const fn actions(self) -> [AccessibleScrollAction; 7] {
+        self.actions
+    }
+}
+
 impl Scroll {
     pub(super) fn handle_session_event(
         &mut self,
@@ -209,6 +264,38 @@ impl Scroll {
             .find(|entry| &entry.target == target)
             .map(ScrollEntry::desired)
             .unwrap_or_default()
+    }
+
+    pub(crate) fn operation_offset(
+        &self,
+        target: &Target,
+        axis: ScrollbarAxis,
+        operation: ScrollOperation,
+        reversed: bool,
+    ) -> Option<ScrollOffset> {
+        let entry = self.offsets.iter().find(|entry| &entry.target == target)?;
+        let mut offset = entry.desired();
+        match axis {
+            ScrollbarAxis::Horizontal => {
+                offset.x = entry.horizontal.operation(operation, reversed);
+            }
+            ScrollbarAxis::Vertical => {
+                offset.y = entry.vertical.operation(operation, reversed);
+            }
+        }
+        Some(offset)
+    }
+
+    pub(crate) fn accessible_axis(
+        &self,
+        target: &Target,
+        axis: ScrollbarAxis,
+    ) -> Option<AccessibleScrollAxis> {
+        let entry = self.offsets.iter().find(|entry| &entry.target == target)?;
+        Some(match axis {
+            ScrollbarAxis::Horizontal => entry.horizontal.accessible(),
+            ScrollbarAxis::Vertical => entry.vertical.accessible(),
+        })
     }
 
     pub(super) fn configure(
@@ -445,6 +532,63 @@ impl AxisAdjustment {
     fn update(&mut self, delta: f64) {
         self.set(self.value.add_delta(delta));
     }
+
+    fn operation(self, operation: ScrollOperation, reversed: bool) -> Coordinate {
+        let backward = |amount: Coordinate| {
+            if reversed {
+                self.value.saturating_add(amount)
+            } else {
+                self.value.saturating_sub(amount)
+            }
+        };
+        let forward = |amount: Coordinate| {
+            if reversed {
+                self.value.saturating_sub(amount)
+            } else {
+                self.value.saturating_add(amount)
+            }
+        };
+        let value = match operation {
+            ScrollOperation::StepBackward => backward(self.configuration.step),
+            ScrollOperation::StepForward => forward(self.configuration.step),
+            ScrollOperation::PageBackward => backward(self.configuration.page_increment),
+            ScrollOperation::PageForward => forward(self.configuration.page_increment),
+            ScrollOperation::ToStart => {
+                if reversed {
+                    self.maximum()
+                } else {
+                    self.configuration.lower
+                }
+            }
+            ScrollOperation::ToEnd => {
+                if reversed {
+                    self.configuration.lower
+                } else {
+                    self.maximum()
+                }
+            }
+            ScrollOperation::SetValue(value) => Coordinate::from_f64(value),
+        };
+        value.clamp(self.configuration.lower, self.maximum())
+    }
+
+    fn accessible(self) -> AccessibleScrollAxis {
+        AccessibleScrollAxis {
+            lower: self.configuration.lower.as_f64(),
+            upper: self.configuration.upper.as_f64(),
+            page: self.configuration.page.as_f64(),
+            value: self.value.as_f64(),
+            actions: [
+                AccessibleScrollAction::StepBackward,
+                AccessibleScrollAction::StepForward,
+                AccessibleScrollAction::PageBackward,
+                AccessibleScrollAction::PageForward,
+                AccessibleScrollAction::ToStart,
+                AccessibleScrollAction::ToEnd,
+                AccessibleScrollAction::SetValue,
+            ],
+        }
+    }
 }
 
 impl ScrollSession {
@@ -607,6 +751,11 @@ impl Coordinate {
         }
     }
 
+    fn from_f64(value: f64) -> Self {
+        let value = normalized_scroll_component(value);
+        Self::from_ticks((value * Self::SCALE as f64).round() as i128)
+    }
+
     fn ticks(self) -> i128 {
         i128::from(self.whole) * Self::SCALE + i128::from(self.fraction)
     }
@@ -656,7 +805,6 @@ impl Coordinate {
         whole.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 
-    #[cfg(test)]
     fn as_f64(self) -> f64 {
         self.whole as f64 + f64::from(self.fraction) / Self::SCALE as f64
     }
@@ -974,6 +1122,68 @@ fn normalized_scroll_component(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accessible_projection_and_operations_read_the_canonical_adjustment() {
+        let target = Target::scroll("accessible.scroll", "Accessible scroll");
+        let mut scroll = Scroll::default();
+        scroll.configure(
+            target.clone(),
+            ScrollOffset::new(400, 800),
+            ScrollOffset::new(100, 200),
+        );
+        scroll.request(
+            target.clone(),
+            ScrollUpdate::Absolute(ScrollOffset::new(125, 250)),
+        );
+        scroll.accept_resident(target.clone(), ScrollOffset::new(100, 200));
+
+        let horizontal = scroll
+            .accessible_axis(&target, ScrollbarAxis::Horizontal)
+            .expect("configured adjustment must project accessibility data");
+        assert_eq!(horizontal.lower(), 0.0);
+        assert_eq!(horizontal.upper(), 500.0);
+        assert_eq!(horizontal.page(), 100.0);
+        assert_eq!(horizontal.value(), 125.0);
+        assert_eq!(horizontal.actions().len(), 7);
+
+        assert_eq!(
+            scroll
+                .operation_offset(
+                    &target,
+                    ScrollbarAxis::Horizontal,
+                    ScrollOperation::PageForward,
+                    false,
+                )
+                .unwrap()
+                .precise_components_for_test(),
+            [225.0, 250.0]
+        );
+        assert_eq!(
+            scroll
+                .operation_offset(
+                    &target,
+                    ScrollbarAxis::Horizontal,
+                    ScrollOperation::ToStart,
+                    true,
+                )
+                .unwrap()
+                .precise_components_for_test(),
+            [400.0, 250.0]
+        );
+        assert_eq!(
+            scroll
+                .operation_offset(
+                    &target,
+                    ScrollbarAxis::Horizontal,
+                    ScrollOperation::SetValue(42.5),
+                    false,
+                )
+                .unwrap()
+                .precise_components_for_test(),
+            [42.5, 250.0]
+        );
+    }
 
     #[test]
     fn scroll_session_preserves_lifecycle_velocity_deceleration_and_interruption() {

@@ -6707,6 +6707,465 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
 }
 
 #[test]
+fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_placement() {
+    fn configured_layout(
+        container: view::ScrollContainer,
+        content: geometry::Size,
+    ) -> layout::Layout {
+        let child = view::Node::panel().with_style(
+            view::Style::new()
+                .with_width(view::Dimension::fixed(content.width()))
+                .with_height(view::Dimension::fixed(content.height())),
+        );
+        let scroll = view::Node::scroll()
+            .with_layout_axis(view::Axis::Overlay)
+            .with_scroll_container(container)
+            .with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(100))
+                    .with_height(view::Dimension::fixed(100)),
+            )
+            .child(child);
+        let view = view::View::new(view::Node::root().child(scroll));
+        let mut engine = layout::Engine::new();
+        let mut theme = Theme::dark();
+        theme.scrollbar_mut().metrics.thickness = 10;
+        layout::Layout::compose_with_theme(
+            &view,
+            geometry::Size::new(100, 100),
+            &mut engine,
+            &theme,
+        )
+    }
+
+    let consuming = view::ScrollContainer::new(
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollChromePresentation::Consuming,
+        view::ScrollSizing::Minimum,
+        view::ScrollSizing::Minimum,
+        view::ScrollDirection::LeftToRight,
+    );
+    let layout = configured_layout(consuming, geometry::Size::new(95, 110));
+    let frame = layout.find_role(view::Role::Scroll)[0];
+    let viewport = frame.viewport().expect("container must resolve a viewport");
+    assert_eq!(viewport.rect().width(), 90);
+    assert_eq!(viewport.rect().height(), 90);
+    assert_eq!(layout.chrome().len(), 2);
+    assert_eq!(
+        frame
+            .scroll_container_layout()
+            .expect("ordinary eager scroll must retain resolved container state")
+            .introduction_passes(),
+        2
+    );
+
+    let overlay = configured_layout(
+        view::ScrollContainer::new(
+            view::ScrollAxisPolicy::Automatic,
+            view::ScrollAxisPolicy::Automatic,
+            view::ScrollChromePresentation::Overlay,
+            view::ScrollSizing::Minimum,
+            view::ScrollSizing::Minimum,
+            view::ScrollDirection::LeftToRight,
+        ),
+        geometry::Size::new(120, 110),
+    );
+    let overlay_viewport = overlay.find_role(view::Role::Scroll)[0]
+        .viewport()
+        .expect("overlay container must resolve a viewport");
+    assert_eq!(overlay_viewport.rect(), geometry::Rect::new(0, 0, 100, 100));
+    assert_eq!(overlay.chrome().len(), 2);
+    assert!(
+        overlay
+            .chrome()
+            .iter()
+            .all(|chrome| chrome.presentation() == view::ScrollChromePresentation::Overlay)
+    );
+
+    let external = configured_layout(
+        view::ScrollContainer::new(
+            view::ScrollAxisPolicy::External,
+            view::ScrollAxisPolicy::Never,
+            view::ScrollChromePresentation::Consuming,
+            view::ScrollSizing::Minimum,
+            view::ScrollSizing::Minimum,
+            view::ScrollDirection::LeftToRight,
+        ),
+        geometry::Size::new(140, 130),
+    );
+    let external_viewport = external.find_role(view::Role::Scroll)[0]
+        .viewport()
+        .expect("external container must retain adjustment geometry");
+    assert!(external_viewport.max_scroll().x() > 0);
+    assert!(external_viewport.max_scroll().y() > 0);
+    assert!(external.chrome().is_empty());
+
+    let rtl = configured_layout(
+        view::ScrollContainer::new(
+            view::ScrollAxisPolicy::Never,
+            view::ScrollAxisPolicy::Always,
+            view::ScrollChromePresentation::Consuming,
+            view::ScrollSizing::Minimum,
+            view::ScrollSizing::Minimum,
+            view::ScrollDirection::RightToLeft,
+        ),
+        geometry::Size::new(80, 80),
+    );
+    let rtl_frame = rtl.find_role(view::Role::Scroll)[0];
+    let rtl_viewport = rtl_frame
+        .viewport()
+        .expect("RTL container needs a viewport");
+    let vertical = rtl
+        .chrome()
+        .iter()
+        .find(|chrome| chrome.axis() == interaction::ScrollbarAxis::Vertical)
+        .expect("always-visible RTL vertical scrollbar must exist");
+    assert_eq!(rtl_viewport.rect().x(), 10);
+    assert!(vertical.track().x() < rtl_viewport.rect().x());
+}
+
+#[test]
+fn eager_scroll_keyboard_and_accessible_actions_share_rtl_adjustment_semantics() {
+    let container = view::ScrollContainer::new(
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollAxisPolicy::Never,
+        view::ScrollChromePresentation::Overlay,
+        view::ScrollSizing::Minimum,
+        view::ScrollSizing::Natural,
+        view::ScrollDirection::RightToLeft,
+    );
+    let mut app = Runtime::new(EditorState::default())
+        .commands(|commands| {
+            commands.register::<Ping>(command::Spec::new("Ping"));
+        })
+        .responders(|responders| {
+            responders.app().target::<Ping>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("RTL keyboard scroll"));
+        })
+        .view(move |_, _| {
+            let control = view::Node::bound::<Ping>().with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(200))
+                    .with_height(view::Dimension::fixed(32)),
+            );
+            let scroll = view::Node::scroll()
+                .with_layout_axis(view::Axis::Horizontal)
+                .with_scroll_container(container)
+                .with_style(
+                    view::Style::new()
+                        .with_width(view::Dimension::fixed(100))
+                        .with_height(view::Dimension::fixed(40)),
+                )
+                .child(control);
+            view::View::new(view::Node::root().child(scroll))
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(100, 40);
+    let initial = app.show_scene(window, size).expect("scroll must render");
+    let scroll_frame = initial.layout().find_role(view::Role::Scroll)[0];
+    let scroll_target = scroll_frame.target().expect("scroll target").clone();
+    let control_target = initial.layout().find_role(view::Role::Binding)[0]
+        .target()
+        .expect("bound control target")
+        .clone();
+    assert!(app.focus(window, session::Focus::control(&control_target).keyboard()));
+
+    let outcome = app
+        .handle_input(
+            window,
+            Input::key_down(input::Key::ArrowRight, input::Modifiers::default()),
+        )
+        .expect("keyboard scroll must dispatch");
+    assert!(outcome.is_handled());
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .unwrap()
+            .scroll()
+            .desired_offset(&scroll_target)
+            .precise_components_for_test(),
+        [1.0, 0.0]
+    );
+
+    let accessible = app
+        .accessible_scroll_axis(
+            window,
+            &scroll_target,
+            interaction::ScrollbarAxis::Horizontal,
+        )
+        .expect("canonical adjustment must expose accessible data");
+    assert_eq!(accessible.lower(), 0.0);
+    assert_eq!(accessible.upper(), 200.0);
+    assert_eq!(accessible.page(), 100.0);
+    assert_eq!(accessible.value(), 1.0);
+    assert_eq!(accessible.actions().len(), 7);
+
+    app.apply_accessible_scroll_action(
+        window,
+        scroll_target.clone(),
+        interaction::ScrollbarAxis::Horizontal,
+        interaction::AccessibleScrollAction::ToStart,
+        None,
+    )
+    .expect("RTL start action must move");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .unwrap()
+            .scroll()
+            .desired_offset(&scroll_target)
+            .x(),
+        100
+    );
+    app.apply_accessible_scroll_action(
+        window,
+        scroll_target.clone(),
+        interaction::ScrollbarAxis::Horizontal,
+        interaction::AccessibleScrollAction::SetValue,
+        Some(12.5),
+    )
+    .expect("set-value action must move");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .unwrap()
+            .scroll()
+            .desired_offset(&scroll_target)
+            .precise_components_for_test(),
+        [12.5, 0.0]
+    );
+}
+
+#[test]
+fn eager_scroll_keyboard_drives_step_page_home_and_end_operations() {
+    let container = view::ScrollContainer::new(
+        view::ScrollAxisPolicy::Never,
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollChromePresentation::Overlay,
+        view::ScrollSizing::Natural,
+        view::ScrollSizing::Minimum,
+        view::ScrollDirection::LeftToRight,
+    );
+    let mut app = Runtime::new(EditorState::default())
+        .commands(|commands| {
+            commands.register::<Ping>(command::Spec::new("Ping"));
+        })
+        .responders(|responders| {
+            responders.app().target::<Ping>();
+        })
+        .started(|cx| {
+            cx.open_window(window::Options::new("Vertical keyboard scroll"));
+        })
+        .view(move |_, _| {
+            let control = view::Node::bound::<Ping>().with_style(
+                view::Style::new()
+                    .with_width(view::Dimension::fixed(100))
+                    .with_height(view::Dimension::fixed(300)),
+            );
+            let scroll = view::Node::scroll()
+                .with_scroll_container(container)
+                .with_style(
+                    view::Style::new()
+                        .with_width(view::Dimension::fixed(100))
+                        .with_height(view::Dimension::fixed(100)),
+                )
+                .child(control);
+            view::View::new(view::Node::root().child(scroll))
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let initial = app
+        .show_scene(window, geometry::Size::new(100, 100))
+        .expect("vertical scroll must render");
+    let scroll_target = initial.layout().find_role(view::Role::Scroll)[0]
+        .target()
+        .expect("scroll target")
+        .clone();
+    let control_target = initial.layout().find_role(view::Role::Binding)[0]
+        .target()
+        .expect("bound control target")
+        .clone();
+    assert!(app.focus(window, session::Focus::control(&control_target).keyboard()));
+
+    for (key, expected) in [
+        (input::Key::ArrowDown, 1),
+        (input::Key::PageDown, 101),
+        (input::Key::PageUp, 1),
+        (input::Key::End, 200),
+        (input::Key::Home, 0),
+    ] {
+        let outcome = app
+            .handle_input(window, Input::key_down(key, input::Modifiers::default()))
+            .expect("keyboard scroll operation must dispatch");
+        assert!(outcome.is_handled());
+        assert_eq!(
+            app.session()
+                .interaction(window)
+                .unwrap()
+                .scroll()
+                .desired_offset(&scroll_target)
+                .y(),
+            expected
+        );
+    }
+}
+
+#[test]
+fn focused_eager_descendant_reveals_minimally_through_every_scroll_ancestor() {
+    let container = view::ScrollContainer::new(
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollAxisPolicy::Automatic,
+        view::ScrollChromePresentation::Overlay,
+        view::ScrollSizing::Natural,
+        view::ScrollSizing::Minimum,
+        view::ScrollDirection::LeftToRight,
+    );
+    let mut app =
+        Runtime::new(EditorState::default())
+            .commands(|commands| {
+                commands.register::<Ping>(command::Spec::new("Ping"));
+            })
+            .responders(|responders| {
+                responders.app().target::<Ping>();
+            })
+            .started(|cx| {
+                cx.open_window(window::Options::new("Nested focus reveal"));
+            })
+            .view(move |_, _| {
+                let control = view::Node::bound::<Ping>()
+                    .with_style(view::Style::new().with_height(view::Dimension::fixed(32)));
+                let inner =
+                    view::Node::scroll()
+                        .with_scroll_container(container)
+                        .with_label("Inner reveal")
+                        .with_style(
+                            view::Style::new()
+                                .with_width(view::Dimension::fixed(120))
+                                .with_height(view::Dimension::fixed(100)),
+                        )
+                        .child(view::Node::panel().with_style(
+                            view::Style::new().with_height(view::Dimension::fixed(140)),
+                        ))
+                        .child(control)
+                        .child(view::Node::panel().with_style(
+                            view::Style::new().with_height(view::Dimension::fixed(100)),
+                        ));
+                let outer =
+                    view::Node::scroll()
+                        .with_scroll_container(container)
+                        .with_label("Outer reveal")
+                        .with_style(
+                            view::Style::new()
+                                .with_width(view::Dimension::fixed(200))
+                                .with_height(view::Dimension::fixed(200)),
+                        )
+                        .child(view::Node::panel().with_style(
+                            view::Style::new().with_height(view::Dimension::fixed(180)),
+                        ))
+                        .child(inner)
+                        .child(view::Node::panel().with_style(
+                            view::Style::new().with_height(view::Dimension::fixed(200)),
+                        ));
+                view::View::new(view::Node::root().child(outer))
+            });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(200, 200);
+    let initial = app
+        .show_scene(window, size)
+        .expect("nested scroll must render");
+    let control_target = initial.layout().find_role(view::Role::Binding)[0]
+        .target()
+        .expect("focused control target")
+        .clone();
+    let focus = session::Focus::control(&control_target).keyboard();
+    let control = initial
+        .layout()
+        .frame_for_focus(focus)
+        .expect("layout must resolve focused descendant");
+    let mut scrolls = initial
+        .layout()
+        .find_role(view::Role::Scroll)
+        .into_iter()
+        .filter(|frame| control.is_descendant_of(frame))
+        .collect::<Vec<_>>();
+    scrolls.sort_by_key(|frame| std::cmp::Reverse(frame.path_depth()));
+    assert_eq!(scrolls.len(), 2);
+
+    let inner_viewport = scrolls[0].viewport().unwrap();
+    let inner_offset = inner_viewport.reveal_rect(control.rect(), 0);
+    let translated = geometry::Rect::new(
+        control
+            .rect()
+            .x()
+            .saturating_add(inner_viewport.resolved_scroll().x() - inner_offset.x()),
+        control
+            .rect()
+            .y()
+            .saturating_add(inner_viewport.resolved_scroll().y() - inner_offset.y()),
+        control.rect().width(),
+        control.rect().height(),
+    );
+    let outer_offset = scrolls[1].viewport().unwrap().reveal_rect(translated, 0);
+    let expected = initial.layout().reveal_offsets_for_focus(focus, 0);
+    assert_eq!(expected.len(), 2);
+    assert_eq!(expected[0].1, inner_offset);
+    assert_eq!(expected[1].1, outer_offset);
+    assert!(inner_offset.y() > 0 && outer_offset.y() > 0);
+    let outer_target = expected[1].0.clone();
+
+    assert!(app.focus(window, focus));
+    let revealed = app
+        .show_scene(window, size)
+        .expect("focus reveal must converge");
+    for (target, offset) in expected {
+        assert_eq!(
+            app.session()
+                .interaction(window)
+                .unwrap()
+                .scroll()
+                .desired_offset(&target),
+            offset
+        );
+    }
+    let focused = revealed
+        .layout()
+        .frame_for_focus(focus)
+        .expect("focused descendant must remain present");
+    for scroll in revealed
+        .layout()
+        .find_role(view::Role::Scroll)
+        .into_iter()
+        .filter(|scroll| focused.is_descendant_of(scroll))
+    {
+        let visible = scroll.viewport().unwrap().visible_content();
+        assert!(focused.rect().y() >= visible.y());
+        assert!(focused.rect().bottom() <= visible.bottom());
+    }
+
+    app.handle_input(
+        window,
+        Input::scroll_to(outer_target.clone(), interaction::ScrollOffset::default()),
+    )
+    .expect("manual scrolling after reveal must remain available");
+    app.show_scene(window, size)
+        .expect("manual post-reveal scroll must render");
+    assert_eq!(
+        app.session()
+            .interaction(window)
+            .unwrap()
+            .scroll()
+            .desired_offset(&outer_target),
+        interaction::ScrollOffset::default(),
+        "focus reveal is a one-shot operation and must not pin the focused widget"
+    );
+}
+
+#[test]
 fn deferred_focus_outline_retains_its_generic_scroll_clip() {
     let focus = session::Focus::text("scroll.clipped.focus").keyboard();
     let mut app = Runtime::new(SourceState::default())

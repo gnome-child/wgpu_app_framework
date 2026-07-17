@@ -196,11 +196,49 @@ fn layout_scroll(
         }
     }
 
-    let geometry = chrome::viewport_geometry(rect, clip, ctx.theme, chrome::Axes::BOTH);
+    let container = eager_scroll_container(node, ctx.theme);
+    let mut axes = chrome::Axes::new(
+        container.horizontal_policy == view::ScrollAxisPolicy::Always,
+        container.vertical_policy == view::ScrollAxisPolicy::Always,
+    );
+    let mut introduction_passes = 0_u8;
+    let mut container_layout =
+        chrome::ContainerLayout::new(axes, container.chrome, container.direction, 0);
+    let mut geometry = chrome::container_geometry(rect, clip, ctx.theme, container_layout);
+    let mut placement =
+        scroll_stack_placement(node, geometry.viewport(), ctx.engine, ctx.theme, ctx.keymap);
+    for _ in 0..2 {
+        let viewport = geometry.viewport();
+        let next = chrome::Axes::new(
+            axes.horizontal()
+                || scroll_axis_policy_shows(
+                    container.horizontal_policy,
+                    placement.content.width() > viewport.width(),
+                ),
+            axes.vertical()
+                || scroll_axis_policy_shows(
+                    container.vertical_policy,
+                    placement.content.height() > viewport.height(),
+                ),
+        );
+        if next == axes {
+            break;
+        }
+        axes = next;
+        introduction_passes = introduction_passes.saturating_add(1);
+        container_layout = chrome::ContainerLayout::new(
+            axes,
+            container.chrome,
+            container.direction,
+            introduction_passes,
+        );
+        geometry = chrome::container_geometry(rect, clip, ctx.theme, container_layout);
+        placement =
+            scroll_stack_placement(node, geometry.viewport(), ctx.engine, ctx.theme, ctx.keymap);
+    }
     let viewport_rect = geometry.viewport();
     let visible_frame = geometry.visible_frame();
     let visible_content = geometry.visible_content();
-    let placement = scroll_stack_placement(node, viewport_rect, ctx.engine, ctx.theme, ctx.keymap);
     let viewport = Viewport::new(viewport_rect, placement.content, node.scroll_offset())
         .with_visible(visible_frame, visible_content);
     debug_assert_scroll_content_contains(&placement, viewport_rect);
@@ -208,7 +246,7 @@ fn layout_scroll(
 
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)
-        .with_viewport(viewport);
+        .with_viewport(viewport, container_layout);
     ctx.frames.push(frame);
 
     let offset = viewport.resolved_scroll();
@@ -230,6 +268,45 @@ fn layout_scroll(
         child_clip,
         ctx,
     );
+}
+
+fn eager_scroll_container(node: &view::Node, theme: &theme::Theme) -> view::ScrollContainer {
+    if let Some(container) = node.scroll_container() {
+        return container;
+    }
+
+    let (horizontal_sizing, vertical_sizing) = match node.axis() {
+        Some(view::Axis::Horizontal) => (view::ScrollSizing::Minimum, view::ScrollSizing::Natural),
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
+            (view::ScrollSizing::Natural, view::ScrollSizing::Minimum)
+        }
+    };
+    let (policy, chrome) = match theme.scrollbar().metrics.policy {
+        theme::ScrollbarPolicy::OverlayAuto => (
+            view::ScrollAxisPolicy::Automatic,
+            view::ScrollChromePresentation::Overlay,
+        ),
+        theme::ScrollbarPolicy::GutterAlways => (
+            view::ScrollAxisPolicy::Always,
+            view::ScrollChromePresentation::Consuming,
+        ),
+    };
+    view::ScrollContainer::new(
+        policy,
+        policy,
+        chrome,
+        horizontal_sizing,
+        vertical_sizing,
+        view::ScrollDirection::LeftToRight,
+    )
+}
+
+fn scroll_axis_policy_shows(policy: view::ScrollAxisPolicy, overflow: bool) -> bool {
+    match policy {
+        view::ScrollAxisPolicy::Always => true,
+        view::ScrollAxisPolicy::Automatic => overflow,
+        view::ScrollAxisPolicy::Never | view::ScrollAxisPolicy::External => false,
+    }
 }
 
 fn layout_table_scroll(
@@ -654,7 +731,9 @@ fn scroll_stack_placement(
         Some(view::Axis::Horizontal) => {
             horizontal_stack_placement(node, rect, engine, theme, profile, true)
         }
-        Some(view::Axis::Overlay) => overlay_stack_placement(node, rect, engine, theme, profile),
+        Some(view::Axis::Overlay) => {
+            overlay_stack_placement(node, rect, engine, theme, profile, true)
+        }
         Some(view::Axis::Vertical) | None => {
             vertical_stack_placement(node, rect, engine, theme, profile, true, None)
         }
@@ -875,15 +954,23 @@ fn overlay_stack_placement(
     engine: &mut engine::Engine,
     theme: &theme::Theme,
     profile: keymap::Profile,
+    scroll_axes: bool,
 ) -> StackPlacement {
     let content = flow::inset_rect(rect, node.style().padding());
     let child_rects = node
         .children()
         .iter()
         .map(|child| {
-            let width = resolved_width(child, content.width(), engine, theme, profile);
-            let height =
-                resolved_height_for_width(child, width, content.height(), engine, theme, profile);
+            let width = if scroll_axes {
+                scroll_axis_child_width(child, content.width(), engine, theme, profile)
+            } else {
+                resolved_width(child, content.width(), engine, theme, profile)
+            };
+            let height = if scroll_axes {
+                scroll_axis_child_height(child, width, content.height(), engine, theme, profile)
+            } else {
+                resolved_height_for_width(child, width, content.height(), engine, theme, profile)
+            };
             if let view::FloatingPlacement::Offset { x, y } = child.floating_placement() {
                 return Rect::new(
                     content.x().saturating_add(x),
@@ -909,9 +996,14 @@ fn overlay_stack_placement(
         })
         .collect::<Vec<_>>();
 
+    let content = if scroll_axes {
+        placed_content_size(rect, node.style().padding(), &child_rects)
+    } else {
+        Size::new(rect.width(), rect.height())
+    };
     StackPlacement {
         child_rects,
-        content: Size::new(rect.width(), rect.height()),
+        content,
     }
 }
 
@@ -1170,7 +1262,7 @@ fn layout_overlay_stack(
     clip: Option<Clip>,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let placement = overlay_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap);
+    let placement = overlay_stack_placement(node, rect, ctx.engine, ctx.theme, ctx.keymap, false);
     emit_stack_children(
         node,
         retained,

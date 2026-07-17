@@ -2004,7 +2004,8 @@ fn view_node_content_is_the_single_role_payload_representation() {
     assert!(
         view.contains("pub(crate) mod node;")
             && node.contains("mod content;")
-            && node.contains("pub(crate) use content::{Content, MenuBar, Panel, Scroll};")
+            && node.contains("pub(crate) use content::{")
+            && node.contains("Content, MenuBar, Panel, Scroll,")
             && fields.contains("content: Content"),
         "Node must carry one typed role payload through the namespaced layout seam"
     );
@@ -2964,7 +2965,7 @@ fn frame_content_is_the_single_role_payload_representation() {
         "struct TextBoxContent {",
         "parts: control::InputParts",
         "enum ScrollContent {",
-        "Table { resolved: Option<TableScroll> }",
+        "resolved: Option<TableScroll>",
         "struct TableScroll {",
         "struct LabelContent {",
         "overflow_projection: Option<text::Selectable>",
@@ -6547,6 +6548,56 @@ fn scroll_session_contract_routes_exact_child_first_remainders() {
 }
 
 #[test]
+fn eager_scroll_container_contract_separates_policy_operations_and_projection() {
+    let content = include_str!("../view/node/content.rs");
+    let algorithm = include_str!("../layout/algorithm.rs");
+    let measure = include_str!("../layout/measure.rs");
+    let chrome = include_str!("../layout/chrome.rs");
+    let layout = include_str!("../layout/mod.rs");
+    let interaction = include_str!("../interaction/scroll.rs");
+    let key = include_str!("../runtime/input/key.rs");
+    let presentation = include_str!("../runtime/presentation.rs");
+
+    assert!(
+        content.contains("pub(crate) enum ScrollAxisPolicy {")
+            && content.contains("Always,")
+            && content.contains("Automatic,")
+            && content.contains("Never,")
+            && content.contains("External,")
+            && content.contains("pub(crate) enum ScrollChromePresentation {")
+            && content.contains("pub(crate) enum ScrollSizing {")
+            && content.contains("pub(crate) enum ScrollDirection {")
+            && !content.contains("pub enum ScrollAxisPolicy")
+            && !content.contains("pub enum ScrollContainer"),
+        "SE-004 policy and direction must remain an internal container contract until the SE-008 public naming decision"
+    );
+    assert!(
+        algorithm.contains("for _ in 0..2")
+            && algorithm.contains("introduction_passes = introduction_passes.saturating_add(1)")
+            && algorithm.contains("scroll_axis_policy_shows(")
+            && algorithm.contains("chrome::container_geometry(")
+            && measure.contains("container.horizontal_sizing")
+            && measure.contains("container.vertical_sizing")
+            && chrome.contains("ScrollChromePresentation::Consuming")
+            && chrome.contains("ScrollDirection::RightToLeft"),
+        "ordinary eager layout must separate axis visibility, overlay/consuming chrome, min/natural sizing, bounded monotonic convergence, and RTL placement"
+    );
+    assert!(
+        interaction.contains("pub(crate) enum ScrollOperation {")
+            && interaction.contains("pub(crate) struct AccessibleScrollAxis {")
+            && interaction.contains("value: self.value.as_f64()")
+            && interaction.contains("AccessibleScrollAction::SetValue")
+            && key.contains("ScrollSource::Keyboard")
+            && key.contains("scroll_target_chain_for_focus")
+            && layout.contains("reveal_offsets_for_descendant_chain(")
+            && layout.contains("current.x().saturating_sub(offset.x())")
+            && presentation.contains("ScrollSource::Reveal")
+            && presentation.contains("apply_focus_reveal("),
+        "keyboard, reveal, RTL semantics, and accessible range/actions must adapt into the canonical adjustments and traverse every scroll ancestor"
+    );
+}
+
+#[test]
 fn pacing_contract_has_one_redraw_ledger_full_timeline_and_exact_twelve_case_suite() {
     let platform = include_str!("../platform/mod.rs");
     let runner = include_str!("../platform/runner/mod.rs");
@@ -6906,9 +6957,12 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
     assert!(
         chrome.contains("pub(super) fn viewport_geometry(")
             && chrome.contains("reserve_gutters(rect, theme, axes)")
-            && algorithm.matches("chrome::viewport_geometry(").count() >= 3
+            && chrome.contains("pub(super) fn container_geometry(")
+            && chrome.contains("reserve_container_gutters(rect, theme, container)")
+            && algorithm.matches("chrome::container_geometry(").count() >= 2
+            && algorithm.matches("chrome::viewport_geometry(").count() >= 2
             && frame.matches("chrome::viewport_geometry(").count() >= 2,
-        "generic, table, virtual-list, and text viewports must derive fixed clips and gutter geometry from one policy"
+        "eager containers must derive clips from their resolved policy while native table, virtual-list, and text viewports retain centralized fixed geometry"
     );
     let table_scroll = builder
         .split("pub(crate) fn table_scroll(")

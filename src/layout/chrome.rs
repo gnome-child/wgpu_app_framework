@@ -10,6 +10,14 @@ pub(super) struct Axes {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ContainerLayout {
+    axes: Axes,
+    presentation: crate::view::ScrollChromePresentation,
+    direction: crate::view::ScrollDirection,
+    introduction_passes: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ViewportGeometry {
     viewport: Rect,
     visible_frame: Rect,
@@ -33,6 +41,54 @@ impl Axes {
         horizontal: true,
         vertical: true,
     };
+
+    pub(super) const fn new(horizontal: bool, vertical: bool) -> Self {
+        Self {
+            horizontal,
+            vertical,
+        }
+    }
+
+    pub(super) const fn horizontal(self) -> bool {
+        self.horizontal
+    }
+
+    pub(super) const fn vertical(self) -> bool {
+        self.vertical
+    }
+}
+
+impl ContainerLayout {
+    pub(super) const fn new(
+        axes: Axes,
+        presentation: crate::view::ScrollChromePresentation,
+        direction: crate::view::ScrollDirection,
+        introduction_passes: u8,
+    ) -> Self {
+        Self {
+            axes,
+            presentation,
+            direction,
+            introduction_passes,
+        }
+    }
+
+    pub(super) const fn axes(self) -> Axes {
+        self.axes
+    }
+
+    pub(crate) const fn presentation(self) -> crate::view::ScrollChromePresentation {
+        self.presentation
+    }
+
+    pub(super) const fn direction(self) -> crate::view::ScrollDirection {
+        self.direction
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn introduction_passes(self) -> u8 {
+        self.introduction_passes
+    }
 }
 
 impl ViewportGeometry {
@@ -63,6 +119,20 @@ pub(super) fn viewport_geometry(
     }
 }
 
+pub(super) fn container_geometry(
+    rect: Rect,
+    inherited: Option<Clip>,
+    theme: &theme::Theme,
+    container: ContainerLayout,
+) -> ViewportGeometry {
+    let visible_frame = intersect_rect(inherited.map(Clip::rect), rect);
+    ViewportGeometry {
+        viewport: reserve_container_gutters(rect, theme, container),
+        visible_frame,
+        visible_content: reserve_container_gutters(visible_frame, theme, container),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Chrome {
     owner: composition::tree::NodeId,
@@ -70,6 +140,7 @@ pub(crate) struct Chrome {
     scroll_target: interaction::Target,
     scope: ViewportScope,
     scrollbar: Scrollbar,
+    presentation: crate::view::ScrollChromePresentation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -127,6 +198,10 @@ impl Chrome {
 
     pub(crate) fn axis(&self) -> Axis {
         self.scrollbar.axis
+    }
+
+    pub(crate) fn presentation(&self) -> crate::view::ScrollChromePresentation {
+        self.presentation
     }
 
     pub(crate) fn maximum_offset(&self) -> i32 {
@@ -203,14 +278,42 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
     let Some(scroll_target) = frame.target().cloned() else {
         return Vec::new();
     };
-    if !viewport.is_scrollable() {
+    let container = frame.scroll_container_layout();
+    if !viewport.is_scrollable()
+        && container.is_none_or(|container| {
+            let axes = container.axes();
+            !axes.horizontal() && !axes.vertical()
+        })
+    {
         return Vec::new();
     }
     let scope = ViewportScope::new(frame, viewport);
+    let presentation = container.map_or_else(
+        || match theme.scrollbar().metrics.policy {
+            theme::ScrollbarPolicy::OverlayAuto => crate::view::ScrollChromePresentation::Overlay,
+            theme::ScrollbarPolicy::GutterAlways => {
+                crate::view::ScrollChromePresentation::Consuming
+            }
+        },
+        ContainerLayout::presentation,
+    );
+    let direction = container.map_or(
+        crate::view::ScrollDirection::LeftToRight,
+        ContainerLayout::direction,
+    );
+    let horizontal = container.map_or_else(
+        || viewport.max_scroll().x() > 0,
+        |container| container.axes().horizontal(),
+    );
+    let vertical = container.map_or_else(
+        || viewport.max_scroll().y() > 0,
+        |container| container.axes().vertical(),
+    );
 
     let mut scrollbars = Vec::new();
-    if viewport.max_scroll().y() > 0
-        && let Some(scrollbar) = scrollbar_for_axis(viewport, theme, Axis::Vertical)
+    if vertical
+        && let Some(scrollbar) =
+            scrollbar_for_axis(viewport, theme, Axis::Vertical, presentation, direction)
     {
         scrollbars.push(Chrome {
             owner: frame.node_id(),
@@ -218,10 +321,12 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
             scroll_target: scroll_target.clone(),
             scope: scope.clone(),
             scrollbar,
+            presentation,
         });
     }
-    if viewport.max_scroll().x() > 0
-        && let Some(scrollbar) = scrollbar_for_axis(viewport, theme, Axis::Horizontal)
+    if horizontal
+        && let Some(scrollbar) =
+            scrollbar_for_axis(viewport, theme, Axis::Horizontal, presentation, direction)
     {
         scrollbars.push(Chrome {
             owner: frame.node_id(),
@@ -229,6 +334,7 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
             scroll_target,
             scope,
             scrollbar,
+            presentation,
         });
     }
 
@@ -263,21 +369,30 @@ fn scrollbar_target(frame: &Frame, axis: Axis) -> interaction::Target {
     )
 }
 
-fn scrollbar_for_axis(viewport: Viewport, theme: &theme::Theme, axis: Axis) -> Option<Scrollbar> {
+fn scrollbar_for_axis(
+    viewport: Viewport,
+    theme: &theme::Theme,
+    axis: Axis,
+    presentation: crate::view::ScrollChromePresentation,
+    direction: crate::view::ScrollDirection,
+) -> Option<Scrollbar> {
     let scrollbar = theme.scrollbar();
-    let thickness = match scrollbar.metrics.policy {
-        theme::ScrollbarPolicy::GutterAlways => scrollbar.metrics.thickness,
-        theme::ScrollbarPolicy::OverlayAuto => scrollbar.appearance.overlay_thickness,
+    let thickness = match presentation {
+        crate::view::ScrollChromePresentation::Consuming => scrollbar.metrics.thickness,
+        crate::view::ScrollChromePresentation::Overlay => scrollbar.appearance.overlay_thickness,
     }
     .max(1);
     let margin = scrollbar.appearance.margin.max(0);
     let bounds = scrollbar_bounds(viewport);
     let track = match axis {
         Axis::Vertical => Rect::new(
-            bounds
-                .right()
-                .saturating_sub(margin)
-                .saturating_sub(thickness),
+            match direction {
+                crate::view::ScrollDirection::LeftToRight => bounds
+                    .right()
+                    .saturating_sub(margin)
+                    .saturating_sub(thickness),
+                crate::view::ScrollDirection::RightToLeft => bounds.x().saturating_add(margin),
+            },
             bounds.y().saturating_add(margin),
             thickness,
             bounds.height().saturating_sub(margin.saturating_mul(2)),
@@ -328,8 +443,11 @@ fn thumb_rect(
     max_offset: i32,
     min_thumb_length: i32,
 ) -> Option<Rect> {
-    if track.width() <= 0 || track.height() <= 0 || content_extent <= viewport_extent {
+    if track.width() <= 0 || track.height() <= 0 {
         return None;
+    }
+    if content_extent <= viewport_extent || max_offset <= 0 {
+        return Some(track);
     }
 
     let track_extent = match axis {
@@ -445,6 +563,27 @@ fn reserve_gutters(rect: Rect, theme: &theme::Theme, axes: Axes) -> Rect {
             .saturating_sub(if axes.vertical { gutter } else { 0 }),
         rect.height()
             .saturating_sub(if axes.horizontal { gutter } else { 0 }),
+    )
+}
+
+fn reserve_container_gutters(rect: Rect, theme: &theme::Theme, container: ContainerLayout) -> Rect {
+    if container.presentation() != crate::view::ScrollChromePresentation::Consuming {
+        return rect;
+    }
+
+    let axes = container.axes();
+    let gutter = theme.scrollbar().metrics.thickness.max(1);
+    let vertical = if axes.vertical() { gutter } else { 0 };
+    let horizontal = if axes.horizontal() { gutter } else { 0 };
+    let x = match container.direction() {
+        crate::view::ScrollDirection::LeftToRight => rect.x(),
+        crate::view::ScrollDirection::RightToLeft => rect.x().saturating_add(vertical),
+    };
+    Rect::new(
+        x,
+        rect.y(),
+        rect.width().saturating_sub(vertical),
+        rect.height().saturating_sub(horizontal),
     )
 }
 

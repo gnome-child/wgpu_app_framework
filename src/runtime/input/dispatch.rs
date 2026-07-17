@@ -300,6 +300,25 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.window_outcome(window, false, transition.effect())
     }
 
+    pub(in crate::runtime) fn apply_scroll_operation(
+        &mut self,
+        window: window::Id,
+        target: interaction::Target,
+        axis: interaction::ScrollbarAxis,
+        operation: interaction::ScrollOperation,
+        reversed: bool,
+        source: interaction::ScrollSource,
+    ) -> Option<input::Outcome> {
+        let current = self
+            .session
+            .interaction(window)
+            .map(|state| state.scroll().desired_offset(&target))?;
+        let offset = self
+            .session
+            .scroll_operation_offset(window, &target, axis, operation, reversed)?;
+        (offset != current).then(|| self.scroll_to_with_source(window, target, offset, source))
+    }
+
     pub(in crate::runtime) fn dispatch_scroll_event(
         &mut self,
         window: window::Id,

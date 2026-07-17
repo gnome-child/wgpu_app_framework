@@ -7,7 +7,7 @@ use super::super::{
     interaction, session,
     state::{self, Store},
     timeline::Timeline,
-    window,
+    view, window,
 };
 use super::Runtime;
 use std::time::Instant;
@@ -32,6 +32,62 @@ impl FinishKind {
 }
 
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
+    #[allow(dead_code)]
+    pub(crate) fn accessible_scroll_axis(
+        &self,
+        window: window::Id,
+        target: &interaction::Target,
+        axis: interaction::ScrollbarAxis,
+    ) -> Option<interaction::AccessibleScrollAxis> {
+        self.session.accessible_scroll_axis(window, target, axis)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn apply_accessible_scroll_action(
+        &mut self,
+        window: window::Id,
+        target: interaction::Target,
+        axis: interaction::ScrollbarAxis,
+        action: interaction::AccessibleScrollAction,
+        value: Option<f64>,
+    ) -> Option<super::super::input::Outcome> {
+        let operation = match action {
+            interaction::AccessibleScrollAction::StepBackward => {
+                interaction::ScrollOperation::StepBackward
+            }
+            interaction::AccessibleScrollAction::StepForward => {
+                interaction::ScrollOperation::StepForward
+            }
+            interaction::AccessibleScrollAction::PageBackward => {
+                interaction::ScrollOperation::PageBackward
+            }
+            interaction::AccessibleScrollAction::PageForward => {
+                interaction::ScrollOperation::PageForward
+            }
+            interaction::AccessibleScrollAction::ToStart => interaction::ScrollOperation::ToStart,
+            interaction::AccessibleScrollAction::ToEnd => interaction::ScrollOperation::ToEnd,
+            interaction::AccessibleScrollAction::SetValue => {
+                interaction::ScrollOperation::SetValue(value?)
+            }
+        };
+        let direction = self
+            .presented_geometry
+            .get(&window)
+            .map_or(view::ScrollDirection::LeftToRight, |geometry| {
+                geometry.layout.scroll_direction_for_target(&target)
+            });
+        let reversed = axis == interaction::ScrollbarAxis::Horizontal
+            && direction == view::ScrollDirection::RightToLeft;
+        self.apply_scroll_operation(
+            window,
+            target,
+            axis,
+            operation,
+            reversed,
+            interaction::ScrollSource::Programmatic,
+        )
+    }
+
     pub fn state(&self) -> &M {
         self.store.model()
     }

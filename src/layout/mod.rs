@@ -1216,6 +1216,58 @@ impl Layout {
         targets
     }
 
+    pub(crate) fn scroll_target_chain_for_focus(
+        &self,
+        focus: session::Focus,
+        axis: interaction::ScrollbarAxis,
+    ) -> Vec<(interaction::Target, view::ScrollDirection)> {
+        let Some(descendant) = self.frame_for_focus(focus) else {
+            return Vec::new();
+        };
+        let mut frames = self
+            .frames
+            .iter()
+            .filter(|frame| {
+                (frame.node_id() == descendant.node_id() || descendant.is_descendant_of(frame))
+                    && frame.target().is_some()
+                    && frame.viewport().is_some_and(|viewport| match axis {
+                        interaction::ScrollbarAxis::Horizontal => viewport.max_scroll().x() > 0,
+                        interaction::ScrollbarAxis::Vertical => viewport.max_scroll().y() > 0,
+                    })
+            })
+            .collect::<Vec<_>>();
+        frames.sort_by_key(|frame| std::cmp::Reverse(frame.path_depth()));
+        let mut targets = Vec::new();
+        for frame in frames {
+            let Some(target) = frame.target() else {
+                continue;
+            };
+            if targets.iter().any(|(current, _)| current == target) {
+                continue;
+            }
+            let direction = frame
+                .scroll_container_layout()
+                .map_or(view::ScrollDirection::LeftToRight, |container| {
+                    container.direction()
+                });
+            targets.push((target.clone(), direction));
+        }
+        targets
+    }
+
+    pub(crate) fn scroll_direction_for_target(
+        &self,
+        target: &interaction::Target,
+    ) -> view::ScrollDirection {
+        self.frames
+            .iter()
+            .find(|frame| frame.target() == Some(target))
+            .and_then(Frame::scroll_container_layout)
+            .map_or(view::ScrollDirection::LeftToRight, |container| {
+                container.direction()
+            })
+    }
+
     #[cfg(any(test, feature = "renderer-debug"))]
     #[allow(dead_code)]
     pub(crate) fn scroll_target_chain_at(&self, point: Point) -> Vec<interaction::Target> {
@@ -1238,46 +1290,103 @@ impl Layout {
         self.native_popup_owners.get(&frame.node_id()).copied()
     }
 
-    pub(crate) fn reveal_offset_for_descendant(
+    pub(crate) fn reveal_offsets_for_descendant_chain(
         &self,
-        viewport_target: &interaction::Target,
+        viewport_target: Option<&interaction::Target>,
         margin: i32,
         mut accepts_descendant: impl FnMut(&Frame) -> bool,
-    ) -> Option<interaction::ScrollOffset> {
-        let mut found = false;
-        let mut resolved = interaction::ScrollOffset::default();
-        for viewport_frame in self
-            .frames
-            .iter()
-            .filter(|frame| frame.target() == Some(viewport_target))
-        {
-            let Some(viewport) = viewport_frame.viewport() else {
-                continue;
-            };
-            let Some(descendant) = self
+    ) -> Vec<(interaction::Target, interaction::ScrollOffset)> {
+        if let Some(viewport_target) = viewport_target {
+            let mut found = false;
+            let mut resolved = interaction::ScrollOffset::default();
+            for viewport_frame in self
                 .frames
                 .iter()
-                .find(|frame| frame.is_descendant_of(viewport_frame) && accepts_descendant(frame))
-            else {
+                .filter(|frame| frame.target() == Some(viewport_target))
+            {
+                let Some(viewport) = viewport_frame.viewport() else {
+                    continue;
+                };
+                let Some(descendant) = self.frames.iter().find(|frame| {
+                    frame.is_descendant_of(viewport_frame) && accepts_descendant(frame)
+                }) else {
+                    continue;
+                };
+                found = true;
+                let candidate = viewport.reveal_rect(descendant.rect(), margin);
+                let maximum = viewport.max_scroll();
+                resolved = interaction::ScrollOffset::new(
+                    if maximum.x() > 0 {
+                        candidate.x()
+                    } else {
+                        resolved.x()
+                    },
+                    if maximum.y() > 0 {
+                        candidate.y()
+                    } else {
+                        resolved.y()
+                    },
+                );
+            }
+            return found
+                .then(|| vec![(viewport_target.clone(), resolved)])
+                .unwrap_or_default();
+        }
+
+        let descendant = self.frames.iter().find(|frame| accepts_descendant(frame));
+        let Some(descendant) = descendant else {
+            return Vec::new();
+        };
+        let mut ancestors = self
+            .frames
+            .iter()
+            .filter(|frame| {
+                frame.viewport().is_some()
+                    && frame.target().is_some()
+                    && frame.scroll_container_layout().is_some()
+                    && (frame.node_id() == descendant.node_id()
+                        || descendant.is_descendant_of(frame))
+            })
+            .collect::<Vec<_>>();
+        ancestors.sort_by_key(|frame| std::cmp::Reverse(frame.path_depth()));
+
+        let mut rect = descendant.rect();
+        let mut targets = Vec::new();
+        for frame in ancestors {
+            let Some(viewport) = frame.viewport() else {
                 continue;
             };
-            found = true;
-            let candidate = viewport.reveal_rect(descendant.rect(), margin);
-            let maximum = viewport.max_scroll();
-            resolved = interaction::ScrollOffset::new(
-                if maximum.x() > 0 {
-                    candidate.x()
-                } else {
-                    resolved.x()
-                },
-                if maximum.y() > 0 {
-                    candidate.y()
-                } else {
-                    resolved.y()
-                },
+            let Some(target) = frame.target() else {
+                continue;
+            };
+            if targets.iter().any(|(current, _)| current == target) {
+                continue;
+            }
+            let current = viewport.resolved_scroll();
+            let offset = viewport.reveal_rect(rect, margin);
+            rect = Rect::new(
+                rect.x()
+                    .saturating_add(current.x().saturating_sub(offset.x())),
+                rect.y()
+                    .saturating_add(current.y().saturating_sub(offset.y())),
+                rect.width(),
+                rect.height(),
             );
+            targets.push((target.clone(), offset));
         }
-        found.then_some(resolved)
+        targets
+    }
+
+    pub(crate) fn reveal_offsets_for_focus(
+        &self,
+        focus: session::Focus,
+        margin: i32,
+    ) -> Vec<(interaction::Target, interaction::ScrollOffset)> {
+        self.reveal_offsets_for_descendant_chain(None, margin, |frame| {
+            frame
+                .target()
+                .is_some_and(|target| focus.matches_target(target))
+        })
     }
 
     #[cfg(test)]

@@ -56,6 +56,32 @@ impl Session {
             .or_else(|| reveal_cleared.then(|| window.interaction.scroll().desired_offset(&target)))
     }
 
+    pub(crate) fn scroll_operation_offset(
+        &self,
+        id: app_window::Id,
+        target: &interaction::Target,
+        axis: interaction::ScrollbarAxis,
+        operation: interaction::ScrollOperation,
+        reversed: bool,
+    ) -> Option<interaction::ScrollOffset> {
+        self.window(id)?
+            .interaction
+            .scroll()
+            .operation_offset(target, axis, operation, reversed)
+    }
+
+    pub(crate) fn accessible_scroll_axis(
+        &self,
+        id: app_window::Id,
+        target: &interaction::Target,
+        axis: interaction::ScrollbarAxis,
+    ) -> Option<interaction::AccessibleScrollAxis> {
+        self.window(id)?
+            .interaction
+            .scroll()
+            .accessible_axis(target, axis)
+    }
+
     pub(crate) fn accept_resident_scroll(
         &mut self,
         id: app_window::Id,

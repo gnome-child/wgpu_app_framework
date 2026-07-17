@@ -478,15 +478,30 @@ fn scroll_intrinsic_width(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> i32 {
-    match node.axis() {
-        Some(view::Axis::Horizontal) => theme.viewport().min_viewport_extent,
-        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
-            stack_intrinsic_width(node, engine, theme, profile)
-        }
+    match node
+        .scroll_container()
+        .map(|container| container.horizontal_sizing)
+    {
+        Some(view::ScrollSizing::Minimum) => theme.viewport().min_viewport_extent,
+        Some(view::ScrollSizing::Natural) => stack_intrinsic_width(node, engine, theme, profile),
+        None => match node.axis() {
+            Some(view::Axis::Horizontal) => theme.viewport().min_viewport_extent,
+            Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
+                stack_intrinsic_width(node, engine, theme, profile)
+            }
+        },
     }
 }
 
 fn scroll_intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
+    if let Some(container) = node.scroll_container() {
+        return match container.vertical_sizing {
+            view::ScrollSizing::Minimum => {
+                capped_height(node, theme.viewport().min_viewport_extent)
+            }
+            view::ScrollSizing::Natural => capped_height(node, stack_intrinsic_height(node, theme)),
+        };
+    }
     match node.axis() {
         Some(view::Axis::Horizontal) => stack_intrinsic_height(node, theme),
         Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None
@@ -508,6 +523,17 @@ fn scroll_intrinsic_height_for_width(
     theme: &theme::Theme,
     profile: keymap::Profile,
 ) -> i32 {
+    if let Some(container) = node.scroll_container() {
+        return match container.vertical_sizing {
+            view::ScrollSizing::Minimum => {
+                capped_height(node, theme.viewport().min_viewport_extent)
+            }
+            view::ScrollSizing::Natural => capped_height(
+                node,
+                stack_intrinsic_height_for_width(node, width, engine, theme, profile),
+            ),
+        };
+    }
     match node.axis() {
         Some(view::Axis::Horizontal) => {
             stack_intrinsic_height_for_width(node, width, engine, theme, profile)
@@ -961,4 +987,61 @@ fn line_height(style: theme::TypeStyle) -> i32 {
 fn has_single_character_label(node: &view::Node) -> bool {
     node.label_text()
         .is_some_and(|label| label.chars().count() == 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scroll_with_sizing(
+        horizontal: view::ScrollSizing,
+        vertical: view::ScrollSizing,
+    ) -> view::Node {
+        let container = view::ScrollContainer::new(
+            view::ScrollAxisPolicy::Automatic,
+            view::ScrollAxisPolicy::Automatic,
+            view::ScrollChromePresentation::Overlay,
+            horizontal,
+            vertical,
+            view::ScrollDirection::LeftToRight,
+        );
+        let mut scroll = view::Node::scroll().with_scroll_container(container);
+        for index in 0..10 {
+            scroll = scroll.child(view::Node::label(format!(
+                "A deliberately long eager viewport row number {index}"
+            )));
+        }
+        scroll
+    }
+
+    #[test]
+    fn eager_scroll_sizing_selects_minimum_or_natural_extent_independently() {
+        let minimum = scroll_with_sizing(view::ScrollSizing::Minimum, view::ScrollSizing::Minimum);
+        let natural = scroll_with_sizing(view::ScrollSizing::Natural, view::ScrollSizing::Natural);
+        let theme = theme::Theme::dark();
+        let mut engine = engine::Engine::new();
+        let profile = keymap::Profile::default();
+
+        let minimum_width = scroll_intrinsic_width(&minimum, &mut engine, &theme, profile);
+        let natural_width = scroll_intrinsic_width(&natural, &mut engine, &theme, profile);
+        let minimum_height = scroll_intrinsic_height_for_width(
+            &minimum,
+            natural_width,
+            &mut engine,
+            &theme,
+            profile,
+        );
+        let natural_height = scroll_intrinsic_height_for_width(
+            &natural,
+            natural_width,
+            &mut engine,
+            &theme,
+            profile,
+        );
+
+        assert_eq!(minimum_width, theme.viewport().min_viewport_extent);
+        assert!(natural_width > minimum_width);
+        assert_eq!(minimum_height, theme.viewport().min_viewport_extent);
+        assert!(natural_height > minimum_height);
+    }
 }

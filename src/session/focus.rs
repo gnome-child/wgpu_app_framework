@@ -161,6 +161,9 @@ impl Session {
         } else {
             window.interaction.clear_text_preedit()
         };
+        if changed {
+            window.focus_reveal_pending = focus.is_visible();
+        }
         window.focus = Some(focus);
         changed || input_changed
     }
@@ -172,6 +175,7 @@ impl Session {
         let changed = window.focus.is_some();
         let input_changed = window.interaction.clear_text_preedit();
         window.focus = None;
+        window.focus_reveal_pending = false;
         changed || input_changed
     }
 
@@ -181,5 +185,16 @@ impl Session {
 
     pub(crate) fn command_focus(&self, id: app_window::Id) -> Option<Focus> {
         self.window(id).and_then(Window::command_focus)
+    }
+
+    pub(crate) fn focus_reveal_pending(&self, id: app_window::Id) -> bool {
+        self.window(id)
+            .is_some_and(|window| window.focus_reveal_pending)
+    }
+
+    pub(crate) fn complete_focus_reveal(&mut self, id: app_window::Id) {
+        if let Some(window) = self.window_mut(id) {
+            window.focus_reveal_pending = false;
+        }
     }
 }

@@ -34,6 +34,9 @@ pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub(crate) use hint::{Hint, Tone};
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
 pub(crate) use node::{PanelAttachment, PanelPolicy, Participation, ProvidedRow, Role, TablePart};
+pub(crate) use node::{
+    ScrollAxisPolicy, ScrollChromePresentation, ScrollContainer, ScrollDirection, ScrollSizing,
+};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};

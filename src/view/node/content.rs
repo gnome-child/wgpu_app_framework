@@ -48,11 +48,69 @@ pub(crate) enum MenuBar {
 pub(crate) enum Scroll {
     Ordinary {
         offset: interaction::ScrollOffset,
+        container: Option<ScrollContainer>,
     },
     Table {
         model: table::Model,
         offset: interaction::ScrollOffset,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum ScrollAxisPolicy {
+    Always,
+    Automatic,
+    Never,
+    External,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollChromePresentation {
+    Overlay,
+    Consuming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollSizing {
+    Minimum,
+    Natural,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollDirection {
+    LeftToRight,
+    RightToLeft,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScrollContainer {
+    pub(crate) horizontal_policy: ScrollAxisPolicy,
+    pub(crate) vertical_policy: ScrollAxisPolicy,
+    pub(crate) chrome: ScrollChromePresentation,
+    pub(crate) horizontal_sizing: ScrollSizing,
+    pub(crate) vertical_sizing: ScrollSizing,
+    pub(crate) direction: ScrollDirection,
+}
+
+impl ScrollContainer {
+    pub(crate) const fn new(
+        horizontal_policy: ScrollAxisPolicy,
+        vertical_policy: ScrollAxisPolicy,
+        chrome: ScrollChromePresentation,
+        horizontal_sizing: ScrollSizing,
+        vertical_sizing: ScrollSizing,
+        direction: ScrollDirection,
+    ) -> Self {
+        Self {
+            horizontal_policy,
+            vertical_policy,
+            chrome,
+            horizontal_sizing,
+            vertical_sizing,
+            direction,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -86,7 +144,14 @@ impl Content {
             (Self::TextBox { model: left, .. }, Self::TextBox { model: right, .. }) => {
                 left.same_scene_state(right)
             }
-            (Self::Scroll(Scroll::Ordinary { .. }), Self::Scroll(Scroll::Ordinary { .. })) => true,
+            (
+                Self::Scroll(Scroll::Ordinary {
+                    container: left, ..
+                }),
+                Self::Scroll(Scroll::Ordinary {
+                    container: right, ..
+                }),
+            ) => left == right,
             (
                 Self::Scroll(Scroll::Table { model: left, .. }),
                 Self::Scroll(Scroll::Table { model: right, .. }),
@@ -155,15 +220,30 @@ impl Content {
 
     pub(super) fn scroll_offset(&self) -> interaction::ScrollOffset {
         match self {
-            Self::Scroll(Scroll::Ordinary { offset } | Scroll::Table { offset, .. })
+            Self::Scroll(Scroll::Ordinary { offset, .. } | Scroll::Table { offset, .. })
             | Self::VirtualList { offset, .. } => *offset,
             _ => interaction::ScrollOffset::default(),
         }
     }
 
+    pub(super) fn scroll_container(&self) -> Option<ScrollContainer> {
+        match self {
+            Self::Scroll(Scroll::Ordinary { container, .. }) => *container,
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn set_scroll_container(&mut self, value: ScrollContainer) {
+        match self {
+            Self::Scroll(Scroll::Ordinary { container, .. }) => *container = Some(value),
+            _ => panic!("only an ordinary Scroll accepts container policy"),
+        }
+    }
+
     pub(super) fn set_scroll_offset(&mut self, value: interaction::ScrollOffset) {
         match self {
-            Self::Scroll(Scroll::Ordinary { offset } | Scroll::Table { offset, .. })
+            Self::Scroll(Scroll::Ordinary { offset, .. } | Scroll::Table { offset, .. })
             | Self::VirtualList { offset, .. } => *offset = value,
             _ => debug_assert_eq!(value, interaction::ScrollOffset::default()),
         }
@@ -275,9 +355,11 @@ mod tests {
     fn scroll_value_is_not_scene_content_state() {
         let first = Content::Scroll(Scroll::Ordinary {
             offset: interaction::ScrollOffset::new(0, 0),
+            container: None,
         });
         let second = Content::Scroll(Scroll::Ordinary {
             offset: interaction::ScrollOffset::new(20, 40),
+            container: None,
         });
 
         assert!(first.same_scene_state(&second));

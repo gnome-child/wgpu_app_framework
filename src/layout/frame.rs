@@ -129,8 +129,13 @@ struct SliderContent {
 
 #[derive(Clone)]
 enum ScrollContent {
-    Ordinary { viewport: Option<Viewport> },
-    Table { resolved: Option<TableScroll> },
+    Ordinary {
+        viewport: Option<Viewport>,
+        container: Option<super::chrome::ContainerLayout>,
+    },
+    Table {
+        resolved: Option<TableScroll>,
+    },
 }
 
 #[derive(Clone)]
@@ -443,7 +448,10 @@ impl Frame {
             node::Content::Scroll(node::Scroll::Ordinary { .. }) => {
                 let (label, _) = frame_label(node, rect, None, engine, theme);
                 (
-                    FrameContent::Scroll(ScrollContent::Ordinary { viewport: None }),
+                    FrameContent::Scroll(ScrollContent::Ordinary {
+                        viewport: None,
+                        container: None,
+                    }),
                     label,
                     rect,
                 )
@@ -570,10 +578,18 @@ impl Frame {
         }
     }
 
-    pub(super) fn with_viewport(mut self, viewport: Viewport) -> Self {
+    pub(super) fn with_viewport(
+        mut self,
+        viewport: Viewport,
+        container: super::chrome::ContainerLayout,
+    ) -> Self {
         match &mut self.content {
-            FrameContent::Scroll(ScrollContent::Ordinary { viewport: current }) => {
+            FrameContent::Scroll(ScrollContent::Ordinary {
+                viewport: current,
+                container: current_container,
+            }) => {
                 *current = Some(viewport);
+                *current_container = Some(container);
             }
             _ => panic!("only ordinary Scroll frame content accepts a viewport"),
         }
@@ -924,7 +940,7 @@ impl Frame {
             FrameContent::Text(
                 TextContent::Area { layout, .. } | TextContent::InactiveField { layout, .. },
             ) => Some(layout.viewport()),
-            FrameContent::Scroll(ScrollContent::Ordinary { viewport }) => *viewport,
+            FrameContent::Scroll(ScrollContent::Ordinary { viewport, .. }) => *viewport,
             FrameContent::Scroll(ScrollContent::Table { resolved }) => {
                 resolved.as_ref().map(|resolved| resolved.viewport)
             }
@@ -935,12 +951,19 @@ impl Frame {
         }
     }
 
+    pub(crate) fn scroll_container_layout(&self) -> Option<super::chrome::ContainerLayout> {
+        match &self.content {
+            FrameContent::Scroll(ScrollContent::Ordinary { container, .. }) => *container,
+            _ => None,
+        }
+    }
+
     pub(crate) fn property_scroll_viewport(&self) -> Option<Viewport> {
         match &self.content {
             FrameContent::Text(
                 TextContent::Area { layout, .. } | TextContent::InactiveField { layout, .. },
             ) => Some(layout.viewport()),
-            FrameContent::Scroll(ScrollContent::Ordinary { viewport }) => *viewport,
+            FrameContent::Scroll(ScrollContent::Ordinary { viewport, .. }) => *viewport,
             FrameContent::Scroll(ScrollContent::Table { resolved }) => {
                 resolved.as_ref().map(|resolved| resolved.viewport)
             }

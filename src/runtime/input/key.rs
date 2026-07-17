@@ -94,6 +94,16 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return self.handle_text_commit(window, text);
         }
 
+        if self
+            .session
+            .focused(window)
+            .and_then(session::Focus::text_target)
+            .is_none()
+            && let Some(outcome) = self.handle_scroll_container_key(window, key, modifiers)
+        {
+            return Ok(outcome);
+        }
+
         let Some(operation) = self.keymap.text_operation_for_key(key, modifiers) else {
             return Ok(input::Outcome::ignored());
         };
@@ -106,6 +116,73 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.handle_text_edit(window, edit, command_context::Source::Keyboard)
             }
         }
+    }
+
+    fn handle_scroll_container_key(
+        &mut self,
+        window: window::Id,
+        key: input::Key,
+        modifiers: input::Modifiers,
+    ) -> Option<input::Outcome> {
+        if modifiers.shift() || modifiers.control() || modifiers.alt() || modifiers.super_key() {
+            return None;
+        }
+        let (axis, intent) = match key {
+            input::Key::ArrowLeft => (
+                crate::interaction::ScrollbarAxis::Horizontal,
+                KeyboardScrollIntent::PhysicalBackward,
+            ),
+            input::Key::ArrowRight => (
+                crate::interaction::ScrollbarAxis::Horizontal,
+                KeyboardScrollIntent::PhysicalForward,
+            ),
+            input::Key::ArrowUp => (
+                crate::interaction::ScrollbarAxis::Vertical,
+                KeyboardScrollIntent::StepBackward,
+            ),
+            input::Key::ArrowDown => (
+                crate::interaction::ScrollbarAxis::Vertical,
+                KeyboardScrollIntent::StepForward,
+            ),
+            input::Key::PageUp => (
+                crate::interaction::ScrollbarAxis::Vertical,
+                KeyboardScrollIntent::PageBackward,
+            ),
+            input::Key::PageDown => (
+                crate::interaction::ScrollbarAxis::Vertical,
+                KeyboardScrollIntent::PageForward,
+            ),
+            input::Key::Home => (
+                crate::interaction::ScrollbarAxis::Vertical,
+                KeyboardScrollIntent::ToStart,
+            ),
+            input::Key::End => (
+                crate::interaction::ScrollbarAxis::Vertical,
+                KeyboardScrollIntent::ToEnd,
+            ),
+            _ => return None,
+        };
+        let focus = self.session.focused(window)?;
+        let targets = self
+            .presented_geometry
+            .get(&window)?
+            .scroll_target_chain_for_focus(focus, axis);
+        for (target, direction) in targets {
+            let reversed = axis == crate::interaction::ScrollbarAxis::Horizontal
+                && direction == view::ScrollDirection::RightToLeft;
+            let operation = intent.operation(reversed);
+            if let Some(outcome) = self.apply_scroll_operation(
+                window,
+                target,
+                axis,
+                operation,
+                reversed,
+                crate::interaction::ScrollSource::Keyboard,
+            ) {
+                return Some(outcome);
+            }
+        }
+        None
     }
 
     pub(in crate::runtime::input) fn handle_tab_focus(
@@ -147,5 +224,36 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         };
 
         self.handle_view(window, action).map(Some)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyboardScrollIntent {
+    PhysicalBackward,
+    PhysicalForward,
+    StepBackward,
+    StepForward,
+    PageBackward,
+    PageForward,
+    ToStart,
+    ToEnd,
+}
+
+impl KeyboardScrollIntent {
+    fn operation(self, reversed: bool) -> crate::interaction::ScrollOperation {
+        use crate::interaction::ScrollOperation;
+
+        match self {
+            Self::PhysicalBackward if reversed => ScrollOperation::StepForward,
+            Self::PhysicalBackward => ScrollOperation::StepBackward,
+            Self::PhysicalForward if reversed => ScrollOperation::StepBackward,
+            Self::PhysicalForward => ScrollOperation::StepForward,
+            Self::StepBackward => ScrollOperation::StepBackward,
+            Self::StepForward => ScrollOperation::StepForward,
+            Self::PageBackward => ScrollOperation::PageBackward,
+            Self::PageForward => ScrollOperation::PageForward,
+            Self::ToStart => ScrollOperation::ToStart,
+            Self::ToEnd => ScrollOperation::ToEnd,
+        }
     }
 }

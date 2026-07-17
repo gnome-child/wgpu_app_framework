@@ -12,6 +12,7 @@ pub struct Window {
     presentation: PresentationState,
     cursor: Cursor,
     pub(super) focus: Option<Focus>,
+    pub(super) focus_reveal_pending: bool,
     pub(super) menu_restore_focus: Option<Focus>,
     pub(super) file_dialog: Option<FileDialog>,
     pub(super) feedback: feedback::Stack,
@@ -54,6 +55,7 @@ impl Window {
             presentation: PresentationState::initial(),
             cursor: Cursor::default(),
             focus: None,
+            focus_reveal_pending: false,
             menu_restore_focus: None,
             file_dialog: None,
             feedback: feedback::Stack::default(),
@@ -65,6 +67,7 @@ impl Window {
         let mut interaction = interaction::Interaction::new(draft_limit);
         interaction.selections_mut().restore(snapshot.selections);
         interaction.tables_mut().restore(snapshot.tables);
+        let focus_reveal_pending = snapshot.focus.is_some_and(Focus::is_visible);
         Self {
             facts: snapshot.facts,
             invalidation: Some(response::effect::Invalidation::Rebuild),
@@ -73,6 +76,7 @@ impl Window {
             presentation: PresentationState::initial(),
             cursor: Cursor::default(),
             focus: snapshot.focus,
+            focus_reveal_pending,
             menu_restore_focus: None,
             file_dialog: None,
             feedback: feedback::Stack::default(),

@@ -213,12 +213,15 @@ impl Animations {
             let (desired_opacity, fade_deadline) = self.scrollbar_opacity_target(
                 &scroll_key,
                 is_hovered || is_pressed,
+                chrome.presentation(),
                 pass.theme,
                 pass.now,
             );
-            let base_thickness = match pass.theme.scrollbar().metrics.policy {
-                theme::ScrollbarPolicy::GutterAlways => pass.theme.scrollbar().metrics.thickness,
-                theme::ScrollbarPolicy::OverlayAuto => {
+            let base_thickness = match chrome.presentation() {
+                view::ScrollChromePresentation::Consuming => {
+                    pass.theme.scrollbar().metrics.thickness
+                }
+                view::ScrollChromePresentation::Overlay => {
                     pass.theme.scrollbar().appearance.overlay_thickness
                 }
             }
@@ -241,7 +244,7 @@ impl Animations {
                         property: Property::ScrollbarOpacity,
                     },
                     desired: desired_opacity,
-                    base: idle_opacity_for(pass.theme),
+                    base: idle_opacity_for(chrome.presentation()),
                     duration: Duration::from_millis(
                         pass.theme.scrollbar().appearance.fade_duration_ms,
                     ),
@@ -335,10 +338,11 @@ impl Animations {
         &self,
         key: &ScrollKey,
         pointer_active: bool,
+        presentation: view::ScrollChromePresentation,
         theme: &theme::Theme,
         now: Instant,
     ) -> (f32, Option<Instant>) {
-        if theme.scrollbar().metrics.policy == theme::ScrollbarPolicy::GutterAlways {
+        if presentation == view::ScrollChromePresentation::Consuming {
             return (1.0, None);
         }
         let Some(last_activity) = self.scrollbar_activity.get(key).copied() else {
@@ -506,9 +510,9 @@ struct ScrollKey {
     target: interaction::Target,
 }
 
-fn idle_opacity_for(theme: &theme::Theme) -> f32 {
-    match theme.scrollbar().metrics.policy {
-        theme::ScrollbarPolicy::OverlayAuto => 0.0,
-        theme::ScrollbarPolicy::GutterAlways => 1.0,
+fn idle_opacity_for(presentation: view::ScrollChromePresentation) -> f32 {
+    match presentation {
+        view::ScrollChromePresentation::Overlay => 0.0,
+        view::ScrollChromePresentation::Consuming => 1.0,
     }
 }

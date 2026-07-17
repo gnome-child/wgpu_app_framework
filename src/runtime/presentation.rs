@@ -491,33 +491,82 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let mut needs_recompose = false;
 
         for target in requests {
+            let offsets = active_descendant_reveal_offsets(
+                layout,
+                &target,
+                self.session.command_palette_selected(window),
+                theme.viewport().reveal_margin,
+            );
+            if offsets.is_empty() {
+                self.session.clear_scroll_reveal(window, &target);
+                continue;
+            }
+            needs_recompose |= self.apply_reveal_offsets(window, layout, offsets);
+        }
+
+        needs_recompose
+    }
+
+    pub(super) fn apply_focus_reveal(
+        &mut self,
+        window: window::Id,
+        layout: &layout::Layout,
+        theme: &crate::theme::Theme,
+    ) -> bool {
+        if !self.session.focus_reveal_pending(window) {
+            return false;
+        }
+        let Some(focus) = self
+            .session
+            .focused(window)
+            .filter(|focus| focus.is_visible())
+        else {
+            self.session.complete_focus_reveal(window);
+            return false;
+        };
+        if layout.frame_for_focus(focus).is_none() {
+            return false;
+        }
+        let offsets = layout.reveal_offsets_for_focus(focus, theme.viewport().reveal_margin);
+        let changed = self.apply_reveal_offsets(window, layout, offsets);
+        self.session.complete_focus_reveal(window);
+        changed
+    }
+
+    fn apply_reveal_offsets(
+        &mut self,
+        window: window::Id,
+        layout: &layout::Layout,
+        offsets: Vec<(interaction::Target, interaction::ScrollOffset)>,
+    ) -> bool {
+        let mut changed_any = false;
+        for (target, offset) in offsets {
             let current = self
                 .session
                 .interaction(window)
                 .map(|interaction| interaction.scroll().desired_offset(&target))
                 .unwrap_or_default();
-            let Some(offset) = active_descendant_reveal_offset(
-                layout,
-                &target,
-                self.session.command_palette_selected(window),
-                theme.viewport().reveal_margin,
-            ) else {
-                self.session.clear_scroll_reveal(window, &target);
-                continue;
-            };
-
             let changed = current != offset;
             let residency_demand = changed
                 .then(|| layout.residency_demand(&target, offset))
                 .flatten();
-            needs_recompose |= changed;
+            if changed {
+                self.session.handle_scroll_session(
+                    window,
+                    &target,
+                    interaction::ScrollEvent::new(
+                        interaction::ScrollSource::Reveal,
+                        interaction::ScrollUnit::Pixel,
+                        std::time::Instant::now(),
+                        interaction::ScrollPhase::Update,
+                        interaction::ScrollDelta::default(),
+                    ),
+                );
+            }
+            changed_any |= changed;
             if self
                 .session
-                .request_scroll(
-                    window,
-                    target.clone(),
-                    interaction::ScrollUpdate::Geometry(offset),
-                )
+                .request_scroll(window, target, interaction::ScrollUpdate::Geometry(offset))
                 .is_some()
             {
                 if let Some(demand) = residency_demand {
@@ -526,8 +575,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
             }
         }
-
-        needs_recompose
+        changed_any
     }
 
     pub(super) fn view_context(&self, window: window::Id) -> view::Context {
@@ -822,7 +870,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 continue;
             }
 
-            if self.apply_active_descendant_reveals(window, &layout, theme) {
+            if self.apply_active_descendant_reveals(window, &layout, theme)
+                | self.apply_focus_reveal(window, &layout, theme)
+            {
                 if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
                     log::warn!(
                         "virtual reveal did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
@@ -925,7 +975,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if invalidation == response::effect::Invalidation::Paint
             && let Some(layout) = self.cached_layout(window, size, theme, popup_surfaces)
         {
-            if self.apply_active_descendant_reveals(window, &layout, theme) {
+            if self.apply_active_descendant_reveals(window, &layout, theme)
+                | self.apply_focus_reveal(window, &layout, theme)
+            {
                 log::debug!(
                     "paint-only scene render for window {:?} promoted to layout by reveal feedback",
                     window
@@ -1765,17 +1817,17 @@ fn ime_projection_for_layers(
     ime::Projection::new(parent, target)
 }
 
-fn active_descendant_reveal_offset(
+fn active_descendant_reveal_offsets(
     layout: &layout::Layout,
     target: &interaction::Target,
     selected_palette_index: Option<usize>,
     margin: i32,
-) -> Option<interaction::ScrollOffset> {
+) -> Vec<(interaction::Target, interaction::ScrollOffset)> {
     let palette_results_target = interaction::CommandPalette::results_target();
     let table_scroll = layout.is_table_scroll_target(target);
     let mut palette_row = 0_usize;
 
-    layout.reveal_offset_for_descendant(target, margin, |frame| {
+    layout.reveal_offsets_for_descendant_chain(Some(target), margin, |frame| {
         if target == &palette_results_target {
             if !frame.is_palette_row() {
                 return false;

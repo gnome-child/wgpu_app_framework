@@ -14,6 +14,9 @@ impl Session {
         let opened = window.interaction.open_command_palette(captured_focus);
         let focus = interaction::CommandPalette::query_focus();
         let focus_changed = window.focus != Some(focus);
+        if focus_changed {
+            window.focus_reveal_pending = focus.is_visible();
+        }
         window.focus = Some(focus);
 
         closed_menu || opened || focus_changed
@@ -30,6 +33,10 @@ impl Session {
         let closed = window.interaction.close_command_palette();
         let restore_focus = palette.captured_focus();
         let focus_changed = window.focus != restore_focus;
+        if focus_changed {
+            window.focus_reveal_pending =
+                restore_focus.is_some_and(super::super::Focus::is_visible);
+        }
         window.focus = restore_focus;
 
         closed || focus_changed
@@ -188,6 +195,7 @@ fn dismiss_command_palette_for_surface(window: &mut Window, inside_surface: bool
     let closed = window.interaction.close_command_palette();
     if closed {
         window.focus = None;
+        window.focus_reveal_pending = false;
     }
     closed
 }

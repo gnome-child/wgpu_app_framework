@@ -143,6 +143,14 @@ impl PresentedGeometry {
                     .map(|(point, _)| point)
             })
     }
+
+    fn scroll_target_chain_for_focus(
+        &self,
+        focus: session::Focus,
+        axis: interaction::ScrollbarAxis,
+    ) -> Vec<(interaction::Target, view::ScrollDirection)> {
+        self.layout.scroll_target_chain_for_focus(focus, axis)
+    }
 }
 
 type VirtualMaterializations =

@@ -13,7 +13,10 @@ pub(crate) mod standard_menu;
 mod traversal;
 
 pub use axis::Axis;
-pub(crate) use content::{Content, MenuBar, Panel, Scroll};
+pub(crate) use content::{
+    Content, MenuBar, Panel, Scroll, ScrollAxisPolicy, ScrollChromePresentation, ScrollContainer,
+    ScrollDirection, ScrollSizing,
+};
 pub(crate) use role::Role;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

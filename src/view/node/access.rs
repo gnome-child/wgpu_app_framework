@@ -144,6 +144,10 @@ impl Node {
         self.content.scroll_offset()
     }
 
+    pub(crate) fn scroll_container(&self) -> Option<super::ScrollContainer> {
+        self.content.scroll_container()
+    }
+
     pub(crate) fn virtual_list_model(&self) -> Option<&crate::virtual_list::Model> {
         self.content.virtual_list()
     }
@@ -218,6 +222,11 @@ impl Node {
 
     pub(super) fn set_scroll_offset(&mut self, offset: interaction::ScrollOffset) {
         self.content.set_scroll_offset(offset);
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn set_scroll_container(&mut self, container: super::ScrollContainer) {
+        self.content.set_scroll_container(container);
     }
 
     pub(super) fn standard_menu_extensions(&self) -> Option<&[super::standard_menu::Extension]> {
