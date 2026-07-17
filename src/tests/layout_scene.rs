@@ -9225,7 +9225,11 @@ fn text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic
     let boundary = app
         .scroll_at(window, size, point, interaction::ScrollDelta::horizontal(1))
         .expect("movement beyond the text runway should be handled");
-    assert_eq!(boundary.effect(), &response::Effect::Rebuild);
+    assert_eq!(
+        boundary.effect(),
+        &response::Effect::None,
+        "private residency scheduling must not masquerade as a semantic rebuild effect"
+    );
     let pending = app
         .session()
         .interaction(window)

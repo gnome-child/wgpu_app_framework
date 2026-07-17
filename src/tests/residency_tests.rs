@@ -1135,6 +1135,12 @@ fn run_fast_residency_burst_with_pre_realization_coalescing(payload: Payload) {
         .expect("initial payload residency should prepare");
     let initial = snapshot(&initial_presentation);
     drop(initial_presentation);
+    let view_rebuilds_before = fixture
+        .app
+        .diagnostics(window)
+        .expect("initial residency diagnostics")
+        .frame
+        .view_rebuilds;
 
     let first = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
     fixture
@@ -1214,6 +1220,16 @@ fn run_fast_residency_burst_with_pre_realization_coalescing(payload: Payload) {
     assert_eq!(scroll.scroll_residency_candidates_coalesced, 12);
     assert_eq!(scroll.scroll_residency_candidates_selected, 2);
     assert_eq!(scroll.scroll_residency_follow_ups, 1);
+    assert_eq!(
+        fixture
+            .app
+            .diagnostics(window)
+            .expect("completed residency diagnostics")
+            .frame
+            .view_rebuilds,
+        view_rebuilds_before,
+        "selected residency fronts and their latest-intent continuation must rematerialize the installed native view without rebuilding the application view",
+    );
 }
 
 #[test]
@@ -1363,6 +1379,82 @@ fn virtual_materialization_request_cannot_false_converge_a_stale_composition() {
             "layout refinement must detect that requested materialization has not entered the composition and rebuild it",
         );
     assert!(layout.scene_residency_is_complete());
+}
+
+#[test]
+fn required_residency_is_not_stranded_behind_stale_row_click_layout() {
+    let mut fixture = fixture(Payload::Table);
+    let window = fixture.app.session().windows()[0].id();
+    let size = logical_size(1_000);
+    let initial_presentation = fixture
+        .app
+        .show_scene(window, size)
+        .expect("initial table residency should prepare");
+    let initial = snapshot(&initial_presentation);
+    let cell = initial_presentation
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell().is_some() && frame.rect().width() > 8)
+        .expect("the presented table must expose a clickable cell")
+        .rect();
+    let presented_point = geometry::Point::new(
+        cell.x().saturating_add(4),
+        cell.y().saturating_add(cell.height().saturating_div(2)),
+    );
+    drop(initial_presentation);
+    let view_rebuilds_before = fixture
+        .app
+        .diagnostics(window)
+        .expect("initial table diagnostics")
+        .frame
+        .view_rebuilds;
+    let requested = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
+
+    fixture
+        .app
+        .handle_input(window, Input::scroll_to(initial.target.clone(), requested))
+        .expect("the hard-edge request should schedule required residency");
+    fixture
+        .app
+        .pointer_down_at(window, size, presented_point)
+        .expect("the stale presented row should remain interactive");
+    let candidate = fixture
+        .app
+        .render_scene(window, size)
+        .expect("required residency must outrank the stale row's layout invalidation");
+    let candidate_snapshot = snapshot(&candidate);
+
+    assert_eq!(
+        candidate.residency_urgency(),
+        Some(scene::ResidencyUrgency::Required)
+    );
+    assert!(candidate_snapshot.residency.accepts(requested));
+    assert_eq!(
+        candidate_snapshot
+            .properties
+            .scroll_offset(candidate_snapshot.node),
+        Some(requested)
+    );
+    assert_eq!(
+        fixture
+            .app
+            .session()
+            .window(window)
+            .and_then(crate::session::Window::invalidation),
+        Some(crate::response::effect::Invalidation::Layout),
+        "the required residency front may advance first, but it must preserve the independent row-click layout work"
+    );
+    assert_eq!(
+        fixture
+            .app
+            .diagnostics(window)
+            .expect("required residency diagnostics")
+            .frame
+            .view_rebuilds,
+        view_rebuilds_before,
+        "a stale-row click may not be the mechanism that rebuilds the application view to advance virtual coverage",
+    );
 }
 
 #[test]

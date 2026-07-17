@@ -507,9 +507,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 );
                 self.session.set_cursor(window, resolved.cursor());
             }
-            if !refreshes_active
-                && invalidation == super::super::response::effect::Invalidation::Rebuild
-            {
+            if !refreshes_active {
                 self.complete_residency_candidate(window, epoch);
             }
         } else if !refreshes_active {
@@ -524,6 +522,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .session
                 .window(window)
                 .is_some_and(session::Window::redraw_requested)
+            || self
+                .residency_schedules
+                .get(&window)
+                .copied()
+                .is_some_and(super::ResidencySchedule::candidate_requested)
     }
 
     pub(crate) fn presented_ime_update(

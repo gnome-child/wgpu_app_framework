@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-006 RE-CENSUS — LIST MODEL/FACTORY CONNECTED**
+Status: **SE-007 RE-CENSUS — PRIVATE RESIDENCY/PRESENTATION CONNECTED**
 
 Date: 2026-07-17
 
@@ -40,8 +40,8 @@ around the scrolling-engine rewrite.
 | Virtual-list measurements and variable-height region | `src/virtual_list.rs::Measurements`, `src/virtual_list/variable.rs` | list layout and correction | Native list/list model. Preserve anchored correction; separate membership identity from recycled slot identity. |
 | Table row/provider realization and cell layout | `src/table.rs`, `src/layout/table.rs`, `src/runtime/services/table.rs` | native table presentation | Native view. It shares container/adjustment behavior but keeps table-owned domain layout. |
 | Candidate spatial ancestry and property values | `src/scene/spatial.rs::SpatialTopology`, `src/scene/commit.rs::Properties` | renderer and submitted snapshot | Residency/presentation private projection. Not public scroll content. |
-| Desired coverage, candidate selection, runway, coalescing, follow-ups | `src/runtime/presentation.rs`, `src/scene/residency.rs`, `src/platform/native/surface.rs` | native preparation and diagnostics | Residency/presentation. Preserve selected-front and latest-intent invariants. |
-| Requested/present-submitted epoch and property serial | `src/session/window.rs::PresentationState` | runtime admission and geometry installation | Residency/presentation submission clock. |
+| Desired coverage, candidate selection, runway, coalescing, follow-ups | `src/runtime/presentation.rs`, `src/scene/residency.rs`, `src/platform/native/surface.rs` | native preparation and diagnostics | Connected private residency/presentation. Required coverage has a dedicated frame need ahead of ordinary layout/paint/property traffic; proactive coverage yields. Selected fronts retire by matching epoch and author at most one newest-intent continuation. |
+| Requested/present-submitted epoch and property serial | `src/session/window.rs::PresentationState` | runtime admission and geometry installation | Connected residency/presentation submission clock. A private residency request can advance this clock without manufacturing semantic invalidation. |
 | Installed submitted geometry/offset snapshot | `src/runtime/access.rs`, `src/scene/spatial.rs::SpatialSnapshot` | hit testing, routing, IME, chrome | Residency/presentation atomic snapshot; exact horizontal/vertical fixed-point values are merged by typed axis at successful submission. |
 | Installed GPU property generation | `src/render/retained.rs` property slots | sparse property preparation | Residency/presentation renderer adapter. |
 | Surface acquire/submit/present-call receipts | `src/render/surface.rs` | runtime reports and diagnostics | Residency/presentation hardware boundary; no scanout claim. |
@@ -53,8 +53,9 @@ gaps rather than assigned phantom owners: a platform accessibility adapter
 remains absent. Ordinary eager `Scroll`, native text, and native virtual-list
 frames prove one private container contract while retaining three distinct
 layout implementations. Observable list mutation and factory slot lifecycle are
-now connected beneath list ownership; SE-007 owns the next private
-residency/presentation slice.
+connected beneath list ownership. Private residency scheduling and installed-
+view rematerialization are also connected; SE-008 owns the next public naming
+boundary.
 
 ## 2. Production entrance census
 
@@ -377,7 +378,43 @@ ignores, and two example tests. All 18 Python checks passed. The frozen release
 table-scroll smoke retained 528 property bytes, zero content work or GPU-resource
 churn, and one plan reuse.
 
-## 11. Repeatable census commands
+## 11. SE-007 delta
+
+`src/runtime/presentation.rs` now distinguishes private residency demand from
+semantic rebuild, layout, paint, and property demand. Required residency is
+selected before ordinary layout/paint/property work, while proactive residency
+is selected afterward. `src/session/window.rs` can advance the presentation
+epoch for a newly scheduled front without setting public response invalidation.
+An independent invalidation displaced by a required front is retried after the
+residency frame instead of being swallowed.
+
+Residency-only projection clones the installed composition view and refreshes
+pins, materializations, measurements, selections, table-cell state, and input
+feedback. It reconciles and installs that prepared view without invoking the
+application view closure. Generic semantic/layout refinement still uses the
+full application projection, preserving command and control behavior. Successful
+submission attempts epoch-matched front retirement independently of the public
+invalidation kind, and platform continuation also observes a queued private
+candidate directly.
+
+The deterministic fast-burst witness proves one selected front plus exactly one
+latest-intent continuation across text, table, and virtual-list payloads with
+zero application-view rebuilds. The stale-row-click witness proves required
+coverage cannot be stranded behind ordinary layout work and that the displaced
+click invalidation survives. Native release receipts recorded in the campaign
+show exact direct-schedule-plus-follow-up accounting and no recurrence of the
+approximately 22-row frozen resident window. They also retain substantial
+chug/chop, full resident-window scene work, and refresh-budget misses as explicit
+SE-009 performance failures rather than treating liveness as performance closure.
+
+The boundary census found 381 entrance, 1,215 scroll-state/session, 2,021
+routing/container, 104 presentation-clock, and 1,081 list/lifecycle source hits.
+The small entrance/scroll deltas are witnesses and private scheduling uses, not
+new state owners. Inspection found no new public forbidden-name candidate; the
+two broad hits remain the unrelated file-dialog `session::Request` and
+`RequestKind`. SE-007 adds no public API.
+
+## 12. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:

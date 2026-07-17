@@ -28,15 +28,9 @@ impl ScrollTransition {
 
     fn effect(self) -> response::Effect {
         match self {
-            Self::Unchanged | Self::PropertyTick(_) => response::Effect::None,
-            Self::NeedsResidency {
-                schedule_candidate: true,
-                ..
-            } => response::Effect::Rebuild,
-            Self::NeedsResidency {
-                schedule_candidate: false,
-                ..
-            } => response::Effect::None,
+            Self::Unchanged | Self::PropertyTick(_) | Self::NeedsResidency { .. } => {
+                response::Effect::None
+            }
         }
     }
 

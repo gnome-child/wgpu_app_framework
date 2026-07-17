@@ -401,6 +401,16 @@ impl Session {
         changed
     }
 
+    pub(crate) fn request_residency_presentation(&mut self, id: app_window::Id) -> bool {
+        let Some(window) = self.window_mut(id) else {
+            return false;
+        };
+        if !window.redraw_requested() {
+            window.presentation.request();
+        }
+        true
+    }
+
     pub(crate) fn retry_property_tick(&mut self, id: app_window::Id) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;

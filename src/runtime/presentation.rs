@@ -13,6 +13,7 @@ const MAX_VIRTUAL_REFINEMENT_PASSES: usize = 8;
 enum FrameNeed {
     Idle,
     Properties,
+    Residency,
     Invalidated(response::effect::Invalidation),
 }
 
@@ -51,6 +52,7 @@ impl FrameNeed {
         match self {
             Self::Idle => response::effect::Invalidation::Paint,
             Self::Properties => response::effect::Invalidation::Paint,
+            Self::Residency => response::effect::Invalidation::Rebuild,
             Self::Invalidated(invalidation) => invalidation,
         }
     }
@@ -64,6 +66,15 @@ impl FrameNeed {
 
     fn property_only(self) -> bool {
         self == Self::Properties
+    }
+
+    fn residency_only(self) -> bool {
+        self == Self::Residency
+    }
+
+    fn may_select_residency(self) -> bool {
+        self == Self::Residency
+            || self == Self::Invalidated(response::effect::Invalidation::Rebuild)
     }
 }
 
@@ -313,6 +324,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let scroll = &mut self.diagnostics.get_mut(window).scroll;
         if scheduled {
             scroll.record_residency_candidate_scheduled();
+            self.session.request_residency_presentation(window);
         } else {
             scroll.record_residency_candidate_coalesced();
         }
@@ -357,8 +369,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .get_mut(window)
                 .scroll
                 .record_residency_follow_up();
-            self.session
-                .request_invalidation(window, response::effect::Invalidation::Rebuild);
+            self.session.request_residency_presentation(window);
         }
     }
 
@@ -392,8 +403,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 .get_mut(window)
                 .scroll
                 .record_residency_follow_up();
-            self.session
-                .request_invalidation(window, response::effect::Invalidation::Rebuild);
+            self.session.request_residency_presentation(window);
         }
         retirement.schedule_follow_up
     }
@@ -668,23 +678,27 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 response::effect::Invalidation::Rebuild,
             ));
         }
+        if invalidation == Some(response::effect::Invalidation::Rebuild) {
+            return Some(FrameNeed::Invalidated(
+                response::effect::Invalidation::Rebuild,
+            ));
+        }
+        let residency_urgency = self
+            .residency_schedules
+            .get(&window)
+            .copied()
+            .and_then(super::ResidencySchedule::candidate_requested_urgency);
+        if residency_urgency == Some(scene::ResidencyUrgency::Required) {
+            return Some(FrameNeed::Residency);
+        }
         if let Some(invalidation) = invalidation {
             return Some(FrameNeed::Invalidated(invalidation));
         }
         if property_tick_requested {
             return Some(FrameNeed::Properties);
         }
-        if self
-            .residency_schedules
-            .get(&window)
-            .copied()
-            .is_some_and(super::ResidencySchedule::candidate_requested)
-        {
-            self.session
-                .request_invalidation(window, response::effect::Invalidation::Rebuild);
-            return Some(FrameNeed::Invalidated(
-                response::effect::Invalidation::Rebuild,
-            ));
+        if residency_urgency.is_some() {
+            return Some(FrameNeed::Residency);
         }
         Some(FrameNeed::Idle)
     }
@@ -815,6 +829,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         theme: &crate::theme::Theme,
         frame: animation::Frame,
         popup_surfaces: layout::PopupSurfaces,
+        residency_only: bool,
     ) -> Option<layout::Layout> {
         self.refresh_requested_projection(window)?;
         let mut layout = {
@@ -849,7 +864,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     break;
                 }
                 refinement_passes += 1;
-                self.present(window)?;
+                if residency_only {
+                    self.present_residency(window)?;
+                } else {
+                    self.present(window)?;
+                }
                 self.refresh_requested_projection(window)?;
                 let composition = self.composition.get(window)?;
                 layout = layout::Layout::compose_composition_with_theme_at(
@@ -880,7 +899,11 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     break;
                 }
                 refinement_passes += 1;
-                self.present(window)?;
+                if residency_only {
+                    self.present_residency(window)?;
+                } else {
+                    self.present(window)?;
+                }
                 self.refresh_requested_projection(window)?;
                 let composition = self.composition.get(window)?;
                 layout = layout::Layout::compose_composition_with_theme_at(
@@ -922,9 +945,17 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         theme: &crate::theme::Theme,
         frame: animation::Frame,
         popup_surfaces: layout::PopupSurfaces,
+        residency_only: bool,
     ) -> Option<layout::Layout> {
         let started_at = Instant::now();
-        let layout = self.compose_layout_for_scene(window, size, theme, frame, popup_surfaces)?;
+        let layout = self.compose_layout_for_scene(
+            window,
+            size,
+            theme,
+            frame,
+            popup_surfaces,
+            residency_only,
+        )?;
         self.diagnostics
             .get_mut(window)
             .pipeline
@@ -971,6 +1002,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         frame: animation::Frame,
         invalidation: response::effect::Invalidation,
         popup_surfaces: layout::PopupSurfaces,
+        residency_only: bool,
     ) -> Option<layout::Layout> {
         if invalidation == response::effect::Invalidation::Paint
             && let Some(layout) = self.cached_layout(window, size, theme, popup_surfaces)
@@ -982,8 +1014,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     "paint-only scene render for window {:?} promoted to layout by reveal feedback",
                     window
                 );
-                let layout =
-                    self.compose_presentation_layout(window, size, theme, frame, popup_surfaces)?;
+                let layout = self.compose_presentation_layout(
+                    window,
+                    size,
+                    theme,
+                    frame,
+                    popup_surfaces,
+                    residency_only,
+                )?;
                 self.apply_layout_feedback(window, &layout);
                 self.record_layout_diagnostics(window, &layout);
                 self.cache_layout(window, size, theme, popup_surfaces, &layout);
@@ -994,8 +1032,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             return Some(layout);
         }
 
-        let layout =
-            self.compose_presentation_layout(window, size, theme, frame, popup_surfaces)?;
+        let layout = self.compose_presentation_layout(
+            window,
+            size,
+            theme,
+            frame,
+            popup_surfaces,
+            residency_only,
+        )?;
         self.apply_layout_feedback(window, &layout);
         self.record_layout_diagnostics(window, &layout);
         self.cache_layout(window, size, theme, popup_surfaces, &layout);
@@ -1096,6 +1140,89 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
 
     pub(crate) fn present(&mut self, window: window::Id) -> Option<view::View> {
         self.present_with_virtual_pin(window, None)
+    }
+
+    fn present_residency(&mut self, window: window::Id) -> Option<view::View> {
+        if !self.session.contains(window) {
+            log::debug!("skipping residency projection for unknown window {window:?}");
+            return None;
+        }
+
+        log::debug!("refreshing installed residency projection for window {window:?}");
+        self.layout_cache.remove(&window);
+        self.refresh_virtual_pins(window);
+        let previous = self.composition.get(window)?.view().clone();
+        let mut view = previous.clone();
+        let interaction = self.session.interaction(window).cloned();
+        if let Some(interaction) = interaction.as_ref() {
+            view.project_table_widths(interaction.tables());
+        }
+        let selectable_virtual_lists = view.selectable_virtual_lists();
+        self.session
+            .reconcile_virtual_selections(window, &selectable_virtual_lists);
+        let virtual_materializations = self
+            .virtual_materializations
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        let virtual_measurements = self
+            .virtual_measurements
+            .get(&window)
+            .cloned()
+            .unwrap_or_default();
+        view.materialize_virtual_lists(
+            &virtual_materializations,
+            &virtual_measurements,
+            Some(&previous),
+        );
+        let virtual_selections = self.session.virtual_selection_snapshot(window);
+        view.project_virtual_selections(&virtual_selections);
+        if let Some(interaction) = interaction.as_ref() {
+            view.project_active_table_cells(interaction, &virtual_selections);
+            view.project_input_feedback(interaction);
+        }
+        let _ = view.reuse_virtual_row_text_buffers_from(&previous);
+
+        let reconciliation_started_at = Instant::now();
+        let (tree, changes) = self.composition.prepare(window, &view);
+        let pruned = if changes.is_empty() {
+            crate::interaction::Pruned::default()
+        } else {
+            self.session.prune_removed_interaction(
+                window,
+                changes.removed(),
+                changes.removed_elements(),
+                changes.removed_table_cells(),
+            )
+        };
+        if pruned.capture_removed() {
+            self.cancel_pointer_gesture(window);
+        }
+        let interaction = if pruned.changed() {
+            self.session.interaction(window).cloned()
+        } else {
+            interaction
+        };
+        if let Some(interaction) = interaction.as_ref() {
+            view.project_layout_interaction_retained(interaction, &tree);
+        }
+        let mut focus = self.session.focused(window);
+        if focus.is_some_and(|focus| !view.contains_enabled_focus_retained(&tree, focus)) {
+            self.clear_focus(window);
+            focus = None;
+        }
+        view.project_focus_retained(focus, &tree);
+
+        let presented = self
+            .composition
+            .install_prepared(window, view, tree, changes)
+            .view()
+            .clone();
+        self.diagnostics
+            .get_mut(window)
+            .pipeline
+            .record_composition_reconciliation(reconciliation_started_at.elapsed());
+        Some(presented)
     }
 
     pub(in crate::runtime) fn present_with_virtual_pin(
@@ -1414,12 +1541,26 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let property_only = need.property_only();
         let revision = self.revision();
         let rebuilt = invalidation == response::effect::Invalidation::Rebuild;
+        let deferred_invalidation = need
+            .residency_only()
+            .then(|| {
+                self.session
+                    .window(window)
+                    .and_then(session::Window::invalidation)
+            })
+            .flatten();
         let rebuild_started_at = Instant::now();
-        if invalidation == response::effect::Invalidation::Rebuild {
+        if need.residency_only() {
+            self.present_residency(window)?;
+        } else if invalidation == response::effect::Invalidation::Rebuild {
             self.present(window)?;
         }
         let rebuild_elapsed = rebuild_started_at.elapsed();
         self.session.clear_redraw_request(window);
+        if let Some(deferred_invalidation) = deferred_invalidation {
+            self.session
+                .retry_invalidation(window, deferred_invalidation);
+        }
 
         let frame = self.frame_at(now);
         let layout_started_at = Instant::now();
@@ -1438,7 +1579,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let layout = if let Some(presented) = presented.as_ref() {
             presented.layout.as_ref().clone()
         } else {
-            self.layout_for_scene(window, size, theme, frame, invalidation, popup_surfaces)?
+            self.layout_for_scene(
+                window,
+                size,
+                theme,
+                frame,
+                invalidation,
+                popup_surfaces,
+                need.residency_only(),
+            )?
         };
         let layout_elapsed = layout_started_at.elapsed();
         let epoch = self.session.window(window)?.requested_presentation_epoch();
@@ -1556,7 +1705,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             Instant::now(),
             candidate_work,
         );
-        let residency_urgency = (invalidation == response::effect::Invalidation::Rebuild)
+        let residency_urgency = need
+            .may_select_residency()
             .then(|| self.select_residency_candidate(window, epoch))
             .flatten();
 
@@ -1611,6 +1761,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             &theme,
             self.frame_at(Instant::now()),
             layout::PopupSurfaces::InFrame,
+            true,
         )
     }
 

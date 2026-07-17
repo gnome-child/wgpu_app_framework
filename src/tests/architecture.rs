@@ -6660,6 +6660,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
     let runtime = include_str!("../runtime/mod.rs");
     let runtime_presentation = include_str!("../runtime/presentation.rs");
     let runtime_access = include_str!("../runtime/access.rs");
+    let session_window = include_str!("../session/window.rs");
     let scroll_diagnostics = include_str!("../diagnostics/scroll.rs");
     let residency_diagnostics = include_str!("../diagnostics/residency.rs");
     let scroll_bench = include_str!("../diagnostics/scroll_bench.rs");
@@ -6698,7 +6699,11 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && runtime.contains("same_urgency_requests_coalesce_before_candidate_construction")
             && runtime_presentation.contains("schedule_residency_candidate")
             && runtime_presentation.contains("complete_residency_candidate")
+            && runtime_presentation.contains("Self::Residency")
+            && runtime_presentation.contains("fn present_residency(")
+            && runtime_presentation.contains("self.present_residency(window)?")
             && runtime_presentation.contains("if property_tick_requested")
+            && session_window.contains("fn request_residency_presentation(")
             && virtual_list.contains("prepared_runway: Option<Range<usize>>")
             && virtual_list.contains("request.with_range(prepared.clone())")
             && virtual_list.contains("request_for_required_viewport")
@@ -6717,6 +6722,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && native_surface.contains("ResidencyUrgency::Required")
             && suite.contains("resident_motion_starts_bounded_replenishment_before_the_hard_edge",)
             && suite.contains("fast_residency_burst_coalesces_before_candidate_construction")
+            && suite.contains("required_residency_is_not_stranded_behind_stale_row_click_layout",)
             && suite.contains(
                 "required_large_jump_materializes_the_critical_viewport_before_predictive_runway",
             )
@@ -6724,7 +6730,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
                 .contains("consecutive_required_crossings_do_not_accumulate_drawable_table_rows",)
             && suite
                 .contains("control_gallery_required_crossing_does_not_draw_the_retention_cache",),
-        "one residency scheduler must preserve property-frame priority, bound required work to the critical viewport, and let required content preempt speculative runway"
+        "one residency scheduler must keep required coverage ahead of paint/property starvation, let proactive work yield, rematerialize the installed native view without an application rebuild, and bound required work to the critical viewport"
     );
     assert!(
         runtime_presentation.contains("CandidateWork::snapshot")

@@ -1808,7 +1808,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
 
     assert!(scrolled.is_handled());
     assert!(!scrolled.changed_state());
-    assert!(scrolled.effect().contains_invalidation());
+    assert_eq!(scrolled.effect(), &response::Effect::None);
     assert_eq!(app.revision(), revision);
     let scroll = app
         .session()

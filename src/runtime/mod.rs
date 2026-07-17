@@ -254,6 +254,10 @@ impl ResidencySchedule {
         self.candidate_requested.is_some()
     }
 
+    fn candidate_requested_urgency(self) -> Option<scene::ResidencyUrgency> {
+        self.candidate_requested
+    }
+
     fn selected_epoch(self) -> Option<window::PresentationEpoch> {
         self.selected.map(|candidate| candidate.epoch)
     }

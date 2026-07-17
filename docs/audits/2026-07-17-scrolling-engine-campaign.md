@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-006 CLOSED — SE-007 NEXT**
+Status: **SE-007 CLOSED — SE-008 NEXT**
 
 Date: 2026-07-17
 
@@ -50,8 +50,8 @@ vertical slices exist.
 | SE-004 — Container and eager adapter | **closed** | One ordinary eager widget exercises the full container contract. |
 | SE-005 — Native text and list | **closed** | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
 | SE-006 — List model/factory lifecycle | **closed** | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
-| SE-007 — Private residency/presentation | next | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
-| SE-008 — Names and public break | queued | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
+| SE-007 — Private residency/presentation | **closed** | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
+| SE-008 — Names and public break | next | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
 | SE-009 — Performance and closure | queued | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
 
 Every commit must be green. Defaults preserve current appearance unless a
@@ -632,7 +632,69 @@ retirement, latest-intent continuation, and resident-range advancement. It must
 also prove that a warm transform-only tick performs no application-view rebuild;
 the click may not remain an accidental recovery mechanism.
 
-## 13. Resume protocol
+## 13. SE-007 private residency-and-presentation receipt
+
+Residency scheduling no longer impersonates a semantic application rebuild.
+`FrameNeed::Residency` is a private presentation need, and a residency request
+advances the presentation clock without setting public response invalidation.
+Required coverage outranks layout, paint, and property traffic; proactive
+coverage yields to that traffic. Any independent invalidation displaced by a
+required coverage frame is retained for the following frame.
+
+A residency-only frame rematerializes the installed native view, reconciles its
+virtual-list materialization and interaction projections, and composes the new
+resident layout without invoking the application's view closure. A selected
+front is retired by matching epoch after successful submission regardless of
+the public invalidation kind. Retirement authors exactly one newest-intent
+continuation when newer coalesced input exists. The deterministic burst witness
+selects one front, coalesces twelve offsets while it is in flight, selects one
+continuation carrying the exact final offset, and observes zero additional
+application-view rebuilds for text, table, and virtual-list payloads. A separate
+table witness proves that required coverage advances ahead of a stale resident
+row click while preserving the click's independent layout invalidation.
+
+The user's native release verification closed the approximately 22-row stranded-
+window witness from section 12. Neither ordinary fast scrolling nor drag
+scrolling froze, and clicking the table was no longer needed to install a new
+resident range. The generated receipts remain ignored build outputs; their
+durable facts are:
+
+- `control-gallery-500px-idle-1784308618227.txt`: 512 inputs and desired
+  changes; one direct schedule plus 15 follow-ups equaled all 16 selections;
+  511 requests coalesced; no supersession, preemption, cancellation, or virtual
+  rejection occurred; candidate, GPU-submitted, and present-submitted serials
+  converged at 64; maximum desired/resident lag was 3,001 logical pixels; and
+  only four application-view rebuilds occurred across the entire startup and
+  interaction session, not one per residency front.
+- `control-gallery-500px-idle-1784308626646.txt` is cumulative after the drag
+  run. Relative to the first receipt it adds 371 inputs, 344 desired changes,
+  one direct schedule, 343 coalesced requests, 25 selections, and 24 follow-ups.
+  Thus the drag portion also has exact front accounting. It adds no cancellation
+  or rejection, and final candidate/GPU/present serials converge at 168 despite
+  a maximum observed desired/resident lag of 11,630,919 logical pixels.
+
+The same receipts preserve a distinct unresolved performance result. At the
+240 Hz, 4,167 us refresh interval, their cumulative frame-interval p50 values
+were 18,711 and 13,519 us; renderer deadline misses were 47/91 and 72/237;
+presentation-layout p95 was 12,328 and 9,511 us. They recorded 19/47 layout
+recompositions plus 64/211 layout-reuse preparations, and resident-window
+advances still painted roughly 163--172 scene nodes, prepared about 100 text
+items, and created roughly 256 GPU resources. The user describes the result as
+substantial chug/chop. SE-007 closes liveness and application-view ownership;
+it does not waive the SE-009 cadence, bounded-work, or resource-churn gates.
+
+Verification at the stage boundary passed the 20 independent scrolling
+oracles, all 57 residency-focused tests, and 1,407 library tests with four
+intentional hardware ignores. The complete workspace all-target/all-feature
+suite also passed three renderer-debug checks with 27 intentional hardware
+ignores and two example tests; all 18 manifest/receipt/census Python checks
+passed. Release 1.25x residency crossings retained exact complete-pixel
+activation with three virtual-list provider calls, nine table cell calls, and
+zero application-view rebuilds; the warm table smoke retained the frozen 528
+property bytes with no content work or GPU-resource churn. SE-007 changes no
+public scrolling name. The public break remains wholly owned by SE-008.
+
+## 14. Resume protocol
 
 At every task entrance and after every context compaction:
 
