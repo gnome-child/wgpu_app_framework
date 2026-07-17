@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-000 FROZEN BASELINE**
+Status: **SE-001 RE-CENSUS — PRODUCTION OWNERSHIP UNCHANGED**
 
 Date: 2026-07-17
 
@@ -166,7 +166,21 @@ them inputs to one source-neutral session/outcome contract.
 8. No existing public trait is justified by three application-meaningful
    implementations; framework-private typed dispatch remains the default.
 
-## 5. Repeatable census commands
+## 5. SE-001 delta
+
+SE-001 adds only `src/tests/scroll_engine_oracles.rs` and its test-module
+declaration. The file is compiled under `#[cfg(test)]`; it imports no
+production scrolling type and introduces no public path. Re-running the
+entrance, owner, consumer, clock, list, and forbidden-name searches found no
+production ownership delta from SE-000. The independent models are behavioral
+evidence for later connections, not a seventh ownership layer.
+
+The broad forbidden-name search reports `session::Request` and
+`session::RequestKind`. They are the pre-existing public file-dialog request
+vocabulary in `src/session/request.rs`, not scrolling, residency, or
+virtualization planning, so they do not violate the scrolling API prohibition.
+
+## 6. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:
@@ -183,4 +197,3 @@ rg -n -g '*.rs' 'pub (struct|enum|trait|mod).*?(Content|Sequence|ResidentSet|Req
 The final forbidden-name search must be interpreted at public scrolling
 boundaries: private renderer/residency `Request`, `Plan`, and `Coverage` types
 are expected and remain legal.
-

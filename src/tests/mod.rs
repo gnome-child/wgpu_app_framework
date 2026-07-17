@@ -827,6 +827,7 @@ mod platform_tests;
 mod residency_tests;
 mod responder_tests;
 mod runtime_tests;
+mod scroll_engine_oracles;
 mod text_input;
 mod widget_binding_tests;
 mod widget_composition_tests;

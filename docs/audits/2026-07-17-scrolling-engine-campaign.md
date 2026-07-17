@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-000 CLOSED — SE-001 NEXT**
+Status: **SE-001 CLOSED — SE-002 NEXT**
 
 Date: 2026-07-17
 
@@ -44,8 +44,8 @@ vertical slices exist.
 | Stage | State | Exit |
 |---|---|---|
 | SE-000 — Freeze evidence and ownership | **closed** | Baseline is reproducible; the freeze evidence is preserved; every current scroll state has an assigned layer. |
-| SE-001 — Green behavioral oracles | next | Independent models cover motion, sessions, handoff, sources, policy, reveal, mutation, anchoring, and accessibility; deliberate faulty adapters prove every witness. |
-| SE-002 — Axis adjustment | queued | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
+| SE-001 — Green behavioral oracles | **closed** | Independent models cover motion, sessions, handoff, sources, policy, reveal, mutation, anchoring, and accessibility; deliberate faulty adapters prove every witness. |
+| SE-002 — Axis adjustment | next | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
 | SE-003 — Sessions and nested handoff | queued | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
 | SE-004 — Container and eager adapter | queued | One ordinary eager widget exercises the full container contract. |
 | SE-005 — Native text and list | queued | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
@@ -251,7 +251,52 @@ separately capped recycle reserve. Every selected front retires or is explicitly
 superseded with exactly one latest-intent continuation. Run freeze, reversal,
 thumb-jump, mutation, nested-boundary, and text-reveal scenarios.
 
-## 6. Resume protocol
+## 6. SE-001 oracle receipt
+
+`src/tests/scroll_engine_oracles.rs` is a test-only, production-independent
+reference model. It adds 20 green tests covering:
+
+- continuously visible fractional and diagonal motion;
+- atomic clamped axis configuration and one revision per configuration;
+- source, unit, monotonic timestamp, Begin/Update/End/Cancel/deceleration,
+  terminal velocity, and direct-input kinetic interruption;
+- exact child applied and ancestor remaining displacement independently per
+  axis;
+- wheel, touchpad, touchscreen, scrollbar, keyboard, reveal, and programmatic
+  sources through one axis law;
+- Always/Automatic/Never/External axis policy, overlay versus consuming
+  presentation, and monotonic cross-axis convergence within two introduction
+  passes;
+- minimal two-axis focus reveal through every nested ancestor;
+- insertion/entry, deletion, replacement/recycling, movement, same-key
+  revision, unique keys, stable item/slot identity, logical interaction-state
+  cleanup, and setup/bind/unbind/teardown;
+- variable-extent correction around a stable visible key; and
+- accessible lower/upper/page/value plus step/page/start/end/set actions.
+
+Negative adapters deliberately quantize each update, drop one axis, lose
+terminal velocity, retain kinetics across direct input, swallow remainders,
+couple axes, bypass continuous/absolute/keyboard sources, stop scrollbar
+layout after one pass, consume layout for overlays, reveal only the child,
+align reveals to the start, key list identity by position, ignore same-key
+revision, leak departed logical state, accept duplicate keys, omit anchor
+correction, project stale resident accessibility values, and omit accessible
+actions. Every faulty adapter is rejected by the corresponding green witness.
+
+Narrow reproduction:
+
+```text
+cargo test --lib scroll_engine_oracles --all-features
+```
+
+SE-001 changes no production behavior and names no public API. Each following
+production connection must land with the oracle it satisfies and remain green.
+Formatter and the complete workspace all-target/all-feature suite pass: 1,383
+library tests with four intentional hardware ignores, three renderer-debug
+non-hardware tests with 27 hardware ignores, and two example tests. All 18
+manifest/receipt/census Python checks also pass.
+
+## 7. Resume protocol
 
 At every task entrance and after every context compaction:
 
