@@ -299,8 +299,7 @@ impl Accepted {
     }
 
     fn contains(self, offset: interaction::ScrollOffset) -> bool {
-        (self.minimum.x()..=self.maximum.x()).contains(&offset.x())
-            && (self.minimum.y()..=self.maximum.y()).contains(&offset.y())
+        offset.lies_within(self.minimum, self.maximum)
     }
 
     fn replenishment(
@@ -328,7 +327,8 @@ impl Accepted {
             offset.y(),
         );
         (x.is_some() || y.is_some()).then(|| {
-            interaction::ScrollOffset::new(x.unwrap_or(offset.x()), y.unwrap_or(offset.y()))
+            let offset = x.map_or(offset, |x| offset.with_x(x));
+            y.map_or(offset, |y| offset.with_y(y))
         })
     }
 }
@@ -654,15 +654,17 @@ impl Layout {
             // unpresented out-of-residency intent to the resident baseline is
             // still a real accepted transition that must retire the obsolete
             // cold candidate.
-            let changes_x = maximum.x() > 0 && offset.x() != previous.x();
-            let changes_y = maximum.y() > 0 && offset.y() != previous.y();
+            let changes_x = maximum.x() > 0
+                && !offset.same_axis(previous, interaction::ScrollbarAxis::Horizontal);
+            let changes_y = maximum.y() > 0
+                && !offset.same_axis(previous, interaction::ScrollbarAxis::Vertical);
             if !changes_x && !changes_y {
                 continue;
             }
             owns_changed_axis = true;
             let resolved = viewport.resolve(offset);
-            if (changes_x && resolved.x() != offset.x())
-                || (changes_y && resolved.y() != offset.y())
+            if (changes_x && !resolved.same_axis(offset, interaction::ScrollbarAxis::Horizontal))
+                || (changes_y && !resolved.same_axis(offset, interaction::ScrollbarAxis::Vertical))
             {
                 return None;
             }
@@ -673,23 +675,24 @@ impl Layout {
                 return None;
             }
             if let Some(candidate) = proof.accepted.replenishment(viewport, previous, resolved) {
-                replenishment = Some(replenishment.map_or(candidate, |current| {
-                    interaction::ScrollOffset::new(
-                        if candidate.x() > resolved.x() {
-                            current.x().max(candidate.x())
-                        } else if candidate.x() < resolved.x() {
-                            current.x().min(candidate.x())
-                        } else {
-                            current.x()
-                        },
-                        if candidate.y() > resolved.y() {
-                            current.y().max(candidate.y())
-                        } else if candidate.y() < resolved.y() {
-                            current.y().min(candidate.y())
-                        } else {
-                            current.y()
-                        },
-                    )
+                replenishment = Some(replenishment.map_or(candidate, |mut current| {
+                    for axis in [
+                        interaction::ScrollbarAxis::Horizontal,
+                        interaction::ScrollbarAxis::Vertical,
+                    ] {
+                        let candidate_direction = candidate.axis_cmp(resolved, axis);
+                        let candidate_is_further = match candidate_direction {
+                            std::cmp::Ordering::Greater => {
+                                candidate.axis_cmp(current, axis).is_gt()
+                            }
+                            std::cmp::Ordering::Less => candidate.axis_cmp(current, axis).is_lt(),
+                            std::cmp::Ordering::Equal => false,
+                        };
+                        if candidate_is_further {
+                            current = current.with_axis_from(candidate, axis);
+                        }
+                    }
+                    current
                 }));
             }
         }
@@ -710,19 +713,37 @@ impl Layout {
         {
             found = true;
             let candidate = projection.viewport.max_scroll();
-            maximum = interaction::ScrollOffset::new(
-                maximum.x().max(candidate.x()),
-                maximum.y().max(candidate.y()),
-            );
+            maximum = maximum.componentwise_max(candidate);
         }
         if found {
-            interaction::ScrollOffset::new(
-                offset.x().clamp(0, maximum.x()),
-                offset.y().clamp(0, maximum.y()),
-            )
+            offset.clamped(interaction::ScrollOffset::default(), maximum)
         } else {
             offset
         }
+    }
+
+    pub(crate) fn scroll_adjustment_geometry(
+        &self,
+        target: &interaction::Target,
+    ) -> Option<(interaction::ScrollOffset, interaction::ScrollOffset)> {
+        let mut found = false;
+        let mut maximum = interaction::ScrollOffset::default();
+        let mut page = interaction::ScrollOffset::default();
+        for projection in self
+            .scroll_projections
+            .iter()
+            .filter(|projection| &projection.target == target)
+        {
+            found = true;
+            let viewport = projection.viewport;
+            let candidate = viewport.max_scroll();
+            maximum = maximum.componentwise_max(candidate);
+            page = page.componentwise_max(interaction::ScrollOffset::new(
+                viewport.rect().width(),
+                viewport.rect().height(),
+            ));
+        }
+        found.then_some((maximum, page))
     }
 
     pub(crate) fn resident_node_ids(

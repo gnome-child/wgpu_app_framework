@@ -214,9 +214,7 @@ fn scroll_offset_lies_between(
     projected: super::super::interaction::ScrollOffset,
     to: super::super::interaction::ScrollOffset,
 ) -> bool {
-    let contains =
-        |from: i32, projected: i32, to: i32| (from.min(to)..=from.max(to)).contains(&projected);
-    contains(from.x(), projected.x(), to.x()) && contains(from.y(), projected.y(), to.y())
+    projected.lies_within(from.componentwise_min(to), from.componentwise_max(to))
 }
 
 impl Layer {

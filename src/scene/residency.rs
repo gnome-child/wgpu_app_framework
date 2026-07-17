@@ -69,7 +69,13 @@ impl Residency {
         minimum: interaction::ScrollOffset,
         maximum: interaction::ScrollOffset,
     ) -> Result<Self, ContractError> {
-        if minimum.x() > maximum.x() || minimum.y() > maximum.y() {
+        if minimum
+            .axis_cmp(maximum, interaction::ScrollbarAxis::Horizontal)
+            .is_gt()
+            || minimum
+                .axis_cmp(maximum, interaction::ScrollbarAxis::Vertical)
+                .is_gt()
+        {
             return Err(ContractError::InvertedOffsets);
         }
         let mut unique = HashSet::with_capacity(nodes.len());
@@ -102,15 +108,11 @@ impl Residency {
     }
 
     pub(crate) fn accepts(&self, offset: interaction::ScrollOffset) -> bool {
-        (self.minimum.x()..=self.maximum.x()).contains(&offset.x())
-            && (self.minimum.y()..=self.maximum.y()).contains(&offset.y())
+        offset.lies_within(self.minimum, self.maximum)
     }
 
     pub(crate) fn project(&self, offset: interaction::ScrollOffset) -> interaction::ScrollOffset {
-        interaction::ScrollOffset::new(
-            offset.x().clamp(self.minimum.x(), self.maximum.x()),
-            offset.y().clamp(self.minimum.y(), self.maximum.y()),
-        )
+        offset.clamped(self.minimum, self.maximum)
     }
 
     pub(crate) fn require_compatible(&self, commit: &Commit) -> Result<(), ContractError> {

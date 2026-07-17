@@ -3,6 +3,18 @@ use crate::{interaction, window as app_window};
 use super::super::Session;
 
 impl Session {
+    pub(crate) fn configure_scroll(
+        &mut self,
+        id: app_window::Id,
+        target: interaction::Target,
+        maximum: interaction::ScrollOffset,
+        page: interaction::ScrollOffset,
+    ) -> Option<interaction::ScrollOffset> {
+        self.window_mut(id)?
+            .interaction
+            .configure_scroll(target, maximum, page)
+    }
+
     pub(crate) fn request_scroll(
         &mut self,
         id: app_window::Id,

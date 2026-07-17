@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-001 CLOSED — SE-002 NEXT**
+Status: **SE-002 CLOSED — SE-003 NEXT**
 
 Date: 2026-07-17
 
@@ -45,8 +45,8 @@ vertical slices exist.
 |---|---|---|
 | SE-000 — Freeze evidence and ownership | **closed** | Baseline is reproducible; the freeze evidence is preserved; every current scroll state has an assigned layer. |
 | SE-001 — Green behavioral oracles | **closed** | Independent models cover motion, sessions, handoff, sources, policy, reveal, mutation, anchoring, and accessibility; deliberate faulty adapters prove every witness. |
-| SE-002 — Axis adjustment | next | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
-| SE-003 — Sessions and nested handoff | queued | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
+| SE-002 — Axis adjustment | **closed** | Eager horizontal and vertical scrolling use an internal adjustment with a wide continuous coordinate and no public break. |
+| SE-003 — Sessions and nested handoff | next | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
 | SE-004 — Container and eager adapter | queued | One ordinary eager widget exercises the full container contract. |
 | SE-005 — Native text and list | queued | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
 | SE-006 — List model/factory lifecycle | queued | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
@@ -296,7 +296,57 @@ library tests with four intentional hardware ignores, three renderer-debug
 non-hardware tests with 27 hardware ignores, and two example tests. All 18
 manifest/receipt/census Python checks also pass.
 
-## 7. Resume protocol
+## 7. SE-002 adjustment receipt
+
+`src/interaction/scroll.rs` now owns one internal `AxisAdjustment` for each
+axis of a scroll target. Each adjustment contains one canonical value, an
+atomic `AxisConfiguration` with lower/upper/page/step/page-increment values,
+and a monotonic revision. Configuration-only changes advance the observable
+target revision even when clamping does not change the value. Relative,
+absolute, scrollbar, reveal-geometry, and programmatic requests all control
+the same value.
+
+The coordinate is a normalized signed `i64` whole component plus 32 fixed
+fraction bits. Per-event input no longer crosses an integer-pixel admission
+boundary: all five scale traces update continuously, and reversals below one
+legacy integer pixel remain routable. Public `ScrollOffset::new`, `x`, and `y`
+signatures are unchanged; the continuous representation and exact-axis
+operations remain private implementation details while names stay
+provisional.
+
+Layout configures range and page geometry before input admission and again as
+layout feedback. Exact values survive clamp, residency admission, property
+projection, active-stack projection, pending-intent reversal checks, and the
+installed present-submitted spatial snapshot. `desired` is derived from the
+two adjustment values; `resident_accepted` remains a separate private receipt.
+No competing value owner was introduced.
+
+Renderer scroll transforms subtract the fixed-point baseline and current
+coordinates before converting the bounded local delta to `f32`. A negative
+control at 20,000,000/30,000,000 logical pixels demonstrates that converting
+the global positions first loses a half/quarter-pixel displacement while the
+production rebased path retains it. The ordinary eager integration witness
+drives vertical and horizontal fractional updates plus same-pixel reversals
+through routing, property-only rendering, and the submitted hit/IME/geometry
+snapshot without rebuilding the retained commit.
+
+Verification passed:
+
+- the 20 independent SE-001 behavioral oracles;
+- 1,386 library tests, with four intentional hardware ignores;
+- three renderer-debug non-hardware tests, with 27 intentional hardware
+  ignores, plus two example tests;
+- all 18 manifest/receipt/census Python checks; and
+- release `table-scroll-work 1.25`, reproducing the frozen 528 property bytes,
+  17 visits/lookups, one dirty index, two write ranges, zero content rebuild or
+  preparation, zero GPU resource churn, and one retained-plan reuse.
+
+SE-002 adds no public scrolling path and does not settle the SE-008 naming
+decision. Winit phase loss, source-neutral sessions, terminal velocity,
+kinetic interruption, and exact per-axis child/ancestor remainder propagation
+remain the first unmet exit and belong to SE-003.
+
+## 8. Resume protocol
 
 At every task entrance and after every context compaction:
 

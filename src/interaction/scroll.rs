@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
-use super::Target;
+use super::{ScrollbarAxis, Target};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Scroll {
@@ -13,27 +13,31 @@ pub(crate) struct Scroll {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ScrollEntry {
     target: Target,
-    position: Position,
-    remainder: ScrollRemainder,
+    horizontal: AxisAdjustment,
+    vertical: AxisAdjustment,
+    resident_accepted: ScrollOffset,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-struct ScrollRemainder {
-    x: f64,
-    y: f64,
-    compensation_x: f64,
-    compensation_y: f64,
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Coordinate {
+    whole: i64,
+    fraction: u32,
 }
-
-impl Eq for ScrollRemainder {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Position {
-    ResidentAccepted(ScrollOffset),
-    Pending {
-        resident_accepted: ScrollOffset,
-        desired: ScrollOffset,
-    },
+struct AxisConfiguration {
+    lower: Coordinate,
+    upper: Coordinate,
+    page: Coordinate,
+    step: Coordinate,
+    page_increment: Coordinate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AxisAdjustment {
+    configuration: AxisConfiguration,
+    value: Coordinate,
+    revision: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,8 +48,8 @@ pub(crate) enum Reveal {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ScrollOffset {
-    x: i32,
-    y: i32,
+    x: Coordinate,
+    y: Coordinate,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -72,7 +76,7 @@ impl Scroll {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
-            .map(|entry| entry.position.resident_accepted())
+            .map(|entry| entry.resident_accepted)
             .unwrap_or_default()
     }
 
@@ -85,8 +89,29 @@ impl Scroll {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
-            .map(|entry| entry.position.desired())
+            .map(ScrollEntry::desired)
             .unwrap_or_default()
+    }
+
+    pub(super) fn configure(
+        &mut self,
+        target: Target,
+        maximum: ScrollOffset,
+        page: ScrollOffset,
+    ) -> Option<ScrollOffset> {
+        let index = self.entry_index_or_insert(target.clone());
+        let before = self.offsets[index].desired();
+        let horizontal_changed = self.offsets[index]
+            .horizontal
+            .configure(maximum.x(), page.x());
+        let vertical_changed = self.offsets[index]
+            .vertical
+            .configure(maximum.y(), page.y());
+        let desired = self.offsets[index].desired();
+        if horizontal_changed || vertical_changed {
+            self.mark_changed(target);
+        }
+        (desired != before).then_some(desired)
     }
 
     pub(crate) fn should_reveal(&self, target: &Target) -> bool {
@@ -106,41 +131,19 @@ impl Scroll {
     }
 
     pub(super) fn request(&mut self, target: Target, update: ScrollUpdate) -> Option<ScrollOffset> {
-        let index = self.offsets.iter().position(|entry| entry.target == target);
-        let before = index
-            .map(|index| self.offsets[index].position.desired())
-            .unwrap_or_default();
-        let resident_accepted = index
-            .map(|index| self.offsets[index].position.resident_accepted())
-            .unwrap_or_default();
-        let previous_remainder = index
-            .map(|index| self.offsets[index].remainder)
-            .unwrap_or_default();
-        let (desired, remainder) = match update {
+        let index = self.entry_index_or_insert(target.clone());
+        let before = self.offsets[index].desired();
+        match update {
             ScrollUpdate::Relative(delta) => {
-                let (visual, remainder) = previous_remainder.accumulate(delta);
-                (before.scrolled_by(visual), remainder)
+                self.offsets[index].horizontal.update(delta.x());
+                self.offsets[index].vertical.update(delta.y());
             }
             ScrollUpdate::Absolute(offset) | ScrollUpdate::Geometry(offset) => {
-                (offset, ScrollRemainder::default())
+                self.offsets[index].horizontal.set(offset.x);
+                self.offsets[index].vertical.set(offset.y);
             }
-        };
-
-        let position = Position::new(resident_accepted, desired);
-        if position.is_zero() && remainder.is_zero() {
-            if let Some(index) = index {
-                self.offsets.remove(index);
-            }
-        } else if let Some(index) = index {
-            self.offsets[index].position = position;
-            self.offsets[index].remainder = remainder;
-        } else {
-            self.offsets.push(ScrollEntry {
-                target: target.clone(),
-                position,
-                remainder,
-            });
         }
+        let desired = self.offsets[index].desired();
         if before == desired {
             return None;
         }
@@ -158,27 +161,8 @@ impl Scroll {
             return None;
         }
 
-        let index = self.offsets.iter().position(|entry| entry.target == target);
-        let desired = index
-            .map(|index| self.offsets[index].position.desired())
-            .unwrap_or(resident_accepted);
-        let remainder = index
-            .map(|index| self.offsets[index].remainder)
-            .unwrap_or_default();
-        let position = Position::new(resident_accepted, desired);
-        if position.is_zero() && remainder.is_zero() {
-            if let Some(index) = index {
-                self.offsets.remove(index);
-            }
-        } else if let Some(index) = index {
-            self.offsets[index].position = position;
-        } else {
-            self.offsets.push(ScrollEntry {
-                target: target.clone(),
-                position,
-                remainder,
-            });
-        }
+        let index = self.entry_index_or_insert(target.clone());
+        self.offsets[index].resident_accepted = resident_accepted;
         self.mark_changed(target);
         Some(resident_accepted)
     }
@@ -186,9 +170,9 @@ impl Scroll {
     pub(super) fn project_desired(&mut self) {
         let mut changed = Vec::new();
         for entry in &mut self.offsets {
-            let projected = Position::ResidentAccepted(entry.position.desired());
-            if entry.position != projected {
-                entry.position = projected;
+            let desired = entry.desired();
+            if entry.resident_accepted != desired {
+                entry.resident_accepted = desired;
                 changed.push(entry.target.clone());
             }
         }
@@ -260,78 +244,171 @@ impl Scroll {
         self.next_revision = self.next_revision.saturating_add(1);
         self.revisions.insert(target, self.next_revision);
     }
+
+    fn entry_index_or_insert(&mut self, target: Target) -> usize {
+        if let Some(index) = self.offsets.iter().position(|entry| entry.target == target) {
+            return index;
+        }
+        self.offsets.push(ScrollEntry {
+            target,
+            horizontal: AxisAdjustment::unconfigured(),
+            vertical: AxisAdjustment::unconfigured(),
+            resident_accepted: ScrollOffset::default(),
+        });
+        self.offsets.len() - 1
+    }
 }
 
-impl Position {
-    fn new(resident_accepted: ScrollOffset, desired: ScrollOffset) -> Self {
-        if resident_accepted == desired {
-            Self::ResidentAccepted(resident_accepted)
+impl ScrollEntry {
+    fn desired(&self) -> ScrollOffset {
+        ScrollOffset {
+            x: self.horizontal.value,
+            y: self.vertical.value,
+        }
+    }
+}
+
+impl AxisAdjustment {
+    fn unconfigured() -> Self {
+        Self {
+            configuration: AxisConfiguration {
+                lower: Coordinate::MIN,
+                upper: Coordinate::MAX,
+                page: Coordinate::ZERO,
+                step: Coordinate::ONE,
+                page_increment: Coordinate::ONE,
+            },
+            value: Coordinate::ZERO,
+            revision: 0,
+        }
+    }
+
+    fn maximum(self) -> Coordinate {
+        self.configuration
+            .upper
+            .saturating_sub(self.configuration.page)
+            .max(self.configuration.lower)
+    }
+
+    fn configure(&mut self, maximum: i32, page: i32) -> bool {
+        let page = Coordinate::from_i64(i64::from(page.max(0)));
+        let maximum = Coordinate::from_i64(i64::from(maximum.max(0)));
+        let configuration = AxisConfiguration {
+            lower: Coordinate::ZERO,
+            upper: maximum.saturating_add(page),
+            page,
+            step: Coordinate::ONE,
+            page_increment: page.max(Coordinate::ONE),
+        };
+        let before_configuration = self.configuration;
+        let before_value = self.value;
+        self.configuration = configuration;
+        self.value = self.value.clamp(configuration.lower, self.maximum());
+        let changed = self.configuration != before_configuration || self.value != before_value;
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        changed
+    }
+
+    fn set(&mut self, value: Coordinate) {
+        let value = value.clamp(self.configuration.lower, self.maximum());
+        if value != self.value {
+            self.value = value;
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    fn update(&mut self, delta: f64) {
+        self.set(self.value.add_delta(delta));
+    }
+}
+
+impl Coordinate {
+    const FRACTION_BITS: u32 = 32;
+    const SCALE: i128 = 1_i128 << Self::FRACTION_BITS;
+    const INTEGRAL_SNAP_TICKS: i128 = 8;
+    const ZERO: Self = Self {
+        whole: 0,
+        fraction: 0,
+    };
+    const ONE: Self = Self {
+        whole: 1,
+        fraction: 0,
+    };
+    const MIN: Self = Self {
+        whole: i64::MIN,
+        fraction: 0,
+    };
+    const MAX: Self = Self {
+        whole: i64::MAX,
+        fraction: u32::MAX,
+    };
+
+    fn from_i64(value: i64) -> Self {
+        Self {
+            whole: value,
+            fraction: 0,
+        }
+    }
+
+    fn ticks(self) -> i128 {
+        i128::from(self.whole) * Self::SCALE + i128::from(self.fraction)
+    }
+
+    fn from_ticks(ticks: i128) -> Self {
+        let minimum = Self::MIN.ticks();
+        let maximum = Self::MAX.ticks();
+        let ticks = ticks.clamp(minimum, maximum);
+        let remainder = ticks.rem_euclid(Self::SCALE);
+        let ticks = if remainder <= Self::INTEGRAL_SNAP_TICKS {
+            ticks - remainder
+        } else if Self::SCALE - remainder <= Self::INTEGRAL_SNAP_TICKS {
+            ticks.saturating_add(Self::SCALE - remainder)
         } else {
-            Self::Pending {
-                resident_accepted,
-                desired,
-            }
+            ticks
+        }
+        .clamp(minimum, maximum);
+        Self {
+            whole: ticks.div_euclid(Self::SCALE) as i64,
+            fraction: ticks.rem_euclid(Self::SCALE) as u32,
         }
     }
 
-    fn resident_accepted(self) -> ScrollOffset {
-        match self {
-            Self::ResidentAccepted(offset)
-            | Self::Pending {
-                resident_accepted: offset,
-                ..
-            } => offset,
-        }
+    fn saturating_add(self, other: Self) -> Self {
+        Self::from_ticks(self.ticks().saturating_add(other.ticks()))
     }
 
-    fn desired(self) -> ScrollOffset {
-        match self {
-            Self::ResidentAccepted(offset)
-            | Self::Pending {
-                desired: offset, ..
-            } => offset,
-        }
+    fn saturating_sub(self, other: Self) -> Self {
+        Self::from_ticks(self.ticks().saturating_sub(other.ticks()))
     }
 
-    fn is_zero(self) -> bool {
-        self.resident_accepted().is_zero() && self.desired().is_zero()
-    }
-}
-
-impl ScrollRemainder {
-    // Whole logical pixels remain exact. Only fractional components enter this
-    // compensated accumulator; they cross a visual pixel by truncation toward
-    // zero, with an 8-ULP snap solely at a computed integral boundary.
-    fn accumulate(self, delta: ScrollDelta) -> (VisualScrollDelta, Self) {
-        let (integral_x, fractional_x) = split_scroll_component(delta.x);
-        let (integral_y, fractional_y) = split_scroll_component(delta.y);
-        let (fractional_visual_x, remainder_x, compensation_x) =
-            quantize_scroll_axis(self.x, self.compensation_x, fractional_x);
-        let (fractional_visual_y, remainder_y, compensation_y) =
-            quantize_scroll_axis(self.y, self.compensation_y, fractional_y);
-        (
-            VisualScrollDelta {
-                x: integral_x.saturating_add(fractional_visual_x),
-                y: integral_y.saturating_add(fractional_visual_y),
-            },
-            Self {
-                x: remainder_x,
-                y: remainder_y,
-                compensation_x,
-                compensation_y,
-            },
-        )
+    fn add_delta(self, delta: f64) -> Self {
+        let delta_ticks = (normalized_scroll_component(delta) * Self::SCALE as f64).round() as i128;
+        Self::from_ticks(self.ticks().saturating_add(delta_ticks))
     }
 
-    fn is_zero(self) -> bool {
-        self.x == 0.0 && self.y == 0.0 && self.compensation_x == 0.0 && self.compensation_y == 0.0
+    fn clamp(self, lower: Self, upper: Self) -> Self {
+        self.max(lower).min(upper)
     }
-}
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct VisualScrollDelta {
-    x: i32,
-    y: i32,
+    fn trunc_i32(self) -> i32 {
+        let whole = if self.whole < 0 && self.fraction != 0 {
+            self.whole.saturating_add(1)
+        } else {
+            self.whole
+        };
+        whole.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+    }
+
+    #[cfg(test)]
+    fn as_f64(self) -> f64 {
+        self.whole as f64 + f64::from(self.fraction) / Self::SCALE as f64
+    }
+
+    fn difference(self, other: Self) -> f64 {
+        (self.ticks() - other.ticks()) as f64 / Self::SCALE as f64
+    }
 }
 
 impl Reveal {
@@ -344,26 +421,89 @@ impl Reveal {
 
 impl ScrollOffset {
     pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-
-    pub fn x(self) -> i32 {
-        self.x
-    }
-
-    pub fn y(self) -> i32 {
-        self.y
-    }
-
-    fn scrolled_by(self, delta: VisualScrollDelta) -> Self {
         Self {
-            x: self.x.saturating_add(delta.x),
-            y: self.y.saturating_add(delta.y),
+            x: Coordinate::from_i64(i64::from(x)),
+            y: Coordinate::from_i64(i64::from(y)),
         }
     }
 
-    fn is_zero(self) -> bool {
-        self.x == 0 && self.y == 0
+    pub fn x(self) -> i32 {
+        self.x.trunc_i32()
+    }
+
+    pub fn y(self) -> i32 {
+        self.y.trunc_i32()
+    }
+
+    pub(crate) fn clamped(self, minimum: Self, maximum: Self) -> Self {
+        Self {
+            x: self.x.clamp(minimum.x, maximum.x),
+            y: self.y.clamp(minimum.y, maximum.y),
+        }
+    }
+
+    pub(crate) fn with_x(mut self, x: i32) -> Self {
+        self.x = Coordinate::from_i64(i64::from(x));
+        self
+    }
+
+    pub(crate) fn with_y(mut self, y: i32) -> Self {
+        self.y = Coordinate::from_i64(i64::from(y));
+        self
+    }
+
+    pub(crate) fn with_axis_from(mut self, source: Self, axis: ScrollbarAxis) -> Self {
+        match axis {
+            ScrollbarAxis::Horizontal => self.x = source.x,
+            ScrollbarAxis::Vertical => self.y = source.y,
+        }
+        self
+    }
+
+    pub(crate) fn axis_cmp(self, other: Self, axis: ScrollbarAxis) -> Ordering {
+        match axis {
+            ScrollbarAxis::Horizontal => self.x.cmp(&other.x),
+            ScrollbarAxis::Vertical => self.y.cmp(&other.y),
+        }
+    }
+
+    pub(crate) fn same_axis(self, other: Self, axis: ScrollbarAxis) -> bool {
+        self.axis_cmp(other, axis).is_eq()
+    }
+
+    pub(crate) fn componentwise_max(self, other: Self) -> Self {
+        Self {
+            x: self.x.max(other.x),
+            y: self.y.max(other.y),
+        }
+    }
+
+    pub(crate) fn componentwise_min(self, other: Self) -> Self {
+        Self {
+            x: self.x.min(other.x),
+            y: self.y.min(other.y),
+        }
+    }
+
+    pub(crate) fn lies_within(self, minimum: Self, maximum: Self) -> bool {
+        self.x >= minimum.x && self.x <= maximum.x && self.y >= minimum.y && self.y <= maximum.y
+    }
+
+    pub(crate) fn translation_to(self, current: Self) -> [f32; 2] {
+        [
+            self.x.difference(current.x) as f32,
+            self.y.difference(current.y) as f32,
+        ]
+    }
+
+    #[cfg(test)]
+    fn precise_x(self) -> f64 {
+        self.x.as_f64()
+    }
+
+    #[cfg(test)]
+    fn precise_y(self) -> f64 {
+        self.y.as_f64()
     }
 }
 
@@ -410,39 +550,6 @@ fn normalized_scroll_component(value: f64) -> f64 {
         return 0.0;
     }
     value.clamp(f64::from(i32::MIN), f64::from(i32::MAX))
-}
-
-fn split_scroll_component(value: f64) -> (i32, f64) {
-    let integral = value.trunc() as i32;
-    (integral, normalized_zero(value - f64::from(integral)))
-}
-
-fn quantize_scroll_axis(remainder: f64, compensation: f64, delta: f64) -> (i32, f64, f64) {
-    let adjusted = delta - compensation;
-    let total = remainder + adjusted;
-    let compensation = (total - remainder) - adjusted;
-    let nearest = total.round();
-    let boundary_tolerance = f64::EPSILON * 8.0 * total.abs().max(1.0);
-    let at_visual_boundary = (total - nearest).abs() <= boundary_tolerance;
-    let total = if at_visual_boundary { nearest } else { total };
-    let compensation = if at_visual_boundary {
-        0.0
-    } else {
-        compensation
-    };
-    let visual = total
-        .trunc()
-        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
-    let remainder = total - f64::from(visual);
-    (
-        visual,
-        normalized_zero(remainder),
-        normalized_zero(compensation),
-    )
-}
-
-fn normalized_zero(value: f64) -> f64 {
-    if value == 0.0 { 0.0 } else { value }
 }
 
 #[cfg(test)]
@@ -639,31 +746,22 @@ mod tests {
         (scroll, target, visual_updates)
     }
 
-    fn remainder(scroll: &Scroll, target: &Target) -> ScrollRemainder {
-        scroll
-            .offsets
-            .iter()
-            .find(|entry| &entry.target == target)
-            .map(|entry| entry.remainder)
-            .unwrap_or_default()
-    }
-
     fn require_sum_preserved(scale: f64, physical_y: &[f64]) -> (Scroll, Target, usize) {
         let (scroll, target, visual_updates) = apply_physical_trace(scale, physical_y);
         let logical_total = physical_y.iter().sum::<f64>() / scale;
         let desired = scroll.desired_offset(&target);
-        let remainder = remainder(&scroll, &target);
         assert_eq!(desired.y(), logical_total.trunc() as i32);
         assert!(
-            (f64::from(desired.y()) + remainder.y - logical_total).abs() < 1.0e-12,
-            "scale={scale} desired={desired:?} remainder={remainder:?} logical_total={logical_total}"
+            (desired.precise_y() - logical_total).abs()
+                <= physical_y.len() as f64 / Coordinate::SCALE as f64,
+            "scale={scale} desired={desired:?} logical_total={logical_total}"
         );
         (scroll, target, visual_updates)
     }
 
     fn require_tiny_trace(scale: f64) {
         let (_, _, visual_updates) = require_sum_preserved(scale, &[0.4; 5]);
-        assert!(visual_updates > 0 && visual_updates < 5);
+        assert_eq!(visual_updates, 5);
     }
 
     fn require_reversal_trace(scale: f64) {
@@ -679,20 +777,15 @@ mod tests {
             maximum = maximum.max(scroll.desired_offset(&target).y());
         }
         let desired = scroll.desired_offset(&target);
-        let remainder = remainder(&scroll, &target);
         assert!(maximum > 0, "scale={scale} reversal never moved visually");
         assert_eq!(desired, ScrollOffset::default());
-        assert!(
-            remainder.y.abs() < 1.0e-12,
-            "scale={scale} reversal drifted by {:?}",
-            remainder.y
-        );
+        assert_eq!(desired.precise_y(), 0.0);
     }
 
     fn require_burst_trace(scale: f64) {
         let physical = [0.3, 0.3, 0.3, 4.1, 0.2, 0.2, 0.2, 0.4];
         let (scroll, target, visual_updates) = require_sum_preserved(scale, &physical);
-        assert!(visual_updates > 0 && visual_updates < physical.len());
+        assert_eq!(visual_updates, physical.len());
         assert_eq!(scroll.revision(&target), visual_updates as u64);
     }
 
@@ -772,16 +865,16 @@ mod tests {
     }
 
     #[test]
-    fn input_precision_case_thumb_absolute_resets_fractional_remainder() {
+    fn input_precision_case_thumb_absolute_replaces_fractional_position() {
         let mut scroll = Scroll::default();
         let target = Target::scroll("precision.thumb", "Precision Thumb");
-        assert_eq!(
-            scroll.request(
+        let fractional = scroll
+            .request(
                 target.clone(),
                 ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.75)),
-            ),
-            None
-        );
+            )
+            .unwrap();
+        assert_eq!(fractional.precise_y(), 0.75);
         assert_eq!(
             scroll.request(
                 target.clone(),
@@ -789,19 +882,18 @@ mod tests {
             ),
             Some(ScrollOffset::new(0, 40))
         );
-        assert_eq!(remainder(&scroll, &target), ScrollRemainder::default());
-        assert_eq!(
-            scroll.request(
+        let desired = scroll
+            .request(
                 target.clone(),
                 ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.5)),
-            ),
-            None
-        );
-        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 40));
+            )
+            .unwrap();
+        assert_eq!(desired.precise_y(), 40.5);
+        assert_eq!(desired.y(), 40);
     }
 
     #[test]
-    fn input_precision_case_keyboard_integral_delta_preserves_fractional_remainder() {
+    fn input_precision_case_keyboard_integral_delta_preserves_fractional_position() {
         let mut scroll = Scroll::default();
         let target = Target::scroll("precision.keyboard", "Precision Keyboard");
         scroll.request(
@@ -813,9 +905,15 @@ mod tests {
                 target.clone(),
                 ScrollUpdate::Relative(ScrollDelta::vertical(28)),
             ),
-            Some(ScrollOffset::new(0, 28))
+            Some(ScrollOffset {
+                x: Coordinate::ZERO,
+                y: Coordinate::from_ticks(
+                    Coordinate::from_i64(28).ticks()
+                        - (0.4 * Coordinate::SCALE as f64).round() as i128,
+                ),
+            })
         );
-        assert!((remainder(&scroll, &target).y + 0.4).abs() < 1.0e-12);
+        assert!((scroll.desired_offset(&target).precise_y() - 27.6).abs() < 1.0e-9);
         assert_eq!(
             scroll.request(
                 target.clone(),
@@ -826,7 +924,7 @@ mod tests {
     }
 
     #[test]
-    fn input_precision_case_reveal_geometry_resets_fractional_remainder() {
+    fn input_precision_case_reveal_geometry_replaces_fractional_position() {
         let mut scroll = Scroll::default();
         let target = Target::scroll("precision.reveal", "Precision Reveal");
         scroll.request(
@@ -840,7 +938,7 @@ mod tests {
             ),
             Some(ScrollOffset::new(0, 72))
         );
-        assert_eq!(remainder(&scroll, &target), ScrollRemainder::default());
+        assert_eq!(scroll.desired_offset(&target).precise_y(), 72.0);
     }
 
     #[test]
@@ -859,6 +957,130 @@ mod tests {
             Some(ScrollOffset::new(36, 84))
         );
         assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(36, 84));
-        assert_eq!(remainder(&scroll, &target), ScrollRemainder::default());
+        assert_eq!(scroll.desired_offset(&target).precise_x(), 36.0);
+        assert_eq!(scroll.desired_offset(&target).precise_y(), 84.0);
+    }
+
+    #[test]
+    fn configured_adjustments_clamp_continuous_axes_and_observe_atomic_geometry() {
+        let mut scroll = Scroll::default();
+        let target = Target::scroll("adjustment.continuous", "Continuous Adjustment");
+
+        assert_eq!(
+            scroll.configure(
+                target.clone(),
+                ScrollOffset::new(100, 200),
+                ScrollOffset::new(20, 40),
+            ),
+            None
+        );
+        let configured_target_revision = scroll.revision(&target);
+        assert!(configured_target_revision > 0);
+        let entry = scroll
+            .offsets
+            .iter()
+            .find(|entry| entry.target == target)
+            .unwrap();
+        assert_eq!(entry.horizontal.configuration.lower, Coordinate::ZERO);
+        assert_eq!(entry.horizontal.maximum(), Coordinate::from_i64(100));
+        assert_eq!(
+            entry.horizontal.configuration.page,
+            Coordinate::from_i64(20)
+        );
+        assert_eq!(entry.horizontal.configuration.step, Coordinate::ONE);
+        assert_eq!(
+            entry.horizontal.configuration.page_increment,
+            Coordinate::from_i64(20)
+        );
+        let configured_revision = entry.horizontal.revision;
+
+        let desired = scroll
+            .request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.25, 0.75)),
+            )
+            .unwrap();
+        assert_eq!(desired.precise_x(), 0.25);
+        assert_eq!(desired.precise_y(), 0.75);
+        assert_eq!(desired.x(), 0);
+        assert_eq!(desired.y(), 0);
+
+        let clamped = scroll
+            .request(
+                target.clone(),
+                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(150.0, 250.0)),
+            )
+            .unwrap();
+        assert_eq!(clamped, ScrollOffset::new(100, 200));
+
+        scroll.configure(
+            target.clone(),
+            ScrollOffset::new(100, 200),
+            ScrollOffset::new(20, 40),
+        );
+        assert_eq!(
+            scroll.revision(&target),
+            configured_target_revision + 2,
+            "only the two value updates since configuration should advance observation"
+        );
+        let unchanged = scroll
+            .offsets
+            .iter()
+            .find(|entry| entry.target == target)
+            .unwrap();
+        assert_eq!(unchanged.horizontal.revision, configured_revision + 2);
+
+        assert_eq!(
+            scroll.configure(
+                target.clone(),
+                ScrollOffset::new(50, 80),
+                ScrollOffset::new(10, 16),
+            ),
+            Some(ScrollOffset::new(50, 80))
+        );
+        let reconfigured = scroll
+            .offsets
+            .iter()
+            .find(|entry| entry.target == target)
+            .unwrap();
+        assert_eq!(reconfigured.horizontal.maximum(), Coordinate::from_i64(50));
+        assert_eq!(
+            reconfigured.horizontal.configuration.page,
+            Coordinate::from_i64(10)
+        );
+        assert_eq!(reconfigured.horizontal.revision, configured_revision + 3);
+        assert_eq!(
+            scroll.revision(&target),
+            configured_target_revision + 3,
+            "a clamp-producing atomic reconfiguration advances one target observation"
+        );
+    }
+
+    #[test]
+    fn wide_coordinates_rebase_before_renderer_float_projection() {
+        let baseline = ScrollOffset {
+            x: Coordinate::from_ticks(
+                Coordinate::from_i64(20_000_000).ticks() + Coordinate::SCALE / 4,
+            ),
+            y: Coordinate::from_ticks(
+                Coordinate::from_i64(30_000_000).ticks() + Coordinate::SCALE / 2,
+            ),
+        };
+        let current = ScrollOffset {
+            x: Coordinate::from_ticks(baseline.x.ticks() + Coordinate::SCALE / 2),
+            y: Coordinate::from_ticks(baseline.y.ticks() - Coordinate::SCALE / 4),
+        };
+
+        assert_eq!(baseline.translation_to(current), [-0.5, 0.25]);
+        assert_eq!(
+            baseline.precise_x() as f32 - current.precise_x() as f32,
+            0.0,
+            "a global f32 conversion would lose the local half-pixel displacement"
+        );
+        assert_eq!(
+            baseline.precise_y() as f32 - current.precise_y() as f32,
+            0.0,
+            "a global f32 conversion would lose the local quarter-pixel displacement"
+        );
     }
 }

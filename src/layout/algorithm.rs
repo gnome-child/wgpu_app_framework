@@ -467,7 +467,7 @@ fn layout_variable_virtual_list(
     let viewport = Viewport::new(
         viewport_rect,
         Size::new(viewport_rect.width(), content_height),
-        interaction::ScrollOffset::new(requested_offset.x(), offset_y),
+        requested_offset.with_y(offset_y),
     )
     .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();

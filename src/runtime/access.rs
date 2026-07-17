@@ -373,10 +373,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         present_submitted_offsets
                             .entry(projection.target().clone())
                             .and_modify(|current: &mut interaction::ScrollOffset| {
-                                *current = interaction::ScrollOffset::new(
-                                    current.x().max(offset.x()),
-                                    current.y().max(offset.y()),
-                                );
+                                *current = current.componentwise_max(offset);
                             })
                             .or_insert(offset);
                     }
@@ -512,6 +509,17 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         self.presented_geometry
             .get(&window)
             .map(|geometry| geometry.stack.base().properties())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn presented_scroll_offset(
+        &self,
+        window: window::Id,
+        target: &interaction::Target,
+    ) -> Option<interaction::ScrollOffset> {
+        self.presented_geometry
+            .get(&window)
+            .and_then(|geometry| geometry.spatial.scroll_offset(target))
     }
 
     #[cfg(test)]

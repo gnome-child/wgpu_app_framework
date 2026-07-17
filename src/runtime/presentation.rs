@@ -215,6 +215,24 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 
     pub(super) fn apply_layout_feedback(&mut self, window: window::Id, layout: &layout::Layout) {
+        let mut configured = std::collections::HashSet::new();
+        for projection in layout.scroll_projections() {
+            let target = projection.target();
+            if !configured.insert(target.clone()) {
+                continue;
+            }
+            let Some((maximum, page)) = layout.scroll_adjustment_geometry(target) else {
+                continue;
+            };
+            if self
+                .session
+                .configure_scroll(window, target.clone(), maximum, page)
+                .is_some()
+            {
+                self.diagnostics.get_mut(window).scroll.frame_scroll_commits += 1;
+            }
+        }
+
         let Some(interaction) = self.session.interaction(window) else {
             return;
         };

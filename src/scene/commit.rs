@@ -1868,10 +1868,7 @@ impl ScrollDeclaration {
             && resident_bounds.height() > 0
             && maximum.x() >= 0
             && maximum.y() >= 0
-            && baseline.x() >= 0
-            && baseline.y() >= 0
-            && baseline.x() <= maximum.x()
-            && baseline.y() <= maximum.y())
+            && baseline.lies_within(interaction::ScrollOffset::default(), maximum))
         .then_some(Self {
             viewport,
             content_bounds,
@@ -1907,11 +1904,7 @@ impl ScrollDeclaration {
     }
 
     fn accepts(self, offset: interaction::ScrollOffset) -> bool {
-        if offset.x() < 0
-            || offset.y() < 0
-            || offset.x() > self.maximum.x()
-            || offset.y() > self.maximum.y()
-        {
+        if !offset.lies_within(interaction::ScrollOffset::default(), self.maximum) {
             return false;
         }
         let content = geometry::Rect::new(

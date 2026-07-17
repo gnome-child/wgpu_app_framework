@@ -310,7 +310,7 @@ fn platform_events_keep_pointer_and_scale_per_window() {
 }
 
 #[test]
-fn pixel_scroll_trace_preserves_sum_before_visual_quantization() {
+fn pixel_scroll_trace_preserves_continuous_sum() {
     use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
 
     let actual = (0..5)
@@ -327,12 +327,12 @@ fn pixel_scroll_trace_preserves_sum_before_visual_quantization() {
 
     assert!(
         (actual - 2.0).abs() < f64::EPSILON,
-        "five 0.4-logical-pixel inputs must preserve their 2.0-pixel sum before the interaction owner quantizes visual motion; actual={actual}"
+        "five 0.4-logical-pixel inputs must preserve their continuous 2.0-pixel sum; actual={actual}"
     );
 }
 
 #[test]
-fn legacy_per_event_rounding_loses_fractional_pixel_sum() {
+fn rejected_per_event_rounding_loses_fractional_pixel_sum() {
     let legacy_visual_sum = (0..5).map(|_| 0.4_f64.round() as i32).sum::<i32>();
     let aggregate_visual_sum = (5.0_f64 * 0.4).trunc() as i32;
 

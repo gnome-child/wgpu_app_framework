@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-001 RE-CENSUS — PRODUCTION OWNERSHIP UNCHANGED**
+Status: **SE-002 RE-CENSUS — AXIS ADJUSTMENT CONNECTED**
 
 Date: 2026-07-17
 
@@ -20,13 +20,13 @@ around the scrolling-engine rewrite.
 |---|---|---|---|
 | Winit wheel delta | `src/platform/event.rs::scroll_delta` | host/shell input adaptation | Scroll container input adapter. Pixel and fractional-line values survive, but `TouchPhase` is currently discarded. |
 | Pointer location used for wheel targeting | `src/platform/event.rs::WindowEvents` | host event and runtime routing | Scroll container session entrance; pointer state itself remains platform input state. |
-| Target-local fractional x/y carry and compensation | `src/interaction/scroll.rs::ScrollRemainder` | `Scroll::request` | Axis adjustment, one independent continuous coordinate per axis. Current integral-boundary quantization must go. |
-| Desired and resident-accepted x/y offsets | `src/interaction/scroll.rs::Position` | session, runtime transition, layout projection | Canonical value moves to axis adjustment; desired/resident remain private residency receipts that project it. |
-| Public `ScrollOffset` (`i32` x/y) and `ScrollDelta` (`f64` x/y) | `src/interaction/scroll.rs` | all input, routing, layout, scene, render, tests | Replace internal global coordinate with wide per-axis adjustment values. Keep GPU/local conversion bounded. Public names are provisional. |
-| Per-target scroll revision | `src/interaction/scroll.rs::Scroll::revisions` | presentation/layout invalidation | Axis adjustment observation revision. |
+| Per-axis canonical value and range geometry | `src/interaction/scroll.rs::AxisAdjustment` | `Scroll::request`, configuration, exact projection helpers | Connected target layer: independent horizontal/vertical fixed-point coordinates, lower/upper/page/step/page-increment configuration, clamping, and per-axis revision. |
+| Desired and resident-accepted x/y offsets | `src/interaction/scroll.rs::ScrollEntry` | session, runtime transition, layout projection | Desired is derived from the two adjustments; resident-accepted remains a private residency receipt and never competes for canonical ownership. |
+| Public `ScrollOffset` accessors and `ScrollDelta` (`f64` x/y) | `src/interaction/scroll.rs` | all input, routing, layout, scene, render, tests | Public constructor/accessor signatures remain unchanged; private coordinates are signed `i64` whole plus 32 fixed fraction bits. Renderer conversion occurs only after rebasing. Public names remain provisional. |
+| Per-target and per-axis scroll revisions | `src/interaction/scroll.rs::Scroll::revisions`, `AxisAdjustment::revision` | presentation/layout invalidation and adjustment observation | Value and configuration changes are revisioned; configuration-only changes are observable without pretending a clamp occurred. |
 | Viewport and active-descendant reveal requests | `src/interaction/scroll.rs::reveal_requests` | session, layout text/reveal | Scroll container operation; native text may author target geometry but not own ancestor traversal. |
 | Programmatic relative/absolute/geometry requests | `src/input/mod.rs`, `src/runtime/input/dispatch.rs` | session interaction and layout | Scroll container source-neutral operation using the same session/outcome path as direct input. |
-| Viewport rect/content/page geometry, max range, clamped resolution | `src/layout/viewport.rs::Viewport` | layout routing, chrome, reveal, scene | Range/page values project into two adjustments; eager adapter/container owns generic geometry. Native views supply domain extents. |
+| Viewport rect/content/page geometry, max range, clamped resolution | `src/layout/viewport.rs::Viewport`, `Layout::scroll_adjustment_geometry` | layout routing, adjustment configuration, chrome, reveal, scene | Connected target layer: each presented target configures both adjustments from aggregated max/page geometry; eager adapter/container still owns generic geometry. Native views supply domain extents. |
 | Desired/preparation/range/runway projection | `src/layout/mod.rs::ScrollProjection` | runtime presentation, scene residency | Split: adjustment owns canonical range/value; residency/presentation privately owns coverage/preparation/admission. |
 | One-target “can consume any axis” decision | `src/layout/viewport.rs::can_consume_from`, `src/layout/mod.rs::scroll_target_at` | runtime pointer scrolling | Scroll container nested handoff. Replace with child-first applied/remainder result independently per axis. |
 | Generic frame viewport layout | `src/layout/frame.rs`, `src/layout/mod.rs` | eager panels plus native text/table/list frames | Viewport adapter for arbitrary eager content; native views bypass it for domain realization. |
@@ -40,7 +40,7 @@ around the scrolling-engine rewrite.
 | Candidate spatial ancestry and property values | `src/scene/spatial.rs::SpatialTopology`, `src/scene/commit.rs::Properties` | renderer and submitted snapshot | Residency/presentation private projection. Not public scroll content. |
 | Desired coverage, candidate selection, runway, coalescing, follow-ups | `src/runtime/presentation.rs`, `src/scene/residency.rs`, `src/platform/native/surface.rs` | native preparation and diagnostics | Residency/presentation. Preserve selected-front and latest-intent invariants. |
 | Requested/present-submitted epoch and property serial | `src/session/window.rs::PresentationState` | runtime admission and geometry installation | Residency/presentation submission clock. |
-| Installed submitted geometry/offset snapshot | `src/runtime/access.rs`, `src/scene/spatial.rs::SpatialSnapshot` | hit testing, routing, IME, chrome | Residency/presentation atomic snapshot; it projects adjustment values at successful submission. |
+| Installed submitted geometry/offset snapshot | `src/runtime/access.rs`, `src/scene/spatial.rs::SpatialSnapshot` | hit testing, routing, IME, chrome | Residency/presentation atomic snapshot; exact horizontal/vertical fixed-point values are merged by typed axis at successful submission. |
 | Installed GPU property generation | `src/render/retained.rs` property slots | sparse property preparation | Residency/presentation renderer adapter. |
 | Surface acquire/submit/present-call receipts | `src/render/surface.rs` | runtime reports and diagnostics | Residency/presentation hardware boundary; no scanout claim. |
 | Redraw demand/in-flight deduplication | `src/platform/mod.rs::RedrawRequests` | backend request/delivery/retry | Platform scheduling owned outside scroll; the container/residency layers may request redraw but do not own this clock. |
@@ -48,9 +48,10 @@ around the scrolling-engine rewrite.
 
 No current scroll state is unassigned. Missing target concepts are recorded as
 gaps rather than assigned phantom owners: source-neutral sessions, terminal
-velocity/deceleration, exact applied/remainder outcomes, per-axis adjustments,
-generic eager adapter, independent axis policy, accessible range/value/actions,
-observable list mutation, and factory slot lifecycle.
+velocity/deceleration, exact applied/remainder outcomes, independent axis
+policy, accessible range/value/actions, observable list mutation, and factory
+slot lifecycle. The existing ordinary `Scroll` frame is now the proved eager
+viewport adapter slice; SE-004 still owns its complete container contract.
 
 ## 2. Production entrance census
 
@@ -151,9 +152,9 @@ them inputs to one source-neutral session/outcome contract.
 2. `Viewport::can_consume_from` answers whether any axis can move, then
    `Layout::scroll_target_at` chooses one target. The dispatch path has no
    applied/remainder outcome and no independent per-axis ancestor handoff.
-3. `ScrollOffset` is global `i32`; fractional deltas accumulate privately until
-   they cross an integral pixel, so touchpad motion cannot remain continuously
-   positioned.
+3. Closed by SE-002: `ScrollOffset` retains its public integral accessors but
+   privately carries a wide fixed-point coordinate; fractional deltas update
+   and submit continuously without an integral-pixel gate.
 4. `VirtualList::Provider` exposes count/key/view/measurement queries but no
    membership event, same-key revision, unique-key failure, or recycled slot
    lifecycle.
@@ -180,7 +181,36 @@ The broad forbidden-name search reports `session::Request` and
 vocabulary in `src/session/request.rs`, not scrolling, residency, or
 virtualization planning, so they do not violate the scrolling API prohibition.
 
-## 6. Repeatable census commands
+## 6. SE-002 delta
+
+SE-002 replaces `ScrollRemainder` and `Position` with two internal
+`AxisAdjustment` values in `src/interaction/scroll.rs`. The adjustment owns
+configuration, canonical clamping, external relative/absolute/geometry
+control, and revision. `ScrollEntry::desired` projects both canonical values;
+`resident_accepted` remains the separately named lifecycle receipt.
+
+`src/layout/mod.rs`, `src/runtime/input/dispatch.rs`,
+`src/runtime/presentation.rs`, and `src/session/interaction/scroll.rs` connect
+aggregated viewport maximum/page geometry to atomic adjustment configuration
+before eager input and on layout feedback. Exact-axis comparisons replace
+legacy accessor comparisons in routing, acceptance, residency, pending native
+reversal detection, active-stack projection, and submitted-target merging.
+
+`src/scene/spatial.rs` rebases fixed coordinates before `f32` conversion for
+GPU transforms and retains the exact axis values in `SpatialSnapshot`; integer
+frame/hit geometry rounds only the already-rebased local delta. The ordinary
+eager vertical/horizontal integration witness in `src/tests/layout_scene.rs`
+proves property-only subpixel motion and same-pixel reversal through the
+submitted snapshot. Architecture gates now reject restoration of the old
+remainder/quantization owner.
+
+The boundary census found 328 entrance, 1,002 scroll-state, 1,939
+routing/container, 104 presentation-clock, and 1,014 list/lifecycle source
+hits. Inspection found no new owner or public forbidden-name candidate. The
+two broad forbidden-name hits remain the unrelated file-dialog
+`session::Request` and `RequestKind` described in SE-001.
+
+## 7. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:

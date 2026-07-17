@@ -234,6 +234,14 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         update: interaction::ScrollUpdate,
     ) -> ScrollTransition {
         let target_key = target.focus_key();
+        let presented = self.presented_layout(window);
+        if let Some((maximum, page)) = presented
+            .as_ref()
+            .and_then(|layout| layout.scroll_adjustment_geometry(&target))
+        {
+            self.session
+                .configure_scroll(window, target.clone(), maximum, page);
+        }
         let before = self
             .session
             .interaction(window)
@@ -256,7 +264,6 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             );
             return ScrollTransition::Unchanged;
         };
-        let presented = self.presented_layout(window);
         let offset = presented.as_ref().map_or(requested, |layout| {
             layout.resolve_scroll_offset(&target, requested)
         });

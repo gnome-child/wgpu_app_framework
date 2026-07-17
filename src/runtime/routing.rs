@@ -215,12 +215,8 @@ fn scrollbar_offset(
     candidate: interaction::ScrollOffset,
 ) -> interaction::ScrollOffset {
     match axis {
-        interaction::ScrollbarAxis::Horizontal => {
-            interaction::ScrollOffset::new(candidate.x(), current.y())
-        }
-        interaction::ScrollbarAxis::Vertical => {
-            interaction::ScrollOffset::new(current.x(), candidate.y())
-        }
+        interaction::ScrollbarAxis::Horizontal => current.with_x(candidate.x()),
+        interaction::ScrollbarAxis::Vertical => current.with_y(candidate.y()),
     }
 }
 

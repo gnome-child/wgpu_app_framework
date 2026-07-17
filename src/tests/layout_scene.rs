@@ -7196,6 +7196,172 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
 }
 
 #[test]
+fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_snapshot() {
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Continuous Generic Scroll"));
+        })
+        .view(|_, _| {
+            widget::view(|ui| {
+                ui.column(|ui| {
+                    ui.add(
+                        widget::Scroll::new()
+                            .id("scroll.continuous.vertical")
+                            .height(view::Dimension::fixed(72))
+                            .children(|ui| {
+                                for index in 0..6 {
+                                    ui.add(
+                                        widget::Element::new()
+                                            .label(format!("Tall row {index}"))
+                                            .height(view::Dimension::fixed(28)),
+                                    );
+                                }
+                            }),
+                    );
+                    ui.add(
+                        widget::Scroll::new()
+                            .id("scroll.continuous.horizontal")
+                            .row()
+                            .height(view::Dimension::fixed(48))
+                            .children(|ui| {
+                                for index in 0..6 {
+                                    ui.add(
+                                        widget::Element::new()
+                                            .label(format!("Wide item {index}"))
+                                            .width(view::Dimension::fixed(100)),
+                                    );
+                                }
+                            }),
+                    );
+                });
+            })
+        });
+
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(220, 180);
+    let initial = app
+        .show_scene(window, size)
+        .expect("continuous generic scrolls should render");
+    let scrolls = initial.layout().find_role(view::Role::Scroll);
+    assert_eq!(scrolls.len(), 2);
+    let vertical = scrolls[0];
+    let horizontal = scrolls[1];
+    let vertical_viewport = vertical.viewport().expect("vertical generic viewport");
+    let horizontal_viewport = horizontal.viewport().expect("horizontal generic viewport");
+    assert_eq!(vertical_viewport.max_scroll().x(), 0);
+    assert!(vertical_viewport.max_scroll().y() > 0);
+    assert!(horizontal_viewport.max_scroll().x() > 0);
+    assert_eq!(horizontal_viewport.max_scroll().y(), 0);
+    let vertical_target = vertical.target().expect("vertical scroll target").clone();
+    let horizontal_target = horizontal
+        .target()
+        .expect("horizontal scroll target")
+        .clone();
+    let vertical_node = vertical.node_id();
+    let horizontal_node = horizontal.node_id();
+    let vertical_point = frame_point_at(vertical.rect());
+    let horizontal_point = frame_point_at(horizontal.rect());
+    let commit = std::sync::Arc::clone(initial.commit());
+    drop(initial);
+
+    app.scroll_at(
+        window,
+        size,
+        vertical_point,
+        interaction::ScrollDelta::from_logical_pixels(0.0, 0.75),
+    )
+    .expect("fractional vertical motion should be admitted");
+    app.scroll_at(
+        window,
+        size,
+        horizontal_point,
+        interaction::ScrollDelta::from_logical_pixels(0.25, 0.0),
+    )
+    .expect("fractional horizontal motion should be admitted");
+    let first = app
+        .show_scene(window, size)
+        .expect("fractional eager property tick should render");
+    let first_vertical = first
+        .stack()
+        .scroll_offset(vertical_node)
+        .expect("vertical fraction must reach the render stack");
+    let first_horizontal = first
+        .stack()
+        .scroll_offset(horizontal_node)
+        .expect("horizontal fraction must reach the render stack");
+    assert!(first.property_only());
+    assert!(std::sync::Arc::ptr_eq(&commit, first.commit()));
+    assert_eq!(first_vertical.x(), 0);
+    assert_eq!(first_vertical.y(), 0);
+    assert_eq!(first_horizontal.x(), 0);
+    assert_eq!(first_horizontal.y(), 0);
+    assert_eq!(
+        interaction::ScrollOffset::default().translation_to(first_vertical),
+        [0.0, -0.75]
+    );
+    assert_eq!(
+        interaction::ScrollOffset::default().translation_to(first_horizontal),
+        [-0.25, 0.0]
+    );
+    assert_eq!(
+        app.presented_scroll_offset(window, &vertical_target),
+        Some(first_vertical),
+        "the installed vertical hit/IME/geometry snapshot must retain the exact submitted offset"
+    );
+    assert_eq!(
+        app.presented_scroll_offset(window, &horizontal_target),
+        Some(first_horizontal),
+        "the installed horizontal hit/IME/geometry snapshot must retain the exact submitted offset"
+    );
+    drop(first);
+
+    app.scroll_at(
+        window,
+        size,
+        vertical_point,
+        interaction::ScrollDelta::from_logical_pixels(0.0, -0.25),
+    )
+    .expect("a vertical reversal inside the same integer pixel should remain routable");
+    app.scroll_at(
+        window,
+        size,
+        horizontal_point,
+        interaction::ScrollDelta::from_logical_pixels(-0.125, 0.0),
+    )
+    .expect("a horizontal reversal inside the same integer pixel should remain routable");
+    let reversed = app
+        .show_scene(window, size)
+        .expect("fractional eager reversal property tick should render");
+    let reversed_vertical = reversed
+        .stack()
+        .scroll_offset(vertical_node)
+        .expect("reversed vertical property must reach the render stack");
+    let reversed_horizontal = reversed
+        .stack()
+        .scroll_offset(horizontal_node)
+        .expect("reversed horizontal property must reach the render stack");
+    assert!(reversed.property_only());
+    assert!(std::sync::Arc::ptr_eq(&commit, reversed.commit()));
+    assert_eq!(
+        interaction::ScrollOffset::default().translation_to(reversed_vertical),
+        [0.0, -0.5]
+    );
+    assert_eq!(
+        interaction::ScrollOffset::default().translation_to(reversed_horizontal),
+        [-0.125, 0.0]
+    );
+    assert_eq!(
+        app.presented_scroll_offset(window, &vertical_target),
+        Some(reversed_vertical)
+    );
+    assert_eq!(
+        app.presented_scroll_offset(window, &horizontal_target),
+        Some(reversed_horizontal)
+    );
+}
+
+#[test]
 fn gutter_scrollbar_metrics_reduce_viewport_width() {
     let mut theme = Theme::dark();
     theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;

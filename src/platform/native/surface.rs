@@ -9,7 +9,7 @@ use crate::render::{self, Canvas, Context, Renderer, canvas, context, surface};
 use super::super::{NativeError, Window};
 use super::window::{InitialSize, Options, Window as NativeWindow};
 use super::{Native, NativeContext, PopupPrewarmState};
-use crate::{scene, shell, window as app_window};
+use crate::{interaction, scene, shell, window as app_window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Attempts {
@@ -583,17 +583,31 @@ fn pending_scroll_intent_is_obsolete(
         let Some(incoming_offset) = incoming.properties().scroll_offset(node) else {
             return false;
         };
-        scroll_axis_reversed(active_offset.x(), pending_offset.x(), incoming_offset.x())
-            || scroll_axis_reversed(active_offset.y(), pending_offset.y(), incoming_offset.y())
+        scroll_axis_reversed(
+            active_offset,
+            pending_offset,
+            incoming_offset,
+            interaction::ScrollbarAxis::Horizontal,
+        ) || scroll_axis_reversed(
+            active_offset,
+            pending_offset,
+            incoming_offset,
+            interaction::ScrollbarAxis::Vertical,
+        )
     })
 }
 
-fn scroll_axis_reversed(active: i32, pending: i32, incoming: i32) -> bool {
-    if pending == active {
+fn scroll_axis_reversed(
+    active: interaction::ScrollOffset,
+    pending: interaction::ScrollOffset,
+    incoming: interaction::ScrollOffset,
+    axis: interaction::ScrollbarAxis,
+) -> bool {
+    let pending_direction = pending.axis_cmp(active, axis);
+    if pending_direction.is_eq() {
         return false;
     }
-    incoming == active
-        || pending.saturating_sub(active).signum() != incoming.saturating_sub(active).signum()
+    incoming.same_axis(active, axis) || pending_direction != incoming.axis_cmp(active, axis)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

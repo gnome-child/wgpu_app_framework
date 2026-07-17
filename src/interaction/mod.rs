@@ -328,6 +328,15 @@ impl Interaction {
         self.scroll.request(target, update)
     }
 
+    pub(super) fn configure_scroll(
+        &mut self,
+        target: Target,
+        maximum: ScrollOffset,
+        page: ScrollOffset,
+    ) -> Option<ScrollOffset> {
+        self.scroll.configure(target, maximum, page)
+    }
+
     pub(super) fn accept_resident_scroll(
         &mut self,
         target: Target,

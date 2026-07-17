@@ -453,12 +453,9 @@ impl Retained {
                     })
                     .map(|offset| projection.viewport().resolve(offset))
                     .and_then(|offset| {
-                        projection.accepted_offsets().map(|(minimum, maximum)| {
-                            super::super::interaction::ScrollOffset::new(
-                                offset.x().clamp(minimum.x(), maximum.x()),
-                                offset.y().clamp(minimum.y(), maximum.y()),
-                            )
-                        })
+                        projection
+                            .accepted_offsets()
+                            .map(|(minimum, maximum)| offset.clamped(minimum, maximum))
                     })
                     .unwrap_or_else(|| declaration.baseline());
                 Some(super::PropertyValue::ScrollOffset {

@@ -1,6 +1,6 @@
 use super::super::{
     geometry::{Rect, Size},
-    interaction::{ScrollDelta, ScrollOffset},
+    interaction::{ScrollDelta, ScrollOffset, ScrollbarAxis},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,8 +20,7 @@ impl Viewport {
             content.width().saturating_sub(rect.width()).max(0),
             content.height().saturating_sub(rect.height()).max(0),
         );
-        let resolved =
-            ScrollOffset::new(offset.x().clamp(0, max.x()), offset.y().clamp(0, max.y()));
+        let resolved = offset.clamped(ScrollOffset::default(), max);
 
         Self {
             rect,
@@ -79,18 +78,24 @@ impl Viewport {
     }
 
     pub(crate) fn resolve(self, offset: ScrollOffset) -> ScrollOffset {
-        ScrollOffset::new(
-            offset.x().clamp(0, self.max.x()),
-            offset.y().clamp(0, self.max.y()),
-        )
+        offset.clamped(ScrollOffset::default(), self.max)
     }
 
     pub(crate) fn can_consume_from(self, offset: ScrollOffset, delta: ScrollDelta) -> bool {
         let resolved = self.resolve(offset);
-        (delta.x() < 0.0 && resolved.x() > 0)
-            || (delta.x() > 0.0 && resolved.x() < self.max.x())
-            || (delta.y() < 0.0 && resolved.y() > 0)
-            || (delta.y() > 0.0 && resolved.y() < self.max.y())
+        (delta.x() < 0.0
+            && resolved
+                .axis_cmp(ScrollOffset::default(), ScrollbarAxis::Horizontal)
+                .is_gt())
+            || (delta.x() > 0.0
+                && resolved
+                    .axis_cmp(self.max, ScrollbarAxis::Horizontal)
+                    .is_lt())
+            || (delta.y() < 0.0
+                && resolved
+                    .axis_cmp(ScrollOffset::default(), ScrollbarAxis::Vertical)
+                    .is_gt())
+            || (delta.y() > 0.0 && resolved.axis_cmp(self.max, ScrollbarAxis::Vertical).is_lt())
     }
 
     pub(crate) fn is_scrollable(self) -> bool {

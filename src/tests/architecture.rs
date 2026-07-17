@@ -6349,7 +6349,8 @@ fn pending_scroll_activation_never_presents_an_obsolete_residency_step() {
             && runtime_presentation.contains("record_residency_candidate_superseded")
             && runtime_presentation.contains("record_residency_pipeline_cancelled")
             && runtime_presentation.contains("presented.layout.as_ref().clone()")
-            && layout.contains("offset.x() != previous.x()")
+            && layout
+                .contains("!offset.same_axis(previous, interaction::ScrollbarAxis::Horizontal)",)
             && paint.contains("pub(super) fn tick_presented_properties(")
             && paint.contains("presented\n                        .layers()")
             && paint.contains("Some(layer.properties())")
@@ -6414,8 +6415,9 @@ fn generation_state_contract_has_one_owner_and_exact_eight_case_suite() {
     let renderer_tests = include_str!("../../tools/renderer_debug/src/lib.rs");
 
     assert!(
-        interaction.contains("ResidentAccepted(ScrollOffset)")
+        interaction.contains("struct AxisAdjustment {")
             && interaction.contains("resident_accepted: ScrollOffset")
+            && interaction.contains("fn desired(&self) -> ScrollOffset")
             && interaction.contains("pub(crate) fn resident_offset(")
             && interaction.contains("pub(super) fn accept_resident(")
             && !interaction.contains("Admitted(ScrollOffset)")
@@ -6466,11 +6468,6 @@ fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
         .and_then(|(_, suffix)| suffix.split_once("pub fn pointer_button("))
         .map(|(body, _)| body)
         .expect("platform scroll-delta adapter should retain a bounded source body");
-    let quantization = interaction
-        .split_once("fn quantize_scroll_axis(")
-        .and_then(|(_, suffix)| suffix.split_once("fn normalized_zero("))
-        .map(|(body, _)| body)
-        .expect("interaction scroll quantization should retain a bounded source body");
     assert!(
         scroll_delta.contains("ScrollDelta::from_logical_pixels(")
             && scroll_delta.contains("ScrollDelta::from_physical_pixels(")
@@ -6478,15 +6475,19 @@ fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
         "pixel and fractional-line input must cross the platform boundary without per-event integer rounding"
     );
     assert!(
-        interaction.contains("struct ScrollRemainder {")
-            && interaction.contains("x: f64")
-            && interaction.contains("y: f64")
-            && interaction.contains("previous_remainder.accumulate(delta)")
-            && interaction.contains("ScrollRemainder::default()")
-            && quantization.contains(".trunc()")
-            && quantization.contains("boundary_tolerance")
-            && quantization.contains("f64::EPSILON * 8.0"),
-        "one per-target interaction owner must retain signed fractions and apply the named whole-pixel truncation policy"
+        interaction.contains("struct Coordinate {")
+            && interaction.contains("whole: i64")
+            && interaction.contains("fraction: u32")
+            && interaction.contains("struct AxisAdjustment {")
+            && interaction.contains("horizontal: AxisAdjustment")
+            && interaction.contains("vertical: AxisAdjustment")
+            && interaction.contains("const FRACTION_BITS: u32 = 32")
+            && interaction.contains("const INTEGRAL_SNAP_TICKS: i128 = 8")
+            && interaction.contains("fn add_delta(self, delta: f64) -> Self")
+            && interaction.contains("self.set(self.value.add_delta(delta));")
+            && !interaction.contains("struct ScrollRemainder {")
+            && !interaction.contains("fn quantize_scroll_axis("),
+        "one per-axis adjustment owner must preserve continuous signed fixed-point coordinates without whole-pixel input quantization"
     );
     let suite_cases = interaction_tests
         .matches("fn input_precision_case_")
@@ -6735,11 +6736,12 @@ fn presented_geometry_uses_the_present_submitted_candidate_spatial_snapshot() {
 }
 
 #[test]
-fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
+fn scroll_truth_uses_continuous_adjustments_and_one_transition_contract() {
     let interaction = include_str!("../interaction/scroll.rs");
     let dispatch = include_str!("../runtime/input/dispatch.rs");
     let layout = include_str!("../layout/mod.rs");
     let scene = include_str!("../scene/commit.rs");
+    let spatial = include_str!("../scene/spatial.rs");
     let paint = include_str!("../scene/paint/mod.rs");
     let retained = include_str!("../render/retained.rs");
     let text_renderer = include_str!("../render/text_renderer.rs");
@@ -6749,7 +6751,8 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
             && interaction.contains("Relative(ScrollDelta),")
             && interaction.contains("Absolute(ScrollOffset),")
             && interaction.contains("Geometry(ScrollOffset),")
-            && interaction.contains("enum Position {")
+            && interaction.contains("struct AxisAdjustment {")
+            && interaction.contains("pub(super) fn configure(")
             && interaction.contains("pub(super) fn request(")
             && interaction.contains("pub(super) fn accept_resident(")
             && dispatch.contains("enum ScrollTransition {")
@@ -6770,11 +6773,13 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
 
     assert!(
         scene.contains("value: interaction::ScrollOffset,")
+            && interaction.contains("fn translation_to(self, current: Self) -> [f32; 2]")
+            && spatial.contains("let delta = baseline.translation_to(offset);")
             && scene.contains("i64::from(travel) * i64::from(offset)")
             && retained.contains(".scrollbar_position(offset)")
             && !scene.contains("maximum_offset as f32")
             && !retained.contains("maximum_offset as f32"),
-        "absolute scroll and scrollbar projection must stay integral until bounded GPU-local geometry"
+        "continuous scroll must rebase before GPU narrowing while scrollbar projection stays exact in bounded integral geometry"
     );
     assert!(
         layout.contains("enum ScrollResidency {")
@@ -6868,16 +6873,15 @@ fn scrollable_species_share_viewport_geometry_and_multi_axis_target_ownership() 
     );
     assert!(
         layout.contains(".filter(|projection| &projection.target == target)")
-            && layout.contains("maximum.x().max(candidate.x())")
-            && layout.contains("maximum.y().max(candidate.y())")
+            && layout.contains("maximum = maximum.componentwise_max(candidate)")
             && presentation.contains("let mut seen = std::collections::HashSet::new();")
             && presentation.contains("layout.resolve_scroll_offset(target, desired)")
             && access
                 .contains("let mut present_submitted_offsets = std::collections::HashMap::new();")
-            && access.contains("current.x().max(offset.x())")
-            && access.contains("current.y().max(offset.y())")
+            && access.contains("*current = current.componentwise_max(offset)")
             && spatial.contains("target_bindings")
             && spatial.contains("fn presented_target_axes(")
+            && spatial.contains(".with_axis_from(")
             && runtime.contains("self.spatial")
             && runtime.contains(".scroll_offset(target)")
             && runtime.contains("unwrap_or_else(|| viewport.resolved_scroll())"),

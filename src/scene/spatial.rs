@@ -494,8 +494,9 @@ impl SpatialTopology {
             .ok_or(SpatialError::InvalidSurfaceRoot)?
         {
             let offset = properties.scroll_offset(*owner).unwrap_or(*baseline);
-            translation[0] += baseline.x().saturating_sub(offset.x()) as f32;
-            translation[1] += baseline.y().saturating_sub(offset.y()) as f32;
+            let delta = baseline.translation_to(offset);
+            translation[0] += delta[0];
+            translation[1] += delta[1];
         }
         Ok(translation)
     }
@@ -595,10 +596,9 @@ impl SpatialTopology {
                 viewport.height(),
             ));
             let current = properties.scroll_offset(*owner).unwrap_or(*baseline);
-            translation[0] =
-                translation[0].saturating_add(baseline.x().saturating_sub(current.x()));
-            translation[1] =
-                translation[1].saturating_add(baseline.y().saturating_sub(current.y()));
+            let delta = baseline.translation_to(current);
+            translation[0] = translation[0].saturating_add(delta[0].round() as i32);
+            translation[1] = translation[1].saturating_add(delta[1].round() as i32);
         }
         Ok(PresentedNode { translation, clips })
     }
@@ -607,22 +607,15 @@ impl SpatialTopology {
         &self,
         properties: &Properties,
         target: &interaction::Target,
-    ) -> Option<(Option<i32>, Option<i32>)> {
+    ) -> Option<(
+        Option<interaction::ScrollOffset>,
+        Option<interaction::ScrollOffset>,
+    )> {
         let bindings = self.target_bindings.get(target)?;
-        let value = |binding: Option<(composition::tree::NodeId, interaction::ScrollOffset)>,
-                     axis: interaction::ScrollbarAxis| {
-            binding.map(|(owner, baseline)| {
-                let offset = properties.scroll_offset(owner).unwrap_or(baseline);
-                match axis {
-                    interaction::ScrollbarAxis::Horizontal => offset.x(),
-                    interaction::ScrollbarAxis::Vertical => offset.y(),
-                }
-            })
+        let value = |binding: Option<(composition::tree::NodeId, interaction::ScrollOffset)>| {
+            binding.map(|(owner, baseline)| properties.scroll_offset(owner).unwrap_or(baseline))
         };
-        Some((
-            value(bindings.horizontal, interaction::ScrollbarAxis::Horizontal),
-            value(bindings.vertical, interaction::ScrollbarAxis::Vertical),
-        ))
+        Some((value(bindings.horizontal), value(bindings.vertical)))
     }
 
     fn world_scroll_translation(&self, state: PropertyState, properties: &Properties) -> [f32; 2] {
@@ -1394,10 +1387,15 @@ impl SpatialSnapshot {
             }
         }
         found.then(|| {
-            interaction::ScrollOffset::new(
-                horizontal.unwrap_or_default(),
-                vertical.unwrap_or_default(),
-            )
+            interaction::ScrollOffset::default()
+                .with_axis_from(
+                    horizontal.unwrap_or_default(),
+                    interaction::ScrollbarAxis::Horizontal,
+                )
+                .with_axis_from(
+                    vertical.unwrap_or_default(),
+                    interaction::ScrollbarAxis::Vertical,
+                )
         })
     }
 
