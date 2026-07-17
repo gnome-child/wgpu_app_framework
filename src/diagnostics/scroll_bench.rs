@@ -13,7 +13,7 @@ use crate::text::{
     view::ViewState,
 };
 
-pub const SCROLL_BENCH_VERSION: u32 = 10;
+pub const SCROLL_BENCH_VERSION: u32 = 11;
 pub const OFFICIAL_PROPERTY_WARMUP: usize = 64;
 pub const OFFICIAL_PROPERTY_SAMPLES: usize = 1_024;
 
@@ -33,11 +33,12 @@ pub enum ScrollBenchWorkload {
     TextHorizontalEdit64MiB,
     TextHorizontalTypingScroll4MiB,
     TextHorizontalCaretReveal4MiB,
+    TextMultilineUnwrappedEditStress,
     TextVerticalVariableHeight,
 }
 
 impl ScrollBenchWorkload {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::TextHorizontalLongLine,
         Self::TextHorizontalExactLongLine,
         Self::TextHorizontalAscii64MiB,
@@ -45,6 +46,7 @@ impl ScrollBenchWorkload {
         Self::TextHorizontalEdit64MiB,
         Self::TextHorizontalTypingScroll4MiB,
         Self::TextHorizontalCaretReveal4MiB,
+        Self::TextMultilineUnwrappedEditStress,
         Self::TextVerticalVariableHeight,
     ];
 
@@ -57,6 +59,7 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalEdit64MiB => "text-horizontal-edit-64m",
             Self::TextHorizontalTypingScroll4MiB => "text-horizontal-typing-scroll-4m",
             Self::TextHorizontalCaretReveal4MiB => "text-horizontal-caret-reveal-4m",
+            Self::TextMultilineUnwrappedEditStress => "text-multiline-unwrapped-edit-stress",
             Self::TextVerticalVariableHeight => "text-vertical-8m",
         }
     }
@@ -69,7 +72,8 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalEdit4MiB
             | Self::TextHorizontalEdit64MiB
             | Self::TextHorizontalTypingScroll4MiB
-            | Self::TextHorizontalCaretReveal4MiB => "SemanticChange",
+            | Self::TextHorizontalCaretReveal4MiB
+            | Self::TextMultilineUnwrappedEditStress => "SemanticChange",
             Self::TextVerticalVariableHeight => "ResidencyCrossing",
         }
     }
@@ -80,6 +84,9 @@ impl ScrollBenchWorkload {
             Self::TextHorizontalTypingScroll4MiB => "EditLocality+ResidentHorizontalProjection",
             Self::TextHorizontalCaretReveal4MiB => {
                 "EditLocality+CaretReveal+ResidentHorizontalProjection"
+            }
+            Self::TextMultilineUnwrappedEditStress => {
+                "EditLocality+MultilineExactExtentMaintenance"
             }
             Self::TextHorizontalLongLine
             | Self::TextHorizontalExactLongLine
@@ -168,9 +175,9 @@ impl ScrollBenchReceipt {
                 "horizontal_index_builds={} horizontal_index_hits={} horizontal_index_misses={} horizontal_index_evictions={} horizontal_index_incremental_updates={} horizontal_index_incremental_source_bytes={} horizontal_index_incremental_source_bytes_max={} horizontal_index_incremental_glyphs={} horizontal_index_incremental_glyphs_max={} horizontal_index_source_bytes={} horizontal_index_glyphs={} horizontal_index_checkpoints={} horizontal_exact_band_shapes={} horizontal_exact_band_source_bytes={} horizontal_index_resident_bytes_max={} horizontal_window_shapes={} horizontal_window_source_bytes={} horizontal_resident_source_bytes_max={} horizontal_resident_glyphs_max={} horizontal_resident_bytes_max={} line_cache_resident_bytes_max={} ",
                 "render_source_lines={} render_source_bytes={} render_total_us={} render_shape_us={} ",
                 "height_index_hits={} height_index_misses={} height_index_queries={} height_index_updates={} height_index_refined_pixels={} anchor_candidates={} anchor_corrections={} anchor_correction_pixels={} anchor_correction_pixels_max={} ",
-                "width_cache_hits={} width_cache_misses={} width_observed_updates={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
+                "width_cache_hits={} width_cache_misses={} width_observed_updates={} width_incremental_updates={} width_incremental_source_bytes={} width_incremental_source_bytes_max={} width_source_lines={} width_source_bytes={} width_measure_us={} caret_run_scans={} caret_glyph_scans={} highlight_run_scans={} ",
                 "cold_horizontal_index_builds={} cold_horizontal_index_hits={} cold_horizontal_index_misses={} cold_horizontal_index_evictions={} cold_horizontal_index_incremental_updates={} cold_horizontal_index_incremental_source_bytes={} cold_horizontal_index_incremental_glyphs={} cold_horizontal_index_source_bytes={} cold_horizontal_index_glyphs={} cold_horizontal_index_checkpoints={} cold_horizontal_exact_band_shapes={} cold_horizontal_exact_band_source_bytes={} cold_horizontal_index_resident_bytes_max={} cold_horizontal_window_shapes={} cold_horizontal_window_source_bytes={} cold_horizontal_resident_source_bytes_max={} cold_horizontal_resident_glyphs_max={} cold_horizontal_resident_bytes_max={} cold_line_cache_resident_bytes_max={} ",
-                "cold_render_line_reuses={} cold_render_source_bytes={} cold_render_shape_us={} cold_height_index_queries={} cold_height_index_updates={} cold_height_index_refined_pixels={} cold_anchor_candidates={} cold_anchor_corrections={} cold_anchor_correction_pixels={} cold_width_observed_updates={} cold_width_source_bytes={} cold_width_measure_us={}"
+                "cold_render_line_reuses={} cold_render_source_bytes={} cold_render_shape_us={} cold_height_index_queries={} cold_height_index_updates={} cold_height_index_refined_pixels={} cold_anchor_candidates={} cold_anchor_corrections={} cold_anchor_correction_pixels={} cold_width_observed_updates={} cold_width_incremental_updates={} cold_width_incremental_source_bytes={} cold_width_incremental_source_bytes_max={} cold_width_source_bytes={} cold_width_measure_us={}"
             ),
             SCROLL_BENCH_VERSION,
             self.workload.name(),
@@ -299,6 +306,10 @@ impl ScrollBenchReceipt {
             self.diagnostics.text_area_width_cache_hits,
             self.diagnostics.text_area_width_cache_misses,
             self.diagnostics.text_area_width_observed_updates,
+            self.diagnostics.text_area_width_incremental_updates,
+            self.diagnostics.text_area_width_incremental_source_bytes,
+            self.diagnostics
+                .text_area_width_incremental_source_bytes_max,
             self.diagnostics.text_area_width_source_lines,
             self.diagnostics.text_area_width_source_bytes,
             self.diagnostics.text_area_width_measure_us,
@@ -345,6 +356,11 @@ impl ScrollBenchReceipt {
             self.cold_diagnostics.text_area_anchor_corrections,
             self.cold_diagnostics.text_area_anchor_correction_pixels,
             self.cold_diagnostics.text_area_width_observed_updates,
+            self.cold_diagnostics.text_area_width_incremental_updates,
+            self.cold_diagnostics
+                .text_area_width_incremental_source_bytes,
+            self.cold_diagnostics
+                .text_area_width_incremental_source_bytes_max,
             self.cold_diagnostics.text_area_width_source_bytes,
             self.cold_diagnostics.text_area_width_measure_us,
         )
@@ -414,6 +430,9 @@ pub fn run_scroll_bench(
             samples,
             HorizontalEditTrace::CaretReveal,
         ),
+        ScrollBenchWorkload::TextMultilineUnwrappedEditStress => {
+            run_text_multiline_unwrapped_edit(warmup, samples)
+        }
         ScrollBenchWorkload::TextVerticalVariableHeight => {
             run_text_vertical_variable_height(warmup, samples)
         }
@@ -781,6 +800,193 @@ fn run_text_horizontal_edit(
         precision_offsets_checked,
         phases,
     })
+}
+
+fn run_text_multiline_unwrapped_edit(
+    warmup: usize,
+    samples: usize,
+) -> Result<ScrollBenchReceipt, String> {
+    const SOURCE: &str =
+        include_str!("../../examples/text_editor/fixtures/unicode_stress_dump.txt");
+    let workload = ScrollBenchWorkload::TextMultilineUnwrappedEditStress;
+    let document_bytes = SOURCE.len();
+    let mut buffer = Buffer::from_multiline_text(SOURCE);
+    let document_lines = buffer.logical_line_count();
+    let mut state = buffer.initial_state();
+    selection::apply(
+        &buffer,
+        &mut state,
+        selection::Operation::set_position(Position::new(24)),
+    );
+    let style = Style::default().with_size(13.0);
+    let viewport = area::logical(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+    let now = Instant::now();
+    let mut engine = Engine::new();
+    let mut editor = Editor::new();
+    let cold_area = Area::new(buffer.clone()).with_state(state).no_wrap();
+
+    engine.reset_diagnostics();
+    let cold_started = Instant::now();
+    let cold_layout = engine.text_area_paint_layout_for_area_at(
+        &cold_area,
+        style,
+        viewport,
+        ViewState::default(),
+        now,
+    );
+    let cold = cold_started.elapsed();
+    let cold_diagnostics = engine.diagnostics();
+    let logical_width = ceil_f64_to_usize(cold_layout.layout().content_width_exact());
+    let logical_height = ceil_f64_to_usize(cold_layout.layout().content_height_exact());
+    let (near_window_width, near_window_height) = surface_window(cold_layout.render_surfaces())
+        .ok_or_else(|| format!("{} produced no cold render surface", workload.name()))?;
+
+    for step in 0..warmup {
+        let edit = if step % 2 == 0 {
+            Edit::insert("Z")
+        } else {
+            Edit::backspace()
+        };
+        if !editor
+            .apply_edit(&mut buffer, &mut state, edit)
+            .text_changed()
+        {
+            return Err(format!(
+                "{} warmup edit {step} did not change text",
+                workload.name()
+            ));
+        }
+        let area_model = Area::new(buffer.clone()).with_state(state).no_wrap();
+        black_box(engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            ViewState::default(),
+            now,
+        ));
+    }
+
+    engine.reset_diagnostics();
+    let mut durations = Vec::with_capacity(samples);
+    let mut phases = ScrollBenchPhases {
+        edits: Vec::with_capacity(samples),
+        projections: Vec::with_capacity(samples),
+        ..ScrollBenchPhases::default()
+    };
+    let mut far_window_width = 0_usize;
+    let mut far_window_height = 0_usize;
+    for index in 0..samples {
+        let step = warmup.saturating_add(index);
+        let started = Instant::now();
+        let edit = if step % 2 == 0 {
+            Edit::insert("Z")
+        } else {
+            Edit::backspace()
+        };
+        let edit_started = Instant::now();
+        if !editor
+            .apply_edit(&mut buffer, &mut state, edit)
+            .text_changed()
+        {
+            return Err(format!(
+                "{} measured edit {index} did not change text",
+                workload.name()
+            ));
+        }
+        phases.edits.push(edit_started.elapsed());
+        let area_model = Area::new(buffer.clone()).with_state(state).no_wrap();
+        let projection_started = Instant::now();
+        let layout = engine.text_area_paint_layout_for_area_at(
+            &area_model,
+            style,
+            viewport,
+            ViewState::default(),
+            now,
+        );
+        phases.projections.push(projection_started.elapsed());
+        durations.push(started.elapsed());
+        if let Some((width, height)) = surface_window(layout.render_surfaces()) {
+            far_window_width = far_window_width.max(width);
+            far_window_height = far_window_height.max(height);
+        }
+        black_box(layout);
+    }
+    durations.sort_unstable();
+    phases.sort();
+    let diagnostics = engine.diagnostics();
+    validate_multiline_unwrapped_edit_trace(
+        workload,
+        samples,
+        &phases,
+        diagnostics,
+        far_window_width,
+        far_window_height,
+    )?;
+
+    Ok(ScrollBenchReceipt {
+        workload,
+        warmup,
+        samples: durations,
+        cold,
+        cold_diagnostics,
+        diagnostics,
+        document_bytes,
+        document_lines,
+        logical_width,
+        logical_height,
+        offset_x: 0,
+        offset_y: 0,
+        near_window_width,
+        near_window_height,
+        far_window_width,
+        far_window_height,
+        precision_offsets_required: false,
+        precision_offsets_checked: false,
+        phases,
+    })
+}
+
+fn validate_multiline_unwrapped_edit_trace(
+    workload: ScrollBenchWorkload,
+    samples: usize,
+    phases: &ScrollBenchPhases,
+    diagnostics: TextDiagnostics,
+    far_window_width: usize,
+    far_window_height: usize,
+) -> Result<(), String> {
+    const MAX_GUARDED_WIDTH_SOURCE_BYTES: usize = 4_096;
+    if phases.edits.len() != samples || phases.projections.len() != samples {
+        return Err(format!(
+            "{} did not account for every measured edit/projection phase",
+            workload.name()
+        ));
+    }
+    if diagnostics.text_area_width_incremental_updates != samples
+        || diagnostics.text_area_width_source_lines != 0
+        || diagnostics.text_area_width_source_bytes != 0
+        || diagnostics.text_area_width_incremental_source_bytes_max > MAX_GUARDED_WIDTH_SOURCE_BYTES
+        || diagnostics.text_area_width_incremental_source_bytes
+            > samples.saturating_mul(MAX_GUARDED_WIDTH_SOURCE_BYTES)
+    {
+        return Err(format!(
+            "{} escaped multiline width locality: updates={} full_source_lines={} full_source_bytes={} edit_source_bytes={} edit_source_bytes_max={}",
+            workload.name(),
+            diagnostics.text_area_width_incremental_updates,
+            diagnostics.text_area_width_source_lines,
+            diagnostics.text_area_width_source_bytes,
+            diagnostics.text_area_width_incremental_source_bytes,
+            diagnostics.text_area_width_incremental_source_bytes_max,
+        ));
+    }
+    if far_window_width > horizontal_window_limit() || far_window_height > vertical_window_limit() {
+        return Err(format!(
+            "{} escaped its resident projection window: {}x{}",
+            workload.name(),
+            far_window_width,
+            far_window_height
+        ));
+    }
+    Ok(())
 }
 
 fn validate_horizontal_edit_trace(
@@ -1176,6 +1382,31 @@ mod tests {
         lengths.sort_unstable();
         lengths.dedup();
         assert!(lengths.len() >= 3);
+    }
+
+    #[test]
+    fn multiline_unwrapped_edit_trace_rejects_document_wide_width_work() {
+        let phases = ScrollBenchPhases {
+            edits: vec![Duration::from_micros(1)],
+            projections: vec![Duration::from_micros(1)],
+            ..ScrollBenchPhases::default()
+        };
+        let diagnostics = TextDiagnostics {
+            text_area_width_source_lines: 12_544,
+            text_area_width_source_bytes: 1_701_120,
+            ..TextDiagnostics::default()
+        };
+
+        let error = validate_multiline_unwrapped_edit_trace(
+            ScrollBenchWorkload::TextMultilineUnwrappedEditStress,
+            1,
+            &phases,
+            diagnostics,
+            VIEWPORT_WIDTH as usize,
+            VIEWPORT_HEIGHT as usize,
+        )
+        .expect_err("document-wide width work must fail the multiline edit contract");
+        assert!(error.contains("escaped multiline width locality"));
     }
 
     #[test]

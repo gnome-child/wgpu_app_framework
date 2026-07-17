@@ -131,9 +131,9 @@ pub(in crate::layout) fn intrinsic_height_for_width(
             let measured = node
                 .text_box_model()
                 .map(|text_box| {
-                    let text_area = view::TextArea::new(text_box.display_text().to_owned())
-                        .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
-                        .read_only();
+                    let text_area = text_box.inactive_display_text_area(
+                        node.world_text_wrap().unwrap_or(view::Wrap::None),
+                    );
                     engine
                         .text_area_size_for_width(&text_area, content_width, theme)
                         .height()

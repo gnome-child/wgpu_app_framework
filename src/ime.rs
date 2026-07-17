@@ -143,7 +143,8 @@ mod tests {
     #[test]
     fn projection_resolves_parent_and_popup_geometry_through_one_presented_transform() {
         let parent = window::Id::new(7);
-        let node = composition::tree::NodeId::renderer_fixture(11);
+        let mut next_node = 11;
+        let node = composition::tree::NodeId::layout(&mut next_node);
         let area = geometry::Rect::new(140, 90, 1, 18);
         let translate = |candidate: composition::tree::NodeId, rect: geometry::Rect| {
             (candidate == node).then(|| {

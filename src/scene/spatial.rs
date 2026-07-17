@@ -11,10 +11,12 @@ use crate::{composition, geometry, interaction};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ScrollTarget {
     Interaction(interaction::Target),
+    #[cfg(any(test, feature = "renderer-debug"))]
     SceneNode(composition::tree::NodeId),
 }
 
 impl ScrollTarget {
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn scene_node(node: composition::tree::NodeId) -> Self {
         Self::SceneNode(node)
     }

@@ -99,6 +99,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             overlay_capabilities: self.overlay_capabilities,
             layout_cache: self.layout_cache,
             presented_geometry: self.presented_geometry,
+            residency_schedules: self.residency_schedules,
             virtual_materializations: self.virtual_materializations,
             virtual_measurements: self.virtual_measurements,
         }
@@ -135,6 +136,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             overlay_capabilities: self.overlay_capabilities,
             layout_cache: self.layout_cache,
             presented_geometry: self.presented_geometry,
+            residency_schedules: self.residency_schedules,
             virtual_materializations: self.virtual_materializations,
             virtual_measurements: self.virtual_measurements,
         }

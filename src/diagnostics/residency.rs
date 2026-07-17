@@ -1,4 +1,4 @@
-use std::{cell::Cell, rc::Rc, sync::Arc, time::Duration, time::Instant};
+use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc, time::Duration, time::Instant};
 
 use crate::{interaction, scene};
 
@@ -144,9 +144,10 @@ impl crate::table::Provider for TableRows {
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> crate::view::Node {
         self.calls.set(self.calls.get().saturating_add(1));
-        crate::view::Node::world_text(
-            format!("{} {row}", cell.column().as_str()),
-            crate::text::Overflow::EllipsisEnd,
+        crate::view::Node::text_area_state(
+            crate::view::TextArea::new(format!("{} {row}", cell.column().as_str()))
+                .with_focus(crate::session::Focus::table_cell(cell))
+                .read_only(),
         )
     }
 }
@@ -303,6 +304,198 @@ fn trace_count(trace: &str, field: &str) -> Result<usize, String> {
     trace_field(trace, field)?
         .parse::<usize>()
         .map_err(|_| format!("residency trace field {field} is not numeric: {trace}"))
+}
+
+pub async fn compare_table_runway_property_text(
+    scale_factor: f32,
+) -> Result<crate::renderer_debug::Work, String> {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return Err("table runway scale must be finite and positive".to_owned());
+    }
+    let size = crate::geometry::Size::new(360, 180);
+    let (mut app, _) = fixture(ResidencyPayload::Table);
+    let window = app.session().windows()[0].id();
+    let initial = app
+        .render_scene(window, size)
+        .ok_or_else(|| "typed table runway fixture produced no initial candidate".to_owned())?;
+    let baseline = snapshot(&initial)?;
+    let projection = initial
+        .layout()
+        .scroll_projections()
+        .iter()
+        .find(|projection| projection.node() == baseline.node)
+        .ok_or_else(|| "typed table runway fixture lost its parent projection".to_owned())?;
+    let requested = baseline.accepted.1;
+    if requested.y()
+        <= baseline
+            .properties
+            .scroll_offset(baseline.node)
+            .unwrap_or_default()
+            .y()
+    {
+        return Err(format!(
+            "typed table fixture has no resident property runway: accepted={:?}",
+            baseline.accepted
+        ));
+    }
+    let baseline_offset = projection.viewport().resolved_scroll();
+    let delta_y = requested.y().saturating_sub(baseline_offset.y());
+    let visible = projection.viewport().visible_content();
+    let mut regions = Vec::new();
+    for row in initial.layout().frames().iter().filter(|frame| {
+        frame.provided_row().is_some()
+            && initial
+                .layout()
+                .scene_scroll_path(frame.node_id())
+                .contains(&baseline.node)
+    }) {
+        let translated_row = translate_y(row.rect(), delta_y);
+        if rects_overlap(row.rect(), visible) || !rects_overlap(translated_row, visible) {
+            continue;
+        }
+        for text in initial.layout().frames().iter().filter(|frame| {
+            frame.role() == crate::view::Role::TextArea && frame.is_descendant_of(row)
+        }) {
+            let translated = translate_y(text.text_area_text_rect(), delta_y);
+            if let Some(clipped) = intersect_rect(translated, visible)
+                && clipped.width() >= 8
+                && clipped.height() >= 6
+            {
+                regions.push((
+                    row.provided_row().expect("filtered table row").index(),
+                    clipped,
+                ));
+            }
+        }
+    }
+    if regions.len() < 3 {
+        return Err(format!(
+            "typed table fixture exposed only {} entering text regions at {requested:?}",
+            regions.len()
+        ));
+    }
+
+    let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
+    let initial_stats =
+        harness.draw_retained_candidate_exact(&baseline.drawable, &baseline.properties)?;
+    finish(&mut app, window, &initial, initial_stats);
+    drop(initial);
+
+    app.handle_input(
+        window,
+        crate::Input::scroll_to(baseline.target.clone(), requested),
+    )
+    .map_err(|error| error.to_string())?;
+    let property = app
+        .render_scene(window, size)
+        .ok_or_else(|| "typed table runway produced no property candidate".to_owned())?;
+    let next = snapshot(&property)?;
+    if !property.property_only()
+        || !Arc::ptr_eq(&baseline.commit, &next.commit)
+        || !Arc::ptr_eq(&baseline.drawable, &next.drawable)
+        || baseline.residency.revision() != next.residency.revision()
+        || next.properties.scroll_offset(next.node) != Some(requested)
+    {
+        return Err(format!(
+            "typed table runway did not remain one resident property transition: property_only={} semantic_same={} drawable_same={} residency={:?}->{:?} expected={requested:?} actual={:?}",
+            property.property_only(),
+            Arc::ptr_eq(&baseline.commit, &next.commit),
+            Arc::ptr_eq(&baseline.drawable, &next.drawable),
+            baseline.residency.revision(),
+            next.residency.revision(),
+            next.properties.scroll_offset(next.node),
+        ));
+    }
+    let (image, work) = harness.draw_retained_candidate_image(&next.drawable, &next.properties)?;
+    let mut proven = 0_usize;
+    for (row, region) in regions {
+        let (ink, samples) = region_ink_pixels(&image, region, scale_factor);
+        if ink < 2 {
+            return Err(format!(
+                "typed table row {row} entered on the first property tick without text ink: region={region:?} samples={samples} non_dominant_pixels={ink}"
+            ));
+        }
+        proven = proven.saturating_add(1);
+    }
+    if proven < 3 {
+        return Err("typed table runway did not prove all three text columns".to_owned());
+    }
+    if work.scene_node_realization_rebuilds() != 0
+        || work.primitive_prepare_calls() != 0
+        || work.text_prepare_calls() != 0
+        || work.text_shape_calls() != 0
+        || work.content_upload_bytes() != 0
+        || work.gpu_resource_creations() != 0
+        || work.gpu_resource_replacements() != 0
+        || work.gpu_resource_removals() != 0
+        || work.render_plan_rebuilds() != 0
+    {
+        return Err(format!(
+            "typed table runway property tick performed payload or topology work: {work:?}"
+        ));
+    }
+    Ok(work)
+}
+
+fn translate_y(rect: crate::geometry::Rect, delta_y: i32) -> crate::geometry::Rect {
+    crate::geometry::Rect::new(
+        rect.x(),
+        rect.y().saturating_sub(delta_y),
+        rect.width(),
+        rect.height(),
+    )
+}
+
+fn rects_overlap(left: crate::geometry::Rect, right: crate::geometry::Rect) -> bool {
+    left.x() < right.right()
+        && left.right() > right.x()
+        && left.y() < right.bottom()
+        && left.bottom() > right.y()
+}
+
+fn intersect_rect(
+    left: crate::geometry::Rect,
+    right: crate::geometry::Rect,
+) -> Option<crate::geometry::Rect> {
+    let x = left.x().max(right.x());
+    let y = left.y().max(right.y());
+    let right_edge = left.right().min(right.right());
+    let bottom = left.bottom().min(right.bottom());
+    (right_edge > x && bottom > y).then(|| {
+        crate::geometry::Rect::new(x, y, right_edge.saturating_sub(x), bottom.saturating_sub(y))
+    })
+}
+
+fn region_ink_pixels(
+    image: &crate::renderer_debug::Image,
+    region: crate::geometry::Rect,
+    scale_factor: f32,
+) -> (usize, usize) {
+    let x0 = ((region.x().saturating_add(1) as f32) * scale_factor)
+        .ceil()
+        .clamp(0.0, image.width() as f32) as u32;
+    let y0 = ((region.y().saturating_add(1) as f32) * scale_factor)
+        .ceil()
+        .clamp(0.0, image.height() as f32) as u32;
+    let x1 = ((region.right().saturating_sub(1) as f32) * scale_factor)
+        .floor()
+        .clamp(0.0, image.width() as f32) as u32;
+    let y1 = ((region.bottom().saturating_sub(1) as f32) * scale_factor)
+        .floor()
+        .clamp(0.0, image.height() as f32) as u32;
+    let mut colors = HashMap::<[u8; 4], usize>::new();
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let pixel = image.pixels()[(y as usize)
+                .saturating_mul(image.width() as usize)
+                .saturating_add(x as usize)];
+            let color = pixel.map(|channel| (channel * 255.0).round().clamp(0.0, 255.0) as u8);
+            *colors.entry(color).or_default() += 1;
+        }
+    }
+    let samples = colors.values().copied().sum::<usize>();
+    let dominant = colors.values().copied().max().unwrap_or_default();
+    (samples.saturating_sub(dominant), samples)
 }
 
 pub async fn measure_residency_crossing_work(

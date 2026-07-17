@@ -336,6 +336,10 @@ impl FakeBackend {
     fn defer_next_present(&mut self) {
         self.deferred_presents = self.deferred_presents.saturating_add(1);
     }
+
+    fn pending_presentation(&self, window: window::Id) -> Option<&shell::Presentation> {
+        self.pending_presentations.get(&window)
+    }
 }
 
 impl platform::Backend for FakeBackend {
@@ -393,7 +397,10 @@ impl platform::Backend for FakeBackend {
             self.deferred_presents = self.deferred_presents.saturating_sub(1);
             self.pending_presentations
                 .insert(presentation.window(), presentation.clone());
-            return Ok(platform::PresentResult::Deferred(presentation.window()));
+            return Ok(platform::PresentResult::Deferred {
+                window: presentation.window(),
+                retry_at: Instant::now() + Duration::from_millis(16),
+            });
         }
         self.pending_presentations.remove(&presentation.window());
         Ok(platform::Presented::new(

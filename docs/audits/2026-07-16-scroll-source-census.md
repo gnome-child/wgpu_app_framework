@@ -1,10 +1,10 @@
 # Scroll source census
 
-Status: **SC-008 PRESENT-SUBMITTED GEOMETRY OWNERSHIP BOUNDARY — update at every ownership/deletion boundary**
+Status: **SC-010 FINAL CENSUS — CLOSED**
 
 Date: 2026-07-16
 
-Execution base: `master` after integration commit `cd00554d`
+Execution base: `master` at pushed SC-009 boundary `ad006439` plus the SC-010 closeout revision
 
 Authority: `docs/audits/2026-07-16-payload-neutral-scroll-architecture-campaign.md`
 
@@ -18,7 +18,7 @@ This is a production-path census, not a claim that every listed path is wrong. I
 | Target-local fractional remainder plus requested/desired and resident-accepted offset | `src/interaction/scroll.rs::Scroll` | `src/interaction/mod.rs`, `src/session/interaction/scroll.rs` | SC-004 closed state names; SC-005 made interaction the sole fractional accumulator and kept desired/resident offsets integral. |
 | Request, clamp, resident acceptance | `src/runtime/input/dispatch.rs::apply_scroll_transition` | presented layout and virtual request lookup | SC-004 closed the transition vocabulary; desired intent survives residency rejection. |
 | Legal range and resident acceptance | `src/layout/mod.rs::ScrollProjection` and `Layout` methods | `src/layout/viewport.rs`, `src/layout/frame.rs`, `src/scene/residency.rs` | Layout/residency remains range owner; axis ownership becomes typed in SC-002/SC-004. |
-| Node-to-scroll ancestry | candidate-owned `src/scene/spatial.rs::SpatialTopology::{frame_scroll_paths,binding_scroll_paths}` for submitted rendering/input; `src/layout/mod.rs::scroll_ancestries` remains a scene-paint construction input | scene paint ordering plus lazy present-submitted frame/content evaluators | Runtime input ancestry was deleted in SC-008. SC-010 owns the remaining layout-to-scene migration/deletion decision. |
+| Node-to-scroll ancestry | candidate-owned `src/scene/spatial.rs::SpatialTopology::{frame_scroll_paths,binding_scroll_paths}` for submitted rendering/input | lazy present-submitted frame/content evaluators and generated renderer adapters | CLOSED. Layout retains only `scene_scroll_paths`, a pre-candidate construction projection generated from frame parentage and confined to residency/scene scope emission. It is not named or consumed as submitted ancestry. |
 | Candidate property values and dirty indices | `src/scene/paint/mod.rs::property_snapshot` and `src/scene/commit.rs::Properties` | scene stack, renderer, compatibility scene | SC-003 closed stable topology-local indices, block-shared values, and authoritative dirty production independently of spatial replacement. |
 | Candidate spatial ancestry, surface roots, clip/effect references, target identity, and axis ownership | `src/scene/spatial.rs::SpatialTopology`, immutably owned by `src/scene/commit.rs::Commit` | semantic/drawable projection, compatibility emission, retained plan compiler, renderer property adapters | SC-002 closed this ownership replacement. Draw order remains structural input/output, not an ancestry owner. |
 | Requested and present-submitted presentation epochs | private `src/session/window.rs::PresentationState` | runtime candidate selection and successful render feedback | SC-004 closed one owner. Requests advance requested state; retry does not; stale, duplicate, and future receipts cannot advance present-submitted state. |
@@ -29,7 +29,7 @@ This is a production-path census, not a claim that every listed path is wrong. I
 
 ## 2. Scope/spatial interpreter census
 
-SC-002 removed the independent scene/renderer ancestry interpreters. Remaining paths are either topology-owned projection/emission, representation adapters consuming compiled bindings, or the still-open runtime-presented consumer:
+SC-002 removed the independent scene/renderer ancestry interpreters, and SC-008 moved runtime-presented geometry to the submitted snapshot. Remaining paths are topology-owned projection/emission or representation adapters consuming compiled bindings:
 
 | Interpreter | File | Production consumer | Required migration/deletion gate |
 |---|---|---|---|
@@ -205,7 +205,27 @@ SC-008 present-submitted geometry ownership changes:
 - The end-to-end text witness proves a 20-pixel property scroll moves submitted parent IME geometry by exactly 20 pixels. Popup host preparation may precede parent submission, but popup IME activation waits for that exact parent receipt.
 - No AccessKit/accessibility tree or platform adapter exists in production. SC-008 therefore records the absent consumer and preserves the snapshot seam; it does not claim accessibility bounds were emitted or tested.
 
-## 4. Property work census
+SC-009 payload-locality ownership changes:
+
+- Scroll-bench version 10 separates guarded edit, resident horizontal projection, caret reveal, exact global extent cold start, and renderer property-tick currencies. Text layout receipts explicitly do not claim property-scroll measurement.
+- Incremental horizontal-index diagnostics record aggregate and per-update maximum source/glyph work. The executable benchmark rejects any edit splice over the 4,096-byte guard or any warm full-width/index scan.
+- Table and virtual-list payload edits preserve normalized spatial/property topology, scroll owner/range revisions, and scroll values while changing one retained composition identity.
+
+## 4. SC-010 final disposition
+
+The repeated production census classifies every remaining scroll/spatial hit as one of the following, with no unclassified authority:
+
+1. **Pre-candidate construction:** `Layout::scene_scroll_paths` is generated once from immutable frame parentage. It computes residency bounds and emits ordered scene scroll scopes. The former `scroll_ancestries` name and API are deleted, and no runtime/renderer module can read this construction map.
+2. **Candidate authority:** `Commit::spatial_topology` is the only normalized parented spatial topology. Semantic/resident projection and compatibility output are topology-owned generated adapters.
+3. **GPU adapters:** retained `TargetSpace` contains raster origin/extent plus one `SpatialBinding`; it contains no scroll ancestry. Retained `ScrollBinding` contains only a topology-owned `ScrollPathId`. `PropertyBinding` obtains that path through `SpatialTopology::scroll_path`, and `PlanBuilder` consumes the candidate topology. These names describe GPU allocation/binding, not a second spatial graph.
+4. **Presentation adapter:** `SpatialSnapshot` captures the actual submitted stack and lazily evaluates candidate-compiled paths. Runtime input, popup, context, scrollbar, caret, and IME geometry have no layout ancestry fallback.
+5. **Independent mechanisms:** precise input remainder, requested/resident/present-submitted state, residency, redraw scheduling, and sparse/dense property transfer retain their named sole owners and do not derive spatial ancestry.
+
+Deleted/superseded production species remain absent: commit-local semantic/compatibility interpreters, direct plan order builder, mutable group-local scroll ancestry, renderer encoder scroll-offset reconstruction, runtime layout-ancestry projection, completion-anchored cadence, per-event input rounding, ambiguous admitted/visible generation names, and unconditional full property transfer on sparse warm ticks. Initialization, buffer/topology replacement, generation recovery, and cost-selected dense transfer remain explicit full-transfer paths by design.
+
+The architecture closure gate parses the bounded retained adapter structs and fails if raster target space gains scroll state, GPU scroll binding gains parentage, construction paths escape layout/scene paint, or a retired interpreter/name returns. The repeatable commands below remain the audit entry point for future changes.
+
+## 5. Property work census
 
 Current warm property uploads are emitted by:
 
@@ -265,14 +285,36 @@ property_full_generation_resyncs=0
 
 The 272 scroll bytes are one cost-selected contiguous transfer spanning two scroll-path slots that depend on the dirty shared target; they are not a topology-wide scroll upload. All five scales retain zero semantic/content preparation, shaping, payload upload, GPU resource churn, and plan rebuilds with one plan reuse. The retained text adapter traverses resident text batches and writes only changed snapped offsets; its payload-local traversal remains under the SC-007/SC-009 residency and locality rails rather than becoming another property-topology owner.
 
-## 5. Repeatable census commands
+The final SC-010 production fixture contains one additional retained text transform and produces this identical receipt at scales 1.0, 1.25, 1.5, 1.75, and 2.0:
+
+```text
+property_upload_bytes=528
+viewport_property_upload_bytes=0
+node_property_upload_bytes=64
+scroll_property_upload_bytes=272
+text_property_upload_bytes=192
+unattributed_property_upload_bytes=0
+property_value_visits=17
+property_index_lookups=17
+property_dirty_indices=1
+property_write_ranges=2
+property_full_initializations=0
+property_full_buffer_replacements=0
+property_full_topology_replacements=0
+property_full_dense_transfers=0
+property_full_generation_resyncs=0
+```
+
+This supersedes the 464-byte fixture count without weakening the invariant: one dirty source drives bounded compiled dependents, and warm scrolling performs zero semantic/content preparation, shaping, payload upload, GPU resource churn, or plan rebuild while reusing one plan. A separate nested-scroll GPU oracle uses a real predecessor update and records one dirty source, three visits/lookups, one 16-byte sparse scroll write, and no full-transfer reason.
+
+## 6. Repeatable census commands
 
 Run from the repository root and inspect additions/removals rather than comparing counts alone:
 
 ```powershell
 rg -l 'ScrollOffset|ScrollDelta|ScrollUpdate' src tools
 rg -l 'from_physical_pixels|from_logical_pixels|ScrollRemainder|quantize_scroll_axis|split_scroll_component' src tools
-rg -l 'scroll_ancestr|scroll_projection|ScrollProjection' src tools
+rg -l 'scroll_ancestr|scene_scroll_path|scroll_projection|ScrollProjection' src tools
 rg -l 'PushScroll|PopScroll|ScrollDeclaration' src tools
 rg -l 'TargetSpace|ScrollBinding|PropertyBinding' src tools
 rg -l 'project_semantic_order|emit_compatibility_until|PendingPlan|PlanBuilder|PlanEncoder' src tools
@@ -288,4 +330,4 @@ rg -l 'property_full_initializations|property_full_buffer_replacements|property_
 rg -l 'admit_scroll|desired_presentation_epoch|acknowledged_presentation_epoch|frames_presented|key_to_present_us' src tools
 ```
 
-SC-010 is not closed by finding no new names. It must prove that every remaining production hit is either the named sole owner, a generated/representation-specific consumer, or an independently justified non-spatial track.
+SC-010 closure includes both this classification and the executable evidence recorded in the campaign. Finding no new names remains insufficient for future changes: every remaining production hit must stay the named sole owner, a generated/representation-specific consumer, or an independently justified non-spatial track.

@@ -1,6 +1,7 @@
 use crate::text;
 
 use super::super::{Hint, action::Action, focus};
+use super::{TextArea, Wrap};
 use crate::{interaction, session};
 use std::ops::Range;
 use std::time::Instant;
@@ -14,6 +15,7 @@ pub struct TextBox {
     focus: Option<session::Focus>,
     active: bool,
     inactive_display: bool,
+    inactive_display_buffer: Option<text::Buffer>,
     focus_presentation: focus::Presentation,
     caret: Option<Caret>,
     preedit: Option<text::Preedit>,
@@ -37,6 +39,7 @@ impl TextBox {
             focus: None,
             active: false,
             inactive_display: false,
+            inactive_display_buffer: None,
             focus_presentation: focus::Presentation::default(),
             caret: None,
             preedit: None,
@@ -62,6 +65,9 @@ impl TextBox {
 
     pub(crate) fn with_inactive_display(mut self) -> Self {
         self.inactive_display = true;
+        self.inactive_display_buffer = Some(text::Buffer::from_multiline_text(
+            self.display_text().to_owned(),
+        ));
         self
     }
 
@@ -103,6 +109,37 @@ impl TextBox {
 
     pub(crate) fn projects_inactive_display(&self) -> bool {
         self.inactive_display && !self.active
+    }
+
+    pub(crate) fn inactive_display_text_area(&self, wrap: Wrap) -> TextArea {
+        let buffer = self
+            .inactive_display_buffer
+            .as_ref()
+            .filter(|buffer| buffer.to_plain_text() == self.display_text())
+            .cloned()
+            .unwrap_or_else(|| text::Buffer::from_multiline_text(self.display_text().to_owned()));
+        let state = buffer.initial_state();
+        let mut area = TextArea::from_buffer(buffer, state)
+            .with_wrap(wrap)
+            .read_only();
+        if let Some(focus) = self.focus {
+            area = area.with_focus(focus);
+        }
+        area
+    }
+
+    pub(in crate::view) fn reuse_inactive_display_buffer_from(&mut self, previous: &Self) -> bool {
+        if !self.projects_inactive_display()
+            || !previous.projects_inactive_display()
+            || self.display_text() != previous.display_text()
+        {
+            return false;
+        }
+        let Some(buffer) = previous.inactive_display_buffer.as_ref() else {
+            return false;
+        };
+        self.inactive_display_buffer = Some(buffer.clone());
+        true
     }
 
     pub fn focus_visible(&self) -> bool {
@@ -286,5 +323,34 @@ mod tests {
 
         assert!(first.same_scene_state(&second));
         assert_ne!(first, second, "full model equality remains diagnostic");
+    }
+
+    #[test]
+    fn inactive_table_display_reuses_only_equal_text_line_identity() {
+        let previous = TextBox::new("42").with_inactive_display();
+        let previous_line = previous
+            .inactive_display_buffer
+            .as_ref()
+            .and_then(|buffer| buffer.line_layout_identity(0))
+            .expect("previous inactive display line identity");
+        let mut current = TextBox::new("42").with_inactive_display();
+        assert!(current.reuse_inactive_display_buffer_from(&previous));
+        assert_eq!(
+            current
+                .inactive_display_buffer
+                .as_ref()
+                .and_then(|buffer| buffer.line_layout_identity(0)),
+            Some(previous_line)
+        );
+
+        let mut changed = TextBox::new("43").with_inactive_display();
+        assert!(!changed.reuse_inactive_display_buffer_from(&previous));
+        assert_ne!(
+            changed
+                .inactive_display_buffer
+                .as_ref()
+                .and_then(|buffer| buffer.line_layout_identity(0)),
+            Some(previous_line)
+        );
     }
 }

@@ -1873,6 +1873,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
         .ok_or_else(|| "control gallery did not produce a semantic candidate".to_owned())?;
     let candidate_commit = std::sync::Arc::clone(candidate.commit());
     let candidate_drawable = std::sync::Arc::clone(candidate.stack().base().drawable_commit());
+    let candidate_properties = candidate.properties().clone();
     if std::sync::Arc::ptr_eq(&active_commit, &candidate_commit) {
         return Err("property refresh fixture did not create a semantic candidate".to_owned());
     }
@@ -1888,7 +1889,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
     let ticked_candidate = app
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce a pending scroll sample".to_owned())?;
-    if !std::sync::Arc::ptr_eq(&candidate_commit, ticked_candidate.commit()) {
+    if !std::sync::Arc::ptr_eq(&active_commit, ticked_candidate.commit()) {
         let equal_nodes = candidate_commit
             .nodes()
             .iter()
@@ -1899,7 +1900,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
             })
             .count();
         return Err(format!(
-            "pending scroll unexpectedly changed candidate structure: nodes {} -> {}, equal={equal_nodes}, order_equal={}, size_equal={}, property_only={}, invalidation={:?}",
+            "pending scroll did not retain the present-submitted active structure: candidate nodes {} -> {}, equal={equal_nodes}, order_equal={}, size_equal={}, property_only={}, invalidation={:?}",
             candidate_commit.nodes().len(),
             ticked_candidate.commit().nodes().len(),
             candidate_commit.order() == ticked_candidate.commit().order(),
@@ -1908,11 +1909,14 @@ pub async fn compare_control_gallery_pending_property_refresh(
             ticked_candidate.invalidation(),
         ));
     }
+    if std::sync::Arc::ptr_eq(&candidate_commit, ticked_candidate.commit()) {
+        return Err("pending scroll activated an unsubmitted semantic candidate".to_owned());
+    }
     if !std::sync::Arc::ptr_eq(
-        &candidate_drawable,
+        &active_drawable,
         ticked_candidate.stack().base().drawable_commit(),
     ) {
-        return Err("pending scroll unexpectedly changed drawable residency".to_owned());
+        return Err("pending scroll unexpectedly replaced active drawable residency".to_owned());
     }
 
     let mut harness = crate::render::debug::Harness::new(scale_factor).await?;
@@ -1920,6 +1924,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
         &active_drawable,
         &active_properties,
         &candidate_drawable,
+        &candidate_properties,
         ticked_candidate.properties(),
     )
 }

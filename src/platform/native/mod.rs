@@ -66,12 +66,16 @@ impl<T> PendingPresentation<T> {
         }
     }
 
-    fn enqueue_by(&mut self, presentation: T, same: impl Fn(&T, &T) -> bool) {
-        if same(&self.preparing, &presentation) {
-            self.preparing = presentation;
-        } else {
-            self.latest = Some(presentation);
+    fn enqueue_by(&mut self, presentation: T, same_identity: impl Fn(&T, &T) -> bool) {
+        if same_identity(&self.preparing, &presentation)
+            || self
+                .latest
+                .as_ref()
+                .is_some_and(|latest| same_identity(latest, &presentation))
+        {
+            return;
         }
+        self.latest = Some(presentation);
     }
 
     fn newest(&self) -> &T {
@@ -93,7 +97,7 @@ impl<T> PendingPresentation<T> {
 impl PendingPresentation<crate::shell::Presentation> {
     fn enqueue(&mut self, presentation: crate::shell::Presentation) {
         self.enqueue_by(presentation, |left, right| {
-            left.stack().same_structure(right.stack())
+            Arc::ptr_eq(left.stack(), right.stack())
         });
     }
 }
@@ -601,15 +605,19 @@ mod tests {
         assert_eq!(pending.latest, Some((3, "newest latest")));
         assert_eq!(pending.newest(), &(3, "newest latest"));
 
-        pending.enqueue_by((1, "updated preparing"), |left, right| left.0 == right.0);
-        pending.enqueue_by((3, "updated latest"), |left, right| left.0 == right.0);
+        pending.enqueue_by((1, "duplicate preparing"), |left, right| left.0 == right.0);
+        pending.enqueue_by((3, "duplicate latest"), |left, right| left.0 == right.0);
 
-        assert_eq!(pending.preparing, (1, "updated preparing"));
-        assert_eq!(pending.latest, Some((3, "updated latest")));
+        assert_eq!(pending.preparing, (1, "preparing"));
+        assert_eq!(pending.latest, Some((3, "newest latest")));
+
+        pending.enqueue_by((4, "replacement latest"), |left, right| left.0 == right.0);
+        assert_eq!(pending.preparing, (1, "preparing"));
+        assert_eq!(pending.latest, Some((4, "replacement latest")));
 
         let completed = pending.complete();
-        assert_eq!(completed.prepared, (1, "updated preparing"));
-        assert_eq!(completed.successor, Some((3, "updated latest")));
+        assert_eq!(completed.prepared, (1, "preparing"));
+        assert_eq!(completed.successor, Some((4, "replacement latest")));
 
         let completed = PendingPresentation::new((4, "ready")).complete();
         assert_eq!(completed.prepared, (4, "ready"));

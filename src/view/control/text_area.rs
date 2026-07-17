@@ -130,6 +130,21 @@ impl TextArea {
             && self.preedit == other.preedit
     }
 
+    pub(in crate::view) fn reuse_unchanged_buffer_from(&mut self, previous: &Self) -> bool {
+        if self.buffer != previous.buffer
+            || self.wrap != previous.wrap
+            || self.mode != previous.mode
+            || self.focus != previous.focus
+            || self.focus_presentation != previous.focus_presentation
+            || self.preedit != previous.preedit
+        {
+            return false;
+        }
+        self.buffer = previous.buffer.clone();
+        self.state = previous.state;
+        true
+    }
+
     pub(crate) fn scroll_reveal_requested(&self) -> bool {
         self.reveal
     }
@@ -260,6 +275,34 @@ mod tests {
 
         assert!(first.same_scene_state(&second));
         assert_ne!(first, second, "full model equality remains diagnostic");
+    }
+
+    #[test]
+    fn unchanged_virtual_row_text_reuses_line_identity_but_changed_text_does_not() {
+        let previous = TextArea::new("stable row text").read_only();
+        let previous_line = previous
+            .buffer()
+            .line_layout_identity(0)
+            .expect("previous row line identity");
+        let mut current = TextArea::new("stable row text").read_only();
+        assert_ne!(
+            current.buffer().line_layout_identity(0),
+            Some(previous_line),
+            "independently materialized equal text must begin with a distinct line identity"
+        );
+
+        assert!(current.reuse_unchanged_buffer_from(&previous));
+        assert_eq!(
+            current.buffer().line_layout_identity(0),
+            Some(previous_line)
+        );
+
+        let mut changed = TextArea::new("changed row text").read_only();
+        assert!(!changed.reuse_unchanged_buffer_from(&previous));
+        assert_ne!(
+            changed.buffer().line_layout_identity(0),
+            Some(previous_line)
+        );
     }
 
     #[test]

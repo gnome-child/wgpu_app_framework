@@ -96,6 +96,7 @@ pub(crate) struct LineLayoutIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LineEditDelta {
+    pub(crate) line: usize,
     pub(crate) before: LineLayoutIdentity,
     pub(crate) after: LineLayoutIdentity,
     pub(crate) old_range: std::ops::Range<usize>,
@@ -302,6 +303,9 @@ impl Buffer {
     pub(crate) fn line_edit_delta(&self, line: usize) -> Option<LineEditDelta> {
         self.inner.document.line_edit_delta(line).cloned()
     }
+    pub(crate) fn last_line_edit_delta(&self) -> Option<LineEditDelta> {
+        self.inner.document.last_line_edit_delta().cloned()
+    }
     pub(crate) fn line_ending(&self) -> &'static str {
         self.inner.document.line_ending()
     }
@@ -339,6 +343,8 @@ impl PartialEq for Buffer {
         self.is_multiline() == other.is_multiline() && self.to_plain_text() == other.to_plain_text()
     }
 }
+
+impl Eq for Buffer {}
 
 impl fmt::Debug for Buffer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

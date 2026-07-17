@@ -191,6 +191,18 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             run_table_scroll_work(scale)
         }
+        [command] if command == "table-runway-text" => {
+            for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+                run_table_runway_text(scale)?;
+            }
+            Ok(())
+        }
+        [command, scale] if command == "table-runway-text" => {
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            run_table_runway_text(scale)
+        }
         [command] if command == "group-scroll-oracle" => {
             for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
                 run_group_scroll_oracle(scale)?;
@@ -274,7 +286,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | residency-crossing-work [text|table|virtual-list] [scale] | generation-state-scale-change"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | table-runway-text [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | residency-crossing-work [text|table|virtual-list] [scale] | generation-state-scale-change"
                 .to_owned(),
         ),
     }
@@ -285,6 +297,15 @@ fn run_table_scroll_work(scale: f32) -> Result<(), String> {
         wgpu_l3::diagnostics::measure_control_gallery_horizontal_table_scroll(scale),
     )?;
     println!("workload=control-gallery-horizontal-table-scroll scale={scale}");
+    print_work("property-hit", work);
+    Ok(())
+}
+
+fn run_table_runway_text(scale: f32) -> Result<(), String> {
+    let work = pollster::block_on(wgpu_l3::diagnostics::compare_table_runway_property_text(
+        scale,
+    ))?;
+    println!("oracle=table-runway-nested-text scale={scale} result=pass");
     print_work("property-hit", work);
     Ok(())
 }

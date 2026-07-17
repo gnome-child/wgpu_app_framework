@@ -143,6 +143,39 @@ impl Stack {
             .ok()
     }
 
+    pub(crate) fn base_snapshots(&self) -> (Arc<Commit>, Arc<Commit>, Arc<[Residency]>) {
+        let base = self.base();
+        (
+            Arc::clone(base.commit()),
+            Arc::clone(base.drawable_commit()),
+            Arc::clone(&base.residencies),
+        )
+    }
+
+    pub(crate) fn project_base_properties_toward(
+        &self,
+        active: &Self,
+        desired: &Properties,
+    ) -> Option<Properties> {
+        let (properties, _) = self.project_base_properties(desired)?;
+        let mut advances = false;
+        for residency in self.base().residencies() {
+            let node = residency.scroll();
+            let projected = properties.scroll_offset(node)?;
+            match (active.scroll_offset(node), desired.scroll_offset(node)) {
+                (Some(from), Some(to)) => {
+                    if !scroll_offset_lies_between(from, projected, to) {
+                        return None;
+                    }
+                    advances |= projected != from;
+                }
+                _ if projected == super::super::interaction::ScrollOffset::default() => {}
+                _ => return None,
+            }
+        }
+        advances.then_some(properties)
+    }
+
     pub(crate) fn same_structure(&self, other: &Self) -> bool {
         self.clear == other.clear
             && self.layers.len() == other.layers.len()
@@ -156,6 +189,34 @@ impl Stack {
                     && left.material == right.material
             })
     }
+
+    pub(crate) fn same_presented_property_state(&self, other: &Self) -> bool {
+        self.same_structure(other)
+            && self
+                .layers
+                .iter()
+                .zip(&other.layers)
+                .all(|(left, right)| left.properties().serial() == right.properties().serial())
+            && self.spatial_supplements.len() == other.spatial_supplements.len()
+            && self
+                .spatial_supplements
+                .iter()
+                .zip(&other.spatial_supplements)
+                .all(|(left, right)| {
+                    Arc::ptr_eq(&left.commit, &right.commit)
+                        && left.properties.serial() == right.properties.serial()
+                })
+    }
+}
+
+fn scroll_offset_lies_between(
+    from: super::super::interaction::ScrollOffset,
+    projected: super::super::interaction::ScrollOffset,
+    to: super::super::interaction::ScrollOffset,
+) -> bool {
+    let contains =
+        |from: i32, projected: i32, to: i32| (from.min(to)..=from.max(to)).contains(&projected);
+    contains(from.x(), projected.x(), to.x()) && contains(from.y(), projected.y(), to.y())
 }
 
 impl Layer {
@@ -308,5 +369,40 @@ impl MaterialProjection {
                 _ => Some((content.clone(), 0)),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scroll_offset_lies_between;
+    use crate::interaction::ScrollOffset;
+
+    #[test]
+    fn progressive_scroll_projection_is_componentwise_and_never_overshoots() {
+        assert!(scroll_offset_lies_between(
+            ScrollOffset::new(10, 20),
+            ScrollOffset::new(20, 30),
+            ScrollOffset::new(30, 40),
+        ));
+        assert!(scroll_offset_lies_between(
+            ScrollOffset::new(30, 40),
+            ScrollOffset::new(20, 30),
+            ScrollOffset::new(10, 20),
+        ));
+        assert!(scroll_offset_lies_between(
+            ScrollOffset::new(10, 40),
+            ScrollOffset::new(20, 30),
+            ScrollOffset::new(30, 20),
+        ));
+        assert!(!scroll_offset_lies_between(
+            ScrollOffset::new(10, 20),
+            ScrollOffset::new(31, 30),
+            ScrollOffset::new(30, 40),
+        ));
+        assert!(!scroll_offset_lies_between(
+            ScrollOffset::new(10, 40),
+            ScrollOffset::new(20, 41),
+            ScrollOffset::new(30, 20),
+        ));
     }
 }

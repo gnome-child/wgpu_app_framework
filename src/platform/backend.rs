@@ -3,13 +3,24 @@ use super::super::{diagnostics, geometry, ime, overlay, pointer, scene, session,
 pub struct Presented {
     presentation: shell::Presentation,
     report: diagnostics::RenderReport,
+    residency_retirement: Option<ResidencyCandidateRetirement>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResidencyCandidateRetirement {
+    SupersedeFront(window::PresentationEpoch),
+    PreemptProactive(window::PresentationEpoch),
+    CancelPipeline(window::PresentationEpoch),
 }
 
 pub enum PresentResult {
     Presented(Presented),
     PresentedAndDeferred(Presented),
     ActiveRefreshedAndDeferred(Presented),
-    Deferred(window::Id),
+    Deferred {
+        window: window::Id,
+        retry_at: std::time::Instant,
+    },
 }
 
 impl From<Presented> for PresentResult {
@@ -23,7 +34,20 @@ impl Presented {
         Self {
             presentation,
             report,
+            residency_retirement: None,
         }
+    }
+
+    pub(crate) fn with_residency_retirement(
+        mut self,
+        retirement: ResidencyCandidateRetirement,
+    ) -> Self {
+        self.residency_retirement = Some(retirement);
+        self
+    }
+
+    pub(crate) fn residency_retirement(&self) -> Option<ResidencyCandidateRetirement> {
+        self.residency_retirement
     }
 
     pub(crate) fn into_parts(self) -> (shell::Presentation, diagnostics::RenderReport) {

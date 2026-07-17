@@ -1278,7 +1278,8 @@ fn virtual_scroll_residency_does_not_bridge_a_distant_focus_pin() {
     assert!(
         !scrolled
             .layout()
-            .scroll_property_accepts(projection.target(), beyond_resident),
+            .scroll_property_acceptance(projection.target(), baseline, beyond_resident)
+            .is_some(),
         "property scrolling must replenish before exposing a hole beyond the requested row window"
     );
 }
@@ -1956,10 +1957,10 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
     let first_row_rule = first_row_track.rule_rect();
     let column_scrolls = initial
         .layout()
-        .scroll_ancestry(detail_column_track.owner_node());
+        .scene_scroll_path(detail_column_track.owner_node());
     let row_scrolls = initial
         .layout()
-        .scroll_ancestry(first_row_track.owner_node());
+        .scene_scroll_path(first_row_track.owner_node());
     assert_eq!(column_scrolls.len(), 1, "header rules move horizontally");
     assert_eq!(row_scrolls.len(), 2, "body rules move on both axes");
     assert_eq!(
@@ -7126,12 +7127,27 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
     assert!(
         initial
             .layout()
-            .scroll_property_accepts(&target, expected_max_scroll),
+            .scroll_property_acceptance(
+                &target,
+                scroll
+                    .viewport()
+                    .expect("scroll viewport")
+                    .resolved_scroll(),
+                expected_max_scroll,
+            )
+            .is_some(),
         "a fully realized ordinary scroll must admit its maximum property offset"
     );
     assert!(
-        app.presented_layout(window)
-            .is_some_and(|layout| layout.scroll_property_accepts(&target, expected_max_scroll)),
+        app.presented_layout(window).is_some_and(|layout| {
+            layout
+                .scroll_property_acceptance(
+                    &target,
+                    interaction::ScrollOffset::default(),
+                    expected_max_scroll,
+                )
+                .is_some()
+        }),
         "runtime routing must retain the same accepted layout"
     );
 
@@ -7639,7 +7655,7 @@ fn control_gallery_keeps_viewport_clips_outside_repeated_nested_scroll_scopes() 
             if frame.node_id() == owner.node_id() {
                 return true;
             }
-            layout.scroll_ancestry(frame.node_id()).last() == Some(&owner.node_id())
+            layout.scene_scroll_path(frame.node_id()).last() == Some(&owner.node_id())
                 && requested_roots
                     .iter()
                     .any(|root| frame.node_id() == root.node_id() || frame.is_descendant_of(root))
@@ -9597,6 +9613,10 @@ fn command_palette_search_box_wins_over_clipped_results() {
         .show_scene(window, size)
         .expect("open palette should render");
     let results = command_palette_results_frame(&initial);
+    let results_target = results
+        .target()
+        .expect("palette results should expose a target")
+        .clone();
     app.scroll_at(
         window,
         size,
@@ -9609,6 +9629,14 @@ fn command_palette_search_box_wins_over_clipped_results() {
         interaction::ScrollDelta::vertical(180),
     )
     .expect("palette results should scroll");
+    let scroll = app
+        .session()
+        .interaction(window)
+        .expect("palette interaction")
+        .scroll();
+    let expected_offset = interaction::ScrollOffset::new(0, 114);
+    assert_eq!(scroll.desired_offset(&results_target), expected_offset);
+    assert_eq!(scroll.resident_offset(&results_target), expected_offset);
     let rendered = app
         .show_scene(window, size)
         .expect("scrolled palette should render");
@@ -9625,6 +9653,10 @@ fn command_palette_search_box_wins_over_clipped_results() {
         .stack()
         .scroll_offset(results_node)
         .expect("palette results should carry a receipted scroll property");
+    assert_eq!(
+        offset, expected_offset,
+        "the submitted overlay property snapshot must match resident interaction state"
+    );
 
     assert!(
         rendered.layout().frames().iter().any(|frame| {
@@ -9637,7 +9669,7 @@ fn command_palette_search_box_wins_over_clipped_results() {
             frame.target().is_some()
                 && rendered
                     .layout()
-                    .scroll_ancestry(frame.node_id())
+                    .scene_scroll_path(frame.node_id())
                     .contains(&results_node)
                 && rect.contains(point)
                 && !frame.clip_contains(point)

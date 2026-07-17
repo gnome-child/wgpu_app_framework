@@ -286,6 +286,59 @@ impl Node {
         }
     }
 
+    pub(in crate::view) fn collect_provided_rows<'a>(
+        &'a self,
+        rows: &mut HashMap<(interaction::Id, crate::virtual_list::Key), &'a Self>,
+    ) {
+        if let Some(row) = self.provided_row() {
+            rows.insert((row.list(), row.key()), self);
+        }
+        for child in &self.children {
+            child.collect_provided_rows(rows);
+        }
+    }
+
+    pub(in crate::view) fn reuse_virtual_row_text_buffers_from(
+        &mut self,
+        previous_rows: &HashMap<(interaction::Id, crate::virtual_list::Key), &Self>,
+    ) -> usize {
+        let mut reused = 0_usize;
+        if let Some(row) = self.provided_row()
+            && let Some(previous) = previous_rows.get(&(row.list(), row.key()))
+        {
+            return self.reuse_text_buffers_in_matched_subtree(previous);
+        }
+
+        for child in &mut self.children {
+            reused =
+                reused.saturating_add(child.reuse_virtual_row_text_buffers_from(previous_rows));
+        }
+        reused
+    }
+
+    fn reuse_text_buffers_in_matched_subtree(&mut self, previous: &Self) -> usize {
+        let mut reused = 0_usize;
+        if let (Some(current), Some(previous)) =
+            (self.text_area_model_mut(), previous.text_area_model())
+        {
+            reused += usize::from(current.reuse_unchanged_buffer_from(previous));
+        }
+        if let (Some(current), Some(previous)) =
+            (self.text_box_model_mut(), previous.text_box_model())
+        {
+            reused += usize::from(current.reuse_inactive_display_buffer_from(previous));
+        }
+
+        for (index, child) in self.children.iter_mut().enumerate() {
+            let Some(previous_child) = matching_previous_child(previous, child, index) else {
+                continue;
+            };
+            reused =
+                reused.saturating_add(child.reuse_text_buffers_in_matched_subtree(previous_child));
+        }
+        reused
+    }
+
     pub(in crate::view) fn collect_selectable_virtual_lists(
         &self,
         models: &mut Vec<crate::virtual_list::Model>,
@@ -788,6 +841,42 @@ impl Node {
             .iter()
             .find_map(|child| child.floating_panel_for_menu(menu))
     }
+}
+
+fn matching_previous_child<'a>(
+    previous: &'a Node,
+    current: &Node,
+    index: usize,
+) -> Option<&'a Node> {
+    if let Some(row) = current.provided_row() {
+        return previous.children.iter().find(|candidate| {
+            candidate.provided_row().is_some_and(|candidate| {
+                candidate.list() == row.list() && candidate.key() == row.key()
+            })
+        });
+    }
+    if let Some(cell) = current.table_cell() {
+        return previous
+            .children
+            .iter()
+            .find(|candidate| candidate.table_cell() == Some(cell));
+    }
+    if let Some(cell) = current.table_header_cell() {
+        return previous
+            .children
+            .iter()
+            .find(|candidate| candidate.table_header_cell() == Some(cell));
+    }
+    if let Some(id) = current.id() {
+        return previous
+            .children
+            .iter()
+            .find(|candidate| candidate.id() == Some(id));
+    }
+    previous
+        .children
+        .get(index)
+        .filter(|candidate| candidate.role() == current.role())
 }
 
 impl Node {

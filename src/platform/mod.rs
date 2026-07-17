@@ -1,6 +1,6 @@
 use super::{host, pointer, runtime, session, shell, state::State, view};
 use crate::{animation, window};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 mod backend;
@@ -9,6 +9,7 @@ mod event;
 mod native;
 mod runner;
 
+pub(crate) use backend::ResidencyCandidateRetirement;
 pub use backend::{Backend, PresentResult, Presented, Window};
 pub use error::{Error, RunError};
 pub use event::{
@@ -40,6 +41,7 @@ pub struct Platform<M: State, E: Send + 'static = (), B = ()> {
     active_cursors: Vec<pointer::Update>,
     poll_scheduled: bool,
     presentation_continuations: HashSet<window::Id>,
+    presentation_continuation_deadlines: HashMap<window::Id, Instant>,
     redraw_requests: RedrawRequests,
     animation_schedule: animation::Schedule,
 }
@@ -72,6 +74,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             active_cursors: Vec::new(),
             poll_scheduled: false,
             presentation_continuations: HashSet::new(),
+            presentation_continuation_deadlines: HashMap::new(),
             redraw_requests: RedrawRequests::default(),
             animation_schedule: animation::Schedule::Idle,
         }
@@ -98,7 +101,13 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
     }
 
     pub(crate) fn animation_schedule(&self) -> animation::Schedule {
-        self.animation_schedule
+        let continuation = self
+            .presentation_continuation_deadlines
+            .values()
+            .copied()
+            .min()
+            .map_or(animation::Schedule::Idle, animation::Schedule::At);
+        self.animation_schedule.merge(continuation)
     }
 
     pub(crate) fn runtime_poll_scheduled(&self) -> bool {
@@ -175,7 +184,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         context: &mut B::Context<'_>,
         window: window::Id,
     ) -> Result<(), Error<B::Error>> {
-        self.presentation_continuations.remove(&window);
+        self.cancel_presentation_continuation(window);
         let result = self
             .backend
             .resume_presentation(context, window)
@@ -226,16 +235,41 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         }
         if let Some(window) = redraw
             && self.presentation_continuations.contains(&window)
+            && !self
+                .host
+                .shell()
+                .runtime()
+                .session()
+                .window(window)
+                .is_some_and(crate::session::Window::redraw_requested)
         {
             return self.continue_presentation_with(context, window);
         }
         if matches!(&event, host::Event::Poll) {
             self.poll_scheduled = false;
+            let now = Instant::now();
+            let due = self
+                .presentation_continuation_deadlines
+                .iter()
+                .filter_map(|(window, deadline)| (*deadline <= now).then_some(*window))
+                .collect::<Vec<_>>();
+            for window in due {
+                self.continue_presentation_with(context, window)?;
+            }
         }
 
         self.sync_overlay_capabilities();
         let work = self.host.handle_event(event).map_err(Error::Framework)?;
         self.apply_work(context, &work).map_err(Error::Backend)?;
+        if let Some(window) = redraw
+            && self.presentation_continuations.contains(&window)
+            && !self
+                .presentation_continuation_deadlines
+                .contains_key(&window)
+        {
+            self.schedule_presentation_continuation(context, window)
+                .map_err(Error::Backend)?;
+        }
         Ok(())
     }
 
@@ -245,7 +279,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         work: &shell::Work,
     ) -> Result<(), B::Error> {
         for window in work.closed_windows() {
-            self.presentation_continuations.remove(window);
+            self.cancel_presentation_continuation(*window);
             self.redraw_requests.delivered(*window);
             log::debug!("closing backend window: {window:?}");
             self.backend.close_window(context, *window)?;
@@ -282,8 +316,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         }
         let mut cursor_updates = work.cursor_updates().to_vec();
         for presentation in work.presentations() {
-            self.presentation_continuations
-                .remove(&presentation.window());
+            self.cancel_presentation_continuation(presentation.window());
             let result = self.backend.present(context, presentation)?;
             self.apply_present_result(context, result)?;
         }
@@ -310,7 +343,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 let present_submitted = presented.present_submitted();
                 let property_serial = presented.property_serial();
                 let ime_projection = presented.ime_projection();
-                self.presentation_continuations.remove(&window);
+                self.cancel_presentation_continuation(window);
                 let retry = self.finish_presented(presented, false);
                 self.apply_present_submitted_ime(
                     context,
@@ -358,8 +391,8 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 )?;
                 self.schedule_presentation_continuation(context, window)?;
             }
-            PresentResult::Deferred(window) => {
-                self.schedule_presentation_continuation(context, window)?;
+            PresentResult::Deferred { window, retry_at } => {
+                self.schedule_presentation_continuation_at(window, retry_at);
             }
         }
         Ok(())
@@ -381,8 +414,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 .runtime()
                 .session()
                 .window(window)
-                .and_then(session::Window::present_submitted_epoch)
-                != Some(epoch)
+                .is_none_or(|window| !window.present_submitted_matches(epoch, property_serial))
         {
             return Ok(());
         }
@@ -396,10 +428,12 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
     }
 
     fn finish_presented(&mut self, presented: Presented, refreshes_active: bool) -> bool {
+        let residency_retirement = presented.residency_retirement();
         let (presented, report) = presented.into_parts();
-        if refreshes_active {
+        let window = presented.window();
+        let retry = if refreshes_active {
             self.host.shell_mut().runtime_mut().finish_active_refresh(
-                presented.window(),
+                window,
                 presented.epoch(),
                 presented.invalidation(),
                 presented.layout(),
@@ -408,7 +442,7 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
             )
         } else {
             self.host.shell_mut().runtime_mut().finish_render_report(
-                presented.window(),
+                window,
                 presented.epoch(),
                 presented.invalidation(),
                 presented.layout(),
@@ -416,7 +450,28 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
                 presented.property_only(),
                 report,
             )
-        }
+        };
+        let retirement_retry = match residency_retirement {
+            Some(backend::ResidencyCandidateRetirement::SupersedeFront(epoch)) => self
+                .host
+                .shell_mut()
+                .runtime_mut()
+                .supersede_residency_candidate(window, epoch),
+            Some(backend::ResidencyCandidateRetirement::PreemptProactive(epoch)) => self
+                .host
+                .shell_mut()
+                .runtime_mut()
+                .preempt_proactive_residency_candidate(window, epoch),
+            Some(backend::ResidencyCandidateRetirement::CancelPipeline(epoch)) => {
+                self.host
+                    .shell_mut()
+                    .runtime_mut()
+                    .cancel_residency_pipeline(window, epoch);
+                false
+            }
+            None => false,
+        };
+        retry || retirement_retry
     }
 
     fn schedule_presentation_continuation(
@@ -424,11 +479,28 @@ impl<M: State, E: Send + 'static, B: Backend> Platform<M, E, B> {
         context: &mut B::Context<'_>,
         window: window::Id,
     ) -> Result<(), B::Error> {
-        if !self.presentation_continuations.insert(window) {
+        let converted_from_deadline = self
+            .presentation_continuation_deadlines
+            .remove(&window)
+            .is_some();
+        if !self.presentation_continuations.insert(window) && !converted_from_deadline {
             return Ok(());
         }
 
         self.request_backend_redraw(context, window)
+    }
+
+    fn schedule_presentation_continuation_at(&mut self, window: window::Id, retry_at: Instant) {
+        self.presentation_continuations.insert(window);
+        self.presentation_continuation_deadlines
+            .entry(window)
+            .and_modify(|deadline| *deadline = (*deadline).min(retry_at))
+            .or_insert(retry_at);
+    }
+
+    fn cancel_presentation_continuation(&mut self, window: window::Id) {
+        self.presentation_continuations.remove(&window);
+        self.presentation_continuation_deadlines.remove(&window);
     }
 
     fn request_backend_redraw(

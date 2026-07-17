@@ -31,6 +31,7 @@ struct PreparedFrame {
     native_popup_dark: bool,
     overlay_schedule: animation::Schedule,
     property_only: bool,
+    residency_urgency: Option<scene::ResidencyUrgency>,
 }
 
 struct RealizedFrame {
@@ -128,6 +129,7 @@ impl PreparedFrame {
                 scene,
                 stack,
                 self.property_only,
+                self.residency_urgency,
             ),
             popup_presentations,
             ime_projection,
@@ -257,9 +259,167 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             Some(demand.desired()),
             "residency demand must describe the authoritative desired offset"
         );
+        debug_assert!(
+            demand.preparation().x() >= 0 && demand.preparation().y() >= 0,
+            "residency preparation must remain in legal non-negative scroll space"
+        );
         for request in demand.virtual_lists() {
             self.install_virtual_materialization(window, request);
         }
+    }
+
+    pub(super) fn schedule_residency_candidate(
+        &mut self,
+        window: window::Id,
+        proactive: bool,
+    ) -> bool {
+        let urgency = if proactive {
+            scene::ResidencyUrgency::Proactive
+        } else {
+            scene::ResidencyUrgency::Required
+        };
+        if proactive {
+            self.diagnostics
+                .get_mut(window)
+                .scroll
+                .record_proactive_replenishment();
+        }
+        let scheduled = if let Some(schedule) = self.residency_schedules.get_mut(&window) {
+            schedule.request_latest(urgency)
+        } else {
+            let mut schedule = super::ResidencySchedule::default();
+            let scheduled = schedule.request_latest(urgency);
+            self.residency_schedules.insert(window, schedule);
+            scheduled
+        };
+        let scroll = &mut self.diagnostics.get_mut(window).scroll;
+        if scheduled {
+            scroll.record_residency_candidate_scheduled();
+        } else {
+            scroll.record_residency_candidate_coalesced();
+        }
+        scheduled
+    }
+
+    fn select_residency_candidate(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+    ) -> Option<scene::ResidencyUrgency> {
+        let urgency = self
+            .residency_schedules
+            .get_mut(&window)
+            .and_then(|schedule| schedule.select(epoch));
+        if urgency.is_some() {
+            self.diagnostics
+                .get_mut(window)
+                .scroll
+                .record_residency_candidate_selected();
+        }
+        urgency
+    }
+
+    pub(super) fn complete_residency_candidate(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+    ) {
+        let Some(retirement) = self
+            .residency_schedules
+            .get_mut(&window)
+            .and_then(|schedule| schedule.retire_selected(epoch))
+        else {
+            return;
+        };
+        if retirement.finished {
+            self.residency_schedules.remove(&window);
+        }
+        if retirement.schedule_follow_up {
+            self.diagnostics
+                .get_mut(window)
+                .scroll
+                .record_residency_follow_up();
+            self.session
+                .request_invalidation(window, response::effect::Invalidation::Rebuild);
+        }
+    }
+
+    pub(crate) fn supersede_residency_candidate(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+    ) -> bool {
+        let selected = self
+            .residency_schedules
+            .get(&window)
+            .copied()
+            .is_some_and(|schedule| schedule.selected_epoch() == Some(epoch));
+        if !selected {
+            return false;
+        }
+        let retirement = self
+            .residency_schedules
+            .get_mut(&window)
+            .and_then(|schedule| schedule.retire_selected(epoch))
+            .expect("selected residency candidate must retire from its own schedule");
+        if retirement.finished {
+            self.residency_schedules.remove(&window);
+        }
+        self.diagnostics
+            .get_mut(window)
+            .scroll
+            .record_residency_candidate_superseded();
+        if retirement.schedule_follow_up {
+            self.diagnostics
+                .get_mut(window)
+                .scroll
+                .record_residency_follow_up();
+            self.session
+                .request_invalidation(window, response::effect::Invalidation::Rebuild);
+        }
+        retirement.schedule_follow_up
+    }
+
+    pub(crate) fn preempt_proactive_residency_candidate(
+        &mut self,
+        window: window::Id,
+        epoch: window::PresentationEpoch,
+    ) -> bool {
+        let selected = self
+            .residency_schedules
+            .get(&window)
+            .copied()
+            .is_some_and(|schedule| schedule.selected_epoch() == Some(epoch));
+        if !selected {
+            return false;
+        }
+        let follow_up = self.supersede_residency_candidate(window, epoch);
+        self.diagnostics
+            .get_mut(window)
+            .scroll
+            .record_residency_proactive_preemption();
+        follow_up
+    }
+
+    pub(crate) fn cancel_residency_pipeline(
+        &mut self,
+        window: window::Id,
+        selected_epoch: window::PresentationEpoch,
+    ) -> bool {
+        let selected = self
+            .residency_schedules
+            .get(&window)
+            .copied()
+            .is_some_and(|schedule| schedule.selected_epoch() == Some(selected_epoch));
+        if !selected {
+            return false;
+        }
+        self.residency_schedules.remove(&window);
+        self.diagnostics
+            .get_mut(window)
+            .scroll
+            .record_residency_pipeline_cancelled();
+        true
     }
 
     fn install_virtual_materialization(
@@ -418,30 +578,38 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         animation::Frame::new(now)
     }
 
-    fn frame_need(&self, window: window::Id) -> Option<FrameNeed> {
+    fn frame_need(&mut self, window: window::Id) -> Option<FrameNeed> {
         let revision = self.revision();
         let window_state = self.session.window(window)?;
         let stale = window_state.projected_revision() != Some(revision)
             || self.composition.get(window).is_none();
+        let invalidation = window_state.invalidation();
+        let property_tick_requested = window_state.property_tick_requested();
 
         if stale {
-            Some(FrameNeed::Invalidated(
+            return Some(FrameNeed::Invalidated(
                 response::effect::Invalidation::Rebuild,
-            ))
-        } else {
-            Some(
-                window_state
-                    .invalidation()
-                    .map(FrameNeed::Invalidated)
-                    .unwrap_or_else(|| {
-                        if window_state.property_tick_requested() {
-                            FrameNeed::Properties
-                        } else {
-                            FrameNeed::Idle
-                        }
-                    }),
-            )
+            ));
         }
+        if let Some(invalidation) = invalidation {
+            return Some(FrameNeed::Invalidated(invalidation));
+        }
+        if property_tick_requested {
+            return Some(FrameNeed::Properties);
+        }
+        if self
+            .residency_schedules
+            .get(&window)
+            .copied()
+            .is_some_and(super::ResidencySchedule::candidate_requested)
+        {
+            self.session
+                .request_invalidation(window, response::effect::Invalidation::Rebuild);
+            return Some(FrameNeed::Invalidated(
+                response::effect::Invalidation::Rebuild,
+            ));
+        }
+        Some(FrameNeed::Idle)
     }
 
     fn set_animation_schedule(
@@ -589,7 +757,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         loop {
             let replenishment_started_at = Instant::now();
             let change = self.update_virtual_projections(window, &layout);
-            if change.any {
+            // The materialization map describes requested rows, not proof that
+            // those rows have entered the installed composition. A cold scroll
+            // may update that map while an older composition remains active.
+            // In that state range equality is a false convergence signal: only
+            // the layout's exact provided-row proof can close refinement.
+            let requested_materialization_not_projected =
+                !layout.scene_residency_is_complete() && !layout.virtual_list_requests().is_empty();
+            if change.any || requested_materialization_not_projected {
                 if refinement_passes == MAX_VIRTUAL_REFINEMENT_PASSES {
                     log::warn!(
                         "virtual geometry did not converge after {MAX_VIRTUAL_REFINEMENT_PASSES} refinement passes"
@@ -645,9 +820,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
 
         if !layout.scene_residency_is_complete() {
+            let issues = layout.scene_residency_incompleteness().join(" | ");
             log::warn!(
-                "rejecting scene preparation because virtual residency is incomplete after refinement"
+                "rejecting scene preparation because virtual residency is incomplete after refinement: {issues}"
             );
+            self.diagnostics
+                .get_mut(window)
+                .scroll
+                .record_virtual_residency_rejection(&issues);
             self.session
                 .request_invalidation(window, response::effect::Invalidation::Layout);
             return None;
@@ -821,7 +1001,14 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.session
             .windows()
             .iter()
-            .filter(|window| window.redraw_requested())
+            .filter(|window| {
+                window.redraw_requested()
+                    || self
+                        .residency_schedules
+                        .get(&window.id())
+                        .copied()
+                        .is_some_and(super::ResidencySchedule::candidate_requested)
+            })
             .map(session::Window::id)
             .collect()
     }
@@ -938,6 +1125,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         if let Some(interaction) = interaction.as_ref() {
             view.project_surfaces(interaction);
+        }
+        if let Some(previous) = self.composition.get(window) {
+            let _ = view.reuse_virtual_row_text_buffers_from(previous.view());
         }
         let reconciliation_started_at = Instant::now();
         let (mut tree, mut changes) = self.composition.prepare(window, &view);
@@ -1151,8 +1341,18 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else {
             layout::PopupSurfaces::InFrame
         };
-        let layout =
-            self.layout_for_scene(window, size, theme, frame, invalidation, popup_surfaces)?;
+        // Candidate layout/scene caches may legitimately run ahead while a cold
+        // residency is prepared. Property motion is authored against the last
+        // present-submitted geometry so an in-range reversal cannot inherit an
+        // unpresented candidate's topology or accepted-offset interval.
+        let presented = property_only
+            .then(|| self.presented_geometry.get(&window).cloned())
+            .flatten();
+        let layout = if let Some(presented) = presented.as_ref() {
+            presented.layout.as_ref().clone()
+        } else {
+            self.layout_for_scene(window, size, theme, frame, invalidation, popup_surfaces)?
+        };
         let layout_elapsed = layout_started_at.elapsed();
         let epoch = self.session.window(window)?.requested_presentation_epoch();
         let assembly_started_at = Instant::now();
@@ -1173,6 +1373,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                         &layout,
                         visual_update.visuals(),
                         interaction.as_ref(),
+                        presented.as_ref().map(|presented| presented.stack.as_ref()),
                     )
                 else {
                     return self.prepare_frame(
@@ -1268,6 +1469,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             Instant::now(),
             candidate_work,
         );
+        let residency_urgency = (invalidation == response::effect::Invalidation::Rebuild)
+            .then(|| self.select_residency_candidate(window, epoch))
+            .flatten();
 
         Some(PreparedFrame {
             window,
@@ -1284,6 +1488,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             native_popup_dark: theme.variant() == crate::theme::Variant::Dark,
             overlay_schedule,
             property_only,
+            residency_urgency,
         })
     }
 
@@ -1304,6 +1509,22 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         size: geometry::Size,
     ) -> Option<scene::Presentation> {
         self.render_scene_at(window, size, Instant::now())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn compose_layout_without_view_rebuild_for_test(
+        &mut self,
+        window: window::Id,
+        size: geometry::Size,
+    ) -> Option<layout::Layout> {
+        let theme = self.active_theme();
+        self.compose_layout_for_scene(
+            window,
+            size,
+            &theme,
+            self.frame_at(Instant::now()),
+            layout::PopupSurfaces::InFrame,
+        )
     }
 
     #[cfg(test)]
@@ -1419,13 +1640,18 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         Option<Vec<crate::overlay::PopupPresentation>>,
         Vec<ime::Projection>,
     ) {
-        let windows = self
+        let window_ids = self
             .session
             .windows()
             .iter()
+            .map(session::Window::id)
+            .collect::<Vec<_>>();
+        let windows = window_ids
+            .into_iter()
             .filter_map(|window| {
-                let need = self.frame_need(window.id())?.pending()?;
-                Some((window.id(), need))
+                self.frame_need(window)?
+                    .pending()
+                    .map(|need| (window, need))
             })
             .collect::<Vec<_>>();
         let mut rendered = Vec::with_capacity(windows.len());

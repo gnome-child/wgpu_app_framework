@@ -354,28 +354,19 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         }
 
         if present_submitted {
-            let activated =
-                !refreshes_active && self.session.record_present_submitted(window, epoch);
-            let refreshes_visible = refreshes_active
-                && self
-                    .session
-                    .window(window)
-                    .and_then(session::Window::present_submitted_epoch)
-                    == Some(epoch)
-                && self
-                    .presented_geometry
-                    .get(&window)
-                    .is_some_and(|visible| visible.stack.same_structure(stack));
+            let submitted =
+                self.session
+                    .record_present_submitted(window, epoch, properties.serial());
             let semantic_changed = self.presented_geometry.get(&window).is_none_or(|previous| {
                 !std::sync::Arc::ptr_eq(previous.stack.base().commit(), stack.base().commit())
             });
-            if activated && !property_only && semantic_changed {
+            if submitted && !refreshes_active && !property_only && semantic_changed {
                 self.diagnostics
                     .get_mut(window)
                     .render
                     .record_semantic_activation();
             }
-            if activated || refreshes_visible {
+            if submitted {
                 let mut present_submitted_offsets = std::collections::HashMap::new();
                 for projection in layout.scroll_projections() {
                     if let Some(offset) = stack.scroll_offset(projection.node()) {
@@ -463,6 +454,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 );
                 self.session.set_cursor(window, resolved.cursor());
             }
+            if !refreshes_active
+                && invalidation == super::super::response::effect::Invalidation::Rebuild
+            {
+                self.complete_residency_candidate(window, epoch);
+            }
         } else if !refreshes_active {
             if property_only {
                 self.session.retry_property_tick(window);
@@ -471,6 +467,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
         }
         !present_submitted
+            || self
+                .session
+                .window(window)
+                .is_some_and(session::Window::redraw_requested)
     }
 
     pub(crate) fn presented_ime_update(

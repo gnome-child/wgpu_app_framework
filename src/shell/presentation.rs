@@ -12,6 +12,7 @@ pub struct Presentation {
     stack: Arc<scene::Stack>,
     ime_projection: ime::Projection,
     property_only: bool,
+    residency_urgency: Option<scene::ResidencyUrgency>,
 }
 
 impl Presentation {
@@ -29,6 +30,7 @@ impl Presentation {
             stack: Arc::clone(presentation.stack()),
             ime_projection,
             property_only: presentation.property_only(),
+            residency_urgency: presentation.residency_urgency(),
         }
     }
 
@@ -78,6 +80,10 @@ impl Presentation {
 
     pub(crate) fn property_only(&self) -> bool {
         self.property_only
+    }
+
+    pub(crate) fn residency_urgency(&self) -> Option<scene::ResidencyUrgency> {
+        self.residency_urgency
     }
 
     pub(crate) fn stack(&self) -> &Arc<scene::Stack> {

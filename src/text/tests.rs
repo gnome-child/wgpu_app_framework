@@ -1049,6 +1049,143 @@ fn no_wrap_text_area_logical_width_includes_unrealized_lines() {
 }
 
 #[test]
+fn no_wrap_multiline_character_edit_does_not_remeasure_the_document_width() {
+    let mut lines = (0..12_544)
+        .map(|index| format!("{index:05} {}", "unicode locality runway ".repeat(5)))
+        .collect::<Vec<_>>();
+    lines[12_000] = "W".repeat(1_024);
+    let source = lines.join("\n");
+    let mut buffer = Buffer::from_multiline_text(source);
+    let viewport = area::logical(320.0, 80.0);
+    let style = Style::default().with_size(13.0);
+    let mut engine = engine();
+    let initial = engine.text_area_paint_layout_for_area_at(
+        &Area::new(buffer.clone()).no_wrap(),
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let initial_width = initial.layout().content_width_exact();
+
+    let mut editor = Editor::new();
+    let mut edit_state = buffer.initial_state();
+    apply_selection(
+        &buffer,
+        &mut edit_state,
+        selection::Operation::set_position(Position::new(16)),
+    );
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::insert("Z"),
+    ));
+
+    engine.reset_diagnostics();
+    let edited = engine.text_area_paint_layout_for_area_at(
+        &Area::new(buffer).with_state(edit_state).no_wrap(),
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+
+    assert_eq!(
+        diagnostics.text_area_width_source_lines, 0,
+        "one character must not revisit unrelated logical lines",
+    );
+    assert_eq!(
+        diagnostics.text_area_width_source_bytes, 0,
+        "one character must not reshape the complete multiline source",
+    );
+    assert_eq!(diagnostics.text_area_width_incremental_updates, 1);
+    assert!(diagnostics.text_area_width_incremental_source_bytes > 0);
+    assert!(diagnostics.text_area_width_incremental_source_bytes <= 4_096);
+    assert_eq!(
+        diagnostics.text_area_width_incremental_source_bytes_max,
+        diagnostics.text_area_width_incremental_source_bytes,
+    );
+    assert_eq!(
+        edited.layout().content_width_exact(),
+        initial_width,
+        "editing a short visible line must preserve the far-away maximum width",
+    );
+}
+
+#[test]
+fn no_wrap_multiline_character_edit_updates_the_exact_maximum_width() {
+    let mut lines = (0..200)
+        .map(|index| format!("short line {index}"))
+        .collect::<Vec<_>>();
+    lines[180] = "W".repeat(1_024);
+    lines[181] = "W".repeat(1_023);
+    let edit_index = lines
+        .iter()
+        .take(181)
+        .map(|line| line.len() + 1)
+        .sum::<usize>()
+        .saturating_sub(1);
+    let mut buffer = Buffer::from_multiline_text(lines.join("\n"));
+    let viewport = area::logical(320.0, 80.0);
+    let style = Style::default().with_size(13.0);
+    let mut engine = engine();
+    let initial = engine.text_area_paint_layout_for_area_at(
+        &Area::new(buffer.clone()).no_wrap(),
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+
+    let mut editor = Editor::new();
+    let mut edit_state = buffer.initial_state();
+    apply_selection(
+        &buffer,
+        &mut edit_state,
+        selection::Operation::set_position(Position::new(edit_index)),
+    );
+    assert!(apply_edit(
+        &mut editor,
+        &mut buffer,
+        &mut edit_state,
+        Edit::Backspace,
+    ));
+    let edited_area = Area::new(buffer.clone()).with_state(edit_state).no_wrap();
+
+    engine.reset_diagnostics();
+    let edited = engine.text_area_paint_layout_for_area_at(
+        &edited_area,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+    let diagnostics = engine.diagnostics();
+    let rebuilt = Engine::new().text_area_paint_layout_for_area_at(
+        &edited_area,
+        style,
+        viewport,
+        ViewState::default(),
+        Instant::now(),
+    );
+
+    assert!(
+        edited.layout().content_width_exact() < initial.layout().content_width_exact(),
+        "removing one glyph from the unique widest line must reduce the exact extent",
+    );
+    assert_eq!(
+        edited.layout().content_width_exact(),
+        rebuilt.layout().content_width_exact(),
+        "incremental maximum maintenance must match an independent cold rebuild",
+    );
+    assert_eq!(diagnostics.text_area_width_incremental_updates, 1);
+    assert_eq!(diagnostics.text_area_width_source_lines, 0);
+    assert_eq!(diagnostics.text_area_width_source_bytes, 0);
+}
+
+#[test]
 fn one_line_text_area_reuses_its_observed_shape_for_width_and_render() {
     let mut engine = engine();
     let source = "wide glyph runway ".repeat(4_096);

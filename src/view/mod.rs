@@ -178,6 +178,15 @@ impl View {
         self.root.materialize_virtual_lists(requests, measurements);
     }
 
+    pub(crate) fn reuse_virtual_row_text_buffers_from(&mut self, previous: &Self) -> usize {
+        let mut previous_rows = HashMap::new();
+        previous.root.collect_provided_rows(&mut previous_rows);
+        let reused = self
+            .root
+            .reuse_virtual_row_text_buffers_from(&previous_rows);
+        reused
+    }
+
     pub(crate) fn project_table_widths(&mut self, tables: &interaction::Tables) {
         self.root.project_table_widths(tables);
     }

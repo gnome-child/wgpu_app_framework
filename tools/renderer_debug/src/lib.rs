@@ -73,7 +73,6 @@ mod tests {
     use wgpu_l3::renderer_debug::{Case, Harness, Work};
 
     const RETAINED_GLOBAL_RESOURCES: usize = 8;
-    const ONE_SCROLL_PROPERTY_UPLOAD: usize = std::mem::size_of::<[f32; 4]>();
 
     fn image(pixels: Vec<[f32; 4]>) -> Image {
         Image::new(2, 1, pixels).expect("test image dimensions should match")
@@ -279,8 +278,22 @@ mod tests {
             assert_eq!(receipt.tick().render_plan_reuses(), 1);
             assert_eq!(
                 receipt.tick().property_upload_bytes(),
-                ONE_SCROLL_PROPERTY_UPLOAD
+                receipt.tick().scroll_property_upload_bytes(),
+                "the nested scroll tick must upload scroll state only"
             );
+            assert_eq!(receipt.tick().property_upload_bytes(), 16);
+            assert_eq!(receipt.tick().property_value_visits(), 3);
+            assert_eq!(receipt.tick().property_index_lookups(), 3);
+            assert_eq!(receipt.tick().property_dirty_indices(), 1);
+            assert_eq!(receipt.tick().property_write_ranges(), 1);
+            assert_eq!(receipt.tick().property_full_dense_transfers(), 0);
+            assert_eq!(receipt.tick().property_full_initializations(), 0);
+            assert_eq!(receipt.tick().property_full_buffer_replacements(), 0);
+            assert_eq!(receipt.tick().property_full_topology_replacements(), 0);
+            assert_eq!(receipt.tick().property_full_generation_resyncs(), 0);
+            assert_eq!(receipt.tick().gpu_resource_creations(), 0);
+            assert_eq!(receipt.tick().gpu_resource_replacements(), 0);
+            assert_eq!(receipt.tick().gpu_resource_removals(), 0);
             assert_no_scroll_offscreen(receipt.tick());
             assert_zero_content_work(receipt.unchanged());
             assert_eq!(receipt.unchanged().render_plan_reuses(), 1);
@@ -373,6 +386,15 @@ mod tests {
         assert_eq!(receipt.activated().commit_preparation_deadline_misses(), 0);
         assert_eq!(receipt.activated().render_plan_rebuilds(), 1);
         assert_no_scroll_offscreen(receipt.activated());
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn post_present_continuation_finishes_retained_plan_synchronization() {
+        let mut harness = pollster::block_on(Harness::new(1.0)).expect("GPU harness should open");
+        harness.require_post_present_plan_progress().expect(
+            "post-present candidate progress must finish planning before candidate realization",
+        );
     }
 
     #[test]
@@ -552,6 +574,21 @@ mod tests {
         .unwrap_or_else(|error| {
             panic!("slow gallery scroll must remain monotonic and pixel-complete at 1.0x: {error}")
         });
+    }
+
+    #[test]
+    #[ignore = "requires a locally available GPU adapter"]
+    fn table_runway_contains_nested_text_on_the_first_property_tick() {
+        for scale in [1.0, 1.25, 1.5, 1.75, 2.0] {
+            pollster::block_on(
+                wgpu_l3::diagnostics::compare_table_runway_property_text(scale),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "typed table runway must contain nested text on its first tick at {scale}x: {error}"
+                )
+            });
+        }
     }
 
     #[test]

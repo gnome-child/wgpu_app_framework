@@ -272,6 +272,17 @@ impl Renderer {
         deadline: std::time::Duration,
     ) -> render::Result<CommitReadiness> {
         let viewport = render::Viewport::from_canvas(canvas);
+        self.ready_stacks
+            .retain(|candidate| candidate.stack.strong_count() > 0);
+        if self.ready_stacks.iter().any(|candidate| {
+            candidate.viewport == viewport
+                && candidate
+                    .stack
+                    .upgrade()
+                    .is_some_and(|candidate| std::sync::Arc::ptr_eq(&candidate, stack))
+        }) {
+            return Ok(CommitReadiness::Ready);
+        }
         let started = std::time::Instant::now();
         for layer in stack.layers() {
             let remaining = budget.saturating_sub(started.elapsed());
@@ -288,21 +299,34 @@ impl Renderer {
                 return Ok(CommitReadiness::Pending);
             }
         }
-        self.ready_stacks
-            .retain(|candidate| candidate.stack.strong_count() > 0);
-        Ok(
-            if self.ready_stacks.iter().any(|candidate| {
-                candidate.viewport == viewport
-                    && candidate
-                        .stack
-                        .upgrade()
-                        .is_some_and(|candidate| std::sync::Arc::ptr_eq(&candidate, stack))
-            }) {
-                CommitReadiness::Ready
-            } else {
-                CommitReadiness::Pending
-            },
-        )
+        for layer in stack.layers() {
+            let remaining = budget.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Ok(CommitReadiness::Pending);
+            }
+            let slice_started = std::time::Instant::now();
+            let readiness = self.retained.synchronize_candidate_layer(
+                render_context,
+                viewport,
+                layer,
+                &mut self.text_renderer,
+                remaining,
+            )?;
+            self.retained.record_candidate_layer_slice(
+                viewport,
+                layer,
+                slice_started.elapsed(),
+                deadline,
+            );
+            if readiness != render::retained::Synchronize::Ready {
+                return Ok(CommitReadiness::Pending);
+            }
+        }
+        self.ready_stacks.push(ReadyStack {
+            stack: std::sync::Arc::downgrade(stack),
+            viewport,
+        });
+        Ok(CommitReadiness::Ready)
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -376,40 +400,10 @@ impl Renderer {
         render_context: &render::Context,
         canvas: &render::Canvas,
         stack: &std::sync::Arc<crate::scene::Stack>,
+        budget: std::time::Duration,
         deadline: std::time::Duration,
     ) -> render::Result<()> {
-        let viewport = render::Viewport::from_canvas(canvas);
-        self.ready_stacks.retain(|candidate| {
-            candidate.stack.strong_count() > 0
-                && !(candidate.viewport == viewport
-                    && candidate
-                        .stack
-                        .upgrade()
-                        .is_some_and(|candidate| std::sync::Arc::ptr_eq(&candidate, stack)))
-        });
-
-        let started = std::time::Instant::now();
-        for layer in stack.layers() {
-            let Some(_) = self.retained.prepare_candidate_layer(
-                render_context,
-                viewport,
-                layer,
-                &mut self.text_renderer,
-            )?
-            else {
-                return Ok(());
-            };
-        }
-        self.retained.record_candidate_layer_slice(
-            viewport,
-            stack.base(),
-            started.elapsed(),
-            deadline,
-        );
-        self.ready_stacks.push(ReadyStack {
-            stack: std::sync::Arc::downgrade(stack),
-            viewport,
-        });
+        let _ = self.synchronize_stack(render_context, canvas, stack, budget, deadline)?;
         Ok(())
     }
 
@@ -422,6 +416,17 @@ impl Renderer {
         properties: &crate::scene::Properties,
         deadline: std::time::Duration,
     ) -> render::Result<()> {
+        if self.retained.synchronize_bounded(
+            render_context,
+            viewport,
+            commit,
+            &mut self.text_renderer,
+            std::time::Duration::MAX,
+            deadline,
+        )? == render::retained::Synchronize::Pending
+        {
+            return Ok(());
+        }
         self.ready_debug_commits.retain(|candidate| {
             candidate.commit.strong_count() > 0
                 && !(candidate.viewport == viewport

@@ -377,12 +377,9 @@ impl Frame {
                     parts,
                 };
                 if model.projects_inactive_display() {
-                    let mut text_area = view::TextArea::new(model.display_text().to_owned())
-                        .with_wrap(node.world_text_wrap().unwrap_or(view::Wrap::None))
-                        .read_only();
-                    if let Some(focus) = model.focus() {
-                        text_area = text_area.with_focus(focus);
-                    }
+                    let text_area = model.inactive_display_text_area(
+                        node.world_text_wrap().unwrap_or(view::Wrap::None),
+                    );
                     let base_text_rect = table_cell_text_rect_for(
                         node,
                         rect,
@@ -1002,6 +999,21 @@ impl Frame {
             viewport.rect().height(),
             viewport.resolved_scroll().y(),
         ))
+    }
+
+    pub(crate) fn virtual_list_required_request_for_offset(
+        &self,
+        offset: interaction::ScrollOffset,
+    ) -> Option<crate::virtual_list::Request> {
+        let FrameContent::VirtualList(content) = &self.content else {
+            return None;
+        };
+        let viewport = content.geometry.as_ref()?.viewport;
+        Some(
+            content
+                .model
+                .request_for_required_viewport(offset.y(), viewport.rect().height()),
+        )
     }
 
     pub(crate) fn virtual_row_index_at(&self, point: Point) -> Option<usize> {

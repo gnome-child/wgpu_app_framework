@@ -7,6 +7,7 @@ use std::{
 use super::samples::Samples;
 
 const TRACE_LIMIT: usize = 32;
+const VIRTUAL_RESIDENCY_ISSUE_LIMIT: usize = 2_048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TransitionOutcome {
@@ -91,9 +92,19 @@ pub struct Scroll {
     pub scroll_resident_acceptances: usize,
     pub scroll_unchanged: usize,
     pub scroll_property_ticks: usize,
+    pub scroll_proactive_replenishments: usize,
+    pub scroll_residency_candidates_scheduled: usize,
+    pub scroll_residency_candidates_coalesced: usize,
+    pub scroll_residency_candidates_selected: usize,
+    pub scroll_residency_candidates_superseded: usize,
+    pub scroll_residency_proactive_preemptions: usize,
+    pub scroll_residency_pipelines_cancelled: usize,
+    pub scroll_residency_follow_ups: usize,
     pub scroll_needs_residency: usize,
     pub desired_resident_lag_x_max: usize,
     pub desired_resident_lag_y_max: usize,
+    pub virtual_residency_rejections: usize,
+    pub virtual_residency_last_issue: Option<String>,
     request: Samples,
     property_tick: Samples,
     needs_residency: Samples,
@@ -138,6 +149,57 @@ impl Scroll {
         self.needs_residency.record(duration.as_micros());
     }
 
+    pub(crate) fn record_proactive_replenishment(&mut self) {
+        self.scroll_proactive_replenishments =
+            self.scroll_proactive_replenishments.saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_candidate_scheduled(&mut self) {
+        self.scroll_residency_candidates_scheduled =
+            self.scroll_residency_candidates_scheduled.saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_candidate_coalesced(&mut self) {
+        self.scroll_residency_candidates_coalesced =
+            self.scroll_residency_candidates_coalesced.saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_candidate_selected(&mut self) {
+        self.scroll_residency_candidates_selected =
+            self.scroll_residency_candidates_selected.saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_candidate_superseded(&mut self) {
+        self.scroll_residency_candidates_superseded = self
+            .scroll_residency_candidates_superseded
+            .saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_proactive_preemption(&mut self) {
+        self.scroll_residency_proactive_preemptions = self
+            .scroll_residency_proactive_preemptions
+            .saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_pipeline_cancelled(&mut self) {
+        self.scroll_residency_pipelines_cancelled =
+            self.scroll_residency_pipelines_cancelled.saturating_add(1);
+    }
+
+    pub(crate) fn record_residency_follow_up(&mut self) {
+        self.scroll_residency_follow_ups = self.scroll_residency_follow_ups.saturating_add(1);
+    }
+
+    pub(crate) fn record_virtual_residency_rejection(&mut self, issue: &str) {
+        self.virtual_residency_rejections = self.virtual_residency_rejections.saturating_add(1);
+        self.virtual_residency_last_issue = Some(
+            issue
+                .chars()
+                .take(VIRTUAL_RESIDENCY_ISSUE_LIMIT)
+                .collect::<String>(),
+        );
+    }
+
     pub fn request_p95_us(&self) -> u128 {
         self.request.p95()
     }
@@ -180,7 +242,11 @@ impl Scroll {
             trace.clamped = clamped;
             trace.resident_offset = resident_offset;
             trace.resident_accepted = resident_accepted;
-            trace.outcome = outcome;
+            if outcome != TransitionOutcome::Unchanged
+                || trace.outcome == TransitionOutcome::Unchanged
+            {
+                trace.outcome = outcome;
+            }
             return;
         }
         if self.traces.len() == TRACE_LIMIT {
@@ -775,6 +841,34 @@ mod tests {
         assert!(receipt.contains("first_request_serial=1,last_request_serial=2"));
         assert!(receipt.contains("coalesced_inputs=2"));
         assert!(receipt.contains("requested_x=20"));
+    }
+
+    #[test]
+    fn repeated_no_op_does_not_erase_a_coalesced_residency_transition() {
+        let mut scroll = Scroll::default();
+        let epoch = PresentationEpoch::initial().next();
+        scroll.record_transition(
+            epoch,
+            41,
+            ScrollOffset::new(80, 0),
+            ScrollOffset::new(80, 0),
+            ScrollOffset::new(20, 0),
+            false,
+            "needs-residency",
+        );
+        scroll.record_transition(
+            epoch,
+            41,
+            ScrollOffset::new(80, 0),
+            ScrollOffset::new(80, 0),
+            ScrollOffset::new(20, 0),
+            false,
+            "unchanged",
+        );
+
+        let receipt = scroll.trace_receipt_text();
+        assert!(receipt.contains("coalesced_inputs=2"));
+        assert!(receipt.contains("outcome=needs-residency"));
     }
 
     #[test]

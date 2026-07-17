@@ -296,14 +296,43 @@ impl TextRenderer {
         commit: &Arc<crate::scene::Commit>,
         batches: &[(RetainedBatch, [f32; 2])],
     ) -> RetainedTransformReport {
+        let (report, next) = self.prepare_retained_transforms_bounded(
+            render_context,
+            viewport,
+            commit,
+            batches,
+            0,
+            std::time::Duration::MAX,
+        );
+        debug_assert_eq!(next, batches.len());
+        report
+    }
+
+    pub(in crate::render) fn prepare_retained_transforms_bounded(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<crate::scene::Commit>,
+        batches: &[(RetainedBatch, [f32; 2])],
+        start: usize,
+        budget: std::time::Duration,
+    ) -> (RetainedTransformReport, usize) {
         let mut report = RetainedTransformReport {
-            resource_removals: self.prune_retained_transforms(),
+            resource_removals: usize::from(start == 0)
+                .saturating_mul(self.prune_retained_transforms()),
             ..RetainedTransformReport::default()
         };
         let grid = paint::Grid::new(viewport.scale_factor());
         let mut prepared = Vec::new();
+        let started = std::time::Instant::now();
+        let mut next = start.min(batches.len());
 
-        for (batch, translation) in batches {
+        while next < batches.len() {
+            if next > start && started.elapsed() >= budget {
+                break;
+            }
+            let (batch, translation) = &batches[next];
+            next = next.saturating_add(1);
             let Some(key) = batch.transform else {
                 continue;
             };
@@ -366,7 +395,7 @@ impl TextRenderer {
             report.resource_creations = report.resource_creations.saturating_add(1);
         }
 
-        report
+        (report, next)
     }
 
     pub(in crate::render) fn cancel_retained_transform_state(

@@ -530,26 +530,62 @@ impl Engine {
         observed_document_width: Option<f64>,
     ) -> f64 {
         let key = super::super::width::Key::new(source, style);
-        let width = if let Some(width) = self.text_area_widths.get(&key).copied() {
+        let width = if let Some(width) = self
+            .text_area_widths
+            .get(&key)
+            .map(super::super::width::Value::width)
+        {
             self.diagnostics.text_area_width_cache_hits += 1;
             width
         } else {
             self.diagnostics.text_area_width_cache_misses += 1;
-            let width = if let Some(observed_width) = observed_document_width {
+            let value = if let Some(observed_width) = observed_document_width {
                 self.diagnostics.text_area_width_observed_updates += 1;
-                observed_width
+                super::super::width::Value::observed(observed_width)
+            } else if let Some((value, source_bytes)) =
+                self.incrementally_update_text_area_width(source, style, key)
+            {
+                self.diagnostics.text_area_width_incremental_updates += 1;
+                self.diagnostics.text_area_width_incremental_source_bytes += source_bytes;
+                self.diagnostics
+                    .text_area_width_incremental_source_bytes_max = self
+                    .diagnostics
+                    .text_area_width_incremental_source_bytes_max
+                    .max(source_bytes);
+                value
             } else {
                 self.diagnostics.text_area_width_source_lines += source.logical_line_count();
                 self.diagnostics.text_area_width_source_bytes += source.len();
                 let started = Instant::now();
-                let width = super::super::width::measure(&mut self.font_system, source, style);
+                let value = super::super::width::measure(&mut self.font_system, source, style);
                 self.diagnostics.text_area_width_measure_us += started.elapsed().as_micros();
-                width
+                value
             };
-            self.text_area_widths.put(key, width);
+            let width = value.width();
+            self.text_area_widths.put(key, value);
             width
         };
         width.max(minimum.max(0.0))
+    }
+
+    fn incrementally_update_text_area_width(
+        &mut self,
+        source: &super::super::super::buffer::Buffer,
+        style: Style,
+        current_key: super::super::width::Key,
+    ) -> Option<(super::super::width::Value, usize)> {
+        let delta = source.last_line_edit_delta()?;
+        let predecessor_key = self
+            .text_area_widths
+            .iter()
+            .find(|(key, value)| key.has_style(current_key) && value.contains(delta.before))
+            .map(|(key, _)| *key)?;
+        let mut index = self.text_area_widths.pop(&predecessor_key)?.into_index()?;
+        let (line_width, source_bytes) =
+            super::super::width::measure_line(&mut self.font_system, source, style, delta.line);
+        index
+            .apply_line_edit(source, &delta, line_width)
+            .then_some((super::super::width::Value::Indexed(index), source_bytes))
     }
 }
 

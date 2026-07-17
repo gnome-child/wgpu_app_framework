@@ -87,6 +87,9 @@ pub struct Text {
     pub text_area_width_cache_hits: usize,
     pub text_area_width_cache_misses: usize,
     pub text_area_width_observed_updates: usize,
+    pub text_area_width_incremental_updates: usize,
+    pub text_area_width_incremental_source_bytes: usize,
+    pub text_area_width_incremental_source_bytes_max: usize,
     pub text_area_width_source_lines: usize,
     pub text_area_width_source_bytes: usize,
     pub text_area_width_measure_us: u128,
@@ -652,6 +655,12 @@ impl Text {
         self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
         self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
         self.text_area_width_observed_updates += diagnostics.text_area_width_observed_updates;
+        self.text_area_width_incremental_updates += diagnostics.text_area_width_incremental_updates;
+        self.text_area_width_incremental_source_bytes +=
+            diagnostics.text_area_width_incremental_source_bytes;
+        self.text_area_width_incremental_source_bytes_max = self
+            .text_area_width_incremental_source_bytes_max
+            .max(diagnostics.text_area_width_incremental_source_bytes_max);
         self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
         self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
         self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;
@@ -760,6 +769,12 @@ impl Text {
         self.text_area_width_cache_hits += diagnostics.text_area_width_cache_hits;
         self.text_area_width_cache_misses += diagnostics.text_area_width_cache_misses;
         self.text_area_width_observed_updates += diagnostics.text_area_width_observed_updates;
+        self.text_area_width_incremental_updates += diagnostics.text_area_width_incremental_updates;
+        self.text_area_width_incremental_source_bytes +=
+            diagnostics.text_area_width_incremental_source_bytes;
+        self.text_area_width_incremental_source_bytes_max = self
+            .text_area_width_incremental_source_bytes_max
+            .max(diagnostics.text_area_width_incremental_source_bytes_max);
         self.text_area_width_source_lines += diagnostics.text_area_width_source_lines;
         self.text_area_width_source_bytes += diagnostics.text_area_width_source_bytes;
         self.text_area_width_measure_us += diagnostics.text_area_width_measure_us;

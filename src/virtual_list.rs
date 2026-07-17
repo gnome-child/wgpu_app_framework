@@ -11,8 +11,10 @@ mod variable;
 
 const DEFAULT_OVERSCAN: usize = 2;
 const INITIAL_ROWS: usize = 32;
-const MAX_LEADING_RUNWAY_ROWS: usize = 4;
-const MAX_TRAILING_RUNWAY_ROWS: usize = 1;
+const MAX_TRANSITION_MATERIALIZED_ROWS: usize = 80;
+const MAX_LEADING_RUNWAY_VIEWPORTS: usize = 2;
+const MIN_LEADING_RUNWAY_VIEWPORT_NUMERATOR: usize = 3;
+const MIN_LEADING_RUNWAY_VIEWPORT_DENOMINATOR: usize = 2;
 
 /// Stable logical identity supplied by a virtual-list provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -46,6 +48,7 @@ pub(crate) struct Model {
     overscan: usize,
     provider: Rc<dyn Provider>,
     selectable: bool,
+    prepared_runway: Option<Range<usize>>,
 }
 
 #[derive(Clone)]
@@ -218,6 +221,7 @@ impl Model {
             overscan: DEFAULT_OVERSCAN,
             provider,
             selectable: false,
+            prepared_runway: None,
         }
     }
 
@@ -228,6 +232,7 @@ impl Model {
             overscan: DEFAULT_OVERSCAN,
             provider,
             selectable: false,
+            prepared_runway: None,
         }
     }
 
@@ -254,6 +259,26 @@ impl Model {
     }
 
     pub(crate) fn request_for_viewport(&self, offset_y: i32, viewport_height: i32) -> Request {
+        let request = self.base_request_for_viewport(offset_y, viewport_height);
+        self.prepared_runway
+            .as_ref()
+            .filter(|prepared| {
+                prepared.start <= request.range.start && prepared.end >= request.range.end
+            })
+            .map_or(request.clone(), |prepared| {
+                request.with_range(prepared.clone())
+            })
+    }
+
+    pub(crate) fn request_for_required_viewport(
+        &self,
+        offset_y: i32,
+        viewport_height: i32,
+    ) -> Request {
+        self.base_request_for_viewport(offset_y, viewport_height)
+    }
+
+    fn base_request_for_viewport(&self, offset_y: i32, viewport_height: i32) -> Request {
         match &self.heights {
             Heights::Uniform(row_height) => {
                 let row_height = (*row_height).max(1);
@@ -290,7 +315,7 @@ impl Model {
         viewport_height: i32,
         baseline_y: i32,
     ) -> Request {
-        let request = self.request_for_viewport(offset_y, viewport_height);
+        let request = self.base_request_for_viewport(offset_y, viewport_height);
         let direction = if offset_y > baseline_y {
             Some(Direction::Forward)
         } else if offset_y < baseline_y {
@@ -303,14 +328,17 @@ impl Model {
             .max(1);
         let distance_rows =
             (offset_y.abs_diff(baseline_y) as usize).div_ceil(self.row_height().max(1) as usize);
-        if distance_rows > visible_rows.saturating_mul(2) {
-            return request;
-        }
-        let leading = visible_rows.max(distance_rows).min(MAX_LEADING_RUNWAY_ROWS);
+        let runway_budget = MAX_TRANSITION_MATERIALIZED_ROWS.saturating_sub(request.range.len());
+        let minimum_leading = visible_rows
+            .saturating_mul(MIN_LEADING_RUNWAY_VIEWPORT_NUMERATOR)
+            .div_ceil(MIN_LEADING_RUNWAY_VIEWPORT_DENOMINATOR);
+        let leading_goal = minimum_leading
+            .max(distance_rows.min(visible_rows.saturating_mul(MAX_LEADING_RUNWAY_VIEWPORTS)));
+        let leading = leading_goal.min(runway_budget);
         let trailing = visible_rows
-            .saturating_div(2)
+            .div_ceil(2)
             .max(self.overscan)
-            .min(MAX_TRAILING_RUNWAY_ROWS);
+            .min(runway_budget.saturating_sub(leading));
         direction.map_or(request.clone(), |direction| {
             request.with_runway(direction, leading, trailing)
         })
@@ -388,6 +416,7 @@ impl Model {
         let len = self.len();
         let start = requested.range.start.min(len);
         let end = requested.range.end.max(start).min(len);
+        self.prepared_runway = requested.runway.then_some(start..end);
         let mut rows = (start..end)
             .map(|index| (index, self.provider.key(index)))
             .collect::<Vec<_>>();
@@ -502,6 +531,15 @@ impl Request {
         self.measurements.clone()
     }
 
+    fn with_range(&self, range: Range<usize>) -> Self {
+        Self {
+            id: self.id,
+            range: range.start.min(self.limit)..range.end.min(self.limit),
+            limit: self.limit,
+            measurements: self.measurements.clone(),
+        }
+    }
+
     fn with_runway(&self, direction: Direction, leading: usize, trailing: usize) -> Self {
         let (before, after) = match direction {
             Direction::Backward => (leading, trailing),
@@ -543,22 +581,29 @@ mod tests {
     }
 
     #[test]
-    fn transition_runway_is_directional_and_bounded_for_a_million_rows() {
+    fn transition_runway_is_viewport_relative_and_bounded_for_a_million_rows() {
         let model = Model::new(
             interaction::Id::new("runway.rows"),
             20,
             Rc::new(Rows(1_000_000)),
         );
+        let visible_rows = 20_usize;
         let baseline = model.request_for_viewport(20_000, 400);
         let forward = model.request_for_transition(20_400, 400, 20_000);
         let backward = model.request_for_transition(19_600, 400, 20_000);
 
         assert!(forward.range.start < model.index_at_offset(20_400));
-        assert!(forward.range.end > model.index_at_offset(20_800));
-        assert!(backward.range.start < model.index_at_offset(19_600));
+        assert!(
+            forward.range.end >= model.index_at_offset(21_200),
+            "forward preparation must cover the target viewport plus one directional viewport"
+        );
+        assert!(
+            backward.range.start <= model.index_at_offset(19_200),
+            "backward preparation must cover the target viewport plus one directional viewport"
+        );
         assert!(backward.range.end > model.index_at_offset(20_000));
-        assert!(forward.range.len() <= baseline.range.len() + 5);
-        assert!(backward.range.len() <= baseline.range.len() + 5);
+        assert!(forward.range.len() <= baseline.range.len() + visible_rows * 2);
+        assert!(backward.range.len() <= baseline.range.len() + visible_rows * 2);
         assert!(forward.range.end <= model.len());
         assert!(backward.range.end <= model.len());
     }
@@ -577,5 +622,18 @@ mod tests {
             refreshed.preserves(&visible),
             "pin refresh must not let layout refinement trim the prepared forward runway"
         );
+    }
+
+    #[test]
+    fn a_new_materialization_range_never_unions_with_the_previous_drawable() {
+        let current = Materialization::new(100..130, Vec::new()).with_runway(100..130);
+        let required = 120..145;
+        let next = current.with_runway(required.clone());
+        assert_eq!(
+            next.range(),
+            required,
+            "a new active materialization must not draw rows retained only by an older candidate"
+        );
+        assert!(next.preserves(&(120..145)));
     }
 }

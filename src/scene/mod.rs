@@ -22,8 +22,9 @@ pub(crate) use commit::{
     FixtureCase, ScrollOracleCase, ScrollOracleFixture, ScrollOracleRegion, renderer_fixture,
     renderer_partial_update_fixture, renderer_property_economics_fixture,
     renderer_property_economics_fixture_at, renderer_scroll_layer_semantic_pair,
-    renderer_scroll_oracle_fixture, renderer_scroll_properties, renderer_scroll_semantic_pair,
-    renderer_scroll_text_runway_pair, renderer_text_atlas_pressure_pair,
+    renderer_scroll_oracle_fixture, renderer_scroll_semantic_pair,
+    renderer_scroll_text_runway_pair, renderer_scroll_tick_properties,
+    renderer_text_atlas_pressure_pair,
 };
 pub(crate) use material::GlassBase;
 pub use material::{
@@ -31,6 +32,7 @@ pub use material::{
     SurfaceLayer,
 };
 pub use presentation::Presentation;
+pub(crate) use presentation::ResidencyUrgency;
 pub use primitive::{
     Axis, Brush, Clip, EdgeMode, Group, Icon, Motion, Offset, Outline, Pane, Primitive, Quad,
     Radius, Rasterization, Rounding, Rule, ScaleMotion, Shadow, Stroke, Style, Text, TextAlign,

@@ -28,7 +28,10 @@ pub use render::{
 };
 #[cfg(feature = "renderer-debug")]
 #[doc(hidden)]
-pub use residency::{ResidencyCrossingReceipt, ResidencyPayload, measure_residency_crossing_work};
+pub use residency::{
+    ResidencyCrossingReceipt, ResidencyPayload, compare_table_runway_property_text,
+    measure_residency_crossing_work,
+};
 pub(crate) use scroll::CandidateWork;
 pub use scroll::Scroll;
 #[cfg(feature = "renderer-debug")]
@@ -129,6 +132,46 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
+            "scroll_proactive_replenishments={}",
+            self.scroll.scroll_proactive_replenishments
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_candidates_scheduled={}",
+            self.scroll.scroll_residency_candidates_scheduled
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_candidates_coalesced={}",
+            self.scroll.scroll_residency_candidates_coalesced
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_candidates_selected={}",
+            self.scroll.scroll_residency_candidates_selected
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_candidates_superseded={}",
+            self.scroll.scroll_residency_candidates_superseded
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_proactive_preemptions={}",
+            self.scroll.scroll_residency_proactive_preemptions
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_pipelines_cancelled={}",
+            self.scroll.scroll_residency_pipelines_cancelled
+        );
+        let _ = writeln!(
+            receipt,
+            "scroll_residency_follow_ups={}",
+            self.scroll.scroll_residency_follow_ups
+        );
+        let _ = writeln!(
+            receipt,
             "scroll_needs_residency={}",
             self.scroll.scroll_needs_residency
         );
@@ -141,6 +184,19 @@ impl Diagnostics {
             receipt,
             "scroll_desired_resident_lag_y_max={}",
             self.scroll.desired_resident_lag_y_max
+        );
+        let _ = writeln!(
+            receipt,
+            "virtual_residency_rejections={}",
+            self.scroll.virtual_residency_rejections
+        );
+        let _ = writeln!(
+            receipt,
+            "virtual_residency_last_issue={}",
+            self.scroll
+                .virtual_residency_last_issue
+                .as_deref()
+                .unwrap_or("none")
         );
         let _ = writeln!(
             receipt,
@@ -401,6 +457,21 @@ impl Diagnostics {
         );
         let _ = writeln!(
             receipt,
+            "text_area_width_incremental_updates={}",
+            self.text.text_area_width_incremental_updates
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_incremental_source_bytes={}",
+            self.text.text_area_width_incremental_source_bytes
+        );
+        let _ = writeln!(
+            receipt,
+            "text_area_width_incremental_source_bytes_max={}",
+            self.text.text_area_width_incremental_source_bytes_max
+        );
+        let _ = writeln!(
+            receipt,
             "text_area_width_source_lines={}",
             self.text.text_area_width_source_lines
         );
@@ -442,6 +513,14 @@ mod tests {
             "presentation_layout_p95_us=0",
             "scroll_input_events=0",
             "scroll_property_ticks=0",
+            "scroll_proactive_replenishments=0",
+            "scroll_residency_candidates_scheduled=0",
+            "scroll_residency_candidates_coalesced=0",
+            "scroll_residency_candidates_selected=0",
+            "scroll_residency_candidates_superseded=0",
+            "scroll_residency_proactive_preemptions=0",
+            "scroll_residency_pipelines_cancelled=0",
+            "scroll_residency_follow_ups=0",
             "scroll_needs_residency=0",
             "scroll_request_p95_us=0",
             "scroll_trace_schema=wgpu_l3.scroll_trace.v3",

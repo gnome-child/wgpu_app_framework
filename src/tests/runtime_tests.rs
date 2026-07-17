@@ -228,10 +228,14 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
     let ticked_candidate = app
         .render_scene(window, size)
         .expect("pending candidate should carry the latest property sample");
-    assert!(std::sync::Arc::ptr_eq(
-        &candidate_commit,
-        ticked_candidate.commit()
-    ));
+    assert!(
+        std::sync::Arc::ptr_eq(&active_commit, ticked_candidate.commit()),
+        "an active property refresh must be authored from the last present-submitted structure"
+    );
+    assert!(
+        !std::sync::Arc::ptr_eq(&candidate_commit, ticked_candidate.commit()),
+        "an active property refresh must not activate the unsubmitted semantic candidate"
+    );
     let scroll_node = active_commit
         .nodes()
         .iter()
@@ -281,6 +285,84 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
             .semantic_commits_activated,
         1,
         "refreshing active properties must not activate pending structure"
+    );
+}
+
+#[test]
+fn same_epoch_newer_submission_replaces_presented_geometry_atomically() {
+    let mut app = control_gallery::app(control_gallery::State::default());
+    app.start();
+    let window = app.session().windows()[0].id();
+    let size = geometry::Size::new(760, 700);
+    let active = app
+        .render_scene(window, size)
+        .expect("initial active frame should prepare");
+    let active_epoch = active.epoch();
+    let active_serial = active.properties().serial();
+    let active_invalidation = active.invalidation();
+    let active_layout = active.layout().clone();
+    let active_stack = std::sync::Arc::clone(active.stack());
+    let active_property_only = active.property_only();
+    app.finish_render_report(
+        window,
+        active_epoch,
+        active_invalidation,
+        &active_layout,
+        &active_stack,
+        active_property_only,
+        successful_render_report(),
+    );
+    drop(active);
+
+    app.change(
+        state::Reason::programmatic("same-epoch retry payload"),
+        |state| {
+            state.level = 73.0;
+        },
+    );
+    let replacement = app
+        .render_scene(window, size)
+        .expect("replacement frame should prepare");
+    assert!(replacement.properties().serial() > active_serial);
+    let replacement_serial = replacement.properties().serial();
+    let replacement_invalidation = replacement.invalidation();
+    let replacement_layout = replacement.layout().clone();
+    let replacement_stack = std::sync::Arc::clone(replacement.stack());
+    let replacement_property_only = replacement.property_only();
+    drop(replacement);
+
+    app.finish_render_report(
+        window,
+        active_epoch,
+        replacement_invalidation,
+        &replacement_layout,
+        &replacement_stack,
+        replacement_property_only,
+        successful_render_report(),
+    );
+
+    assert_eq!(app.present_submitted_epoch(window), Some(active_epoch));
+    assert_eq!(
+        app.presented_properties(window)
+            .map(scene::Properties::serial),
+        Some(replacement_serial),
+        "a successful newer submission under the same request epoch must atomically replace the spatial snapshot"
+    );
+
+    app.finish_render_report(
+        window,
+        active_epoch,
+        active_invalidation,
+        &active_layout,
+        &active_stack,
+        active_property_only,
+        successful_render_report(),
+    );
+    assert_eq!(
+        app.presented_properties(window)
+            .map(scene::Properties::serial),
+        Some(replacement_serial),
+        "a late older submission under the same request epoch must not regress the spatial snapshot"
     );
 }
 
@@ -446,7 +528,8 @@ fn generation_state_case_residency_race_advances_residency_without_a_semantic_co
         assert!(
             !replenished
                 .layout()
-                .scroll_property_accepts(&target, beyond),
+                .scroll_property_acceptance(&target, viewport.resolved_scroll(), beyond,)
+                .is_some(),
             "one pixel beyond forward residency must be rejected before exposing the table viewport bottom"
         );
     }

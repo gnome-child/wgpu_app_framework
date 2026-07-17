@@ -52,18 +52,18 @@ impl Viewport {
         self.visible_content
     }
 
-    pub(crate) fn visible_content_coverage(self) -> Option<Rect> {
-        self.content_coverage_at(self.resolved)
+    pub(crate) fn viewport_content_coverage(self) -> Option<Rect> {
+        self.content_coverage_within(self.rect, self.resolved)
     }
 
-    pub(crate) fn content_coverage_at(self, offset: ScrollOffset) -> Option<Rect> {
+    fn content_coverage_within(self, clip: Rect, offset: ScrollOffset) -> Option<Rect> {
         let content = Rect::new(
             self.rect.x().saturating_sub(offset.x()),
             self.rect.y().saturating_sub(offset.y()),
             self.content.width(),
             self.content.height(),
         );
-        intersect_rect(self.visible_content, content)
+        intersect_rect(clip, content)
     }
 
     pub(crate) fn content(self) -> Size {

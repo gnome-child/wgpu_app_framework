@@ -879,7 +879,8 @@ impl Harness {
         let (commit, initial_properties) = scene::renderer_fixture(scene::FixtureCase::Scroll)
             .map_err(|error| error.to_string())?;
         let tick_properties =
-            scene::renderer_scroll_properties(&commit, 24, 2).map_err(|error| error.to_string())?;
+            scene::renderer_scroll_tick_properties(&commit, &initial_properties, 24, 2)
+                .map_err(|error| error.to_string())?;
         let commit = std::sync::Arc::new(commit);
         let (width, height) = self.physical_extent(commit.size());
 
@@ -1194,6 +1195,52 @@ impl Harness {
             peak_bytes,
             activated,
         })
+    }
+
+    pub fn require_post_present_plan_progress(&mut self) -> Result<(), String> {
+        let (_, (changed, changed_properties)) =
+            scene::renderer_scroll_layer_semantic_pair().map_err(|error| error.to_string())?;
+        let changed = std::sync::Arc::new(changed);
+        let (width, height) = self.physical_extent(changed.size());
+        let first = self.candidate.synchronize_commit_offscreen_debug(
+            &self.context,
+            &changed,
+            &changed_properties,
+            width,
+            height,
+            self.scale_factor,
+            Duration::ZERO,
+        )?;
+        if first != render::CommitReadiness::Pending {
+            return Err("zero-budget fixture did not leave retained planning pending".to_owned());
+        }
+        if self
+            .candidate
+            .retained_plan_signature_debug(&changed, width, height, self.scale_factor)
+            .is_some()
+        {
+            return Err("zero-budget fixture unexpectedly installed a retained plan".to_owned());
+        }
+
+        self.candidate
+            .advance_candidate_after_present_offscreen_debug(
+                &self.context,
+                &changed,
+                &changed_properties,
+                width,
+                height,
+                self.scale_factor,
+            )?;
+        if self
+            .candidate
+            .retained_plan_signature_debug(&changed, width, height, self.scale_factor)
+            .is_none()
+        {
+            return Err(
+                "post-present continuation skipped the unfinished retained-plan phase".to_owned(),
+            );
+        }
+        Ok(())
     }
 
     pub fn text_atlas_retention_receipt(&mut self) -> Result<TextAtlasRetentionReceipt, String> {
@@ -1562,6 +1609,7 @@ impl Harness {
         active_properties: &scene::Properties,
         candidate_commit: &std::sync::Arc<scene::Commit>,
         candidate_properties: &scene::Properties,
+        active_refresh_properties: &scene::Properties,
     ) -> Result<(), String> {
         let (width, height) = self.physical_extent(active_commit.size());
         let (active_pixels, _) = self.candidate.draw_commit_offscreen_debug(
@@ -1585,7 +1633,7 @@ impl Harness {
         if first != render::CommitReadiness::Pending {
             return Err("property projection fixture did not leave a pending candidate".to_owned());
         }
-        let (projected, changed) = candidate_properties
+        let (projected, changed) = active_refresh_properties
             .project_onto(active_commit, active_properties)
             .map_err(|error| error.to_string())?;
         if !changed {
@@ -2494,6 +2542,24 @@ impl Harness {
             ));
         }
         Ok(work)
+    }
+
+    pub(crate) fn draw_retained_candidate_image(
+        &mut self,
+        commit: &std::sync::Arc<scene::Commit>,
+        properties: &scene::Properties,
+    ) -> Result<(Image, Work), String> {
+        let (width, height) = self.physical_extent(commit.size());
+        let (pixels, work) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            commit,
+            properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        Ok((Image::new(width, height, pixels)?, work.into()))
     }
 
     pub fn property_economics_work(

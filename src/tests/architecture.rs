@@ -5984,6 +5984,8 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && text_renderer.contains("retained_transforms: Vec<RetainedTransformViewport>")
             && text_renderer.contains("owners: Vec<Weak<crate::scene::Commit>>")
             && text_renderer.contains("pub(in crate::render) fn prepare_retained_transforms(")
+            && text_renderer
+                .contains("pub(in crate::render) fn prepare_retained_transforms_bounded(")
             && text_renderer.contains("entry.key == transform && entry.offset == offset")
             && text_renderer.contains("MissingRetainedTransform")
             && !retained_text_draw.contains("update_render_offset")
@@ -6002,11 +6004,19 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
     assert!(
         active_present_receipt < candidate_realization
             && renderer.contains("ready_stacks: Vec<ReadyStack>")
-            && renderer.contains(".prepare_candidate_layer(")
+            && renderer.matches(".synchronize_candidate_layer(").count() == 1
+            && renderer.contains(
+                "let _ = self.synchronize_stack(render_context, canvas, stack, budget, deadline)?;"
+            )
             && renderer.contains("&mut self.text_renderer,")
             && retained.contains("prepare_text_transforms(")
+            && retained.contains("pending_candidates: Vec<PendingCandidate>")
+            && retained.contains("prepare_retained_transforms_bounded(")
             && renderer.contains("self.retained.record_candidate_layer_slice(")
-            && renderer.contains("stack.base(),")
+            && renderer.contains("budget.saturating_sub(started.elapsed())")
+            && native_surface.contains(".saturating_sub(draw_started.elapsed())")
+            && native_surface.contains(".min(preparation.budget)")
+            && !renderer.contains(".prepare_candidate_layer(")
             && renderer.contains("self.encode_batches(&scroll.render_batches);")
             && renderer.contains("canvas.draw(render_context")
             && canvas.contains("self.surface.render(render_context, encode)")
@@ -6022,7 +6032,7 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
             && !renderer.contains("prepare_one_scroll_layer")
             && !renderer.contains("Pending Retained Scroll Layer")
             && !renderer.contains("CommitReadiness::Prepared"),
-        "candidate stack readiness must prepare exact layer properties after an active receipt while scroll remains a direct property transform with no cache texture, candidate queue, or lower-surface fork"
+        "candidate stack readiness must converge under the same bounded continuation before or after an active receipt while scroll remains a direct property transform with no cache texture, candidate queue, or lower-surface fork"
     );
     assert!(
         native_surface.contains("renderer.draw_stack(")
@@ -6236,6 +6246,123 @@ fn candidate_spatial_topology_is_the_only_scroll_ancestry_compiler() {
 }
 
 #[test]
+fn scroll_campaign_closure_confines_scene_construction_and_gpu_adapters() {
+    let layout = include_str!("../layout/mod.rs");
+    let paint = include_str!("../scene/paint/mod.rs");
+    let commit = include_str!("../scene/commit.rs");
+    let spatial = include_str!("../scene/spatial.rs");
+    let retained = include_str!("../render/retained.rs");
+    let renderer = include_str!("../render/renderer.rs");
+    let runtime = include_str!("../runtime/mod.rs");
+    let census = include_str!("../../docs/audits/2026-07-16-scroll-source-census.md");
+
+    assert!(
+        layout.contains("scene_scroll_paths:")
+            && layout.contains("fn project_scene_scroll_paths(")
+            && paint.contains("layout.scene_scroll_path(frame.node_id())")
+            && !layout.contains("scroll_ancestr")
+            && !paint.contains("scroll_ancestr")
+            && !runtime.contains("scene_scroll_path")
+            && !renderer.contains("scene_scroll_path"),
+        "layout scroll paths may construct candidate scopes but cannot remain an independently named runtime ancestry authority"
+    );
+
+    let target_space = retained
+        .split_once("struct TargetSpace {")
+        .and_then(|(_, suffix)| suffix.split_once("}\n\nimpl TargetSpace"))
+        .map(|(body, _)| body)
+        .expect("retained raster target-space adapter should remain bounded");
+    let scroll_binding = retained
+        .split_once("struct ScrollBinding {")
+        .and_then(|(_, suffix)| suffix.split_once("}\n\nimpl ScrollBinding"))
+        .map(|(body, _)| body)
+        .expect("retained GPU scroll binding should remain bounded");
+    assert!(
+        target_space.contains("spatial: scene::SpatialBinding")
+            && !target_space.contains("scroll")
+            && scroll_binding.contains("path: scene::ScrollPathId")
+            && !scroll_binding.contains("parent")
+            && retained
+                .contains(".spatial_topology\n                    .scroll_path(space.spatial)")
+            && retained.contains("spatial_topology: &'a scene::SpatialTopology"),
+        "retained target/property/scroll bindings must be generated GPU adapters over candidate topology, not ancestry owners"
+    );
+    assert!(
+        commit.contains("spatial_topology: super::spatial::SpatialTopology")
+            && spatial.contains("pub(crate) struct SpatialTopology")
+            && !commit.contains("fn semantic_order(")
+            && !commit.contains("fn compatibility_order_until(")
+            && !retained.contains("fn build_order(")
+            && !retained.contains("current_scroll")
+            && !renderer.contains("scroll_translation: [f32; 2]"),
+        "no independently authoritative pre-topology spatial interpreter may survive campaign closure"
+    );
+    assert!(
+        census.contains("Status: **SC-010 FINAL CENSUS")
+            && census.contains("## 4. SC-010 final disposition"),
+        "the repeatable source census must record the final production disposition"
+    );
+}
+
+#[test]
+fn pending_scroll_activation_never_presents_an_obsolete_residency_step() {
+    let backend = include_str!("../platform/backend.rs");
+    let platform = include_str!("../platform/mod.rs");
+    let native = include_str!("../platform/native/mod.rs");
+    let surface = include_str!("../platform/native/surface.rs");
+    let runtime = include_str!("../runtime/mod.rs");
+    let runtime_presentation = include_str!("../runtime/presentation.rs");
+    let layout = include_str!("../layout/mod.rs");
+    let commit = include_str!("../scene/commit.rs");
+    let paint = include_str!("../scene/paint/mod.rs");
+    let stack = include_str!("../scene/stack.rs");
+    let store = include_str!("../scene/store.rs");
+
+    assert!(
+        platform.contains("&& !self\n                .host\n                .shell()")
+            && platform.contains(".is_some_and(crate::session::Window::redraw_requested)")
+            && platform.contains("self.schedule_presentation_continuation(context, window)")
+            && native.contains("Arc::ptr_eq(left.stack(), right.stack())")
+            && !native.contains("left.stack().same_structure(right.stack())")
+            && !surface.contains("break completed.prepared.with_spatial_supplements(&successor)")
+            && surface.contains("resolve_completed_presentation(")
+            && surface.contains("PendingCompletionOutcome::Superseded")
+            && surface.contains("superseded_candidate_epoch")
+            && surface.contains("pending_scroll_intent_is_obsolete(active, pending, presentation)")
+            && surface.contains("ResidencyCandidateRetirement::CancelPipeline")
+            && surface.contains("same_presented_property_state(actual.stack())")
+            && surface.contains("PresentResult::Deferred { window, retry_at }")
+            && surface
+                .contains("completed_residency_preserves_newer_active_scroll_without_a_successor",)
+            && surface.contains(
+                "completed_large_jump_without_a_successor_activates_the_selected_candidate",
+            )
+            && surface
+                .contains("same_structure_update_cannot_replace_selected_residency_identity",)
+            && backend.contains("residency_retirement: Option<ResidencyCandidateRetirement>")
+            && backend.contains("CancelPipeline(window::PresentationEpoch)")
+            && platform.contains(".supersede_residency_candidate(window, epoch)")
+            && platform.contains(".cancel_residency_pipeline(window, epoch)")
+            && platform.contains("presentation_continuation_deadlines: HashMap")
+            && platform.contains("schedule_presentation_continuation_at(window, retry_at)")
+            && runtime.contains("same_urgency_requests_coalesce_before_candidate_construction")
+            && runtime_presentation.contains("record_residency_candidate_superseded")
+            && runtime_presentation.contains("record_residency_pipeline_cancelled")
+            && runtime_presentation.contains("presented.layout.as_ref().clone()")
+            && layout.contains("offset.x() != previous.x()")
+            && paint.contains("pub(super) fn tick_presented_properties(")
+            && paint.contains("presented\n                        .layers()")
+            && paint.contains("Some(layer.properties())")
+            && stack.contains("pub(crate) fn same_presented_property_state(")
+            && commit.contains("pub(crate) fn rebase_scroll_onto_for_activation(")
+            && commit.contains("pub(crate) fn with_revision_reusing(")
+            && store
+                .contains("candidate.with_revision_reusing(commit.revision(), previous_drawable)"),
+        "new runtime state must supersede renderer continuation work before activation, native preparation identity must survive same-structure successors, obsolete residencies must be skipped, and equal settle drawables must retain identity instead of becoming avoidable post-input structure"
+    );
+}
+
+#[test]
 fn property_ticks_use_stable_indices_dirty_dependents_and_named_full_transfers() {
     let commit = include_str!("../scene/commit.rs");
     let paint = include_str!("../scene/paint/mod.rs");
@@ -6299,11 +6426,18 @@ fn generation_state_contract_has_one_owner_and_exact_eight_case_suite() {
     assert!(
         session.contains("struct PresentationState {")
             && session.contains("requested: app_window::PresentationEpoch")
-            && session.contains("present_submitted: Option<app_window::PresentationEpoch>")
+            && session.contains("present_submitted: Option<PresentSubmitted>")
+            && session.contains("struct PresentSubmitted {")
+            && session.contains("property_serial: scene::PropertySerial")
             && session.contains("fn record_present_submitted(")
+            && access
+                .matches("record_present_submitted(window, epoch, properties.serial())")
+                .count()
+                == 1
+            && !access.contains("let refreshes_visible =")
             && report.contains("present_submitted: bool")
             && report.contains("present_submitted_at: Instant"),
-        "one window state must own requested and present-submitted epochs, advanced only by a named render receipt"
+        "one window state must own the requested epoch and ordered present-submitted frame identity, advanced only by a named render receipt"
     );
     assert!(
         properties.contains("predecessor: Option<PropertySerial>")
@@ -6423,26 +6557,74 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
     let layout = include_str!("../layout/mod.rs");
     let scene_residency = include_str!("../scene/residency.rs");
     let runtime_dispatch = include_str!("../runtime/input/dispatch.rs");
+    let runtime = include_str!("../runtime/mod.rs");
     let runtime_presentation = include_str!("../runtime/presentation.rs");
     let runtime_access = include_str!("../runtime/access.rs");
     let scroll_diagnostics = include_str!("../diagnostics/scroll.rs");
     let residency_diagnostics = include_str!("../diagnostics/residency.rs");
     let scroll_bench = include_str!("../diagnostics/scroll_bench.rs");
+    let virtual_list = include_str!("../virtual_list.rs");
+    let view_traversal = include_str!("../view/node/traversal.rs");
+    let text_box = include_str!("../view/control/text_box.rs");
+    let layout_frame = include_str!("../layout/frame.rs");
+    let native_surface = include_str!("../platform/native/surface.rs");
     let renderer_debug = include_str!("../../tools/renderer_debug/src/main.rs");
     let suite = include_str!("residency_tests.rs");
 
     assert!(
         layout.contains("pub(crate) struct ScrollProjection")
             && layout.contains("pub(crate) struct ResidencyDemand")
+            && layout.contains("pub(crate) struct ScrollPropertyAcceptance")
             && layout.contains("pub(crate) fn accepted_offsets(")
-            && layout.contains("pub(crate) fn scroll_property_accepts(")
+            && layout.contains("pub(crate) fn scroll_property_acceptance(")
             && layout.contains("pub(crate) fn residency_demand(")
+            && layout.contains("pub(crate) fn residency_replenishment(")
+            && layout.contains("preparation: interaction::ScrollOffset")
             && scene_residency.contains("pub(crate) struct Residency")
             && scene_residency.contains("pub(crate) fn accepts(")
             && runtime_dispatch.contains("ScrollTransition::NeedsResidency")
             && runtime_dispatch.contains("layout.residency_demand(&target, offset)")
             && !runtime_dispatch.contains("virtual_request_for_scroll_offset"),
         "every payload must cross one complete accepted-offset interval before its admission algorithm runs"
+    );
+    assert!(
+        runtime_dispatch.contains("acceptance.replenishment()")
+            && runtime_dispatch.contains("layout.residency_replenishment(")
+            && runtime.contains("struct ResidencySchedule")
+            && runtime.contains("selected: Option<ResidencyCandidate>")
+            && runtime.contains("queued: Option<ResidencyCandidate>")
+            && runtime.contains("urgency: scene::ResidencyUrgency")
+            && runtime.contains("required_request_bypasses_a_selected_speculative_candidate")
+            && runtime.contains("same_urgency_requests_coalesce_before_candidate_construction")
+            && runtime_presentation.contains("schedule_residency_candidate")
+            && runtime_presentation.contains("complete_residency_candidate")
+            && runtime_presentation.contains("if property_tick_requested")
+            && virtual_list.contains("prepared_runway: Option<Range<usize>>")
+            && virtual_list.contains("request.with_range(prepared.clone())")
+            && virtual_list.contains("request_for_required_viewport")
+            && virtual_list
+                .contains("a_new_materialization_range_never_unions_with_the_previous_drawable",)
+            && runtime_presentation.contains("reuse_virtual_row_text_buffers_from")
+            && view_traversal.contains("collect_provided_rows")
+            && view_traversal.contains("reuse_text_buffers_in_matched_subtree")
+            && text_box.contains("inactive_display_buffer: Option<text::Buffer>")
+            && text_box.contains("reuse_inactive_display_buffer_from")
+            && layout_frame.contains("model.inactive_display_text_area(")
+            && native_surface.contains("required_candidate_preempts_proactive")
+            && !native_surface.contains("required_candidate_preempts_obsolete_required")
+            && !scroll_diagnostics.contains("scroll_residency_obsolete_required_preemptions")
+            && native_surface.contains("ResidencyUrgency::Proactive")
+            && native_surface.contains("ResidencyUrgency::Required")
+            && suite.contains("resident_motion_starts_bounded_replenishment_before_the_hard_edge",)
+            && suite.contains("fast_residency_burst_coalesces_before_candidate_construction")
+            && suite.contains(
+                "required_large_jump_materializes_the_critical_viewport_before_predictive_runway",
+            )
+            && suite
+                .contains("consecutive_required_crossings_do_not_accumulate_drawable_table_rows",)
+            && suite
+                .contains("control_gallery_required_crossing_does_not_draw_the_retention_cache",),
+        "one residency scheduler must preserve property-frame priority, bound required work to the critical viewport, and let required content preempt speculative runway"
     );
     assert!(
         runtime_presentation.contains("CandidateWork::snapshot")
@@ -6459,7 +6641,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && residency_diagnostics.contains("MAX_POST_CROSSING_PROPERTY_UPLOAD_BYTES")
             && residency_diagnostics.contains("measure_residency_crossing_work")
             && renderer_debug.contains("residency-crossing-work")
-            && scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 10")
+            && scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 11")
             && scroll_bench.contains("cold_transition_class=ColdStart"),
         "residency work must stay attributed to its selected candidate and render generation"
     );
@@ -6482,9 +6664,10 @@ fn payload_locality_has_separate_edit_projection_reveal_and_property_scroll_rail
     let layout_scene = include_str!("layout_scene.rs");
 
     assert!(
-        scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 10")
+        scroll_bench.contains("pub const SCROLL_BENCH_VERSION: u32 = 11")
             && scroll_bench.contains("text-horizontal-typing-scroll-4m")
             && scroll_bench.contains("text-horizontal-caret-reveal-4m")
+            && scroll_bench.contains("text-multiline-unwrapped-edit-stress")
             && scroll_bench.contains("sample_work_class=")
             && scroll_bench.contains("cold_work_class=")
             && scroll_bench.contains("property_scroll_measured=")
@@ -6493,6 +6676,7 @@ fn payload_locality_has_separate_edit_projection_reveal_and_property_scroll_rail
             && scroll_bench.contains("reveal_p50_us=")
             && scroll_bench.contains("horizontal_index_incremental_source_bytes_max=")
             && scroll_bench.contains("fn validate_horizontal_edit_trace(")
+            && scroll_bench.contains("fn validate_multiline_unwrapped_edit_trace(")
             && scroll_bench.contains("horizontal_edit_trace_rejects_source_work_outside_the_guard"),
         "large-text receipts must distinguish guarded editing, resident projection, caret reveal, property ticks, and cold extent discovery"
     );
@@ -6573,6 +6757,7 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
             && dispatch.contains("NeedsResidency {")
             && dispatch.contains("desired: interaction::ScrollOffset,")
             && dispatch.contains("resident_accepted: interaction::ScrollOffset,")
+            && dispatch.contains("schedule_candidate: bool,")
             && dispatch.matches("self.apply_scroll_transition(").count() == 2,
         "relative and absolute input must cross one authoritative request/resident-acceptance and scheduling path"
     );
@@ -6595,7 +6780,8 @@ fn scroll_truth_stays_integral_and_crosses_one_transition_contract() {
         layout.contains("enum ScrollResidency {")
             && layout.contains("Complete(Proof),")
             && layout.contains("Empty,")
-            && layout.contains("Incomplete,")
+            && layout.contains("Incomplete(IncompleteResidency),")
+            && layout.contains("struct IncompleteResidency {")
             && layout.contains("struct Proof {")
             && layout.contains("accepted: Accepted,")
             && layout.contains("key: crate::virtual_list::Key,")
@@ -6848,4 +7034,39 @@ fn source_imports_crate_module(source: &str, module: &str) -> bool {
             root == module
         })
     })
+}
+
+#[test]
+fn incomplete_virtual_residency_names_and_receipts_the_failed_invariant() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let layout = std::fs::read_to_string(src.join("layout/mod.rs")).expect("layout source");
+    let presentation =
+        std::fs::read_to_string(src.join("runtime/presentation.rs")).expect("presentation source");
+    let scroll =
+        std::fs::read_to_string(src.join("diagnostics/scroll.rs")).expect("scroll diagnostics");
+    let diagnostics =
+        std::fs::read_to_string(src.join("diagnostics/mod.rs")).expect("diagnostics source");
+
+    assert!(
+        layout.contains("scene_residency_incompleteness")
+            && layout.contains("IncompleteResidency")
+            && layout.contains("exact_virtual_residency")
+            && layout.contains("Result<Rows, String>"),
+        "layout must preserve the exact failed virtual-residency invariant instead of one opaque incomplete bit"
+    );
+    assert!(
+        presentation.contains("record_virtual_residency_rejection")
+            && presentation.contains("scene_residency_incompleteness"),
+        "scene rejection must retain the structured layout failure in diagnostics"
+    );
+    assert!(
+        scroll.contains("virtual_residency_rejections")
+            && scroll.contains("virtual_residency_last_issue"),
+        "scroll diagnostics must retain a bounded count and latest failure"
+    );
+    assert!(
+        diagnostics.contains("virtual_residency_rejections=")
+            && diagnostics.contains("virtual_residency_last_issue="),
+        "native renderer receipts must carry the rejection evidence"
+    );
 }

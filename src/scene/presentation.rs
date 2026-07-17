@@ -5,6 +5,12 @@ use super::super::{geometry, layout, response, state, window};
 use super::{Commit, Properties};
 use super::{Scene, Stack};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ResidencyUrgency {
+    Proactive,
+    Required,
+}
+
 #[derive(Clone)]
 pub struct Presentation {
     window: window::Id,
@@ -15,6 +21,7 @@ pub struct Presentation {
     scene: Scene,
     stack: Arc<Stack>,
     property_only: bool,
+    residency_urgency: Option<ResidencyUrgency>,
 }
 
 impl Presentation {
@@ -27,6 +34,7 @@ impl Presentation {
         scene: Scene,
         stack: Stack,
         property_only: bool,
+        residency_urgency: Option<ResidencyUrgency>,
     ) -> Self {
         Self {
             window,
@@ -37,6 +45,7 @@ impl Presentation {
             scene,
             stack: Arc::new(stack),
             property_only,
+            residency_urgency,
         }
     }
 
@@ -49,6 +58,7 @@ impl Presentation {
         scene: Scene,
         stack: Stack,
         property_only: bool,
+        residency_urgency: Option<ResidencyUrgency>,
     ) -> Self {
         Self::new(
             window,
@@ -59,6 +69,7 @@ impl Presentation {
             scene,
             stack,
             property_only,
+            residency_urgency,
         )
     }
 
@@ -106,6 +117,10 @@ impl Presentation {
 
     pub(crate) fn property_only(&self) -> bool {
         self.property_only
+    }
+
+    pub(crate) fn residency_urgency(&self) -> Option<ResidencyUrgency> {
+        self.residency_urgency
     }
 
     pub(crate) fn stack(&self) -> &Arc<Stack> {

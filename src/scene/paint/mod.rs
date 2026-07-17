@@ -318,6 +318,67 @@ impl Retained {
         Some((commit, properties, overlays))
     }
 
+    pub(super) fn tick_presented_properties(
+        &mut self,
+        layout: &layout::Layout,
+        visuals: &Visuals,
+        interaction: Option<&super::super::interaction::Interaction>,
+        presented: &super::Stack,
+    ) -> Option<(super::Properties, Vec<overlay::Draft>)> {
+        let base = presented.base();
+        let properties = self
+            .property_snapshot_with_previous(
+                CommitKey::Base,
+                base.drawable_commit(),
+                layout,
+                visuals,
+                interaction,
+                ScrollSample::ResidentAccepted,
+                Some(base.properties()),
+            )
+            .ok()?;
+        let keyed =
+            self.overlays
+                .iter()
+                .cloned()
+                .filter_map(|draft| {
+                    let commit = Arc::clone(draft.commit());
+                    let key = self.commits.iter().find_map(|(key, candidate)| {
+                        Arc::ptr_eq(candidate, &commit).then_some(*key)
+                    })?;
+                    let layer = presented
+                        .layers()
+                        .iter()
+                        .find(|layer| Arc::ptr_eq(layer.commit(), &commit))?;
+                    Some((draft, key, commit, layer))
+                })
+                .collect::<Vec<_>>();
+        if keyed.len() != self.overlays.len() {
+            return None;
+        }
+        let overlays = keyed
+            .into_iter()
+            .map(|(draft, key, popup_commit, layer)| {
+                let popup_properties = self
+                    .property_snapshot_with_previous(
+                        key,
+                        layer.drawable_commit(),
+                        layout,
+                        visuals,
+                        interaction,
+                        ScrollSample::ResidentAccepted,
+                        Some(layer.properties()),
+                    )
+                    .ok()?;
+                let scene = popup_commit
+                    .compatibility_scene(&popup_properties)
+                    .expect("presented popup properties remain compatible with their commit");
+                Some(draft.with_property_state(popup_properties, scene))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some((properties, overlays))
+    }
+
     fn property_snapshot(
         &mut self,
         key: CommitKey,
@@ -327,11 +388,38 @@ impl Retained {
         interaction: Option<&super::super::interaction::Interaction>,
         sample: ScrollSample,
     ) -> Result<super::Properties, super::commit::ContractError> {
-        let previous = self.properties.get(&key).cloned();
+        self.property_snapshot_with_previous(
+            key,
+            commit,
+            layout,
+            visuals,
+            interaction,
+            sample,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn property_snapshot_with_previous(
+        &mut self,
+        key: CommitKey,
+        commit: &super::Commit,
+        layout: &layout::Layout,
+        visuals: &Visuals,
+        interaction: Option<&super::super::interaction::Interaction>,
+        sample: ScrollSample,
+        explicit_previous: Option<&super::Properties>,
+    ) -> Result<super::Properties, super::commit::ContractError> {
+        let persists_candidate_state = explicit_previous.is_none();
+        let previous = explicit_previous
+            .cloned()
+            .or_else(|| self.properties.get(&key).cloned());
         let incremental = previous
             .as_ref()
             .is_some_and(|previous| previous.require_compatible(commit).is_ok());
-        let previous_sources = self.property_sources.get(&key);
+        let previous_sources = persists_candidate_state
+            .then(|| self.property_sources.get(&key))
+            .flatten();
         let mut observed_scroll_revisions = Vec::with_capacity(layout.scroll_projections().len());
         let mut dirty_scroll_targets = HashSet::new();
         for projection in layout.scroll_projections() {
@@ -433,10 +521,12 @@ impl Retained {
         if advanced {
             self.next_property_serial = self.next_property_serial.next();
         }
-        let sources = self.property_sources.entry(key).or_default();
-        sources.scroll_revisions.clear();
-        sources.scroll_revisions.extend(observed_scroll_revisions);
-        self.properties.insert(key, properties.clone());
+        if persists_candidate_state {
+            let sources = self.property_sources.entry(key).or_default();
+            sources.scroll_revisions.clear();
+            sources.scroll_revisions.extend(observed_scroll_revisions);
+            self.properties.insert(key, properties.clone());
+        }
         Ok(properties)
     }
 
@@ -457,7 +547,7 @@ impl Retained {
         for frame in layout.frames().iter().filter(|frame| {
             layer_for(frame) == layer
                 && panel.is_none_or(|panel| frame_belongs_to_panel(frame, panel))
-                && layout.scene_scroll_ancestry_is_drawable(frame.node_id())
+                && layout.scene_scroll_path_is_drawable(frame.node_id())
         }) {
             seen.frames.insert(frame.node_id());
             let key = frame.scene_key();
@@ -520,7 +610,7 @@ impl Retained {
             frames.push(Fragment {
                 owner: frame.node_id(),
                 clip,
-                scrolls: layout.scroll_ancestry(frame.node_id()).to_vec(),
+                scrolls: layout.scene_scroll_path(frame.node_id()).to_vec(),
                 body: cached.body,
                 caret: cached.body_caret,
             });
@@ -528,7 +618,7 @@ impl Retained {
                 .scrolled
                 .filter(|_| layout.scene_scroll_node_is_drawable(frame.node_id()))
             {
-                let mut scrolls = layout.scroll_ancestry(frame.node_id()).to_vec();
+                let mut scrolls = layout.scene_scroll_path(frame.node_id()).to_vec();
                 scrolls.push(frame.node_id());
                 frames.push(Fragment {
                     owner: frame.node_id(),
@@ -545,7 +635,7 @@ impl Retained {
         for track in layout.table_tracks().iter().filter(|track| {
             table_track_layer_for(track) == layer
                 && panel.is_none_or(|panel| table_track_belongs_to_panel(layout, track, panel))
-                && layout.scene_scroll_ancestry_is_drawable(track.owner_node())
+                && layout.scene_scroll_path_is_drawable(track.owner_node())
         }) {
             let ordinal = track_ordinals.entry(track.table_node()).or_insert(0_usize);
             let cache_key = (track.table_node(), *ordinal);
@@ -574,7 +664,7 @@ impl Retained {
             tracks.push(Fragment {
                 owner: track.owner_node(),
                 clip,
-                scrolls: layout.scroll_ancestry(track.owner_node()).to_vec(),
+                scrolls: layout.scene_scroll_path(track.owner_node()).to_vec(),
                 body: cached.body,
                 caret: None,
             });
@@ -655,19 +745,26 @@ fn commit_builder(
         let resident_bounds = projection
             .resident_bounds()
             .expect("scene painting requires a complete scroll residency proof");
+        let viewport = projection.viewport();
         let declaration = super::ScrollDeclaration::new(
-            projection.viewport().visible_content(),
+            viewport.rect(),
             geometry::Rect::new(
-                projection.viewport().rect().x(),
-                projection.viewport().rect().y(),
-                projection.viewport().content().width(),
-                projection.viewport().content().height(),
+                viewport.rect().x(),
+                viewport.rect().y(),
+                viewport.content().width(),
+                viewport.content().height(),
             ),
             resident_bounds,
-            projection.viewport().resolved_scroll(),
-            projection.viewport().max_scroll(),
+            viewport.resolved_scroll(),
+            viewport.max_scroll(),
         )
-        .expect("complete scroll residency must cover its commit baseline");
+        .unwrap_or_else(|| {
+            panic!(
+                "complete scroll residency must cover its commit baseline: node={:?}, target={:?}, viewport={viewport:?}, resident_bounds={resident_bounds:?}",
+                projection.node(),
+                projection.target(),
+            )
+        });
         builder.declare_scroll(projection.node(), projection.target().clone(), declaration);
     }
     builder

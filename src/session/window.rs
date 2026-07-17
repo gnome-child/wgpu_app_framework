@@ -27,7 +27,13 @@ enum Cursor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PresentationState {
     requested: app_window::PresentationEpoch,
-    present_submitted: Option<app_window::PresentationEpoch>,
+    present_submitted: Option<PresentSubmitted>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PresentSubmitted {
+    epoch: app_window::PresentationEpoch,
+    property_serial: scene::PropertySerial,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,8 +124,23 @@ impl Window {
         self.presentation.requested
     }
 
+    #[cfg(test)]
     pub(crate) fn present_submitted_epoch(&self) -> Option<app_window::PresentationEpoch> {
+        self.presentation
+            .present_submitted
+            .map(|submitted| submitted.epoch)
+    }
+
+    pub(crate) fn present_submitted_matches(
+        &self,
+        epoch: app_window::PresentationEpoch,
+        property_serial: scene::PropertySerial,
+    ) -> bool {
         self.presentation.present_submitted
+            == Some(PresentSubmitted {
+                epoch,
+                property_serial,
+            })
     }
 
     pub fn cursor(&self) -> pointer::Cursor {
@@ -170,15 +191,26 @@ impl PresentationState {
         self.requested = self.requested.next();
     }
 
-    fn record_present_submitted(&mut self, epoch: app_window::PresentationEpoch) -> bool {
-        if epoch > self.requested
-            || self
-                .present_submitted
-                .is_some_and(|present_submitted| present_submitted >= epoch)
-        {
+    fn record_present_submitted(
+        &mut self,
+        epoch: app_window::PresentationEpoch,
+        property_serial: scene::PropertySerial,
+    ) -> bool {
+        if epoch > self.requested {
             return false;
         }
-        self.present_submitted = Some(epoch);
+        if let Some(present_submitted) = self.present_submitted {
+            if epoch < present_submitted.epoch
+                || (epoch == present_submitted.epoch
+                    && property_serial <= present_submitted.property_serial)
+            {
+                return false;
+            }
+        }
+        self.present_submitted = Some(PresentSubmitted {
+            epoch,
+            property_serial,
+        });
         true
     }
 }
@@ -398,11 +430,14 @@ impl Session {
         &mut self,
         id: app_window::Id,
         epoch: app_window::PresentationEpoch,
+        property_serial: scene::PropertySerial,
     ) -> bool {
         let Some(window) = self.window_mut(id) else {
             return false;
         };
-        window.presentation.record_present_submitted(epoch)
+        window
+            .presentation
+            .record_present_submitted(epoch, property_serial)
     }
 
     pub(crate) fn set_cursor(&mut self, id: app_window::Id, cursor: pointer::Cursor) -> bool {
@@ -502,14 +537,27 @@ mod tests {
     fn presentation_state_rejects_future_and_non_monotonic_receipts() {
         let mut presentation = PresentationState::initial();
         let initial = app_window::PresentationEpoch::initial();
+        let first = scene::PropertySerial::INITIAL;
+        let second = first.next();
+        let third = second.next();
 
-        assert!(!presentation.record_present_submitted(initial.next()));
-        assert!(presentation.record_present_submitted(initial));
-        assert!(!presentation.record_present_submitted(initial));
+        assert!(!presentation.record_present_submitted(initial.next(), first));
+        assert!(presentation.record_present_submitted(initial, first));
+        assert!(!presentation.record_present_submitted(initial, first));
+        assert!(presentation.record_present_submitted(initial, second));
+        assert!(!presentation.record_present_submitted(initial, first));
 
         presentation.request();
-        assert!(presentation.record_present_submitted(initial.next()));
-        assert_eq!(presentation.present_submitted, Some(presentation.requested));
+        assert!(presentation.record_present_submitted(initial.next(), first));
+        assert!(!presentation.record_present_submitted(initial, third));
+        assert!(presentation.record_present_submitted(initial.next(), second));
+        assert_eq!(
+            presentation.present_submitted,
+            Some(PresentSubmitted {
+                epoch: presentation.requested,
+                property_serial: second,
+            })
+        );
     }
 
     #[test]

@@ -1850,19 +1850,19 @@ fn deferred_parent_preparation_syncs_popup_but_holds_ime_until_submission() {
         .expect("pending parent preparation should remain drawable");
 
     assert!(
-        platform.backend().events().iter().any(|event| matches!(
-            event,
-            BackendEvent::RequestRedraw { window: requested } if *requested == window
-        )),
-        "a deferred candidate must continue on its window-local redraw clock"
-    );
-    assert!(
         !platform
             .backend()
             .events()
             .iter()
-            .any(|event| matches!(event, BackendEvent::Poll)),
-        "renderer preparation must not wait for an idle poll behind a continuous input stream"
+            .any(|event| matches!(event, BackendEvent::RequestRedraw { .. })),
+        "a no-present continuation must not spin immediate redraw requests"
+    );
+    assert!(
+        matches!(
+            platform.animation_schedule(),
+            crate::animation::Schedule::At(deadline) if deadline > Instant::now()
+        ),
+        "deferred preparation must resume from a future event-loop deadline"
     );
     assert!(
         platform.backend().events().iter().any(|event| matches!(
@@ -1894,11 +1894,19 @@ fn deferred_parent_preparation_syncs_popup_but_holds_ime_until_submission() {
         ))
         .expect("unfinished backend preparation should continue on the next window frame");
     assert!(
-        platform.backend().events().iter().any(|event| matches!(
-            event,
-            BackendEvent::RequestRedraw { window: requested } if *requested == window
-        )),
-        "an unfinished continuation must schedule its next bounded window-local slice"
+        !platform
+            .backend()
+            .events()
+            .iter()
+            .any(|event| matches!(event, BackendEvent::RequestRedraw { .. })),
+        "an unfinished no-present continuation must not immediately request another redraw"
+    );
+    assert!(
+        matches!(
+            platform.animation_schedule(),
+            crate::animation::Schedule::At(deadline) if deadline > Instant::now()
+        ),
+        "an unfinished continuation must retain its bounded future retry"
     );
     assert!(
         !platform.backend().events().iter().any(|event| matches!(
@@ -1942,6 +1950,70 @@ fn deferred_parent_preparation_syncs_popup_but_holds_ime_until_submission() {
             .count(),
         1,
         "the matching present-submitted parent epoch must release popup IME geometry exactly once"
+    );
+}
+
+#[test]
+fn runtime_redraw_supersedes_a_renderer_continuation_before_stale_activation() {
+    let mut platform = Platform::new(
+        text_editor::shell(text_editor::State::default()),
+        FakeBackend::default(),
+    );
+
+    platform.start().expect("platform should start host");
+    let window = platform.host().windows()[0].id();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("initial frame should present");
+
+    let first_size = geometry::Size::new(700, 500);
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::Resized { size: first_size },
+        ))
+        .expect("first resize should request a candidate");
+    platform.backend_mut().defer_next_present();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("first resized candidate should enter backend preparation");
+    assert_eq!(
+        platform
+            .backend()
+            .pending_presentation(window)
+            .map(shell::Presentation::size),
+        Some(first_size),
+        "fixture must begin with the first candidate pending"
+    );
+
+    let latest_size = geometry::Size::new(760, 540);
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::Resized { size: latest_size },
+        ))
+        .expect("newer resize should request a superseding candidate");
+    platform.backend_mut().defer_next_present();
+    platform
+        .handle_event(host::Event::window(
+            window,
+            host::WindowEvent::RedrawRequested,
+        ))
+        .expect("shared redraw should select the newest runtime state");
+
+    assert_eq!(
+        platform
+            .backend()
+            .pending_presentation(window)
+            .map(shell::Presentation::size),
+        Some(latest_size),
+        "a renderer continuation must not consume the redraw that carries newer runtime state"
     );
 }
 

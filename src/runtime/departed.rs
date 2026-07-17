@@ -40,10 +40,11 @@ impl<T> notification::Listener<window::Departed> for WindowMap<T> {
 impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     pub(super) fn deliver_departed(&mut self) {
         for window in self.session.take_departed() {
-            let listeners: [&mut dyn notification::Listener<window::Departed>; 11] = [
+            let listeners: [&mut dyn notification::Listener<window::Departed>; 12] = [
                 &mut self.layout_cache,
                 &mut self.scene,
                 &mut self.presented_geometry,
+                &mut self.residency_schedules,
                 &mut self.virtual_materializations,
                 &mut self.virtual_measurements,
                 &mut self.overlays,
@@ -77,6 +78,7 @@ pub(crate) struct WindowResidues {
     pub(crate) layout_cache: usize,
     pub(crate) scene: usize,
     pub(crate) presented_geometry: usize,
+    pub(crate) residency_schedules: usize,
     pub(crate) virtual_materializations: usize,
     pub(crate) virtual_measurements: usize,
     pub(crate) overlays: usize,
@@ -93,6 +95,7 @@ impl WindowResidues {
         self.layout_cache
             + self.scene
             + self.presented_geometry
+            + self.residency_schedules
             + self.virtual_materializations
             + self.virtual_measurements
             + self.overlays
@@ -111,6 +114,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             layout_cache: usize::from(self.layout_cache.contains_key(&window)),
             scene: self.scene.residue_count(window),
             presented_geometry: usize::from(self.presented_geometry.contains_key(&window)),
+            residency_schedules: usize::from(self.residency_schedules.contains_key(&window)),
             virtual_materializations: usize::from(
                 self.virtual_materializations.contains_key(&window),
             ),

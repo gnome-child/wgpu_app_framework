@@ -560,6 +560,20 @@ impl Commit {
         Arc::new(commit)
     }
 
+    pub(crate) fn with_revision_reusing(
+        &self,
+        revision: Revision,
+        previous: Option<&Arc<Self>>,
+    ) -> Arc<Self> {
+        if let Some(previous) = previous
+            && previous.revision == revision
+            && previous.same_projection(self)
+        {
+            return Arc::clone(previous);
+        }
+        self.with_revision(revision)
+    }
+
     pub(crate) fn compatibility_scene(
         &self,
         properties: &Properties,
@@ -1528,6 +1542,7 @@ impl Properties {
         ))
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn project_onto(
         &self,
         commit: &Commit,
@@ -1618,6 +1633,46 @@ impl Properties {
         })
     }
 
+    pub(crate) fn rebase_scroll_onto_for_activation(
+        &self,
+        commit: &Commit,
+        current: &Self,
+    ) -> Result<Self, ContractError> {
+        current.require_compatible(commit)?;
+        let mut values = Vec::with_capacity(commit.property_topology.len());
+
+        for property in commit.property_topology.iter().copied() {
+            let value = if property.kind == PropertyKind::ScrollOffset {
+                match self.value(property) {
+                    Some(value) if value.is_valid(commit) && value.is_projectable_onto(commit) => {
+                        value
+                    }
+                    Some(_) => return Err(ContractError::InvalidValue(property)),
+                    None => current
+                        .value(property)
+                        .ok_or(ContractError::MissingValue(property))?,
+                }
+            } else {
+                current
+                    .value(property)
+                    .ok_or(ContractError::MissingValue(property))?
+            };
+            values.push(value);
+        }
+
+        let changed = values
+            .iter()
+            .filter_map(|value| {
+                let property = value.property_ref();
+                (current.value(property) != Some(*value)).then_some(property)
+            })
+            .collect();
+        Self::new(commit, self.serial, values, changed).map(|mut properties| {
+            properties.predecessor = Some(current.serial);
+            properties
+        })
+    }
+
     pub(crate) fn require_compatible(&self, commit: &Commit) -> Result<(), ContractError> {
         if self.commit == commit.revision {
             Ok(())
@@ -1655,6 +1710,7 @@ impl Properties {
         }
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn scrollbar(
         &self,
         node: composition::tree::NodeId,
@@ -1680,6 +1736,7 @@ impl Properties {
         &self.changed
     }
 
+    #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn changed_values(&self) -> impl Iterator<Item = PropertyValue> + '_ {
         self.changed
             .iter()
@@ -2348,6 +2405,30 @@ pub(crate) fn renderer_scroll_properties(
             PropertyRef::new(inner, PropertyKind::ScrollOffset),
         ],
     )
+}
+
+#[cfg(feature = "renderer-debug")]
+pub(crate) fn renderer_scroll_tick_properties(
+    commit: &Commit,
+    previous: &Properties,
+    offset_y: i32,
+    serial: u64,
+) -> Result<Properties, ContractError> {
+    let inner = composition::tree::NodeId::renderer_fixture(42);
+    let (properties, advanced) = Properties::apply_updates(
+        commit,
+        previous,
+        PropertySerial(serial.max(1)),
+        vec![PropertyValue::ScrollOffset {
+            node: inner,
+            value: interaction::ScrollOffset::new(0, offset_y),
+        }],
+    )?;
+    debug_assert!(
+        advanced,
+        "renderer scroll tick must change the inner offset"
+    );
+    Ok(properties)
 }
 
 #[cfg(feature = "renderer-debug")]

@@ -68,7 +68,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         if offset_changed {
             diagnostics.scroll.scroll_offset_changes += 1;
         }
-        if offset_changed {
+        if transition.requests_redraw() {
             diagnostics.scroll.scroll_redraw_requests += 1;
         }
         match transition {
@@ -81,6 +81,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             super::dispatch::ScrollTransition::NeedsResidency {
                 desired,
                 resident_accepted,
+                ..
             } => {
                 diagnostics.scroll.record_needs_residency(
                     desired.x(),

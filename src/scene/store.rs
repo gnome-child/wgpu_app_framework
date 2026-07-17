@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::super::{interaction, layout, notification, overlay, theme::Theme, window};
-use super::{Color, Commit, Properties, Residency, Visuals, paint, residency};
+use super::{Color, Commit, Properties, Residency, Stack, Visuals, paint, residency};
 
 #[derive(Default)]
 pub(crate) struct Store {
@@ -44,10 +44,11 @@ impl Store {
         .expect("painted semantic scene must satisfy the commit contract");
         let semantic_changed =
             previous_semantic.is_none_or(|previous| !Arc::ptr_eq(previous, &commit));
+        let previous_drawable = self.drawables.get(&window);
         let drawable = if candidate.revision() == commit.revision() {
             candidate
         } else {
-            candidate.with_revision(commit.revision())
+            candidate.with_revision_reusing(commit.revision(), previous_drawable)
         };
         let properties = properties.with_commit_revision(&drawable);
         let previous = self.residencies.get(&window).map_or(&[][..], Arc::as_ref);
@@ -68,6 +69,7 @@ impl Store {
         layout: &layout::Layout,
         visuals: &Visuals,
         interaction: Option<&interaction::Interaction>,
+        presented: Option<&Stack>,
     ) -> Option<(
         Arc<Commit>,
         Arc<Commit>,
@@ -77,10 +79,24 @@ impl Store {
         PaintStats,
     )> {
         let retained = self.windows.get_mut(&window)?;
+        if let Some(presented) = presented {
+            let (properties, overlays) =
+                retained.tick_presented_properties(layout, visuals, interaction, presented)?;
+            let (commit, drawable, residencies) = presented.base_snapshots();
+            return Some((
+                commit,
+                drawable,
+                residencies,
+                properties,
+                overlays,
+                PaintStats::default(),
+            ));
+        }
         let (_, properties, overlays) = retained.tick_properties(layout, visuals, interaction)?;
+        let candidate_drawable = Arc::clone(self.drawables.get(&window)?);
+        let properties = properties.with_commit_revision(&candidate_drawable);
         let commit = Arc::clone(self.semantics.get(&window)?);
-        let drawable = Arc::clone(self.drawables.get(&window)?);
-        let properties = properties.with_commit_revision(&drawable);
+        let drawable = candidate_drawable;
         let residencies = Arc::clone(self.residencies.get(&window)?);
         Some((
             commit,

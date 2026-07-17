@@ -1844,7 +1844,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
 
     assert!(scrolled_again.is_handled());
     assert!(!scrolled_again.changed_state());
-    assert!(scrolled_again.effect().contains_invalidation());
+    assert!(!scrolled_again.effect().contains_invalidation());
     assert_eq!(app.revision(), revision);
     let scroll = app
         .session()
@@ -1862,7 +1862,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
             .expect("window should retain diagnostics after scrolling again");
         assert_eq!(diagnostics.scroll.wheel_events, 2);
         assert_eq!(diagnostics.scroll.scroll_offset_changes, 2);
-        assert_eq!(diagnostics.scroll.scroll_redraw_requests, 2);
+        assert_eq!(diagnostics.scroll.scroll_redraw_requests, 1);
         assert_eq!(diagnostics.scroll.scroll_input_events, 2);
         assert_eq!(diagnostics.scroll.scroll_desired_changes, 2);
         assert_eq!(diagnostics.scroll.scroll_resident_acceptances, 0);

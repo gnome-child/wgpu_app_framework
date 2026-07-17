@@ -11,6 +11,7 @@ pub(super) enum ScrollTransition {
     NeedsResidency {
         desired: interaction::ScrollOffset,
         resident_accepted: interaction::ScrollOffset,
+        schedule_candidate: bool,
     },
 }
 
@@ -28,8 +29,26 @@ impl ScrollTransition {
     fn effect(self) -> response::Effect {
         match self {
             Self::Unchanged | Self::PropertyTick(_) => response::Effect::None,
-            Self::NeedsResidency { .. } => response::Effect::Rebuild,
+            Self::NeedsResidency {
+                schedule_candidate: true,
+                ..
+            } => response::Effect::Rebuild,
+            Self::NeedsResidency {
+                schedule_candidate: false,
+                ..
+            } => response::Effect::None,
         }
+    }
+
+    pub(super) fn requests_redraw(self) -> bool {
+        matches!(
+            self,
+            Self::PropertyTick(_)
+                | Self::NeedsResidency {
+                    schedule_candidate: true,
+                    ..
+                }
+        )
     }
 }
 
@@ -248,9 +267,10 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 interaction::ScrollUpdate::Geometry(offset),
             );
         }
-        let resident_accepted = presented
+        let resident_acceptance = presented
             .as_ref()
-            .is_some_and(|layout| layout.scroll_property_accepts(&target, offset));
+            .and_then(|layout| layout.scroll_property_acceptance(&target, before, offset));
+        let resident_accepted = resident_acceptance.is_some();
         if offset == before {
             let resident_offset = self
                 .session
@@ -269,8 +289,21 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             return ScrollTransition::Unchanged;
         }
         if resident_accepted {
-            self.session.accept_resident_scroll(window, target, offset);
+            self.session
+                .accept_resident_scroll(window, target.clone(), offset);
             self.session.request_property_tick(window);
+            if let Some(preparation) =
+                resident_acceptance.and_then(|acceptance| acceptance.replenishment())
+            {
+                if let Some(request) = self
+                    .presented_layout(window)
+                    .and_then(|layout| layout.residency_replenishment(&target, offset, preparation))
+                    .filter(|demand| demand.prepares_proactively())
+                {
+                    self.install_residency_demand(window, request);
+                    self.schedule_residency_candidate(window, true);
+                }
+            }
             self.record_scroll_trace(
                 window,
                 target_key,
@@ -293,6 +326,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             if let Some(request) = request {
                 self.install_residency_demand(window, request);
             }
+            let schedule_candidate = self.schedule_residency_candidate(window, false);
             self.record_scroll_trace(
                 window,
                 target_key,
@@ -305,6 +339,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             ScrollTransition::NeedsResidency {
                 desired: offset,
                 resident_accepted,
+                schedule_candidate,
             }
         }
     }

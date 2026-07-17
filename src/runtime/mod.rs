@@ -7,7 +7,7 @@ use super::{
     timeline::{self, Timeline},
     view,
 };
-use crate::animation;
+use crate::{animation, window};
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
@@ -175,6 +175,177 @@ impl AnimationSchedules {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ResidencySchedule {
+    latest_request_generation: u64,
+    latest_request_urgency: Option<scene::ResidencyUrgency>,
+    candidate_requested: Option<scene::ResidencyUrgency>,
+    selected: Option<ResidencyCandidate>,
+    queued: Option<ResidencyCandidate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResidencyCandidate {
+    epoch: window::PresentationEpoch,
+    request_generation: u64,
+    urgency: scene::ResidencyUrgency,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ResidencyRetirement {
+    schedule_follow_up: bool,
+    finished: bool,
+}
+
+impl ResidencySchedule {
+    fn request_latest(&mut self, urgency: scene::ResidencyUrgency) -> bool {
+        self.latest_request_generation = self.latest_request_generation.saturating_add(1);
+        self.latest_request_urgency = Some(urgency);
+        if let Some(requested) = self.candidate_requested.as_mut() {
+            *requested = (*requested).max(urgency);
+            return false;
+        }
+        if let Some(selected) = self.selected {
+            if self.queued.is_some_and(|queued| queued.urgency >= urgency)
+                || selected.urgency >= urgency
+            {
+                return false;
+            }
+        }
+        self.candidate_requested = Some(urgency);
+        true
+    }
+
+    fn select(&mut self, epoch: window::PresentationEpoch) -> Option<scene::ResidencyUrgency> {
+        let urgency = self.candidate_requested.take()?;
+        let candidate = ResidencyCandidate {
+            epoch,
+            request_generation: self.latest_request_generation,
+            urgency,
+        };
+        if self.selected.is_none() {
+            self.selected = Some(candidate);
+        } else if self.queued.is_none() {
+            debug_assert!(
+                self.selected
+                    .is_some_and(|selected| selected.urgency < candidate.urgency),
+                "only a more urgent candidate may bypass the selected residency front"
+            );
+            self.queued = Some(candidate);
+        } else {
+            debug_assert!(
+                self.queued.is_some_and(|queued| queued.urgency < urgency),
+                "only a more urgent residency candidate may replace queued work"
+            );
+            self.queued = Some(candidate);
+        }
+        Some(urgency)
+    }
+
+    fn candidate_requested(self) -> bool {
+        self.candidate_requested.is_some()
+    }
+
+    fn selected_epoch(self) -> Option<window::PresentationEpoch> {
+        self.selected.map(|candidate| candidate.epoch)
+    }
+
+    fn retire_selected(&mut self, epoch: window::PresentationEpoch) -> Option<ResidencyRetirement> {
+        let retired = self.selected.filter(|candidate| candidate.epoch == epoch)?;
+        self.selected = self.queued.take();
+        let newest_selected_generation = self
+            .selected
+            .map_or(retired.request_generation, |candidate| {
+                candidate.request_generation
+            });
+        let schedule_follow_up = self.latest_request_generation > newest_selected_generation
+            && self.candidate_requested.is_none();
+        if schedule_follow_up {
+            self.candidate_requested = self.latest_request_urgency;
+        }
+        Some(ResidencyRetirement {
+            schedule_follow_up,
+            finished: self.selected.is_none() && self.candidate_requested.is_none(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod residency_schedule_tests {
+    use super::{ResidencySchedule, scene::ResidencyUrgency};
+
+    #[test]
+    fn same_urgency_requests_coalesce_before_candidate_construction() {
+        let first = crate::window::PresentationEpoch::initial().next();
+        let newest = first.next();
+        let mut schedule = ResidencySchedule::default();
+
+        assert!(schedule.request_latest(ResidencyUrgency::Required));
+        assert_eq!(schedule.select(first), Some(ResidencyUrgency::Required));
+        for _ in 0..12 {
+            assert!(
+                !schedule.request_latest(ResidencyUrgency::Required),
+                "same-urgency intent must coalesce before an expensive candidate is constructed"
+            );
+        }
+        assert_eq!(schedule.select(newest), None);
+
+        let first_retirement = schedule
+            .retire_selected(first)
+            .expect("front candidate should retire");
+        assert!(first_retirement.schedule_follow_up);
+        assert!(!first_retirement.finished);
+        assert_eq!(schedule.selected_epoch(), None);
+        assert_eq!(schedule.select(newest), Some(ResidencyUrgency::Required));
+    }
+
+    #[test]
+    fn unrelated_completion_cannot_retire_the_selected_front() {
+        let selected = crate::window::PresentationEpoch::initial().next();
+        let unrelated = selected.next();
+        let follow_up = unrelated.next();
+        let mut schedule = ResidencySchedule::default();
+
+        assert!(schedule.request_latest(ResidencyUrgency::Required));
+        assert_eq!(schedule.select(selected), Some(ResidencyUrgency::Required));
+        assert!(!schedule.request_latest(ResidencyUrgency::Required));
+        assert_eq!(
+            schedule.retire_selected(unrelated),
+            None,
+            "a newer unrelated submitted frame must not retire residency work selected under another epoch"
+        );
+        assert_eq!(schedule.selected_epoch(), Some(selected));
+
+        let retirement = schedule
+            .retire_selected(selected)
+            .expect("the selected candidate must retire by its own identity");
+        assert!(retirement.schedule_follow_up);
+        assert_eq!(schedule.select(follow_up), Some(ResidencyUrgency::Required));
+    }
+
+    #[test]
+    fn required_request_bypasses_a_selected_speculative_candidate() {
+        let front = crate::window::PresentationEpoch::initial().next();
+        let required = front.next();
+        let mut schedule = ResidencySchedule::default();
+
+        assert!(schedule.request_latest(ResidencyUrgency::Proactive));
+        assert_eq!(schedule.select(front), Some(ResidencyUrgency::Proactive));
+        assert!(
+            !schedule.request_latest(ResidencyUrgency::Proactive),
+            "same-urgency speculative work must coalesce before realization"
+        );
+        assert_eq!(schedule.select(required), None);
+
+        assert!(
+            schedule.request_latest(ResidencyUrgency::Required),
+            "required residency must be able to bypass selected speculative work"
+        );
+        assert_eq!(schedule.select(required), Some(ResidencyUrgency::Required));
+        assert_eq!(schedule.selected_epoch(), Some(front));
+    }
+}
+
 pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     store: Store<M>,
     timeline: Timeline<M>,
@@ -202,6 +373,7 @@ pub struct Runtime<M: state::State, E: Send + 'static = (), V = ()> {
     overlay_capabilities: overlay::Capabilities,
     layout_cache: departed::WindowMap<CachedLayout>,
     presented_geometry: departed::WindowMap<PresentedGeometry>,
+    residency_schedules: departed::WindowMap<ResidencySchedule>,
     virtual_materializations: departed::WindowMap<VirtualMaterializations>,
     virtual_measurements: departed::WindowMap<VirtualMeasurements>,
 }
@@ -239,6 +411,7 @@ impl<M: state::State> Runtime<M> {
             overlay_capabilities: overlay::Capabilities::default(),
             layout_cache: departed::WindowMap::default(),
             presented_geometry: departed::WindowMap::default(),
+            residency_schedules: departed::WindowMap::default(),
             virtual_materializations: departed::WindowMap::default(),
             virtual_measurements: departed::WindowMap::default(),
         }

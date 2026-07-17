@@ -580,6 +580,7 @@ pub(in crate::render) struct Realizer {
     shapes: Shapes,
     plans: Vec<PlanEntry>,
     pending: Vec<PendingPlan>,
+    pending_candidates: Vec<PendingCandidate>,
     prepared_stats: Vec<PreparedStats>,
 }
 
@@ -588,6 +589,15 @@ struct PreparedStats {
     viewport: render::Viewport,
     projection: Projection,
     stats: render::DrawStats,
+}
+
+struct PendingCandidate {
+    commit: Arc<scene::Commit>,
+    viewport: render::Viewport,
+    projection: Projection,
+    properties: scene::PropertySerial,
+    transforms: Vec<(render::text_renderer::RetainedBatch, [f32; 2])>,
+    next_transform: usize,
 }
 
 struct PendingPlan {
@@ -634,6 +644,7 @@ impl Realizer {
             shapes: Shapes::new(render_context, format),
             plans: Vec::new(),
             pending: Vec::new(),
+            pending_candidates: Vec::new(),
             prepared_stats: Vec::new(),
         }
     }
@@ -795,6 +806,8 @@ impl Realizer {
     pub(in crate::render) fn cancel_synchronization(&mut self, commit: &Arc<scene::Commit>) {
         self.pending
             .retain(|pending| !Arc::ptr_eq(&pending.commit, commit));
+        self.pending_candidates
+            .retain(|pending| !Arc::ptr_eq(&pending.commit, commit));
         self.shapes.cancel_property_state(commit);
     }
 
@@ -804,9 +817,15 @@ impl Realizer {
             !Arc::ptr_eq(&pending.commit, layer.drawable_commit())
                 || pending.projection != projection
         });
+        self.pending_candidates.retain(|pending| {
+            !Arc::ptr_eq(&pending.commit, layer.drawable_commit())
+                || pending.projection != projection
+        });
     }
 
     pub(in crate::render) fn cancel_property_state(&mut self, commit: &Arc<scene::Commit>) {
+        self.pending_candidates
+            .retain(|pending| !Arc::ptr_eq(&pending.commit, commit));
         self.shapes.cancel_property_state(commit);
     }
 
@@ -895,7 +914,7 @@ impl Realizer {
             self.plans.push(PlanEntry {
                 commit: Arc::downgrade(commit),
                 viewport,
-                projection,
+                projection: projection.clone(),
                 plan: Arc::clone(&plan),
             });
             plan
@@ -942,6 +961,12 @@ impl Realizer {
             .shapes
             .resource_bytes()
             .saturating_add(text_renderer.retained_resource_bytes());
+        self.pending_candidates.retain(|pending| {
+            !Arc::ptr_eq(&pending.commit, commit)
+                || pending.viewport != viewport
+                || pending.projection != projection
+                || pending.properties != properties.serial()
+        });
 
         Ok(Prepared {
             plan,
@@ -969,24 +994,124 @@ impl Realizer {
         )
     }
 
-    pub(in crate::render) fn prepare_candidate_layer(
+    pub(in crate::render) fn synchronize_candidate_layer(
         &mut self,
         render_context: &render::Context,
         viewport: render::Viewport,
         layer: &scene::Layer,
         text_renderer: &mut render::text_renderer::TextRenderer,
-    ) -> render::Result<Option<Prepared>> {
+        budget: std::time::Duration,
+    ) -> render::Result<Synchronize> {
         validate_residencies(layer)?;
-        self.prepare_candidate_projected(
+        self.synchronize_candidate_projected(
             render_context,
             viewport,
             layer.drawable_commit(),
             layer.properties(),
-            &Projection::from_layer(layer),
+            Projection::from_layer(layer),
             text_renderer,
+            budget,
         )
     }
 
+    fn synchronize_candidate_projected(
+        &mut self,
+        render_context: &render::Context,
+        viewport: render::Viewport,
+        commit: &Arc<scene::Commit>,
+        properties: &scene::Properties,
+        projection: Projection,
+        text_renderer: &mut render::text_renderer::TextRenderer,
+        budget: std::time::Duration,
+    ) -> render::Result<Synchronize> {
+        properties
+            .require_compatible(commit)
+            .map_err(|_| render::Error::RetainedSceneContract)?;
+        let Some(plan) = self.find_plan(commit, viewport, &projection) else {
+            return Ok(Synchronize::Pending);
+        };
+        let started = std::time::Instant::now();
+        self.pending_candidates.retain(|pending| {
+            !Arc::ptr_eq(&pending.commit, commit)
+                || pending.viewport != viewport
+                || pending.projection != projection
+                || pending.properties == properties.serial()
+        });
+        let pending_index = self.pending_candidates.iter().position(|pending| {
+            pending.viewport == viewport
+                && pending.projection == projection
+                && pending.properties == properties.serial()
+                && Arc::ptr_eq(&pending.commit, commit)
+        });
+        let index = if let Some(index) = pending_index {
+            index
+        } else {
+            let (mut property_bindings, property_stats) = self.shapes.prepare_properties(
+                render_context,
+                viewport,
+                commit,
+                properties,
+                &plan.property_bindings,
+                Arc::clone(&plan.property_offsets),
+                &plan.property_dependents,
+                &plan.scroll_bindings,
+                Arc::clone(&plan.scroll_offsets),
+                &plan.scroll_dependents,
+            );
+            property_bindings.prepare_spatial_translations(
+                commit.spatial_topology(),
+                properties,
+                &plan.spatial_bindings,
+            );
+            self.add_prepared_sync_stats(commit, viewport, &projection, property_stats);
+            let mut transforms = Vec::new();
+            collect_text_transforms(plan.batches(), &mut property_bindings, &mut transforms);
+            self.pending_candidates.push(PendingCandidate {
+                commit: Arc::clone(commit),
+                viewport,
+                projection: projection.clone(),
+                properties: properties.serial(),
+                transforms,
+                next_transform: 0,
+            });
+            self.pending_candidates.len().saturating_sub(1)
+        };
+
+        let remaining = budget.saturating_sub(started.elapsed());
+        let (report, next, complete) = {
+            let pending = &mut self.pending_candidates[index];
+            let (report, next) = text_renderer.prepare_retained_transforms_bounded(
+                render_context,
+                viewport,
+                commit,
+                &pending.transforms,
+                pending.next_transform,
+                remaining,
+            );
+            pending.next_transform = next;
+            (report, next, next == pending.transforms.len())
+        };
+        self.add_prepared_sync_stats(
+            commit,
+            viewport,
+            &projection,
+            SyncStats {
+                property_upload_bytes: report.property_upload_bytes,
+                text_property_upload_bytes: report.property_upload_bytes,
+                resource_creations: report.resource_creations,
+                resource_removals: report.resource_removals,
+                ..SyncStats::default()
+            },
+        );
+        if complete {
+            Ok(Synchronize::Ready)
+        } else {
+            debug_assert!(next > 0 || remaining.is_zero());
+            Ok(Synchronize::Pending)
+        }
+    }
+
+    #[cfg(feature = "renderer-debug")]
     fn prepare_candidate_projected(
         &mut self,
         render_context: &render::Context,
@@ -1099,7 +1224,15 @@ impl Realizer {
 
     #[cfg(feature = "renderer-debug")]
     pub(in crate::render) fn debug_state_counts(&self) -> (usize, usize) {
-        (self.plans.len(), self.pending.len())
+        (
+            self.plans.len(),
+            self.pending.len().saturating_add(
+                self.pending_candidates
+                    .iter()
+                    .filter(|pending| pending.next_transform < pending.transforms.len())
+                    .count(),
+            ),
+        )
     }
 
     #[cfg(feature = "renderer-debug")]
@@ -1120,6 +1253,8 @@ impl Realizer {
     fn collect_plans(&mut self) -> usize {
         let before = self.plans.len();
         self.plans.retain(|entry| entry.commit.strong_count() > 0);
+        self.pending_candidates
+            .retain(|pending| Arc::strong_count(&pending.commit) > 1);
         self.prepared_stats
             .retain(|entry| entry.commit.strong_count() > 0);
         before.saturating_sub(self.plans.len())
@@ -1138,6 +1273,10 @@ impl Realizer {
     ) {
         self.shapes.retain_property_viewport(commit, viewport);
         self.pending.retain(|pending| {
+            !Arc::ptr_eq(&pending.commit, commit)
+                || (pending.viewport == viewport && pending.projection == *projection)
+        });
+        self.pending_candidates.retain(|pending| {
             !Arc::ptr_eq(&pending.commit, commit)
                 || (pending.viewport == viewport && pending.projection == *projection)
         });
@@ -1185,6 +1324,25 @@ impl Realizer {
                     .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
         })?;
         Some(self.prepared_stats.swap_remove(index).stats)
+    }
+
+    fn add_prepared_sync_stats(
+        &mut self,
+        commit: &Arc<scene::Commit>,
+        viewport: render::Viewport,
+        projection: &Projection,
+        sync: SyncStats,
+    ) {
+        if let Some(prepared) = self.prepared_stats.iter_mut().find(|entry| {
+            entry.viewport == viewport
+                && entry.projection == *projection
+                && entry
+                    .commit
+                    .upgrade()
+                    .is_some_and(|candidate| Arc::ptr_eq(&candidate, commit))
+        }) {
+            apply_sync_stats(&mut prepared.stats, sync);
+        }
     }
 }
 

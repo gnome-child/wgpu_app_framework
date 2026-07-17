@@ -38,9 +38,18 @@ pub(crate) fn measure_document(
     document: &text::document::Document,
     measure: super::Measure,
 ) -> super::Metrics {
+    measure_document_with_line_widths(font_system, document, measure).0
+}
+
+pub(crate) fn measure_document_with_line_widths(
+    font_system: &mut FontSystem,
+    document: &text::document::Document,
+    measure: super::Measure,
+) -> (super::Metrics, Vec<f32>) {
     let mut width = 0.0_f32;
     let mut height = 0.0_f32;
     let mut line_count = 0_usize;
+    let mut line_widths = Vec::new();
 
     for block in document.blocks().iter().filter(|block| !block.is_empty()) {
         let Some(first_style) = block
@@ -70,22 +79,32 @@ pub(crate) fn measure_document(
 
         let mut block_height = 0.0_f32;
         let mut block_lines = 0_usize;
+        let mut block_line_widths = Vec::<f32>::new();
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
             block_height = block_height.max(run.line_top + run.line_height);
             block_lines += 1;
+            if block_line_widths.len() <= run.line_i {
+                block_line_widths.resize(run.line_i + 1, 0.0);
+            }
+            block_line_widths[run.line_i] = block_line_widths[run.line_i].max(run.line_w);
         }
 
         if block_lines == 0 {
             block_height = block_height.max(font_size * 1.25);
             block_lines = 1;
+            block_line_widths.push(0.0);
         }
 
         height += block_height;
         line_count += block_lines;
+        line_widths.extend(block_line_widths);
     }
 
-    super::Metrics::new(area::logical(width, height), line_count)
+    (
+        super::Metrics::new(area::logical(width, height), line_count),
+        line_widths,
+    )
 }
 
 pub(crate) fn prepare_document_buffer(

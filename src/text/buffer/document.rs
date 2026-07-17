@@ -159,6 +159,10 @@ impl TextDocument {
             .filter(|delta| delta.after == current)
     }
 
+    pub(in crate::text) fn last_line_edit_delta(&self) -> Option<&LineEditDelta> {
+        self.last_line_edit.as_ref()
+    }
+
     pub(in crate::text) fn replace_range(
         &mut self,
         range: Range,
@@ -204,6 +208,7 @@ impl TextDocument {
                 let before = before.identity();
                 let after = self.line_layout_identity(start_line)?;
                 (before.id == after.id).then_some(LineEditDelta {
+                    line: start_line,
                     before,
                     after,
                     old_range: start_local..end_local,
