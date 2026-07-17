@@ -120,6 +120,15 @@ pub trait Provider {
     fn index_of(&self, key: virtual_list::Key) -> Option<usize>;
     fn cell(&self, row: usize, cell: Cell) -> view::Node;
 
+    /// Revision of the data projected by every cell in one stable row.
+    ///
+    /// `None` conservatively rebuilds the row whenever the application view is
+    /// rebuilt. Returning `Some` permits the list factory to retain unchanged
+    /// row slots across residency preparation.
+    fn item_revision(&self, _row: usize) -> Option<u64> {
+        None
+    }
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -131,6 +140,7 @@ pub struct Source<R> {
     key: Rc<dyn Fn(usize) -> virtual_list::Key>,
     index_of: Rc<dyn Fn(virtual_list::Key) -> Option<usize>>,
     record: Rc<dyn Fn(usize) -> R>,
+    item_revision: Rc<dyn Fn(usize) -> Option<u64>>,
     records: Option<Rc<[R]>>,
 }
 
@@ -141,6 +151,7 @@ impl<R> Clone for Source<R> {
             key: Rc::clone(&self.key),
             index_of: Rc::clone(&self.index_of),
             record: Rc::clone(&self.record),
+            item_revision: Rc::clone(&self.item_revision),
             records: self.records.clone(),
         }
     }
@@ -158,8 +169,15 @@ impl<R> Source<R> {
             key: Rc::new(key),
             index_of: Rc::new(index_of),
             record: Rc::new(record),
+            item_revision: Rc::new(|_| None),
             records: None,
         }
+    }
+
+    /// Supplies stable per-record revisions for incremental row binding.
+    pub fn item_revision(mut self, revision: impl Fn(usize) -> u64 + 'static) -> Self {
+        self.item_revision = Rc::new(move |index| Some(revision(index)));
+        self
     }
 }
 
@@ -174,6 +192,7 @@ where
         key: impl Fn(&R) -> virtual_list::Key + 'static,
     ) -> Self {
         let records = records.into();
+        let generation = records.as_ptr() as usize as u64;
         let keys: Rc<[virtual_list::Key]> = records.iter().map(key).collect::<Vec<_>>().into();
         let mut indices = HashMap::with_capacity(keys.len());
         for (index, key) in keys.iter().copied().enumerate() {
@@ -194,6 +213,7 @@ where
                 let records = Rc::clone(&records);
                 Rc::new(move |index| records[index].clone())
             },
+            item_revision: Rc::new(move |_| Some(generation)),
             records: Some(records),
         }
     }
@@ -1019,6 +1039,11 @@ impl Row {
     pub(crate) fn index(self) -> usize {
         self.index
     }
+
+    pub(crate) fn at_index(mut self, index: usize) -> Self {
+        self.index = index;
+        self
+    }
 }
 
 impl virtual_list::Provider for Rows {
@@ -1032,6 +1057,43 @@ impl virtual_list::Provider for Rows {
 
     fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
         self.provider.index_of(key)
+    }
+
+    fn item_revision(&self, index: usize) -> Option<u64> {
+        let mut revision = self.provider.item_revision(index)?;
+        let columns = self.model.columns.borrow();
+        revision = revision
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            .wrapping_add(columns.len() as u64);
+        for column in columns.iter() {
+            for byte in column.id.as_str().bytes() {
+                revision = revision
+                    .wrapping_mul(0x0000_0100_0000_01b3)
+                    .wrapping_add(u64::from(byte));
+            }
+            let width = match column.effective_width() {
+                view::Dimension::Fit => [0, 0, 0],
+                view::Dimension::Flexible { weight, minimum } => {
+                    [1, u64::from(weight), minimum as u64]
+                }
+                view::Dimension::Fixed(value) => [2, value as u64, 0],
+                view::Dimension::Percent(value) => [3, u64::from(value.to_bits()), 0],
+            };
+            for component in width {
+                revision = revision
+                    .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                    .wrapping_add(component);
+            }
+        }
+        Some(
+            revision
+                .wrapping_mul(2)
+                .wrapping_add(u64::from(self.row_context.is_some())),
+        )
+    }
+
+    fn factory_revision(&self) -> Option<u64> {
+        Some(0)
     }
 
     fn row(&self, index: usize) -> view::Node {
@@ -1135,6 +1197,18 @@ where
 
     fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
         (self.source.index_of)(key).map(|index| self.projected_index(index))
+    }
+
+    fn item_revision(&self, row: usize) -> Option<u64> {
+        let source_row = self.source_row(row);
+        (self.source.item_revision)(source_row).map(|revision| {
+            revision
+                .wrapping_mul(2)
+                .wrapping_add(match self.presentation.get() {
+                    Presentation::Compact => 0,
+                    Presentation::Expanded => 1,
+                })
+        })
     }
 
     fn cell(&self, row: usize, cell: Cell) -> view::Node {

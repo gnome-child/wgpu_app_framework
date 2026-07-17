@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-005 RE-CENSUS — NATIVE TEXT AND LIST CONNECTED**
+Status: **SE-006 RE-CENSUS — LIST MODEL/FACTORY CONNECTED**
 
 Date: 2026-07-17
 
@@ -36,7 +36,7 @@ around the scrolling-engine rewrite.
 | Scrollbar opacity, hover/press thickness, fade deadline | `src/runtime/visual.rs`, `src/scene/visual.rs` | scene chrome painting | Scroll container presentation/chrome; overlay/layout consumption and axis behavior become distinct policies. |
 | Theme `OverlayAuto` / `GutterAlways` | `src/theme/mod.rs`, `src/theme/toml.rs` | shared eager/text/list default resolution plus table layout chrome | Appearance default. Shared container resolution maps it to independent axis behavior plus overlay/consuming presentation while each native domain constrains unsupported axes. Authored container state is not a theme-presentation alias. |
 | Text reveal/caret correction and height/width indexes | `src/text/layout/**`, `src/runtime/input/text/**` | text area layout, IME, selection | Native text owns domain layout and anchor geometry; container owns scrolling and ancestor reveal. |
-| Virtual-list provider identity/count/query | `src/virtual_list.rs::Provider` | virtual list model/request construction | List model. Current query-only contract lacks observable mutation, content revision, uniqueness enforcement, and slot lifecycle. |
+| Virtual-list membership, item revision, and recycled factory lifecycle | `src/virtual_list.rs::Provider`, `Model::slots` | virtual list model/materialization | Connected list model/factory. Stable key, current index, and process-local slot identity are separate; ordered membership changes, content/factory revisions, uniqueness, setup/bind/unbind/teardown, and a capped recycle reserve remain list-owned. Public names are provisional until SE-008. |
 | Virtual-list measurements and variable-height region | `src/virtual_list.rs::Measurements`, `src/virtual_list/variable.rs` | list layout and correction | Native list/list model. Preserve anchored correction; separate membership identity from recycled slot identity. |
 | Table row/provider realization and cell layout | `src/table.rs`, `src/layout/table.rs`, `src/runtime/services/table.rs` | native table presentation | Native view. It shares container/adjustment behavior but keeps table-owned domain layout. |
 | Candidate spatial ancestry and property values | `src/scene/spatial.rs::SpatialTopology`, `src/scene/commit.rs::Properties` | renderer and submitted snapshot | Residency/presentation private projection. Not public scroll content. |
@@ -49,11 +49,12 @@ around the scrolling-engine rewrite.
 | Scroll, residency, frame, property, memory diagnostics | `src/diagnostics/**`, `src/render/report.rs` | receipts and benchmark gates | Diagnostic observers only; never behavioral owners. |
 
 No current scroll state is unassigned. Missing target concepts are recorded as
-gaps rather than assigned phantom owners: a platform accessibility adapter,
-observable list mutation, and factory slot lifecycle. Ordinary eager `Scroll`,
-native text, and native virtual-list frames now prove one private container
-contract while retaining three distinct layout implementations; SE-006 owns the
-next list-model vertical slice.
+gaps rather than assigned phantom owners: a platform accessibility adapter
+remains absent. Ordinary eager `Scroll`, native text, and native virtual-list
+frames prove one private container contract while retaining three distinct
+layout implementations. Observable list mutation and factory slot lifecycle are
+now connected beneath list ownership; SE-007 owns the next private
+residency/presentation slice.
 
 ## 2. Production entrance census
 
@@ -161,9 +162,9 @@ platform gesture entrance.
 3. Closed by SE-002: `ScrollOffset` retains its public integral accessors but
    privately carries a wide fixed-point coordinate; fractional deltas update
    and submit continuously without an integral-pixel gate.
-4. `VirtualList::Provider` exposes count/key/view/measurement queries but no
-   membership event, same-key revision, unique-key failure, or recycled slot
-   lifecycle.
+4. Closed by SE-006: virtual-list ownership observes membership changes,
+   same-key and factory revisions, rejects duplicate/inconsistent keys, and owns
+   a bounded setup/bind/unbind/teardown slot pool distinct from item position.
 5. Closed by SE-004 for ordinary eager content: independent horizontal and
    vertical Always/Automatic/Never/External behavior, overlay/consuming
    presentation, sizing, direction, and bounded convergence are separate
@@ -333,7 +334,50 @@ container, and chrome behavior. SE-006 must inspect list membership/provider and
 slot lifecycle; SE-007 must inspect list residency/admission/scheduling without
 redirecting that evidence into the clean text path.
 
-## 10. Repeatable census commands
+## 10. SE-006 delta
+
+`src/virtual_list.rs` now owns observable insert/remove/replace/move changes,
+same-key content revision, factory compatibility revision, strict stable-key
+round trips, and process-local recycled slots. `Model::slots` survives view
+projection through the installed prior model, while `runtime/presentation.rs`
+only supplies that prior view and owns no list slot state. Departures enter the
+recycle reserve before entrances bind; the reserve is capped separately at 32.
+Unknown or changed factories retire their slots with exact unbind/teardown.
+
+`src/table.rs` projects record revision, presentation, columns, widths, and row
+context into list item revision. Current row index is projected separately from
+stable row content. The control gallery supplies content-derived revisions for
+its one-million-row callback source; unchanged overlapping rows therefore do not
+reconstruct their cells during residency preparation.
+
+Composition's pre-existing stable-key reconciliation remains the owner for
+logical focus, capture, editor, and popup cleanup when items depart. Variable
+list measurement reconciliation remains the owner for stable visible anchoring.
+New lifecycle and integration witnesses prove all four mutation species,
+same-key and factory invalidation, exact lifecycle pairing, duplicate failure,
+zero row construction for an unchanged projected view, and position updates
+without rebind.
+
+The release 1.25x residency crossing reports three virtual-list provider calls
+instead of the frozen 11 and nine table cell calls instead of 33. These are the
+three entering rows only. The diagnostic gate now enforces that bound,
+preserving the reported clean-large-text versus lagging-large-list discriminator
+as a list-specific improvement rather than changing text.
+
+The boundary census found 380 entrance, 1,214 scroll-state/session, 2,021
+routing/container, 104 presentation-clock, and 1,081 list/lifecycle source hits.
+The 63 list additions are membership/factory contracts, slot ownership,
+production connections, and witnesses. Inspection found no new public
+forbidden-name candidate. The two broad hits remain the unrelated file-dialog
+`session::Request` and `RequestKind`.
+
+The complete all-target/all-feature suite passed 1,406 library tests with four
+intentional hardware ignores, three renderer-debug tests with 27 hardware
+ignores, and two example tests. All 18 Python checks passed. The frozen release
+table-scroll smoke retained 528 property bytes, zero content work or GPU-resource
+churn, and one plan reuse.
+
+## 11. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:

@@ -177,8 +177,11 @@ impl View {
         &mut self,
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
         measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
+        previous: Option<&Self>,
     ) {
-        self.root.materialize_virtual_lists(requests, measurements);
+        let previous_models = previous.map_or_else(HashMap::new, Self::virtual_list_models);
+        self.root
+            .materialize_virtual_lists(requests, measurements, &previous_models);
     }
 
     pub(crate) fn reuse_virtual_row_text_buffers_from(&mut self, previous: &Self) -> usize {
@@ -197,6 +200,12 @@ impl View {
     pub(crate) fn selectable_virtual_lists(&self) -> Vec<crate::virtual_list::Model> {
         let mut models = Vec::new();
         self.root.collect_selectable_virtual_lists(&mut models);
+        models
+    }
+
+    fn virtual_list_models(&self) -> HashMap<interaction::Id, crate::virtual_list::Model> {
+        let mut models = HashMap::new();
+        self.root.collect_virtual_list_models(&mut models);
         models
     }
 

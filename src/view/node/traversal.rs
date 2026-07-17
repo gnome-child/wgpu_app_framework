@@ -272,8 +272,12 @@ impl Node {
         &mut self,
         requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
         measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
+        previous_models: &HashMap<interaction::Id, crate::virtual_list::Model>,
     ) {
         if let Some(model) = self.virtual_list_model_mut() {
+            if let Some(previous) = previous_models.get(&model.id()) {
+                model.reuse_slots_from(previous);
+            }
             let request = requests
                 .get(&model.id())
                 .cloned()
@@ -282,7 +286,19 @@ impl Node {
         }
 
         for child in &mut self.children {
-            child.materialize_virtual_lists(requests, measurements);
+            child.materialize_virtual_lists(requests, measurements, previous_models);
+        }
+    }
+
+    pub(in crate::view) fn collect_virtual_list_models(
+        &self,
+        models: &mut HashMap<interaction::Id, crate::virtual_list::Model>,
+    ) {
+        if let Some(model) = self.virtual_list_model() {
+            models.insert(model.id(), model.clone());
+        }
+        for child in &self.children {
+            child.collect_virtual_list_models(models);
         }
     }
 

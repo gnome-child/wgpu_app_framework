@@ -193,6 +193,14 @@ impl crate::virtual_list::Provider for MillionRowProvider {
         (index < self.len()).then_some(index)
     }
 
+    fn item_revision(&self, _index: usize) -> Option<u64> {
+        Some(0)
+    }
+
+    fn factory_revision(&self) -> Option<u64> {
+        Some(0)
+    }
+
     fn row(&self, index: usize) -> view::Node {
         self.row_calls.set(self.row_calls.get() + 1);
         view::Node::world_text(format!("Provider row {index}"), text::Overflow::EllipsisEnd)
@@ -819,6 +827,10 @@ impl crate::table::Provider for MutableTableProvider {
             .position(|candidate| *candidate == key.value())
     }
 
+    fn item_revision(&self, _row: usize) -> Option<u64> {
+        Some(0)
+    }
+
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
         let key = self.keys.borrow()[row];
         view::Node::world_text(
@@ -1028,8 +1040,14 @@ fn million_row_virtual_list_converges_to_a_bounded_first_frame() {
         "initial bootstrap plus converged materialization must not scale with provider length"
     );
 
+    let calls_before_projection = row_calls.get();
     let projected = app.present(window).expect("view should remain projectable");
     assert!(projected.labels().len() <= 9);
+    assert_eq!(
+        row_calls.get(),
+        calls_before_projection,
+        "an unchanged application-view rebuild must retain every bound list slot"
+    );
 }
 
 #[test]
@@ -2855,8 +2873,21 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
 
     keys.borrow_mut()[18..27].reverse();
     app.request_redraw(window);
-    app.show_scene(window, size)
+    let reordered = app
+        .show_scene(window, size)
         .expect("reordered table should render");
+    for row in reordered
+        .layout()
+        .frames()
+        .iter()
+        .filter_map(|frame| frame.table_row())
+    {
+        assert_eq!(
+            keys.borrow()[row.index()],
+            row.key().value(),
+            "moving a stable row must update position metadata without rebinding its slot"
+        );
+    }
     assert!(
         app.composition(window)
             .expect("table composition should remain installed")

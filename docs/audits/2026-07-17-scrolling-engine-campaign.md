@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-005 CLOSED — SE-006 NEXT**
+Status: **SE-006 CLOSED — SE-007 NEXT**
 
 Date: 2026-07-17
 
@@ -49,8 +49,8 @@ vertical slices exist.
 | SE-003 — Sessions and nested handoff | **closed** | Fractional, diagonal, boundary, reversal, interruption, and child/ancestor remainder oracles pass per axis. |
 | SE-004 — Container and eager adapter | **closed** | One ordinary eager widget exercises the full container contract. |
 | SE-005 — Native text and list | **closed** | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
-| SE-006 — List model/factory lifecycle | next | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
-| SE-007 — Private residency/presentation | queued | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
+| SE-006 — List model/factory lifecycle | **closed** | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
+| SE-007 — Private residency/presentation | next | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
 | SE-008 — Names and public break | queued | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
 | SE-009 — Performance and closure | queued | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
 
@@ -522,7 +522,72 @@ against the common adjustment/input/chrome path. Observable membership,
 same-key revision, unique identity, and setup/bind/unbind/teardown remain the
 first unmet exit and belong to SE-006.
 
-## 11. Resume protocol
+## 11. SE-006 list model-and-factory receipt
+
+Virtual-list ownership now distinguishes stable logical `Key`, current index,
+and process-local recycled `Slot`. The list-owned provider contract observes
+ordered insert, remove, replace, and move events plus monotonic membership,
+per-item content, and factory revisions. Stable-key and `index_of` queries must
+round-trip exactly; duplicate keys fail instead of being silently deduplicated.
+
+Each list model retains a bounded slot pool across application-view projections.
+Departing items unbind before entering items bind, so an entering row can reuse a
+departing slot without an extra setup. Unchanged keys with equal content and
+factory revisions preserve their node and slot; moves update position without a
+bind; a same-key revision unbinds and rebinds exactly that slot. Unknown or
+changed factory revisions unbind and teardown every incompatible slot before new
+setup. The separately capped recycle reserve holds at most 32 unbound slots, and
+model destruction pairs every setup with one teardown.
+
+The installed view supplies the prior list model directly to the next projected
+view. Runtime does not own slot state. Table rows project current positional
+metadata independently from stable-key content, so sorting/reordering preserves
+row and cell identity without leaving stale indices. Callback-backed typed table
+sources may supply exact item revisions; the one-million-row control gallery does
+so from its record values. In-memory typed sources derive a generation revision
+from their retained record allocation. `None` remains the conservative rebuild
+path while public list names are provisional through SE-007; SE-008 must remove
+that compatibility default when it settles the model/factory API.
+
+Existing composition ownership continues to clean logical focus, capture,
+editors, and context-popup anchors by stable key when an item departs. Existing
+variable-list measurement reconciliation continues to preserve the visible
+stable-key anchor through reordering, deletion, and width-dependent correction.
+The new lifecycle witness exercises insertion, removal, replacement, movement,
+same-key revision, factory replacement, slot reuse, and exact
+setup/bind/unbind/teardown counts. Separate witnesses retain focus/editor pins,
+pointer-capture pins, selection, popup/context row identity, variable measurement
+anchoring, and duplicate-key rejection.
+
+The user-observed text/list discriminator produced a direct result. At 1.25x, the
+frozen release residency crossing changed from 11 to three virtual-list provider
+calls and from 33 to nine table cell calls: exactly three entering rows, with no
+rebuild of overlapping rows. An unchanged million-row application-view projection
+constructs zero rows. The release gate now rejects any ordinary crossing that
+builds more than three entering list rows (or their three table cells). Large text
+remains on its separate clean native path.
+
+Verification passed:
+
+- the 20 independent SE-001 behavioral oracles;
+- the complete all-target/all-feature suite: 1,406 library tests with four
+  intentional hardware ignores, three renderer-debug tests with 27 intentional
+  hardware ignores, and two example tests;
+- the architecture gates for list ownership, identity, slot lifecycle, and
+  entering-only residency work;
+- release `residency-crossing-work` at 1.25x for virtual list and table, reporting
+  three and nine provider calls respectively; and
+- all 18 manifest/receipt/census Python checks; and
+- formatter, diff checks, and release `table-scroll-work 1.25`, reproducing the
+  frozen 528 property bytes with zero content work or GPU-resource churn and one
+  retained-plan reuse.
+
+SE-006 does not remove application-view rebuilding for cold residency work and
+does not settle public names. Warm transform-only presentation, private residency
+coalescing, selected-front retirement, and zero-view-rebuild scheduling are the
+first unmet exit and belong to SE-007.
+
+## 12. Resume protocol
 
 At every task entrance and after every context compaction:
 

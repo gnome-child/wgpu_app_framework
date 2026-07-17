@@ -48,6 +48,14 @@ impl crate::virtual_list::Provider for Rows {
         (index < self.len()).then_some(index)
     }
 
+    fn item_revision(&self, _index: usize) -> Option<u64> {
+        Some(0)
+    }
+
+    fn factory_revision(&self) -> Option<u64> {
+        Some(0)
+    }
+
     fn row(&self, index: usize) -> view::Node {
         self.calls.set(self.calls.get().saturating_add(1));
         view::Node::world_text(
@@ -74,6 +82,10 @@ impl crate::table::Provider for TableRows {
     fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
+    }
+
+    fn item_revision(&self, _index: usize) -> Option<u64> {
+        Some(0)
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -458,6 +470,17 @@ fn run_case(payload: Payload, transition: Transition, scale_milli: u32) {
             payload_calls <= 256,
             "crossing materialization must remain viewport bounded, got {payload_calls} provider calls"
         );
+        if transition == Transition::ForwardCrossing {
+            let entering_budget = match payload {
+                Payload::Text => 0,
+                Payload::Table => 9,
+                Payload::VirtualList => 3,
+            };
+            assert!(
+                payload_calls <= entering_budget,
+                "one residency crossing may realize only entering rows: payload={payload:?} budget={entering_budget} calls={payload_calls}"
+            );
+        }
         let shaped = diagnostics_after
             .text
             .text_area_line_shape_calls

@@ -6,7 +6,8 @@ const TEXT_TARGET: &str = "diagnostics.residency.text";
 const TABLE_TARGET: &str = "diagnostics.residency.table";
 const VIRTUAL_TARGET: &str = "diagnostics.residency.virtual";
 const MAX_CANDIDATE_CPU_US_RELEASE: u128 = 100_000;
-const MAX_PROVIDER_CALLS: usize = 256;
+const MAX_ENTERING_ROWS_PER_CROSSING: usize = 3;
+const TABLE_CELLS_PER_ROW: usize = 3;
 const MAX_SCENE_NODE_PAINTS: usize = 512;
 const MAX_LINE_SHAPE_CALLS: usize = 128;
 const MAX_HORIZONTAL_INDEX_SOURCE_BYTES: usize = 262_144;
@@ -114,6 +115,14 @@ impl crate::virtual_list::Provider for Rows {
         (index < self.len()).then_some(index)
     }
 
+    fn item_revision(&self, _index: usize) -> Option<u64> {
+        Some(0)
+    }
+
+    fn factory_revision(&self) -> Option<u64> {
+        Some(0)
+    }
+
     fn row(&self, index: usize) -> crate::view::Node {
         self.calls.set(self.calls.get().saturating_add(1));
         crate::view::Node::world_text(
@@ -140,6 +149,10 @@ impl crate::table::Provider for TableRows {
     fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
+    }
+
+    fn item_revision(&self, _index: usize) -> Option<u64> {
+        Some(0)
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> crate::view::Node {
@@ -736,10 +749,17 @@ pub async fn measure_residency_crossing_work(
     }
 
     let provider_calls = calls.get().saturating_sub(calls_before);
-    if provider_calls > MAX_PROVIDER_CALLS {
+    let provider_call_budget = match payload {
+        ResidencyPayload::Text => 0,
+        ResidencyPayload::Table => {
+            MAX_ENTERING_ROWS_PER_CROSSING.saturating_mul(TABLE_CELLS_PER_ROW)
+        }
+        ResidencyPayload::VirtualList => MAX_ENTERING_ROWS_PER_CROSSING,
+    };
+    if provider_calls > provider_call_budget {
         return Err(format!(
-            "{} crossing exceeded the {MAX_PROVIDER_CALLS}-call payload guard: {provider_calls}",
-            payload.name()
+            "{} crossing rebuilt more than its entering rows: budget={provider_call_budget} calls={provider_calls}",
+            payload.name(),
         ));
     }
     let crossing = crate::renderer_debug::Work::from(crossing_stats);

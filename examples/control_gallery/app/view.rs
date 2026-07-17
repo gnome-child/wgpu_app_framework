@@ -8,6 +8,10 @@ use super::{
     },
     state::{RECORD_COUNT, RecordOrder},
 };
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 use wgpu_l3::{
     Table, View, geometry, interaction, scene, table, text,
     view::{Align, Context as ViewContext, Dimension, Padding},
@@ -94,6 +98,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         let key_order = state.record_order.clone();
                         let index_order = state.record_order.clone();
                         let record_order = state.record_order.clone();
+                        let revision_order = state.record_order.clone();
                         let source = table::Source::new(
                             RECORD_COUNT,
                             move |index| {
@@ -137,7 +142,29 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                     }
                                 }
                             },
-                        );
+                        )
+                        .item_revision({
+                            let notes = state.record_notes.clone();
+                            let counts = state.record_counts.clone();
+                            let enabled = state.record_enabled.clone();
+                            move |index| {
+                                let record =
+                                    record_at(index, descending, revision_order.as_ref());
+                                let key = record as u64;
+                                let mut revision = DefaultHasher::new();
+                                record.hash(&mut revision);
+                                notes.get(&key).map(String::as_str).unwrap_or_default().hash(
+                                    &mut revision,
+                                );
+                                counts.get(&key).copied().unwrap_or(0).hash(&mut revision);
+                                enabled
+                                    .get(&key)
+                                    .copied()
+                                    .unwrap_or(record % 2 == 0)
+                                    .hash(&mut revision);
+                                revision.finish()
+                            }
+                        });
                         let columns: Vec<table::TypedColumn<GalleryRecord>> = vec![
                             table::Column::text(
                                 "record",

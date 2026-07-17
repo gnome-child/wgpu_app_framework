@@ -6737,7 +6737,8 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && scroll_diagnostics.contains("residency_gpu_resource_removals=")
             && runtime_access.contains("if !refreshes_active")
             && residency_diagnostics.contains("pub enum ResidencyPayload")
-            && residency_diagnostics.contains("MAX_PROVIDER_CALLS")
+            && residency_diagnostics.contains("MAX_ENTERING_ROWS_PER_CROSSING")
+            && residency_diagnostics.contains("rebuilt more than its entering rows")
             && residency_diagnostics.contains("MAX_POST_CROSSING_PROPERTY_UPLOAD_BYTES")
             && residency_diagnostics.contains("measure_residency_crossing_work")
             && renderer_debug.contains("residency-crossing-work")
@@ -6789,6 +6790,62 @@ fn payload_locality_has_separate_edit_projection_reveal_and_property_scroll_rail
             "payload locality must retain the {witness} witness"
         );
     }
+}
+
+#[test]
+fn virtual_list_owns_observable_membership_and_recycled_slot_lifecycle() {
+    let virtual_list = include_str!("../virtual_list.rs");
+    let table = include_str!("../table.rs");
+    let view_builder = include_str!("../view/node/builder.rs");
+    let view_traversal = include_str!("../view/node/traversal.rs");
+    let runtime_presentation = include_str!("../runtime/presentation.rs");
+    let layout_scene = include_str!("layout_scene.rs");
+
+    assert!(
+        virtual_list.contains("pub struct Slot(u64)")
+            && virtual_list.contains("pub enum Change {")
+            && virtual_list.contains("Insert {")
+            && virtual_list.contains("Remove {")
+            && virtual_list.contains("Replace {")
+            && virtual_list.contains("Move {")
+            && virtual_list.contains("fn membership_revision(&self) -> u64")
+            && virtual_list.contains("fn changes_since(&self, _revision: u64) -> Vec<Change>")
+            && virtual_list.contains("fn item_revision(&self, _index: usize) -> Option<u64>")
+            && virtual_list.contains("fn factory_revision(&self) -> Option<u64>")
+            && virtual_list.contains("fn setup(&self, _slot: Slot)")
+            && virtual_list.contains("fn bind(&self, _slot: Slot, index: usize) -> view::Node")
+            && virtual_list.contains("fn unbind(&self, _slot: Slot, _key: Key, _index: usize)")
+            && virtual_list.contains("fn teardown(&self, _slot: Slot)"),
+        "list membership, item revision, and factory lifecycle must remain one explicit list-owned contract"
+    );
+    assert!(
+        virtual_list.contains("active: HashMap<Key, BoundSlot>")
+            && virtual_list.contains("recycled: Vec<AvailableSlot>")
+            && virtual_list.contains("const MAX_RECYCLED_SLOTS: usize = 32")
+            && virtual_list
+                .contains("virtual-list providers must expose globally unique stable keys")
+            && virtual_list.contains("let departing = previous")
+            && virtual_list.contains("revision.is_none() || revision != self.factory_revision")
+            && virtual_list
+                .contains("keyed_slots_reuse_moves_rebind_revisions_and_teardown_exactly")
+            && virtual_list
+                .contains("duplicate_provider_keys_fail_instead_of_being_silently_deduplicated"),
+        "stable item identity and bounded recycled-slot identity must remain separate, with departures reusable before entrances bind"
+    );
+    assert!(
+        view_traversal.contains("model.reuse_slots_from(previous)")
+            && runtime_presentation.contains("view.materialize_virtual_lists(")
+            && !runtime_presentation.contains("struct Slots")
+            && table.contains("fn item_revision(&self, index: usize) -> Option<u64>")
+            && view_builder.contains("self.table_row = Some(row.at_index(index));")
+            && layout_scene.contains(
+                "an unchanged application-view rebuild must retain every bound list slot",
+            )
+            && layout_scene.contains(
+                "moving a stable row must update position metadata without rebinding its slot",
+            ),
+        "slot residency must stay below list ownership while table position projects independently from item rebinding"
+    );
 }
 
 #[test]

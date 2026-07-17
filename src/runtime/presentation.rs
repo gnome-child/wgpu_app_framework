@@ -1145,7 +1145,13 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .get(&window)
             .cloned()
             .unwrap_or_default();
-        view.materialize_virtual_lists(&virtual_materializations, &virtual_measurements);
+        view.materialize_virtual_lists(
+            &virtual_materializations,
+            &virtual_measurements,
+            self.composition
+                .get(window)
+                .map(|composition| composition.view()),
+        );
         let virtual_selections = self.session.virtual_selection_snapshot(window);
         view.project_virtual_selections(&virtual_selections);
         if let Some(interaction) = interaction.as_ref() {

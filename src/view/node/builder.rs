@@ -260,6 +260,11 @@ impl Node {
         key: crate::virtual_list::Key,
         index: usize,
     ) -> Self {
+        if let Some(row) = self.table_row {
+            debug_assert_eq!(row.table(), list);
+            debug_assert_eq!(row.key(), key);
+            self.table_row = Some(row.at_index(index));
+        }
         self.provided_row = Some(super::ProvidedRow { list, key, index });
         self
     }

@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ops::{Deref, Range},
     rc::Rc,
 };
@@ -15,10 +15,41 @@ const MAX_TRANSITION_MATERIALIZED_ROWS: usize = 80;
 const MAX_LEADING_RUNWAY_VIEWPORTS: usize = 2;
 const MIN_LEADING_RUNWAY_VIEWPORT_NUMERATOR: usize = 3;
 const MIN_LEADING_RUNWAY_VIEWPORT_DENOMINATOR: usize = 2;
+const MAX_RECYCLED_SLOTS: usize = 32;
 
 /// Stable logical identity supplied by a virtual-list provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Key(u64);
+
+/// Process-local identity for one recycled list presentation slot.
+///
+/// Item identity remains [`Key`] and position remains an index. A slot may be
+/// rebound to several items during its lifetime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Slot(u64);
+
+/// One observable membership mutation between provider revisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    Insert {
+        index: usize,
+        count: usize,
+    },
+    Remove {
+        index: usize,
+        count: usize,
+    },
+    Replace {
+        index: usize,
+        removed: usize,
+        added: usize,
+    },
+    Move {
+        from: usize,
+        to: usize,
+        count: usize,
+    },
+}
 
 /// Synchronous source for a flat, uniform-height virtual list.
 pub trait Provider {
@@ -26,6 +57,47 @@ pub trait Provider {
     fn key(&self, index: usize) -> Key;
     fn index_of(&self, key: Key) -> Option<usize>;
     fn row(&self, index: usize) -> view::Node;
+
+    /// Monotonic membership revision for insert/remove/replace/move events.
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    /// Ordered mutations after `revision`. A changed membership revision must
+    /// return at least one event that transforms the old length into the new.
+    fn changes_since(&self, _revision: u64) -> Vec<Change> {
+        Vec::new()
+    }
+
+    /// Revision of the content currently associated with one stable key.
+    ///
+    /// `None` is the conservative compatibility path and rebinds the item on
+    /// every application-view rebuild. `Some` enables unchanged-slot reuse.
+    fn item_revision(&self, _index: usize) -> Option<u64> {
+        None
+    }
+
+    /// Revision of slot setup/bind semantics across provider projections.
+    ///
+    /// `None` conservatively tears down slots before another projection uses
+    /// them. Equal `Some` revisions permit the recycled pool to survive.
+    fn factory_revision(&self) -> Option<u64> {
+        None
+    }
+
+    /// Allocates slot-local listeners or resources before the first bind.
+    fn setup(&self, _slot: Slot) {}
+
+    /// Projects one item into an already-setup presentation slot.
+    fn bind(&self, _slot: Slot, index: usize) -> view::Node {
+        self.row(index)
+    }
+
+    /// Releases every item-specific listener or resource installed by bind.
+    fn unbind(&self, _slot: Slot, _key: Key, _index: usize) {}
+
+    /// Releases slot-local state after its final unbind.
+    fn teardown(&self, _slot: Slot) {}
 
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -49,6 +121,7 @@ pub(crate) struct Model {
     provider: Rc<dyn Provider>,
     selectable: bool,
     prepared_runway: Option<Range<usize>>,
+    slots: Rc<RefCell<Slots>>,
 }
 
 #[derive(Clone)]
@@ -78,6 +151,37 @@ pub(crate) struct Request {
     range: Range<usize>,
     limit: usize,
     measurements: Option<Measurements>,
+}
+
+#[derive(Default)]
+struct Slots {
+    next: u64,
+    membership_revision: Option<u64>,
+    factory_revision: Option<u64>,
+    len: usize,
+    active: HashMap<Key, BoundSlot>,
+    recycled: Vec<AvailableSlot>,
+}
+
+struct AvailableSlot {
+    id: Slot,
+    setup_provider: Rc<dyn Provider>,
+}
+
+struct BoundSlot {
+    slot: AvailableSlot,
+    key: Key,
+    index: usize,
+    revision: Option<u64>,
+    node: view::Node,
+    binding_provider: Rc<dyn Provider>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DesiredItem {
+    key: Key,
+    index: usize,
+    revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +219,51 @@ impl Key {
 
     pub const fn value(self) -> u64 {
         self.0
+    }
+}
+
+impl Slot {
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+}
+
+impl Change {
+    fn next_len(self, len: usize) -> usize {
+        match self {
+            Self::Insert { index, count } => {
+                assert!(
+                    index <= len,
+                    "list insertion index exceeds the prior length"
+                );
+                len.saturating_add(count)
+            }
+            Self::Remove { index, count } => {
+                assert!(
+                    index.saturating_add(count) <= len,
+                    "list removal range exceeds the prior length"
+                );
+                len - count
+            }
+            Self::Replace {
+                index,
+                removed,
+                added,
+            } => {
+                assert!(
+                    index.saturating_add(removed) <= len,
+                    "list replacement range exceeds the prior length"
+                );
+                len.saturating_sub(removed).saturating_add(added)
+            }
+            Self::Move { from, to, count } => {
+                assert!(
+                    from.saturating_add(count) <= len && to <= len.saturating_sub(count),
+                    "list movement range exceeds the prior length"
+                );
+                len
+            }
+        }
     }
 }
 
@@ -222,6 +371,7 @@ impl Model {
             provider,
             selectable: false,
             prepared_runway: None,
+            slots: Rc::new(RefCell::new(Slots::default())),
         }
     }
 
@@ -233,6 +383,13 @@ impl Model {
             provider,
             selectable: false,
             prepared_runway: None,
+            slots: Rc::new(RefCell::new(Slots::default())),
+        }
+    }
+
+    pub(crate) fn reuse_slots_from(&mut self, previous: &Self) {
+        if self.id == previous.id {
+            self.slots = Rc::clone(&previous.slots);
         }
     }
 
@@ -418,28 +575,188 @@ impl Model {
         let end = requested.range.end.max(start).min(len);
         self.prepared_runway = requested.runway.then_some(start..end);
         let mut rows = (start..end)
-            .map(|index| (index, self.provider.key(index)))
+            .map(|index| self.desired_item(index))
             .collect::<Vec<_>>();
 
         for key in &requested.pins {
-            if rows.iter().any(|(_, row_key)| row_key == key) {
+            if rows.iter().any(|item| item.key == *key) {
                 continue;
             }
             if let Some(index) = self.provider.index_of(*key).filter(|index| *index < len) {
-                rows.push((index, *key));
+                let item = self.desired_item(index);
+                assert_eq!(
+                    item.key, *key,
+                    "provider index_of must round-trip every pinned stable key"
+                );
+                rows.push(item);
             }
         }
-        rows.sort_unstable_by_key(|(index, _)| *index);
+        rows.sort_unstable_by_key(|item| item.index);
 
         let mut unique = HashSet::with_capacity(rows.len());
-        rows.retain(|(_, key)| unique.insert(*key));
-        rows.into_iter()
-            .map(|(index, key)| {
-                self.provider
-                    .row(index)
-                    .with_provided_row(self.id, key, index)
-            })
-            .collect()
+        for item in &rows {
+            assert!(
+                unique.insert(item.key),
+                "virtual-list providers must expose globally unique stable keys"
+            );
+        }
+        self.slots
+            .borrow_mut()
+            .materialize(self.id, Rc::clone(&self.provider), rows)
+    }
+
+    fn desired_item(&self, index: usize) -> DesiredItem {
+        let key = self.provider.key(index);
+        assert_eq!(
+            self.provider.index_of(key),
+            Some(index),
+            "provider key and index_of must be an exact stable-identity inverse"
+        );
+        DesiredItem {
+            key,
+            index,
+            revision: self.provider.item_revision(index),
+        }
+    }
+}
+
+impl Slots {
+    fn materialize(
+        &mut self,
+        list: interaction::Id,
+        provider: Rc<dyn Provider>,
+        desired: Vec<DesiredItem>,
+    ) -> Vec<view::Node> {
+        self.observe_factory(provider.as_ref());
+        self.observe_membership(provider.as_ref());
+        let mut previous = std::mem::take(&mut self.active);
+        let mut active = HashMap::with_capacity(desired.len());
+        let mut nodes = Vec::with_capacity(desired.len());
+
+        let desired_keys = desired.iter().map(|item| item.key).collect::<HashSet<_>>();
+        let departing = previous
+            .keys()
+            .filter(|key| !desired_keys.contains(key))
+            .copied()
+            .collect::<Vec<_>>();
+        for key in departing {
+            let bound = previous
+                .remove(&key)
+                .expect("departing key came from the active slot set");
+            bound
+                .binding_provider
+                .unbind(bound.slot.id, bound.key, bound.index);
+            self.recycled.push(bound.slot);
+        }
+
+        for item in desired {
+            let bound = if let Some(mut bound) = previous.remove(&item.key) {
+                if bound.revision.is_some() && bound.revision == item.revision {
+                    bound.index = item.index;
+                    bound
+                } else {
+                    bound
+                        .binding_provider
+                        .unbind(bound.slot.id, bound.key, bound.index);
+                    Self::bind(bound.slot, Rc::clone(&provider), item)
+                }
+            } else {
+                let slot = self.recycled.pop().unwrap_or_else(|| {
+                    self.next = self.next.saturating_add(1).max(1);
+                    let id = Slot(self.next);
+                    provider.setup(id);
+                    AvailableSlot {
+                        id,
+                        setup_provider: Rc::clone(&provider),
+                    }
+                });
+                Self::bind(slot, Rc::clone(&provider), item)
+            };
+            nodes.push(
+                bound
+                    .node
+                    .clone()
+                    .with_provided_row(list, bound.key, bound.index),
+            );
+            active.insert(bound.key, bound);
+        }
+
+        debug_assert!(previous.is_empty());
+        while self.recycled.len() > MAX_RECYCLED_SLOTS {
+            if let Some(slot) = self.recycled.pop() {
+                slot.setup_provider.teardown(slot.id);
+            }
+        }
+        self.active = active;
+        nodes
+    }
+
+    fn bind(slot: AvailableSlot, provider: Rc<dyn Provider>, item: DesiredItem) -> BoundSlot {
+        let node = provider.bind(slot.id, item.index);
+        BoundSlot {
+            slot,
+            key: item.key,
+            index: item.index,
+            revision: item.revision,
+            node,
+            binding_provider: provider,
+        }
+    }
+
+    fn observe_membership(&mut self, provider: &dyn Provider) {
+        let revision = provider.membership_revision();
+        if let Some(previous) = self.membership_revision
+            && revision != previous
+        {
+            let changes = provider.changes_since(previous);
+            assert!(
+                !changes.is_empty(),
+                "a changed list membership revision must describe its mutations"
+            );
+            let resolved_len = changes
+                .into_iter()
+                .fold(self.len, |len, change| change.next_len(len));
+            assert_eq!(
+                resolved_len,
+                provider.len(),
+                "list membership mutations must transform the prior length into the current length"
+            );
+        }
+        self.membership_revision = Some(revision);
+        self.len = provider.len();
+    }
+
+    fn observe_factory(&mut self, provider: &dyn Provider) {
+        let revision = provider.factory_revision();
+        if (!self.active.is_empty() || !self.recycled.is_empty())
+            && (revision.is_none() || revision != self.factory_revision)
+        {
+            self.retire();
+        }
+        self.factory_revision = revision;
+    }
+
+    fn retire(&mut self) {
+        for (_, bound) in self.active.drain() {
+            bound
+                .binding_provider
+                .unbind(bound.slot.id, bound.key, bound.index);
+            bound.slot.setup_provider.teardown(bound.slot.id);
+        }
+        for slot in self.recycled.drain(..) {
+            slot.setup_provider.teardown(slot.id);
+        }
+    }
+
+    #[cfg(test)]
+    fn slot_for(&self, key: Key) -> Option<Slot> {
+        self.active.get(&key).map(|bound| bound.slot.id)
+    }
+}
+
+impl Drop for Slots {
+    fn drop(&mut self) {
+        self.retire();
     }
 }
 
@@ -559,6 +876,168 @@ impl Request {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct LifecycleLog {
+        setup: Vec<Slot>,
+        bind: Vec<(Slot, Key, usize)>,
+        unbind: Vec<(Slot, Key, usize)>,
+        teardown: Vec<Slot>,
+    }
+
+    struct MutableState {
+        keys: Vec<Key>,
+        item_revisions: HashMap<Key, u64>,
+        membership_revision: u64,
+        factory_revision: u64,
+        changes: Vec<(u64, Change)>,
+    }
+
+    #[derive(Clone)]
+    struct LifecycleRows {
+        state: Rc<RefCell<MutableState>>,
+        log: Rc<RefCell<LifecycleLog>>,
+    }
+
+    impl LifecycleRows {
+        fn new(keys: impl IntoIterator<Item = u64>) -> Self {
+            let keys = keys.into_iter().map(Key::new).collect::<Vec<_>>();
+            let item_revisions = keys.iter().map(|key| (*key, 0)).collect();
+            Self {
+                state: Rc::new(RefCell::new(MutableState {
+                    keys,
+                    item_revisions,
+                    membership_revision: 0,
+                    factory_revision: 0,
+                    changes: Vec::new(),
+                })),
+                log: Rc::new(RefCell::new(LifecycleLog::default())),
+            }
+        }
+
+        fn move_item(&self, from: usize, to: usize) {
+            let mut state = self.state.borrow_mut();
+            let key = state.keys.remove(from);
+            state.keys.insert(to, key);
+            state.membership_revision += 1;
+            let revision = state.membership_revision;
+            state
+                .changes
+                .push((revision, Change::Move { from, to, count: 1 }));
+        }
+
+        fn revise(&self, key: Key) {
+            let mut state = self.state.borrow_mut();
+            *state.item_revisions.get_mut(&key).expect("known key") += 1;
+        }
+
+        fn replace(&self, index: usize, key: Key) {
+            let mut state = self.state.borrow_mut();
+            let previous = std::mem::replace(&mut state.keys[index], key);
+            state.item_revisions.remove(&previous);
+            state.item_revisions.insert(key, 0);
+            state.membership_revision += 1;
+            let revision = state.membership_revision;
+            state.changes.push((
+                revision,
+                Change::Replace {
+                    index,
+                    removed: 1,
+                    added: 1,
+                },
+            ));
+        }
+
+        fn remove(&self, index: usize) {
+            let mut state = self.state.borrow_mut();
+            let key = state.keys.remove(index);
+            state.item_revisions.remove(&key);
+            state.membership_revision += 1;
+            let revision = state.membership_revision;
+            state
+                .changes
+                .push((revision, Change::Remove { index, count: 1 }));
+        }
+
+        fn insert(&self, index: usize, key: Key) {
+            let mut state = self.state.borrow_mut();
+            state.keys.insert(index, key);
+            state.item_revisions.insert(key, 0);
+            state.membership_revision += 1;
+            let revision = state.membership_revision;
+            state
+                .changes
+                .push((revision, Change::Insert { index, count: 1 }));
+        }
+
+        fn replace_factory(&self) {
+            self.state.borrow_mut().factory_revision += 1;
+        }
+    }
+
+    impl Provider for LifecycleRows {
+        fn len(&self) -> usize {
+            self.state.borrow().keys.len()
+        }
+
+        fn key(&self, index: usize) -> Key {
+            self.state.borrow().keys[index]
+        }
+
+        fn index_of(&self, key: Key) -> Option<usize> {
+            self.state
+                .borrow()
+                .keys
+                .iter()
+                .position(|candidate| *candidate == key)
+        }
+
+        fn row(&self, index: usize) -> view::Node {
+            view::Node::label(format!("row {}", self.key(index).value()))
+        }
+
+        fn membership_revision(&self) -> u64 {
+            self.state.borrow().membership_revision
+        }
+
+        fn changes_since(&self, revision: u64) -> Vec<Change> {
+            self.state
+                .borrow()
+                .changes
+                .iter()
+                .filter_map(|(current, change)| (*current > revision).then_some(*change))
+                .collect()
+        }
+
+        fn item_revision(&self, index: usize) -> Option<u64> {
+            let state = self.state.borrow();
+            state.item_revisions.get(&state.keys[index]).copied()
+        }
+
+        fn factory_revision(&self) -> Option<u64> {
+            Some(self.state.borrow().factory_revision)
+        }
+
+        fn setup(&self, slot: Slot) {
+            self.log.borrow_mut().setup.push(slot);
+        }
+
+        fn bind(&self, slot: Slot, index: usize) -> view::Node {
+            self.log
+                .borrow_mut()
+                .bind
+                .push((slot, self.key(index), index));
+            self.row(index)
+        }
+
+        fn unbind(&self, slot: Slot, key: Key, index: usize) {
+            self.log.borrow_mut().unbind.push((slot, key, index));
+        }
+
+        fn teardown(&self, slot: Slot) {
+            self.log.borrow_mut().teardown.push(slot);
+        }
+    }
+
     struct Rows(usize);
 
     impl Provider for Rows {
@@ -578,6 +1057,171 @@ mod tests {
         fn row(&self, _index: usize) -> view::Node {
             view::Node::root()
         }
+    }
+
+    fn lifecycle_model(provider: &Rc<LifecycleRows>) -> Model {
+        let provider: Rc<dyn Provider> = provider.clone();
+        Model::new(interaction::Id::new("lifecycle.rows"), 20, provider)
+    }
+
+    fn rebuild_lifecycle_model(previous: &Model, provider: &Rc<LifecycleRows>) -> Model {
+        let mut next = lifecycle_model(provider);
+        next.reuse_slots_from(previous);
+        next
+    }
+
+    #[test]
+    fn keyed_slots_reuse_moves_rebind_revisions_and_teardown_exactly() {
+        let provider = Rc::new(LifecycleRows::new(0..4));
+        let mut model = lifecycle_model(&provider);
+        let initial = Materialization::new(0..3, Vec::new());
+        let rows = model.materialize(&initial, None);
+        assert_eq!(provider.log.borrow().setup.len(), 3);
+        assert_eq!(provider.log.borrow().bind.len(), 3);
+        let first_slots = [Key::new(0), Key::new(1), Key::new(2)]
+            .map(|key| model.slots.borrow().slot_for(key).expect("bound slot"));
+        assert_eq!(
+            rows.iter()
+                .map(|row| row.provided_row().expect("provided row").key())
+                .collect::<Vec<_>>(),
+            vec![Key::new(0), Key::new(1), Key::new(2)]
+        );
+
+        let mut next = rebuild_lifecycle_model(&model, &provider);
+        drop(model);
+        next.materialize(&Materialization::new(1..4, Vec::new()), None);
+        assert_eq!(provider.log.borrow().setup.len(), 3);
+        assert_eq!(provider.log.borrow().bind.len(), 4);
+        assert_eq!(provider.log.borrow().unbind.len(), 1);
+        assert_eq!(
+            next.slots.borrow().slot_for(Key::new(1)),
+            Some(first_slots[1])
+        );
+        assert_eq!(
+            next.slots.borrow().slot_for(Key::new(2)),
+            Some(first_slots[2])
+        );
+        assert_eq!(
+            next.slots.borrow().slot_for(Key::new(3)),
+            Some(first_slots[0])
+        );
+
+        let mut full = rebuild_lifecycle_model(&next, &provider);
+        drop(next);
+        full.materialize(&Materialization::new(0..4, Vec::new()), None);
+        let slots_before_move = (0..4)
+            .map(Key::new)
+            .map(|key| (key, full.slots.borrow().slot_for(key).unwrap()))
+            .collect::<HashMap<_, _>>();
+        let binds_before_move = provider.log.borrow().bind.len();
+        let unbinds_before_move = provider.log.borrow().unbind.len();
+
+        provider.move_item(3, 0);
+        let mut moved = rebuild_lifecycle_model(&full, &provider);
+        drop(full);
+        let moved_rows = moved.materialize(&Materialization::new(0..4, Vec::new()), None);
+        assert_eq!(provider.log.borrow().bind.len(), binds_before_move);
+        assert_eq!(provider.log.borrow().unbind.len(), unbinds_before_move);
+        for key in (0..4).map(Key::new) {
+            assert_eq!(
+                moved.slots.borrow().slot_for(key),
+                Some(slots_before_move[&key])
+            );
+        }
+        assert_eq!(
+            moved_rows
+                .iter()
+                .map(|row| row.provided_row().unwrap().key())
+                .collect::<Vec<_>>(),
+            vec![Key::new(3), Key::new(0), Key::new(1), Key::new(2)]
+        );
+
+        provider.revise(Key::new(1));
+        let slot_one = moved.slots.borrow().slot_for(Key::new(1)).unwrap();
+        let mut revised = rebuild_lifecycle_model(&moved, &provider);
+        drop(moved);
+        revised.materialize(&Materialization::new(0..4, Vec::new()), None);
+        assert_eq!(provider.log.borrow().bind.len(), binds_before_move + 1);
+        assert_eq!(provider.log.borrow().unbind.len(), unbinds_before_move + 1);
+        assert_eq!(revised.slots.borrow().slot_for(Key::new(1)), Some(slot_one));
+
+        provider.replace(3, Key::new(9));
+        let replaced_slot = revised.slots.borrow().slot_for(Key::new(2)).unwrap();
+        let mut replaced = rebuild_lifecycle_model(&revised, &provider);
+        drop(revised);
+        replaced.materialize(&Materialization::new(0..4, Vec::new()), None);
+        assert_eq!(
+            replaced.slots.borrow().slot_for(Key::new(9)),
+            Some(replaced_slot)
+        );
+
+        let removed_slot = replaced.slots.borrow().slot_for(Key::new(0)).unwrap();
+        provider.remove(1);
+        let mut removed = rebuild_lifecycle_model(&replaced, &provider);
+        drop(replaced);
+        removed.materialize(&Materialization::new(0..3, Vec::new()), None);
+        assert!(removed.slots.borrow().slot_for(Key::new(0)).is_none());
+
+        provider.insert(1, Key::new(8));
+        let mut inserted = rebuild_lifecycle_model(&removed, &provider);
+        drop(removed);
+        inserted.materialize(&Materialization::new(0..4, Vec::new()), None);
+        assert_eq!(
+            inserted.slots.borrow().slot_for(Key::new(8)),
+            Some(removed_slot)
+        );
+
+        let old_slot = inserted.slots.borrow().slot_for(Key::new(3)).unwrap();
+        provider.replace_factory();
+        let mut refactored = rebuild_lifecycle_model(&inserted, &provider);
+        drop(inserted);
+        refactored.materialize(&Materialization::new(0..4, Vec::new()), None);
+        assert_ne!(
+            refactored.slots.borrow().slot_for(Key::new(3)),
+            Some(old_slot),
+            "a changed factory must setup a new slot instead of reusing incompatible state"
+        );
+        drop(refactored);
+        let log = provider.log.borrow();
+        assert_eq!(log.setup.len(), 8);
+        assert_eq!(log.teardown.len(), 8);
+        assert_eq!(log.bind.len(), 12);
+        assert_eq!(log.unbind.len(), 12);
+    }
+
+    struct DuplicateRows;
+
+    impl Provider for DuplicateRows {
+        fn len(&self) -> usize {
+            2
+        }
+
+        fn key(&self, _index: usize) -> Key {
+            Key::new(1)
+        }
+
+        fn index_of(&self, _key: Key) -> Option<usize> {
+            Some(0)
+        }
+
+        fn row(&self, _index: usize) -> view::Node {
+            view::Node::root()
+        }
+
+        fn item_revision(&self, _index: usize) -> Option<u64> {
+            Some(0)
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "exact stable-identity inverse")]
+    fn duplicate_provider_keys_fail_instead_of_being_silently_deduplicated() {
+        let mut model = Model::new(
+            interaction::Id::new("duplicate.rows"),
+            20,
+            Rc::new(DuplicateRows),
+        );
+        model.materialize(&Materialization::new(0..2, Vec::new()), None);
     }
 
     #[test]
