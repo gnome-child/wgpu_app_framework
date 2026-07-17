@@ -587,7 +587,52 @@ does not settle public names. Warm transform-only presentation, private residenc
 coalescing, selected-front retirement, and zero-view-rebuild scheduling are the
 first unmet exit and belong to SE-007.
 
-## 12. Resume protocol
+## 12. SE-007 entry evidence: stranded resident row interval
+
+The user reproduced a second list-specific failure after the SE-006 lifecycle
+work. Drag-to-scroll initially advances, then visible table motion becomes
+confined to an approximately 22-row interval. Reaching one end and continuing
+to scroll leaves the pixels stuck; later input can move the view back toward the
+other end of the same interval. Clicking inside the table installs a different
+approximately 22-row interval, after which the same behavior repeats. The user's
+working interpretation is that adjustment/input continues while only one stale
+resident coverage window remains presentable. This is the primary SE-007
+freeze/liveness witness, not a reason to reopen the clean large-text path.
+
+The corresponding native receipt is
+`control-gallery-500px-idle-1784307153888.txt`, captured at 240 Hz on the same
+Windows/DX12 RTX 4070 Ti SUPER environment as SE-000. The generated file remains
+under ignored `target/release/examples/renderer-receipts/`; the following facts
+are the durable record:
+
+- 3,880 scroll input events produced 3,824 desired changes, but only 185 resident
+  acceptances/property ticks and 3,639 needs-residency outcomes;
+- maximum desired/resident vertical lag reached 12,763,262 logical pixels;
+- the scheduler recorded 80 candidate schedules, 3,679 coalesced requests, 244
+  selected candidates, 164 follow-ups, 29 supersessions/proactive preemptions,
+  six cancelled pipelines, and only six virtual guard crossings/replenishment
+  commits;
+- virtual residency reported zero formal rejections and no last issue, while the
+  final candidate/attempted/GPU-submitted/present-submitted property serials all
+  converged at 735;
+- retained traces repeatedly show the table target still producing
+  needs-residency while resident y remains near 12,735,755 and desired y changes;
+  several later candidates reuse property serials 698 or 706 with zero layout,
+  scene-paint, preparation, or content-upload work; and
+- acquire p95 was 37 us, whereas view-rebuild p95 was 4,421 us and presentation-
+  layout p95 was 22,517 us. Surface acquisition is not the observed freeze
+  boundary.
+
+The converged final serials mean the receipt does not describe a permanently
+unretired final frame. It does expose an intermediate liveness defect: thousands
+of newest desired values are coalesced behind a small number of resident-window
+updates, and a semantic click can refresh coverage that scrolling alone does not.
+SE-007 must turn this observation into a deterministic witness over selected-front
+retirement, latest-intent continuation, and resident-range advancement. It must
+also prove that a warm transform-only tick performs no application-view rebuild;
+the click may not remain an accidental recovery mechanism.
+
+## 13. Resume protocol
 
 At every task entrance and after every context compaction:
 
