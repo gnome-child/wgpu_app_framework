@@ -28,11 +28,11 @@ pub(crate) enum Action {
     #[allow(dead_code)]
     Scroll {
         target: interaction::Target,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     },
     ScrollTo {
         target: interaction::Target,
-        offset: interaction::ScrollOffset,
+        offset: interaction::Offset,
         axis: interaction::ScrollbarAxis,
     },
     ToggleMenu(interaction::Menu),
@@ -115,13 +115,13 @@ impl Action {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn scroll(target: interaction::Target, delta: interaction::ScrollDelta) -> Self {
+    pub(crate) fn scroll(target: interaction::Target, delta: interaction::Delta) -> Self {
         Self::Scroll { target, delta }
     }
 
     pub(crate) fn scroll_to(
         target: interaction::Target,
-        offset: interaction::ScrollOffset,
+        offset: interaction::Offset,
         axis: interaction::ScrollbarAxis,
     ) -> Self {
         Self::ScrollTo {

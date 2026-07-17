@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{Key, Materialization, Provider};
+use super::{Key, Materialization, Model};
 
 /// Sparse cumulative-height projection for the variable virtual-list path.
 /// Unseen rows retain one arithmetic estimate; only measured stable keys are
@@ -45,7 +45,7 @@ impl Region {
         }
     }
 
-    pub(crate) fn reconcile(&mut self, provider: &dyn Provider) {
+    pub(crate) fn reconcile(&mut self, provider: &dyn Model) {
         self.len = provider.len();
         self.measured.retain(|key, _| {
             provider
@@ -68,7 +68,7 @@ impl Region {
         viewport_height: i32,
         overscan: usize,
         pins: Vec<Key>,
-        provider: &dyn Provider,
+        provider: &dyn Model,
     ) -> Materialization {
         self.reconcile(provider);
         self.resolved_offset = (offset.max(0) as i64).min(self.max_offset());
@@ -104,7 +104,7 @@ impl Region {
     pub(crate) fn refine(
         &mut self,
         measurements: impl IntoIterator<Item = (Key, i32)>,
-        provider: &dyn Provider,
+        provider: &dyn Model,
     ) -> i32 {
         for (key, height) in measurements {
             if provider.index_of(key).is_some() {
@@ -116,7 +116,7 @@ impl Region {
     }
 
     /// Width is the measurement-generation token for wrapping content.
-    pub(crate) fn set_width(&mut self, width: i32, provider: &dyn Provider) -> i32 {
+    pub(crate) fn set_width(&mut self, width: i32, provider: &dyn Model) -> i32 {
         let width = width.max(0);
         if self.width == Some(width) {
             return self.resolved_offset();
@@ -156,7 +156,7 @@ impl Region {
         self.measured.len()
     }
 
-    fn restore_anchor(&mut self, provider: &dyn Provider) -> i32 {
+    fn restore_anchor(&mut self, provider: &dyn Model) -> i32 {
         let Some(anchor) = self.anchor else {
             self.resolved_offset = self.resolved_offset.clamp(0, self.max_offset());
             return self.resolved_offset();
@@ -178,7 +178,7 @@ impl Region {
         self.resolved_offset()
     }
 
-    fn rebuild(&mut self, provider: &dyn Provider) {
+    fn rebuild(&mut self, provider: &dyn Model) {
         self.ordered = self
             .measured
             .iter()
@@ -239,7 +239,6 @@ mod tests {
     use std::{cell::Cell, rc::Rc};
 
     use super::*;
-    use crate::view;
 
     struct Records {
         keys: Vec<Key>,
@@ -255,7 +254,7 @@ mod tests {
         }
     }
 
-    impl Provider for Records {
+    impl Model for Records {
         fn len(&self) -> usize {
             self.keys.len()
         }
@@ -270,8 +269,16 @@ mod tests {
             self.keys.iter().position(|candidate| *candidate == key)
         }
 
-        fn row(&self, index: usize) -> view::Node {
-            view::Node::label(index.to_string())
+        fn membership_revision(&self) -> u64 {
+            0
+        }
+
+        fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+            Vec::new()
+        }
+
+        fn item_revision(&self, _index: usize) -> u64 {
+            0
         }
     }
 

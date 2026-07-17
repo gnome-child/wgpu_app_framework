@@ -138,7 +138,7 @@ impl Node {
     }
 
     #[cfg(test)]
-    pub(crate) fn scroll_action(&self, delta: interaction::ScrollDelta) -> Option<Action> {
+    pub(crate) fn scroll_action(&self, delta: interaction::Delta) -> Option<Action> {
         Some(Action::scroll(self.pointer_target()?, delta))
     }
 

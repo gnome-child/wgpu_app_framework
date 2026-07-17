@@ -452,15 +452,27 @@ parallel optional keys.
 
 Provided containers derive a bounded public child composition from application
 data rather than requiring the application to declare every logical child.
-`virtual_list::Provider` is the first species: it supplies a logical length,
-stable `virtual_list::Key`, efficient reverse lookup, and an ordinary public
-`view::Node` for a requested row. Provider keys extend retained sibling
-reconciliation; they do not create a second identity runtime. Layout derives a
-bounded requested range from the existing viewport and retained measurements.
-`virtual_list::Materialization` owns the requested rows plus pins, while scene
-residency owns only their renderer-independent drawable realization. Entering
-or leaving the materialized window is cache residency, not semantic node birth
-or removal and not an application-content revision.
+`list::Model` supplies logical length, stable `list::Key`, efficient reverse
+lookup, ordered membership changes, and per-item revisions. `list::Factory`
+separately owns recycled-slot setup, binding, unbinding, and teardown and returns
+an ordinary public `view::Node` for each bound index. `List::new` receives the
+model and factory separately. Model keys extend retained sibling reconciliation;
+they do not create a second identity runtime. Layout derives a bounded requested
+range from the existing viewport and retained measurements. Private list
+materialization owns the requested rows plus pins, while scene residency owns
+only their renderer-independent drawable realization. Entering or leaving the
+materialized window is cache residency, not semantic node birth or removal and
+not an application-content revision.
+
+`scroll::Scroll` is the eager viewport adapter for arbitrary widget content.
+`scroll::Configuration` authors independent axis policy, overlay or consuming
+presentation, minimum or natural sizing, and direction; `List`, `TextArea`, and
+`Table` accept the same configuration while retaining native layout. Public
+`scroll::Offset` and `scroll::Delta` name application-visible coordinates and
+motion. Axis adjustment, sessions, handoff, viewport geometry, and residency
+remain internal because applications cannot implement a native scroller without
+private layout and presentation contracts. There is therefore no public
+`Scrollable`, `Adjustment`, virtualization plan, or compatibility alias.
 
 A resolved virtual-list frame owns viewport geometry and its materialization
 request as one optional layout fact. The pair is installed atomically; neither
@@ -487,7 +499,7 @@ capture so stale menu focus cannot outrank live focus after the surface is
 gone.
 
 `Table` is the record-table species of provided container. It composes one
-ordinary sticky header with one selectable `VirtualList`; its provider returns
+ordinary sticky header with one selectable `List`; its provider returns
 ordinary public cell nodes, so buttons, choices, labels, overflow, focus, and
 commands keep their existing owners. A `table::Column` supplies a stable column
 id and either fixed or weighted width. The shared horizontal flow allocator
@@ -1380,7 +1392,7 @@ focus before installing its surface; command resolution and later restoration
 must not independently reconstruct subsets of the ladder.
 
 Provided-list selection is window-local interaction state keyed by list id and
-`virtual_list::Key`; it is not application data, does not dirty documents, and
+`list::Key`; it is not application data, does not dirty documents, and
 does not enter application history. `selection::Selection` exposes read-only
 membership, anchor, and active facts through `Session`. Plain pointer input
 replaces membership, Primary-click toggles, Shift extends from the stable

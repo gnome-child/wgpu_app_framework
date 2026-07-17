@@ -7,21 +7,39 @@ fn successful_render_report() -> diagnostics::RenderReport {
 #[derive(Clone, Copy)]
 struct IndependentRows(&'static str);
 
-impl crate::virtual_list::Provider for IndependentRows {
+impl crate::list::Model for IndependentRows {
     fn len(&self) -> usize {
         1_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for IndependentRows {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         view::Node::label(format!("{} row {index}", self.0))
     }
 }
@@ -192,7 +210,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == interaction::Id::new("detail")
             })
         })
@@ -223,7 +241,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
     assert!(!std::sync::Arc::ptr_eq(&active_commit, &candidate_commit));
     drop(candidate);
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(24))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(24))
         .expect("guard-contained scroll should be accepted while the candidate is pending");
     let ticked_candidate = app
         .render_scene(window, size)
@@ -240,7 +258,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
         .nodes()
         .iter()
         .find(|node| {
-            node.declares(scene::PropertyKind::ScrollOffset)
+            node.declares(scene::PropertyKind::Offset)
                 && ticked_candidate.properties().scroll_offset(node.id())
                     != active_properties.scroll_offset(node.id())
         })
@@ -253,7 +271,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
     assert!(changed);
     assert_eq!(
         projected.scroll_offset(scroll_node),
-        Some(interaction::ScrollOffset::new(0, 24))
+        Some(interaction::Offset::new(0, 24))
     );
 
     let projected_stack = std::sync::Arc::new(active_stack.with_base_properties(projected));
@@ -275,7 +293,7 @@ fn active_property_refresh_advances_visible_input_without_activating_pending_str
     assert_eq!(
         app.presented_properties(window)
             .and_then(|properties| properties.scroll_offset(scroll_node)),
-        Some(interaction::ScrollOffset::new(0, 24)),
+        Some(interaction::Offset::new(0, 24)),
         "successful active refresh must become the sole visible input transform"
     );
     assert_eq!(
@@ -384,13 +402,13 @@ fn generation_state_case_residency_race_advances_residency_without_a_semantic_co
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == interaction::Id::new("detail")
             })
         })
         .expect("gallery should materialize the stable scroll witness cell");
     let point = geometry::Point::new(table_cell.rect().x() + 1, table_cell.rect().y() + 1);
-    let delta = interaction::ScrollDelta::vertical(24);
+    let delta = interaction::Delta::vertical(24);
     let target = active
         .layout()
         .scroll_target_at(point, delta)
@@ -410,7 +428,7 @@ fn generation_state_case_residency_race_advances_residency_without_a_semantic_co
         .expect("initial presentation diagnostics")
         .render
         .semantic_commits_activated;
-    let mut admitted = interaction::ScrollOffset::default();
+    let mut admitted = interaction::Offset::default();
 
     let mut replenished = None;
     for _ in 0..128 {
@@ -524,7 +542,7 @@ fn generation_state_case_residency_race_advances_residency_without_a_semantic_co
         "the admitted interval must keep resident pixels across the table viewport bottom"
     );
     if maximum.y() < viewport.max_scroll().y() {
-        let beyond = interaction::ScrollOffset::new(maximum.x(), maximum.y().saturating_add(1));
+        let beyond = interaction::Offset::new(maximum.x(), maximum.y().saturating_add(1));
         assert!(
             !replenished
                 .layout()
@@ -569,14 +587,20 @@ fn one_scroll_residency_can_advance_while_an_independent_one_stays_reusable() {
             widget::view(|ui| {
                 ui.row(|ui| {
                     ui.add(
-                        crate::VirtualList::new("independent.first", 20, IndependentRows("first"))
-                            .width(view::Dimension::fixed(180))
-                            .height(view::Dimension::fixed(120)),
+                        crate::List::new(
+                            "independent.first",
+                            20,
+                            IndependentRows("first"),
+                            IndependentRows("first"),
+                        )
+                        .width(view::Dimension::fixed(180))
+                        .height(view::Dimension::fixed(120)),
                     );
                     ui.add(
-                        crate::VirtualList::new(
+                        crate::List::new(
                             "independent.second",
                             20,
+                            IndependentRows("second"),
                             IndependentRows("second"),
                         )
                         .width(view::Dimension::fixed(180))
@@ -611,13 +635,8 @@ fn one_scroll_residency_can_advance_while_an_independent_one_stays_reusable() {
 
     let mut replenished = None;
     for _ in 0..64 {
-        app.scroll_at(
-            window,
-            size,
-            second_point,
-            interaction::ScrollDelta::vertical(20),
-        )
-        .expect("second list should scroll");
+        app.scroll_at(window, size, second_point, interaction::Delta::vertical(20))
+            .expect("second list should scroll");
         let candidate = app
             .render_scene(window, size)
             .expect("second list should always prepare complete pixels");

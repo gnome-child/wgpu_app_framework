@@ -177,7 +177,7 @@ pub(crate) enum ContentProjection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum PropertyKind {
     Transform,
-    ScrollOffset,
+    Offset,
     Opacity,
     Clip,
     Blur,
@@ -237,9 +237,9 @@ pub(crate) enum PropertyValue {
         node: composition::tree::NodeId,
         value: Transform,
     },
-    ScrollOffset {
+    Offset {
         node: composition::tree::NodeId,
-        value: interaction::ScrollOffset,
+        value: interaction::Offset,
     },
     Opacity {
         node: composition::tree::NodeId,
@@ -299,8 +299,8 @@ pub(crate) struct ScrollDeclaration {
     viewport: geometry::Rect,
     content_bounds: geometry::Rect,
     resident_bounds: geometry::Rect,
-    baseline: interaction::ScrollOffset,
-    maximum: interaction::ScrollOffset,
+    baseline: interaction::Offset,
+    maximum: interaction::Offset,
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -789,7 +789,7 @@ impl ContentProjection {
         }
     }
 
-    pub(crate) fn scrollbar_position(self, offset: interaction::ScrollOffset) -> Option<i32> {
+    pub(crate) fn scrollbar_position(self, offset: interaction::Offset) -> Option<i32> {
         let Self::ScrollbarThumb {
             axis,
             travel,
@@ -952,8 +952,8 @@ impl Builder {
             return;
         };
         let node = &mut self.nodes[index];
-        if !node.properties.contains(&PropertyKind::ScrollOffset) {
-            node.properties.push(PropertyKind::ScrollOffset);
+        if !node.properties.contains(&PropertyKind::Offset) {
+            node.properties.push(PropertyKind::Offset);
         }
         node.scroll = Some(declaration);
         node.scroll_target = Some(super::spatial::ScrollTarget::Interaction(target));
@@ -1557,8 +1557,8 @@ impl Properties {
         current: &Self,
         mut project_scroll: impl FnMut(
             composition::tree::NodeId,
-            interaction::ScrollOffset,
-        ) -> interaction::ScrollOffset,
+            interaction::Offset,
+        ) -> interaction::Offset,
     ) -> Result<(Self, bool), ContractError> {
         current.require_compatible(commit)?;
         let values = commit
@@ -1567,12 +1567,10 @@ impl Properties {
             .filter_map(|property| {
                 self.value(*property)
                     .map(|value| match value {
-                        PropertyValue::ScrollOffset { node, value } => {
-                            PropertyValue::ScrollOffset {
-                                node,
-                                value: project_scroll(node, value),
-                            }
-                        }
+                        PropertyValue::Offset { node, value } => PropertyValue::Offset {
+                            node,
+                            value: project_scroll(node, value),
+                        },
                         value => value,
                     })
                     .filter(|value| value.is_valid(commit) && value.is_projectable_onto(commit))
@@ -1605,7 +1603,7 @@ impl Properties {
 
         for property in commit.property_topology.iter().copied() {
             let candidate = self.value(property);
-            let value = if property.kind == PropertyKind::ScrollOffset {
+            let value = if property.kind == PropertyKind::Offset {
                 let value = candidate.ok_or(ContractError::MissingValue(property))?;
                 if !value.is_valid(commit) || !value.is_projectable_onto(commit) {
                     return Err(ContractError::InvalidValue(property));
@@ -1642,7 +1640,7 @@ impl Properties {
         let mut values = Vec::with_capacity(commit.property_topology.len());
 
         for property in commit.property_topology.iter().copied() {
-            let value = if property.kind == PropertyKind::ScrollOffset {
+            let value = if property.kind == PropertyKind::Offset {
                 match self.value(property) {
                     Some(value) if value.is_valid(commit) && value.is_projectable_onto(commit) => {
                         value
@@ -1703,9 +1701,9 @@ impl Properties {
     pub(crate) fn scroll_offset(
         &self,
         node: composition::tree::NodeId,
-    ) -> Option<interaction::ScrollOffset> {
-        match self.value(PropertyRef::new(node, PropertyKind::ScrollOffset)) {
-            Some(PropertyValue::ScrollOffset { value, .. }) => Some(value),
+    ) -> Option<interaction::Offset> {
+        match self.value(PropertyRef::new(node, PropertyKind::Offset)) {
+            Some(PropertyValue::Offset { value, .. }) => Some(value),
             _ => None,
         }
     }
@@ -1752,7 +1750,7 @@ impl PropertyValue {
     pub(crate) const fn property_ref(self) -> PropertyRef {
         match self {
             Self::Transform { node, .. } => PropertyRef::new(node, PropertyKind::Transform),
-            Self::ScrollOffset { node, .. } => PropertyRef::new(node, PropertyKind::ScrollOffset),
+            Self::Offset { node, .. } => PropertyRef::new(node, PropertyKind::Offset),
             Self::Opacity { node, .. } => PropertyRef::new(node, PropertyKind::Opacity),
             Self::Clip { node, .. } => PropertyRef::new(node, PropertyKind::Clip),
             Self::Blur { node, .. } => PropertyRef::new(node, PropertyKind::Blur),
@@ -1776,9 +1774,7 @@ impl PropertyValue {
                     && value.scale_x().is_finite()
                     && value.scale_y().is_finite()
             }
-            Self::ScrollOffset { value, .. } => {
-                node.scroll.is_some_and(|scroll| scroll.accepts(value))
-            }
+            Self::Offset { value, .. } => node.scroll.is_some_and(|scroll| scroll.accepts(value)),
             Self::Opacity { value, .. } => value.is_finite() && (0.0..=1.0).contains(&value),
             Self::Clip { rect, .. } => rect_is_within(rect, node.local_bounds),
             Self::Blur { sigma, .. } => match node.effect {
@@ -1817,7 +1813,7 @@ impl PropertyValue {
     }
 
     fn is_projectable_onto(self, commit: &Commit) -> bool {
-        let Self::ScrollOffset { node, value } = self else {
+        let Self::Offset { node, value } = self else {
             return true;
         };
         commit
@@ -1857,8 +1853,8 @@ impl ScrollDeclaration {
         viewport: geometry::Rect,
         content_bounds: geometry::Rect,
         resident_bounds: geometry::Rect,
-        baseline: interaction::ScrollOffset,
-        maximum: interaction::ScrollOffset,
+        baseline: interaction::Offset,
+        maximum: interaction::Offset,
     ) -> Option<Self> {
         (viewport.width() > 0
             && viewport.height() > 0
@@ -1868,7 +1864,7 @@ impl ScrollDeclaration {
             && resident_bounds.height() > 0
             && maximum.x() >= 0
             && maximum.y() >= 0
-            && baseline.lies_within(interaction::ScrollOffset::default(), maximum))
+            && baseline.lies_within(interaction::Offset::default(), maximum))
         .then_some(Self {
             viewport,
             content_bounds,
@@ -1887,24 +1883,24 @@ impl ScrollDeclaration {
         self.resident_bounds
     }
 
-    pub(crate) fn baseline(self) -> interaction::ScrollOffset {
+    pub(crate) fn baseline(self) -> interaction::Offset {
         self.baseline
     }
 
-    pub(crate) fn maximum(self) -> interaction::ScrollOffset {
+    pub(crate) fn maximum(self) -> interaction::Offset {
         self.maximum
     }
 
     fn semantic(self) -> Self {
         Self {
             resident_bounds: self.content_bounds,
-            baseline: interaction::ScrollOffset::default(),
+            baseline: interaction::Offset::default(),
             ..self
         }
     }
 
-    fn accepts(self, offset: interaction::ScrollOffset) -> bool {
-        if !offset.lies_within(interaction::ScrollOffset::default(), self.maximum) {
+    fn accepts(self, offset: interaction::Offset) -> bool {
+        if !offset.lies_within(interaction::Offset::default(), self.maximum) {
             return false;
         }
         let content = geometry::Rect::new(
@@ -1980,9 +1976,9 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
                 node: root_id,
                 value: Transform::scale_about(29.0, 28.0, 0.8, 1.1),
             });
-            values.push(PropertyValue::ScrollOffset {
+            values.push(PropertyValue::Offset {
                 node: root_id,
-                value: interaction::ScrollOffset::new(2, -1),
+                value: interaction::Offset::new(2, -1),
             });
             Node::new(
                 root_id,
@@ -1993,7 +1989,7 @@ pub(crate) fn renderer_fixture(case: FixtureCase) -> Result<(Commit, Properties)
                     Color::rgba(38, 191, 89, 230),
                 ))],
             )
-            .with_properties([PropertyKind::Transform, PropertyKind::ScrollOffset])
+            .with_properties([PropertyKind::Transform, PropertyKind::Offset])
         }
         FixtureCase::Rule => Node::new(
             root_id,
@@ -2240,16 +2236,16 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
         viewport,
         geometry::Rect::new(viewport.x(), viewport.y(), 80, 40),
         outer_bounds,
-        interaction::ScrollOffset::new(4, 0),
-        interaction::ScrollOffset::new(32, 0),
+        interaction::Offset::new(4, 0),
+        interaction::Offset::new(32, 0),
     )
     .expect("renderer outer-scroll fixture has a nonempty envelope");
     let inner_declaration = ScrollDeclaration::new(
         viewport,
         geometry::Rect::new(viewport.x(), viewport.y(), 48, 80),
         inner_bounds,
-        interaction::ScrollOffset::new(0, 12),
-        interaction::ScrollOffset::new(0, 40),
+        interaction::Offset::new(0, 12),
+        interaction::Offset::new(0, 40),
     )
     .expect("renderer inner-scroll fixture has a nonempty envelope");
     let before_node = Node::new(
@@ -2276,7 +2272,7 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
             )),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(outer_declaration);
     let inner_node = Node::new(
         inner,
@@ -2293,7 +2289,7 @@ fn renderer_scroll_fixture() -> Result<(Commit, Properties), ContractError> {
             )),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(inner_declaration);
     let after_node = Node::new(
         after,
@@ -2384,18 +2380,18 @@ pub(crate) fn renderer_scroll_properties(
         commit,
         PropertySerial(serial.max(1)),
         vec![
-            PropertyValue::ScrollOffset {
+            PropertyValue::Offset {
                 node: outer,
-                value: interaction::ScrollOffset::new(4, 0),
+                value: interaction::Offset::new(4, 0),
             },
-            PropertyValue::ScrollOffset {
+            PropertyValue::Offset {
                 node: inner,
-                value: interaction::ScrollOffset::new(0, offset_y),
+                value: interaction::Offset::new(0, offset_y),
             },
         ],
         vec![
-            PropertyRef::new(outer, PropertyKind::ScrollOffset),
-            PropertyRef::new(inner, PropertyKind::ScrollOffset),
+            PropertyRef::new(outer, PropertyKind::Offset),
+            PropertyRef::new(inner, PropertyKind::Offset),
         ],
     )
 }
@@ -2412,9 +2408,9 @@ pub(crate) fn renderer_scroll_tick_properties(
         commit,
         previous,
         PropertySerial(serial.max(1)),
-        vec![PropertyValue::ScrollOffset {
+        vec![PropertyValue::Offset {
             node: inner,
-            value: interaction::ScrollOffset::new(0, offset_y),
+            value: interaction::Offset::new(0, offset_y),
         }],
     )?;
     debug_assert!(
@@ -2436,8 +2432,8 @@ pub(crate) fn renderer_scroll_text_runway_pair()
         viewport,
         content_bounds,
         content_bounds,
-        interaction::ScrollOffset::default(),
-        interaction::ScrollOffset::new(0, 32),
+        interaction::Offset::default(),
+        interaction::Offset::new(0, 32),
     )
     .expect("renderer text-runway fixture has complete resident coverage");
     let runway_rect = geometry::Rect::new(8, 68, 80, 18);
@@ -2453,7 +2449,7 @@ pub(crate) fn renderer_scroll_text_runway_pair()
             Content::Text(Text::new(runway_rect, "RUNWAY", foreground, TextWrap::None)),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(declaration);
     let actual = Commit::from_parts(
         Revision::renderer_fixture(44),
@@ -2479,20 +2475,20 @@ pub(crate) fn renderer_scroll_text_runway_pair()
     let initial = Properties::new(
         &actual,
         PropertySerial::INITIAL,
-        vec![PropertyValue::ScrollOffset {
+        vec![PropertyValue::Offset {
             node: scroll,
-            value: interaction::ScrollOffset::default(),
+            value: interaction::Offset::default(),
         }],
         Vec::new(),
     )?;
     let tick = Properties::new(
         &actual,
         PropertySerial::INITIAL.next(),
-        vec![PropertyValue::ScrollOffset {
+        vec![PropertyValue::Offset {
             node: scroll,
-            value: interaction::ScrollOffset::new(0, 24),
+            value: interaction::Offset::new(0, 24),
         }],
-        vec![PropertyRef::new(scroll, PropertyKind::ScrollOffset)],
+        vec![PropertyRef::new(scroll, PropertyKind::Offset)],
     )?;
 
     let expected = Commit::new(
@@ -2535,8 +2531,8 @@ pub(crate) fn renderer_group_under_scroll_pair()
         viewport,
         content_bounds,
         content_bounds,
-        interaction::ScrollOffset::default(),
-        interaction::ScrollOffset::new(44, 0),
+        interaction::Offset::default(),
+        interaction::Offset::new(44, 0),
     )
     .expect("group-under-scroll fixture has complete resident coverage");
     let rule_rect = geometry::Rect::new(92, 12, 4, 40);
@@ -2550,7 +2546,7 @@ pub(crate) fn renderer_group_under_scroll_pair()
         content_bounds,
         vec![Content::Rule(Rule::vertical(rule_rect, rule_color, 3))],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(declaration);
     let group_node = Node::new(
         group,
@@ -2588,20 +2584,20 @@ pub(crate) fn renderer_group_under_scroll_pair()
     let initial = Properties::new(
         &actual,
         PropertySerial::INITIAL,
-        vec![PropertyValue::ScrollOffset {
+        vec![PropertyValue::Offset {
             node: scroll,
-            value: interaction::ScrollOffset::default(),
+            value: interaction::Offset::default(),
         }],
         Vec::new(),
     )?;
     let tick = Properties::new(
         &actual,
         PropertySerial::INITIAL.next(),
-        vec![PropertyValue::ScrollOffset {
+        vec![PropertyValue::Offset {
             node: scroll,
-            value: interaction::ScrollOffset::new(DELTA, 0),
+            value: interaction::Offset::new(DELTA, 0),
         }],
-        vec![PropertyRef::new(scroll, PropertyKind::ScrollOffset)],
+        vec![PropertyRef::new(scroll, PropertyKind::Offset)],
     )?;
 
     let translated_rule = geometry::Rect::new(
@@ -2764,13 +2760,13 @@ pub(crate) fn renderer_scroll_oracle_fixture(
 fn renderer_oracle_scroll_declaration(
     viewport: geometry::Rect,
     content_bounds: geometry::Rect,
-    maximum: interaction::ScrollOffset,
+    maximum: interaction::Offset,
 ) -> ScrollDeclaration {
     ScrollDeclaration::new(
         viewport,
         content_bounds,
         content_bounds,
-        interaction::ScrollOffset::default(),
+        interaction::Offset::default(),
         maximum,
     )
     .expect("renderer scroll oracle has complete resident coverage")
@@ -2780,7 +2776,7 @@ fn renderer_oracle_scroll_declaration(
 fn renderer_oracle_properties(
     commit: &Commit,
     serial: PropertySerial,
-    offsets: &[(composition::tree::NodeId, interaction::ScrollOffset)],
+    offsets: &[(composition::tree::NodeId, interaction::Offset)],
     changed: &[composition::tree::NodeId],
 ) -> Result<Properties, ContractError> {
     Properties::new(
@@ -2788,14 +2784,14 @@ fn renderer_oracle_properties(
         serial,
         offsets
             .iter()
-            .map(|(node, value)| PropertyValue::ScrollOffset {
+            .map(|(node, value)| PropertyValue::Offset {
                 node: *node,
                 value: *value,
             })
             .collect(),
         changed
             .iter()
-            .map(|node| PropertyRef::new(*node, PropertyKind::ScrollOffset))
+            .map(|node| PropertyRef::new(*node, PropertyKind::Offset))
             .collect(),
     )
 }
@@ -2818,11 +2814,11 @@ fn renderer_scroll_oracle_f01() -> Result<ScrollOracleFixture, ContractError> {
             Content::Rule(Rule::vertical(rule, Color::rgba(242, 179, 26, 255), 3)),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(renderer_oracle_scroll_declaration(
         viewport,
         bounds,
-        interaction::ScrollOffset::new(44, 0),
+        interaction::Offset::new(44, 0),
     ));
     let actual = Commit::from_parts(
         Revision::renderer_fixture(501),
@@ -2848,13 +2844,13 @@ fn renderer_scroll_oracle_f01() -> Result<ScrollOracleFixture, ContractError> {
     let initial = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL,
-        &[(scroll, interaction::ScrollOffset::default())],
+        &[(scroll, interaction::Offset::default())],
         &[],
     )?;
     let tick = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL.next(),
-        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[(scroll, interaction::Offset::new(20, 0))],
         &[scroll],
     )?;
     let translated_quad = geometry::Rect::new(32, 20, 16, 24);
@@ -2924,11 +2920,11 @@ fn renderer_scroll_oracle_f02() -> Result<ScrollOracleFixture, ContractError> {
             Content::Quad(Quad::new(quad, Color::rgba(38, 191, 89, 255))),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(renderer_oracle_scroll_declaration(
         viewport,
         bounds,
-        interaction::ScrollOffset::new(0, 40),
+        interaction::Offset::new(0, 40),
     ));
     let actual = Commit::from_parts(
         Revision::renderer_fixture(511),
@@ -2954,13 +2950,13 @@ fn renderer_scroll_oracle_f02() -> Result<ScrollOracleFixture, ContractError> {
     let initial = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL,
-        &[(scroll, interaction::ScrollOffset::default())],
+        &[(scroll, interaction::Offset::default())],
         &[],
     )?;
     let tick = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL.next(),
-        &[(scroll, interaction::ScrollOffset::new(0, 20))],
+        &[(scroll, interaction::Offset::new(0, 20))],
         &[scroll],
     )?;
     let translated_text = geometry::Rect::new(12, 38, 40, 20);
@@ -3034,11 +3030,11 @@ fn renderer_scroll_oracle_f04() -> Result<ScrollOracleFixture, ContractError> {
             Content::Quad(Quad::new(quad, Color::rgba(217, 64, 230, 255))),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(renderer_oracle_scroll_declaration(
         group_bounds,
         content_bounds,
-        interaction::ScrollOffset::new(44, 0),
+        interaction::Offset::new(44, 0),
     ));
     let actual = Commit::from_parts(
         Revision::renderer_fixture(521),
@@ -3070,13 +3066,13 @@ fn renderer_scroll_oracle_f04() -> Result<ScrollOracleFixture, ContractError> {
     let initial = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL,
-        &[(scroll, interaction::ScrollOffset::default())],
+        &[(scroll, interaction::Offset::default())],
         &[],
     )?;
     let tick = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL.next(),
-        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[(scroll, interaction::Offset::new(20, 0))],
         &[scroll],
     )?;
     let translated_text = geometry::Rect::new(32, 18, 36, 20);
@@ -3179,11 +3175,11 @@ fn renderer_scroll_oracle_f05() -> Result<ScrollOracleFixture, ContractError> {
             Color::rgba(38, 140, 217, 255),
         ))],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(renderer_oracle_scroll_declaration(
         geometry::Rect::new(8, 8, 96, 56),
         content_bounds,
-        interaction::ScrollOffset::new(44, 0),
+        interaction::Offset::new(44, 0),
     ));
     let actual = Commit::from_parts(
         Revision::renderer_fixture(531),
@@ -3219,13 +3215,13 @@ fn renderer_scroll_oracle_f05() -> Result<ScrollOracleFixture, ContractError> {
     let initial = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL,
-        &[(scroll, interaction::ScrollOffset::default())],
+        &[(scroll, interaction::Offset::default())],
         &[],
     )?;
     let tick = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL.next(),
-        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[(scroll, interaction::Offset::new(20, 0))],
         &[scroll],
     )?;
     let expected_chrome_node = Node::new(
@@ -3310,19 +3306,19 @@ fn renderer_scroll_oracle_f06() -> Result<ScrollOracleFixture, ContractError> {
     let text = geometry::Rect::new(16, 58, 36, 20);
     let row = geometry::Rect::new(60, 60, 32, 16);
     let outer_node = Node::new(outer, None, outer_bounds, Vec::new())
-        .with_properties([PropertyKind::ScrollOffset])
+        .with_properties([PropertyKind::Offset])
         .with_scroll(renderer_oracle_scroll_declaration(
             viewport,
             outer_bounds,
-            interaction::ScrollOffset::new(0, 40),
+            interaction::Offset::new(0, 40),
         ));
     let group_node = Node::new(group, Some(outer), group_bounds, Vec::new());
     let inner_node = Node::new(inner, Some(group), inner_bounds, Vec::new())
-        .with_properties([PropertyKind::ScrollOffset])
+        .with_properties([PropertyKind::Offset])
         .with_scroll(renderer_oracle_scroll_declaration(
             viewport,
             inner_bounds,
-            interaction::ScrollOffset::new(0, 40),
+            interaction::Offset::new(0, 40),
         ));
     let rows_node = Node::new(
         rows,
@@ -3376,8 +3372,8 @@ fn renderer_scroll_oracle_f06() -> Result<ScrollOracleFixture, ContractError> {
         &actual,
         PropertySerial::INITIAL,
         &[
-            (outer, interaction::ScrollOffset::default()),
-            (inner, interaction::ScrollOffset::default()),
+            (outer, interaction::Offset::default()),
+            (inner, interaction::Offset::default()),
         ],
         &[],
     )?;
@@ -3385,8 +3381,8 @@ fn renderer_scroll_oracle_f06() -> Result<ScrollOracleFixture, ContractError> {
         &actual,
         PropertySerial::INITIAL.next(),
         &[
-            (outer, interaction::ScrollOffset::default()),
-            (inner, interaction::ScrollOffset::new(0, 20)),
+            (outer, interaction::Offset::default()),
+            (inner, interaction::Offset::new(0, 20)),
         ],
         &[inner],
     )?;
@@ -3480,11 +3476,11 @@ fn renderer_scroll_oracle_f07() -> Result<ScrollOracleFixture, ContractError> {
             )),
         ],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(renderer_oracle_scroll_declaration(
         viewport,
         bounds,
-        interaction::ScrollOffset::new(52, 0),
+        interaction::Offset::new(52, 0),
     ));
     let actual = Commit::from_parts(
         Revision::renderer_fixture(551),
@@ -3515,13 +3511,13 @@ fn renderer_scroll_oracle_f07() -> Result<ScrollOracleFixture, ContractError> {
     let initial = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL,
-        &[(scroll, interaction::ScrollOffset::default())],
+        &[(scroll, interaction::Offset::default())],
         &[],
     )?;
     let tick = renderer_oracle_properties(
         &actual,
         PropertySerial::INITIAL.next(),
-        &[(scroll, interaction::ScrollOffset::new(20, 0))],
+        &[(scroll, interaction::Offset::new(20, 0))],
         &[scroll],
     )?;
     let translated_fill = geometry::Rect::new(32, 16, 32, 48);
@@ -3628,18 +3624,18 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
             Color::rgba(38, 140, 217, 255),
         ))],
     )
-    .with_properties([PropertyKind::ScrollOffset])
+    .with_properties([PropertyKind::Offset])
     .with_scroll(renderer_oracle_scroll_declaration(
         viewport,
         horizontal_bounds,
-        interaction::ScrollOffset::new(52, 0),
+        interaction::Offset::new(52, 0),
     ));
     let vertical_node = Node::new(vertical, Some(horizontal), vertical_bounds, Vec::new())
-        .with_properties([PropertyKind::ScrollOffset])
+        .with_properties([PropertyKind::Offset])
         .with_scroll(renderer_oracle_scroll_declaration(
             viewport,
             vertical_bounds,
-            interaction::ScrollOffset::new(0, 40),
+            interaction::Offset::new(0, 40),
         ))
         .with_scroll_target(super::spatial::ScrollTarget::scene_node(horizontal));
     let body_node = Node::new(
@@ -3698,8 +3694,8 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
         &actual,
         PropertySerial::INITIAL,
         &[
-            (horizontal, interaction::ScrollOffset::default()),
-            (vertical, interaction::ScrollOffset::default()),
+            (horizontal, interaction::Offset::default()),
+            (vertical, interaction::Offset::default()),
         ],
         &[],
     )?;
@@ -3707,8 +3703,8 @@ fn renderer_scroll_oracle_f08() -> Result<ScrollOracleFixture, ContractError> {
         &actual,
         PropertySerial::INITIAL.next(),
         &[
-            (horizontal, interaction::ScrollOffset::new(20, 0)),
-            (vertical, interaction::ScrollOffset::new(0, 20)),
+            (horizontal, interaction::Offset::new(20, 0)),
+            (vertical, interaction::Offset::new(0, 20)),
         ],
         &[horizontal, vertical],
     )?;
@@ -4203,8 +4199,8 @@ mod tests {
                 viewport,
                 content_bounds,
                 resident_bounds,
-                interaction::ScrollOffset::new(baseline, 0),
-                interaction::ScrollOffset::new(900, 0),
+                interaction::Offset::new(baseline, 0),
+                interaction::Offset::new(900, 0),
             )
             .expect("fixture residency covers its baseline");
             let node = Node::new(
@@ -4230,7 +4226,7 @@ mod tests {
                 ],
             )
             .with_properties([
-                PropertyKind::ScrollOffset,
+                PropertyKind::Offset,
                 PropertyKind::Caret,
                 PropertyKind::HorizontalScrollbar,
             ])
@@ -4308,7 +4304,7 @@ mod tests {
             second.nodes()[0]
         );
         assert_eq!(first.nodes()[0].content().len(), 2);
-        assert!(first.nodes()[0].declares(PropertyKind::ScrollOffset));
+        assert!(first.nodes()[0].declares(PropertyKind::Offset));
         assert!(first.nodes()[0].declares(PropertyKind::Caret));
         assert!(first.nodes()[0].declares(PropertyKind::HorizontalScrollbar));
 
@@ -4518,12 +4514,12 @@ mod tests {
             viewport,
             geometry::Rect::new(viewport.x(), viewport.y(), 100, 200),
             geometry::Rect::new(0, 0, 100, 150),
-            interaction::ScrollOffset::new(0, 0),
-            interaction::ScrollOffset::new(0, 100),
+            interaction::Offset::new(0, 0),
+            interaction::Offset::new(0, 100),
         )
         .expect("scroll declaration should be valid");
         let node = empty_node(1, None)
-            .with_properties([PropertyKind::ScrollOffset])
+            .with_properties([PropertyKind::Offset])
             .with_scroll(declaration);
         let node_id = node.id();
         let active = Commit::new(
@@ -4537,8 +4533,8 @@ mod tests {
             viewport,
             geometry::Rect::new(viewport.x(), viewport.y(), 100, 200),
             geometry::Rect::new(0, -40, 100, 200),
-            interaction::ScrollOffset::new(0, 60),
-            interaction::ScrollOffset::new(0, 100),
+            interaction::Offset::new(0, 60),
+            interaction::Offset::new(0, 100),
         )
         .expect("candidate scroll declaration should cover its rebased viewport");
         let candidate_node = node.clone().with_scroll(candidate_declaration);
@@ -4552,9 +4548,9 @@ mod tests {
         let current = Properties::new(
             &active,
             PropertySerial::INITIAL,
-            vec![PropertyValue::ScrollOffset {
+            vec![PropertyValue::Offset {
                 node: node_id,
-                value: interaction::ScrollOffset::new(0, 0),
+                value: interaction::Offset::new(0, 0),
             }],
             Vec::new(),
         )
@@ -4562,11 +4558,11 @@ mod tests {
         let in_window = Properties::new(
             &candidate,
             PropertySerial::INITIAL.next(),
-            vec![PropertyValue::ScrollOffset {
+            vec![PropertyValue::Offset {
                 node: node_id,
-                value: interaction::ScrollOffset::new(0, 24),
+                value: interaction::Offset::new(0, 24),
             }],
-            vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
+            vec![PropertyRef::new(node_id, PropertyKind::Offset)],
         )
         .expect("in-window candidate scroll should be valid");
         let (projected, changed) = in_window
@@ -4575,17 +4571,17 @@ mod tests {
         assert!(changed);
         assert_eq!(
             projected.scroll_offset(node_id),
-            Some(interaction::ScrollOffset::new(0, 24))
+            Some(interaction::Offset::new(0, 24))
         );
 
         let beyond_guard = Properties::new(
             &candidate,
             PropertySerial::INITIAL.next(),
-            vec![PropertyValue::ScrollOffset {
+            vec![PropertyValue::Offset {
                 node: node_id,
-                value: interaction::ScrollOffset::new(0, 60),
+                value: interaction::Offset::new(0, 60),
             }],
-            vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
+            vec![PropertyRef::new(node_id, PropertyKind::Offset)],
         )
         .expect("candidate scroll must remain inside its own rebased guard");
         let (projected, changed) = beyond_guard
@@ -4597,11 +4593,11 @@ mod tests {
             Properties::new(
                 &active,
                 PropertySerial::INITIAL.next(),
-                vec![PropertyValue::ScrollOffset {
+                vec![PropertyValue::Offset {
                     node: node_id,
-                    value: interaction::ScrollOffset::new(0, 60),
+                    value: interaction::Offset::new(0, 60),
                 }],
-                vec![PropertyRef::new(node_id, PropertyKind::ScrollOffset)],
+                vec![PropertyRef::new(node_id, PropertyKind::Offset)],
             )
             .is_err(),
             "an active commit must reject pixels outside its retained scroll envelope"
@@ -4618,13 +4614,13 @@ mod tests {
             viewport,
             content,
             resident,
-            interaction::ScrollOffset::default(),
-            interaction::ScrollOffset::default(),
+            interaction::Offset::default(),
+            interaction::Offset::default(),
         )
         .expect("a short content extent must not manufacture residency for its blank tail");
-        assert!(declaration.accepts(interaction::ScrollOffset::default()));
+        assert!(declaration.accepts(interaction::Offset::default()));
         assert!(
-            !declaration.accepts(interaction::ScrollOffset::new(0, 1)),
+            !declaration.accepts(interaction::Offset::new(0, 1)),
             "blank coverage cannot legitimize an offset beyond the integral maximum"
         );
     }
@@ -4636,17 +4632,17 @@ mod tests {
         for y in [
             16_777_215, 16_777_216, 16_777_217, 23_999_897, 23_999_898, 23_999_899,
         ] {
-            let offset = interaction::ScrollOffset::new(0, y);
+            let offset = interaction::Offset::new(0, y);
             let declaration = ScrollDeclaration::new(
                 viewport,
                 geometry::Rect::new(viewport.x(), viewport.y(), 100, y.saturating_add(100)),
                 viewport,
                 offset,
-                interaction::ScrollOffset::new(0, y),
+                interaction::Offset::new(0, y),
             )
             .expect("resident pixels should cover their exact large-offset baseline");
             let node = empty_node(1, None)
-                .with_properties([PropertyKind::ScrollOffset])
+                .with_properties([PropertyKind::Offset])
                 .with_scroll(declaration);
             let node_id = node.id();
             let commit = Commit::new(
@@ -4659,7 +4655,7 @@ mod tests {
             let properties = Properties::new(
                 &commit,
                 PropertySerial::INITIAL,
-                vec![PropertyValue::ScrollOffset {
+                vec![PropertyValue::Offset {
                     node: node_id,
                     value: offset,
                 }],
@@ -4697,29 +4693,29 @@ mod tests {
         };
 
         assert_eq!(
-            vertical.scrollbar_position(interaction::ScrollOffset::new(0, 12_000_000)),
+            vertical.scrollbar_position(interaction::Offset::new(0, 12_000_000)),
             Some(201)
         );
         assert_eq!(
-            horizontal.scrollbar_position(interaction::ScrollOffset::new(12_000_000, 0)),
+            horizontal.scrollbar_position(interaction::Offset::new(12_000_000, 0)),
             Some(201)
         );
         assert_eq!(
-            vertical.scrollbar_position(interaction::ScrollOffset::new(12_000_000, 0)),
+            vertical.scrollbar_position(interaction::Offset::new(12_000_000, 0)),
             Some(0),
             "vertical projection must read only vertical truth"
         );
         assert_eq!(
-            horizontal.scrollbar_position(interaction::ScrollOffset::new(0, 12_000_000)),
+            horizontal.scrollbar_position(interaction::Offset::new(0, 12_000_000)),
             Some(0),
             "horizontal projection must read only horizontal truth"
         );
         assert_eq!(
-            vertical.scrollbar_position(interaction::ScrollOffset::new(0, 23_999_899)),
+            vertical.scrollbar_position(interaction::Offset::new(0, 23_999_899)),
             Some(401)
         );
         assert_eq!(
-            vertical.scrollbar_position(interaction::ScrollOffset::new(0, 23_999_900)),
+            vertical.scrollbar_position(interaction::Offset::new(0, 23_999_900)),
             Some(401)
         );
     }
@@ -4731,12 +4727,12 @@ mod tests {
             viewport,
             geometry::Rect::new(viewport.x(), viewport.y(), 100, 260),
             geometry::Rect::new(0, 0, 100, 200),
-            interaction::ScrollOffset::new(0, 0),
-            interaction::ScrollOffset::new(0, 160),
+            interaction::Offset::new(0, 0),
+            interaction::Offset::new(0, 160),
         )
         .expect("prepared structure should admit a bounded forward rebase");
         let prepared_node = empty_node(1, None)
-            .with_properties([PropertyKind::ScrollOffset])
+            .with_properties([PropertyKind::Offset])
             .with_scroll(prepared_declaration);
         let node_id = prepared_node.id();
         let prepared = Commit::new(
@@ -4749,17 +4745,17 @@ mod tests {
         let prepared_properties = Properties::new(
             &prepared,
             PropertySerial::INITIAL,
-            vec![PropertyValue::ScrollOffset {
+            vec![PropertyValue::Offset {
                 node: node_id,
-                value: interaction::ScrollOffset::new(0, 0),
+                value: interaction::Offset::new(0, 0),
             }],
             Vec::new(),
         )
         .expect("prepared properties should be valid");
 
-        let latest_offset = interaction::ScrollOffset::new(0, 60);
+        let latest_offset = interaction::Offset::new(0, 60);
         let latest_node = empty_node(1, None)
-            .with_properties([PropertyKind::ScrollOffset])
+            .with_properties([PropertyKind::Offset])
             .with_scroll(
                 ScrollDeclaration::new(
                     viewport,
@@ -4780,7 +4776,7 @@ mod tests {
         let latest_properties = Properties::new(
             &latest,
             PropertySerial::INITIAL.next(),
-            vec![PropertyValue::ScrollOffset {
+            vec![PropertyValue::Offset {
                 node: node_id,
                 value: latest_offset,
             }],
@@ -4794,9 +4790,9 @@ mod tests {
         assert_eq!(rebased.scroll_offset(node_id), Some(latest_offset));
         assert_eq!(rebased.serial(), latest_properties.serial());
 
-        let beyond_prepared = interaction::ScrollOffset::new(0, 160);
+        let beyond_prepared = interaction::Offset::new(0, 160);
         let beyond_node = empty_node(1, None)
-            .with_properties([PropertyKind::ScrollOffset])
+            .with_properties([PropertyKind::Offset])
             .with_scroll(
                 ScrollDeclaration::new(
                     viewport,
@@ -4817,7 +4813,7 @@ mod tests {
         let beyond_properties = Properties::new(
             &beyond,
             latest_properties.serial().next(),
-            vec![PropertyValue::ScrollOffset {
+            vec![PropertyValue::Offset {
                 node: node_id,
                 value: beyond_prepared,
             }],

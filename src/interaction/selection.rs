@@ -1,4 +1,4 @@
-use crate::{interaction::Id, selection::Selection, virtual_list};
+use crate::{interaction::Id, list, selection::Selection};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Selections {
@@ -31,7 +31,7 @@ impl Selections {
         &mut self.entries[index].selection
     }
 
-    pub(crate) fn reconcile(&mut self, models: &[virtual_list::Model]) -> bool {
+    pub(crate) fn reconcile(&mut self, models: &[list::State]) -> bool {
         let before = self.clone();
         self.entries.retain(|entry| {
             models

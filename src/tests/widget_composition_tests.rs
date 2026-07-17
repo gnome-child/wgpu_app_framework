@@ -109,7 +109,7 @@ fn application_widgets_can_compose_labeled_fields_and_progress_from_public_piece
 #[test]
 fn scroll_builder_preserves_the_shared_element_recipe_and_scroll_identity() {
     let node = widget::Widget::into_node(
-        widget::Scroll::new()
+        crate::Scroll::new()
             .id("audit.scroll")
             .label("Audit scroll")
             .row()

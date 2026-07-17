@@ -17,7 +17,7 @@ const MIN_LEADING_RUNWAY_VIEWPORT_NUMERATOR: usize = 3;
 const MIN_LEADING_RUNWAY_VIEWPORT_DENOMINATOR: usize = 2;
 const MAX_RECYCLED_SLOTS: usize = 32;
 
-/// Stable logical identity supplied by a virtual-list provider.
+/// Stable logical identity supplied by a list model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Key(u64);
 
@@ -28,7 +28,7 @@ pub struct Key(u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Slot(u64);
 
-/// One observable membership mutation between provider revisions.
+/// One observable membership mutation between model revisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Change {
     Insert {
@@ -51,74 +51,62 @@ pub enum Change {
     },
 }
 
-/// Synchronous source for a flat, uniform-height virtual list.
-pub trait Provider {
+/// Observable membership and stable identity for a list.
+pub trait Model {
     fn len(&self) -> usize;
     fn key(&self, index: usize) -> Key;
     fn index_of(&self, key: Key) -> Option<usize>;
-    fn row(&self, index: usize) -> view::Node;
 
     /// Monotonic membership revision for insert/remove/replace/move events.
-    fn membership_revision(&self) -> u64 {
-        0
-    }
+    fn membership_revision(&self) -> u64;
 
     /// Ordered mutations after `revision`. A changed membership revision must
     /// return at least one event that transforms the old length into the new.
-    fn changes_since(&self, _revision: u64) -> Vec<Change> {
-        Vec::new()
-    }
+    fn changes_since(&self, revision: u64) -> Vec<Change>;
 
     /// Revision of the content currently associated with one stable key.
-    ///
-    /// `None` is the conservative compatibility path and rebinds the item on
-    /// every application-view rebuild. `Some` enables unchanged-slot reuse.
-    fn item_revision(&self, _index: usize) -> Option<u64> {
-        None
-    }
-
-    /// Revision of slot setup/bind semantics across provider projections.
-    ///
-    /// `None` conservatively tears down slots before another projection uses
-    /// them. Equal `Some` revisions permit the recycled pool to survive.
-    fn factory_revision(&self) -> Option<u64> {
-        None
-    }
-
-    /// Allocates slot-local listeners or resources before the first bind.
-    fn setup(&self, _slot: Slot) {}
-
-    /// Projects one item into an already-setup presentation slot.
-    fn bind(&self, _slot: Slot, index: usize) -> view::Node {
-        self.row(index)
-    }
-
-    /// Releases every item-specific listener or resource installed by bind.
-    fn unbind(&self, _slot: Slot, _key: Key, _index: usize) {}
-
-    /// Releases slot-local state after its final unbind.
-    fn teardown(&self, _slot: Slot) {}
+    fn item_revision(&self, index: usize) -> u64;
 
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
-/// A provided container that materializes only visible rows plus bounded pins.
-pub struct VirtualList {
-    model: Model,
+/// Setup, binding, and teardown for recycled list presentation slots.
+pub trait Factory {
+    /// Compatibility revision for slot-local state and binding semantics.
+    fn revision(&self) -> u64;
+
+    /// Allocates slot-local listeners or resources before the first bind.
+    fn setup(&self, _slot: Slot) {}
+
+    /// Projects one item into an already-setup presentation slot.
+    fn bind(&self, slot: Slot, index: usize) -> view::Node;
+
+    /// Releases every item-specific listener or resource installed by bind.
+    fn unbind(&self, _slot: Slot, _key: Key, _index: usize) {}
+
+    /// Releases slot-local state after its final unbind.
+    fn teardown(&self, _slot: Slot) {}
+}
+
+/// A native list that materializes only the visible page, runway, and pins.
+pub struct List {
+    state: State,
     width: Option<view::Dimension>,
     height: Option<view::Dimension>,
     max_height: Option<i32>,
     background: Option<scene::Brush>,
+    configuration: Option<crate::scroll::Configuration>,
 }
 
 #[derive(Clone)]
-pub(crate) struct Model {
+pub(crate) struct State {
     id: interaction::Id,
     heights: Heights,
     overscan: usize,
-    provider: Rc<dyn Provider>,
+    model: Rc<dyn Model>,
+    factory: Rc<dyn Factory>,
     selectable: bool,
     prepared_runway: Option<Range<usize>>,
     slots: Rc<RefCell<Slots>>,
@@ -165,23 +153,23 @@ struct Slots {
 
 struct AvailableSlot {
     id: Slot,
-    setup_provider: Rc<dyn Provider>,
+    setup_factory: Rc<dyn Factory>,
 }
 
 struct BoundSlot {
     slot: AvailableSlot,
     key: Key,
     index: usize,
-    revision: Option<u64>,
+    revision: u64,
     node: view::Node,
-    binding_provider: Rc<dyn Provider>,
+    binding_factory: Rc<dyn Factory>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct DesiredItem {
     key: Key,
     index: usize,
-    revision: Option<u64>,
+    revision: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -273,38 +261,55 @@ impl From<u64> for Key {
     }
 }
 
-impl VirtualList {
-    pub fn new(
-        id: impl Into<interaction::Id>,
-        row_height: i32,
-        provider: impl Provider + 'static,
-    ) -> Self {
+impl List {
+    pub fn new<M, F>(id: impl Into<interaction::Id>, row_height: i32, model: M, factory: F) -> Self
+    where
+        M: Model + 'static,
+        F: Factory + 'static,
+    {
         Self {
-            model: Model::new(id.into(), row_height, Rc::new(provider)),
+            state: State::new(id.into(), row_height, Rc::new(model), Rc::new(factory)),
             width: None,
             height: None,
             max_height: None,
             background: None,
+            configuration: None,
         }
     }
 
-    /// Creates a virtual list whose materialized rows determine their heights.
-    pub fn variable(
+    /// Creates a list whose materialized items determine their block extents.
+    pub fn variable<M, F>(
         id: impl Into<interaction::Id>,
         estimated_row_height: i32,
-        provider: impl Provider + 'static,
-    ) -> Self {
+        model: M,
+        factory: F,
+    ) -> Self
+    where
+        M: Model + 'static,
+        F: Factory + 'static,
+    {
         Self {
-            model: Model::variable(id.into(), estimated_row_height, Rc::new(provider)),
+            state: State::variable(
+                id.into(),
+                estimated_row_height,
+                Rc::new(model),
+                Rc::new(factory),
+            ),
             width: None,
             height: None,
             max_height: None,
             background: None,
+            configuration: None,
         }
     }
 
     pub fn overscan(mut self, rows: usize) -> Self {
-        self.model.overscan = rows.min(32);
+        self.state.overscan = rows.min(32);
+        self
+    }
+
+    pub fn configuration(mut self, configuration: crate::scroll::Configuration) -> Self {
+        self.configuration = Some(configuration);
         self
     }
 
@@ -329,12 +334,12 @@ impl VirtualList {
     }
 
     pub fn selectable(mut self) -> Self {
-        self.model.selectable = true;
+        self.state.selectable = true;
         self
     }
 }
 
-impl Widget for VirtualList {
+impl Widget for List {
     fn into_node(self) -> view::Node {
         let mut style = view::Style::new();
         if let Some(width) = self.width {
@@ -350,11 +355,15 @@ impl Widget for VirtualList {
             style = style.with_background(background);
         }
 
-        view::Node::virtual_list(self.model).with_style(style)
+        let node = view::Node::virtual_list(self.state).with_style(style);
+        match self.configuration {
+            Some(configuration) => node.with_scroll_configuration(configuration),
+            None => node,
+        }
     }
 }
 
-impl Model {
+impl State {
     pub(crate) fn same_scene_state(&self, other: &Self) -> bool {
         self.id == other.id
             && self.row_height() == other.row_height()
@@ -363,24 +372,36 @@ impl Model {
             && self.len() == other.len()
     }
 
-    fn new(id: interaction::Id, row_height: i32, provider: Rc<dyn Provider>) -> Self {
+    fn new(
+        id: interaction::Id,
+        row_height: i32,
+        model: Rc<dyn Model>,
+        factory: Rc<dyn Factory>,
+    ) -> Self {
         Self {
             id,
             heights: Heights::Uniform(row_height.max(1)),
             overscan: DEFAULT_OVERSCAN,
-            provider,
+            model,
+            factory,
             selectable: false,
             prepared_runway: None,
             slots: Rc::new(RefCell::new(Slots::default())),
         }
     }
 
-    fn variable(id: interaction::Id, estimate: i32, provider: Rc<dyn Provider>) -> Self {
+    fn variable(
+        id: interaction::Id,
+        estimate: i32,
+        model: Rc<dyn Model>,
+        factory: Rc<dyn Factory>,
+    ) -> Self {
         Self {
             id,
             heights: Heights::Variable(Measurements::new(estimate)),
             overscan: DEFAULT_OVERSCAN,
-            provider,
+            model,
+            factory,
             selectable: false,
             prepared_runway: None,
             slots: Rc::new(RefCell::new(Slots::default())),
@@ -398,7 +419,7 @@ impl Model {
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.provider.len()
+        self.model.len()
     }
 
     pub(crate) fn row_height(&self) -> i32 {
@@ -454,7 +475,7 @@ impl Model {
                     viewport_height,
                     self.overscan,
                     Vec::new(),
-                    self.provider.as_ref(),
+                    self.model.as_ref(),
                 );
                 Request::variable(
                     self.id,
@@ -501,8 +522,8 @@ impl Model {
         })
     }
 
-    pub(crate) fn provider(&self) -> &dyn Provider {
-        self.provider.as_ref()
+    pub(crate) fn model(&self) -> &dyn Model {
+        self.model.as_ref()
     }
 
     pub(crate) fn index_at_offset(&self, offset: i32) -> usize {
@@ -513,7 +534,7 @@ impl Model {
     }
 
     pub(crate) fn contains_key(&self, key: Key) -> bool {
-        self.provider.index_of(key).is_some()
+        self.model.index_of(key).is_some()
     }
 
     pub(crate) fn is_selectable(&self) -> bool {
@@ -521,7 +542,7 @@ impl Model {
     }
 
     pub(crate) fn reconcile_selection(&self, selection: &mut crate::selection::Selection) -> bool {
-        selection.reconcile(self.provider.as_ref())
+        selection.reconcile(self.model.as_ref())
     }
 
     pub(crate) fn select_row(
@@ -532,11 +553,11 @@ impl Model {
         extend: bool,
         toggle: bool,
     ) -> bool {
-        selection.click(self.provider.as_ref(), key, index, extend, toggle)
+        selection.click(self.model.as_ref(), key, index, extend, toggle)
     }
 
     pub(crate) fn select_all(&self, selection: &mut crate::selection::Selection) -> bool {
-        selection.select_all(self.provider.as_ref())
+        selection.select_all(self.model.as_ref())
     }
 
     pub(crate) fn move_selection(
@@ -545,15 +566,15 @@ impl Model {
         movement: crate::selection::Move,
         extend: bool,
     ) -> bool {
-        selection.move_active(self.provider.as_ref(), movement, extend)
+        selection.move_active(self.model.as_ref(), movement, extend)
     }
 
     pub(crate) fn key_at(&self, index: usize) -> Option<Key> {
-        (index < self.len()).then(|| self.provider.key(index))
+        (index < self.len()).then(|| self.model.key(index))
     }
 
     pub(crate) fn index_of(&self, key: Key) -> Option<usize> {
-        self.provider.index_of(key)
+        self.model.index_of(key)
     }
 
     pub(crate) fn initial_materialization(&self) -> Materialization {
@@ -582,11 +603,11 @@ impl Model {
             if rows.iter().any(|item| item.key == *key) {
                 continue;
             }
-            if let Some(index) = self.provider.index_of(*key).filter(|index| *index < len) {
+            if let Some(index) = self.model.index_of(*key).filter(|index| *index < len) {
                 let item = self.desired_item(index);
                 assert_eq!(
                     item.key, *key,
-                    "provider index_of must round-trip every pinned stable key"
+                    "list model index_of must round-trip every pinned stable key"
                 );
                 rows.push(item);
             }
@@ -597,25 +618,28 @@ impl Model {
         for item in &rows {
             assert!(
                 unique.insert(item.key),
-                "virtual-list providers must expose globally unique stable keys"
+                "list models must expose globally unique stable keys"
             );
         }
-        self.slots
-            .borrow_mut()
-            .materialize(self.id, Rc::clone(&self.provider), rows)
+        self.slots.borrow_mut().materialize(
+            self.id,
+            self.model.as_ref(),
+            Rc::clone(&self.factory),
+            rows,
+        )
     }
 
     fn desired_item(&self, index: usize) -> DesiredItem {
-        let key = self.provider.key(index);
+        let key = self.model.key(index);
         assert_eq!(
-            self.provider.index_of(key),
+            self.model.index_of(key),
             Some(index),
-            "provider key and index_of must be an exact stable-identity inverse"
+            "list model key and index_of must be an exact stable-identity inverse"
         );
         DesiredItem {
             key,
             index,
-            revision: self.provider.item_revision(index),
+            revision: self.model.item_revision(index),
         }
     }
 }
@@ -624,11 +648,12 @@ impl Slots {
     fn materialize(
         &mut self,
         list: interaction::Id,
-        provider: Rc<dyn Provider>,
+        model: &dyn Model,
+        factory: Rc<dyn Factory>,
         desired: Vec<DesiredItem>,
     ) -> Vec<view::Node> {
-        self.observe_factory(provider.as_ref());
-        self.observe_membership(provider.as_ref());
+        self.observe_factory(factory.as_ref());
+        self.observe_membership(model);
         let mut previous = std::mem::take(&mut self.active);
         let mut active = HashMap::with_capacity(desired.len());
         let mut nodes = Vec::with_capacity(desired.len());
@@ -644,33 +669,33 @@ impl Slots {
                 .remove(&key)
                 .expect("departing key came from the active slot set");
             bound
-                .binding_provider
+                .binding_factory
                 .unbind(bound.slot.id, bound.key, bound.index);
             self.recycled.push(bound.slot);
         }
 
         for item in desired {
             let bound = if let Some(mut bound) = previous.remove(&item.key) {
-                if bound.revision.is_some() && bound.revision == item.revision {
+                if bound.revision == item.revision {
                     bound.index = item.index;
                     bound
                 } else {
                     bound
-                        .binding_provider
+                        .binding_factory
                         .unbind(bound.slot.id, bound.key, bound.index);
-                    Self::bind(bound.slot, Rc::clone(&provider), item)
+                    Self::bind(bound.slot, Rc::clone(&factory), item)
                 }
             } else {
                 let slot = self.recycled.pop().unwrap_or_else(|| {
                     self.next = self.next.saturating_add(1).max(1);
                     let id = Slot(self.next);
-                    provider.setup(id);
+                    factory.setup(id);
                     AvailableSlot {
                         id,
-                        setup_provider: Rc::clone(&provider),
+                        setup_factory: Rc::clone(&factory),
                     }
                 });
-                Self::bind(slot, Rc::clone(&provider), item)
+                Self::bind(slot, Rc::clone(&factory), item)
             };
             nodes.push(
                 bound
@@ -684,31 +709,31 @@ impl Slots {
         debug_assert!(previous.is_empty());
         while self.recycled.len() > MAX_RECYCLED_SLOTS {
             if let Some(slot) = self.recycled.pop() {
-                slot.setup_provider.teardown(slot.id);
+                slot.setup_factory.teardown(slot.id);
             }
         }
         self.active = active;
         nodes
     }
 
-    fn bind(slot: AvailableSlot, provider: Rc<dyn Provider>, item: DesiredItem) -> BoundSlot {
-        let node = provider.bind(slot.id, item.index);
+    fn bind(slot: AvailableSlot, factory: Rc<dyn Factory>, item: DesiredItem) -> BoundSlot {
+        let node = factory.bind(slot.id, item.index);
         BoundSlot {
             slot,
             key: item.key,
             index: item.index,
             revision: item.revision,
             node,
-            binding_provider: provider,
+            binding_factory: factory,
         }
     }
 
-    fn observe_membership(&mut self, provider: &dyn Provider) {
-        let revision = provider.membership_revision();
+    fn observe_membership(&mut self, model: &dyn Model) {
+        let revision = model.membership_revision();
         if let Some(previous) = self.membership_revision
             && revision != previous
         {
-            let changes = provider.changes_since(previous);
+            let changes = model.changes_since(previous);
             assert!(
                 !changes.is_empty(),
                 "a changed list membership revision must describe its mutations"
@@ -718,33 +743,33 @@ impl Slots {
                 .fold(self.len, |len, change| change.next_len(len));
             assert_eq!(
                 resolved_len,
-                provider.len(),
+                model.len(),
                 "list membership mutations must transform the prior length into the current length"
             );
         }
         self.membership_revision = Some(revision);
-        self.len = provider.len();
+        self.len = model.len();
     }
 
-    fn observe_factory(&mut self, provider: &dyn Provider) {
-        let revision = provider.factory_revision();
+    fn observe_factory(&mut self, factory: &dyn Factory) {
+        let revision = factory.revision();
         if (!self.active.is_empty() || !self.recycled.is_empty())
-            && (revision.is_none() || revision != self.factory_revision)
+            && self.factory_revision != Some(revision)
         {
             self.retire();
         }
-        self.factory_revision = revision;
+        self.factory_revision = Some(revision);
     }
 
     fn retire(&mut self) {
         for (_, bound) in self.active.drain() {
             bound
-                .binding_provider
+                .binding_factory
                 .unbind(bound.slot.id, bound.key, bound.index);
-            bound.slot.setup_provider.teardown(bound.slot.id);
+            bound.slot.setup_factory.teardown(bound.slot.id);
         }
         for slot in self.recycled.drain(..) {
-            slot.setup_provider.teardown(slot.id);
+            slot.setup_factory.teardown(slot.id);
         }
     }
 
@@ -974,7 +999,7 @@ mod tests {
         }
     }
 
-    impl Provider for LifecycleRows {
+    impl Model for LifecycleRows {
         fn len(&self) -> usize {
             self.state.borrow().keys.len()
         }
@@ -991,10 +1016,6 @@ mod tests {
                 .position(|candidate| *candidate == key)
         }
 
-        fn row(&self, index: usize) -> view::Node {
-            view::Node::label(format!("row {}", self.key(index).value()))
-        }
-
         fn membership_revision(&self) -> u64 {
             self.state.borrow().membership_revision
         }
@@ -1008,13 +1029,15 @@ mod tests {
                 .collect()
         }
 
-        fn item_revision(&self, index: usize) -> Option<u64> {
+        fn item_revision(&self, index: usize) -> u64 {
             let state = self.state.borrow();
-            state.item_revisions.get(&state.keys[index]).copied()
+            state.item_revisions[&state.keys[index]]
         }
+    }
 
-        fn factory_revision(&self) -> Option<u64> {
-            Some(self.state.borrow().factory_revision)
+    impl Factory for LifecycleRows {
+        fn revision(&self) -> u64 {
+            self.state.borrow().factory_revision
         }
 
         fn setup(&self, slot: Slot) {
@@ -1026,7 +1049,7 @@ mod tests {
                 .borrow_mut()
                 .bind
                 .push((slot, self.key(index), index));
-            self.row(index)
+            view::Node::label(format!("row {}", self.key(index).value()))
         }
 
         fn unbind(&self, slot: Slot, key: Key, index: usize) {
@@ -1040,7 +1063,7 @@ mod tests {
 
     struct Rows(usize);
 
-    impl Provider for Rows {
+    impl Model for Rows {
         fn len(&self) -> usize {
             self.0
         }
@@ -1054,17 +1077,36 @@ mod tests {
             (index < self.0).then_some(index)
         }
 
-        fn row(&self, _index: usize) -> view::Node {
+        fn membership_revision(&self) -> u64 {
+            0
+        }
+
+        fn changes_since(&self, _revision: u64) -> Vec<Change> {
+            Vec::new()
+        }
+
+        fn item_revision(&self, _index: usize) -> u64 {
+            0
+        }
+    }
+
+    impl Factory for Rows {
+        fn revision(&self) -> u64 {
+            0
+        }
+
+        fn bind(&self, _slot: Slot, _index: usize) -> view::Node {
             view::Node::root()
         }
     }
 
-    fn lifecycle_model(provider: &Rc<LifecycleRows>) -> Model {
-        let provider: Rc<dyn Provider> = provider.clone();
-        Model::new(interaction::Id::new("lifecycle.rows"), 20, provider)
+    fn lifecycle_model(provider: &Rc<LifecycleRows>) -> State {
+        let model: Rc<dyn Model> = provider.clone();
+        let factory: Rc<dyn Factory> = provider.clone();
+        State::new(interaction::Id::new("lifecycle.rows"), 20, model, factory)
     }
 
-    fn rebuild_lifecycle_model(previous: &Model, provider: &Rc<LifecycleRows>) -> Model {
+    fn rebuild_lifecycle_model(previous: &State, provider: &Rc<LifecycleRows>) -> State {
         let mut next = lifecycle_model(provider);
         next.reuse_slots_from(previous);
         next
@@ -1191,7 +1233,7 @@ mod tests {
 
     struct DuplicateRows;
 
-    impl Provider for DuplicateRows {
+    impl Model for DuplicateRows {
         fn len(&self) -> usize {
             2
         }
@@ -1204,33 +1246,45 @@ mod tests {
             Some(0)
         }
 
-        fn row(&self, _index: usize) -> view::Node {
-            view::Node::root()
+        fn membership_revision(&self) -> u64 {
+            0
         }
 
-        fn item_revision(&self, _index: usize) -> Option<u64> {
-            Some(0)
+        fn changes_since(&self, _revision: u64) -> Vec<Change> {
+            Vec::new()
+        }
+
+        fn item_revision(&self, _index: usize) -> u64 {
+            0
+        }
+    }
+
+    impl Factory for DuplicateRows {
+        fn revision(&self) -> u64 {
+            0
+        }
+
+        fn bind(&self, _slot: Slot, _index: usize) -> view::Node {
+            view::Node::root()
         }
     }
 
     #[test]
     #[should_panic(expected = "exact stable-identity inverse")]
     fn duplicate_provider_keys_fail_instead_of_being_silently_deduplicated() {
-        let mut model = Model::new(
-            interaction::Id::new("duplicate.rows"),
-            20,
-            Rc::new(DuplicateRows),
-        );
+        let source = Rc::new(DuplicateRows);
+        let model: Rc<dyn Model> = source.clone();
+        let factory: Rc<dyn Factory> = source;
+        let mut model = State::new(interaction::Id::new("duplicate.rows"), 20, model, factory);
         model.materialize(&Materialization::new(0..2, Vec::new()), None);
     }
 
     #[test]
     fn transition_runway_is_viewport_relative_and_bounded_for_a_million_rows() {
-        let model = Model::new(
-            interaction::Id::new("runway.rows"),
-            20,
-            Rc::new(Rows(1_000_000)),
-        );
+        let source = Rc::new(Rows(1_000_000));
+        let model: Rc<dyn Model> = source.clone();
+        let factory: Rc<dyn Factory> = source;
+        let model = State::new(interaction::Id::new("runway.rows"), 20, model, factory);
         let visible_rows = 20_usize;
         let baseline = model.request_for_viewport(20_000, 400);
         let forward = model.request_for_transition(20_400, 400, 20_000);

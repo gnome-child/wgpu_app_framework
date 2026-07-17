@@ -226,7 +226,7 @@ fn composition_key_has_one_structural_identity_species() {
             && tree.contains("TableCell {")
             && tree.contains("TableHeaderCell {")
     );
-    assert!(!tree.contains("provided: Option<crate::virtual_list::Key>"));
+    assert!(!tree.contains("provided: Option<crate::list::Key>"));
     assert!(!tree.contains("table_cell: Option<crate::table::Cell>"));
     assert!(!tree.contains("table_header_cell: Option<crate::table::HeaderCell>"));
 }
@@ -256,7 +256,7 @@ fn virtual_list_frame_resolves_viewport_and_request_together() {
     assert!(
         frame.contains("struct VirtualGeometry {")
             && frame.contains("viewport: Viewport,")
-            && frame.contains("request: crate::virtual_list::Request,")
+            && frame.contains("request: crate::list::Request,")
             && frame.contains("geometry: Option<VirtualGeometry>,")
     );
     let content = frame
@@ -265,7 +265,7 @@ fn virtual_list_frame_resolves_viewport_and_request_together() {
         .and_then(|source| source.split("struct VirtualGeometry").next())
         .expect("virtual-list content precedes its geometry");
     assert!(!content.contains("viewport: Option<Viewport>"));
-    assert!(!content.contains("request: Option<crate::virtual_list::Request>"));
+    assert!(!content.contains("request: Option<crate::list::Request>"));
 }
 
 #[test]
@@ -2005,7 +2005,7 @@ fn view_node_content_is_the_single_role_payload_representation() {
         view.contains("pub(crate) mod node;")
             && node.contains("mod content;")
             && node.contains("pub(crate) use content::{")
-            && node.contains("Content, MenuBar, Panel, Scroll,")
+            && node.contains("Content, MenuBar, Panel, Scroll")
             && fields.contains("content: Content"),
         "Node must carry one typed role payload through the namespaced layout seam"
     );
@@ -2370,7 +2370,7 @@ fn table_service_admission_lends_its_resolved_model() {
         .expect("table provider declaration should precede its target");
 
     assert!(
-        table.contains("model: &'a crate::virtual_list::Model,")
+        table.contains("model: &'a crate::list::State,")
             && table.contains("fn table_model(")
             && table.contains("fn table_for<'a>(")
             && table.contains("let Some(mut service) = table_for(")
@@ -6107,7 +6107,6 @@ fn scroll_residency_uses_owner_local_names_clocks_and_the_existing_stack_handoff
     let popup = std::fs::read_to_string(src.join("popup.rs")).expect("popup source should read");
 
     for forbidden in [
-        "pub mod scroll;",
         "pub mod residency;",
         "pub mod scheduler;",
         "pub use scene::Residency;",
@@ -6417,12 +6416,12 @@ fn generation_state_contract_has_one_owner_and_exact_eight_case_suite() {
 
     assert!(
         interaction.contains("struct AxisAdjustment {")
-            && interaction.contains("resident_accepted: ScrollOffset")
-            && interaction.contains("fn desired(&self) -> ScrollOffset")
+            && interaction.contains("resident_accepted: Offset")
+            && interaction.contains("fn desired(&self) -> Offset")
             && interaction.contains("pub(crate) fn resident_offset(")
             && interaction.contains("pub(super) fn accept_resident(")
-            && !interaction.contains("Admitted(ScrollOffset)")
-            && !dispatch.contains("admitted: interaction::ScrollOffset")
+            && !interaction.contains("Admitted(Offset)")
+            && !dispatch.contains("admitted: interaction::Offset")
             && access.contains("present_submitted_offsets"),
         "scroll state must name desired intent, resident acceptance, and present-submitted feedback distinctly"
     );
@@ -6470,8 +6469,8 @@ fn input_precision_contract_has_one_target_owner_and_exact_twenty_case_suite() {
         .map(|(body, _)| body)
         .expect("platform scroll-delta adapter should retain a bounded source body");
     assert!(
-        scroll_delta.contains("ScrollDelta::from_logical_pixels(")
-            && scroll_delta.contains("ScrollDelta::from_physical_pixels(")
+        scroll_delta.contains("Delta::from_logical_pixels(")
+            && scroll_delta.contains("Delta::from_physical_pixels(")
             && !scroll_delta.contains("logical_i32("),
         "pixel and fractional-line input must cross the platform boundary without per-event integer rounding"
     );
@@ -6527,9 +6526,9 @@ fn scroll_session_contract_routes_exact_child_first_remainders() {
             && interaction.contains("pub(crate) enum ScrollPhase {")
             && interaction.contains("Deceleration,")
             && interaction.contains("pub(crate) struct ScrollOutcome {")
-            && interaction.contains("applied: ScrollDelta")
-            && interaction.contains("remaining: ScrollDelta")
-            && interaction.contains("kinetic_velocity: Option<ScrollDelta>")
+            && interaction.contains("applied: Delta")
+            && interaction.contains("remaining: Delta")
+            && interaction.contains("kinetic_velocity: Option<Delta>")
             && interaction.contains("self.kinetic_velocity = None;")
             && interaction.contains("EdgeBehavior::Elastic"),
         "one internal source-neutral session must own lifecycle, velocity, interruption, edge behavior, and exact outcome"
@@ -6548,8 +6547,65 @@ fn scroll_session_contract_routes_exact_child_first_remainders() {
 }
 
 #[test]
+fn public_scroll_and_list_break_has_one_namespaced_surface_without_aliases() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("src");
+    let library = include_str!("../lib.rs");
+    let scroll = include_str!("../scroll.rs");
+    let list = include_str!("../list.rs");
+    let interaction = include_str!("../interaction/mod.rs");
+    let widget = include_str!("../widget/mod.rs");
+    let text_area = include_str!("../widget/control/text_area.rs");
+    let table = include_str!("../table.rs");
+
+    assert!(
+        library.contains("pub mod scroll;")
+            && library.contains("pub use scroll::Scroll;")
+            && library.contains("pub mod list;")
+            && library.contains("pub use list::List;")
+            && scroll.contains("pub use crate::interaction::scroll::{Delta, Offset};")
+            && scroll.contains("pub struct Scroll {")
+            && list.contains("pub struct List {")
+            && list.contains("pub trait Model {")
+            && list.contains("pub trait Factory {"),
+        "SE-008 must publish the proved scroll container and list model/factory concepts under their owning namespaces"
+    );
+    for forbidden in [
+        "pub trait Scrollable",
+        "pub struct Adjustment",
+        "pub trait Content",
+        "pub struct Content",
+        "pub struct Request",
+        "pub struct Plan",
+        "pub struct Coverage",
+    ] {
+        assert!(
+            !scroll.contains(forbidden),
+            "the public scroll namespace must not expose an unearned or private concept: {forbidden}"
+        );
+    }
+    assert!(
+        !library.contains("pub mod virtual_list;")
+            && !list.contains("pub struct VirtualList")
+            && !list.contains("pub trait Provider")
+            && !widget.contains("pub use scroll::Scroll")
+            && !interaction.contains("pub use scroll::{Delta, Offset}")
+            && !src.join("virtual_list.rs").exists()
+            && !src.join("widget").join("scroll.rs").exists(),
+        "the public break must delete old paths instead of retaining compatibility aliases"
+    );
+    assert!(
+        scroll.contains("pub fn configuration(")
+            && list.contains("pub fn configuration(")
+            && text_area.contains("pub fn configuration(")
+            && table.contains("pub fn configuration("),
+        "eager scroll, native list, native text, and table must all author the shared container configuration"
+    );
+}
+
+#[test]
 fn eager_scroll_container_contract_separates_policy_operations_and_projection() {
-    let content = include_str!("../view/node/content.rs");
+    let scroll = include_str!("../scroll.rs");
     let algorithm = include_str!("../layout/algorithm.rs");
     let measure = include_str!("../layout/measure.rs");
     let chrome = include_str!("../layout/chrome.rs");
@@ -6559,17 +6615,18 @@ fn eager_scroll_container_contract_separates_policy_operations_and_projection() 
     let presentation = include_str!("../runtime/presentation.rs");
 
     assert!(
-        content.contains("pub(crate) enum ScrollAxisPolicy {")
-            && content.contains("Always,")
-            && content.contains("Automatic,")
-            && content.contains("Never,")
-            && content.contains("External,")
-            && content.contains("pub(crate) enum ScrollChromePresentation {")
-            && content.contains("pub(crate) enum ScrollSizing {")
-            && content.contains("pub(crate) enum ScrollDirection {")
-            && !content.contains("pub enum ScrollAxisPolicy")
-            && !content.contains("pub enum ScrollContainer"),
-        "SE-004 policy and direction must remain an internal container contract until the SE-008 public naming decision"
+        scroll.contains("pub enum Policy {")
+            && scroll.contains("Always,")
+            && scroll.contains("Automatic,")
+            && scroll.contains("Never,")
+            && scroll.contains("External,")
+            && scroll.contains("pub enum Presentation {")
+            && scroll.contains("pub enum Sizing {")
+            && scroll.contains("pub enum Direction {")
+            && scroll.contains("pub struct Configuration {")
+            && !scroll.contains("pub enum ScrollAxisPolicy")
+            && !scroll.contains("pub struct ScrollContainer"),
+        "SE-008 must expose the proved container policy under the scroll namespace without leaking implementation-era names"
     );
     assert!(
         algorithm.contains("for _ in 0..2")
@@ -6579,8 +6636,8 @@ fn eager_scroll_container_contract_separates_policy_operations_and_projection() 
             && algorithm.contains("chrome::container_geometry(")
             && measure.contains("container.horizontal_sizing")
             && measure.contains("container.vertical_sizing")
-            && chrome.contains("ScrollChromePresentation::Consuming")
-            && chrome.contains("ScrollDirection::RightToLeft"),
+            && chrome.contains("crate::scroll::Presentation::Consuming")
+            && chrome.contains("crate::scroll::Direction::RightToLeft"),
         "ordinary eager layout must separate axis visibility, overlay/consuming chrome, min/natural sizing, bounded monotonic convergence, and RTL placement"
     );
     assert!(
@@ -6664,7 +6721,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
     let scroll_diagnostics = include_str!("../diagnostics/scroll.rs");
     let residency_diagnostics = include_str!("../diagnostics/residency.rs");
     let scroll_bench = include_str!("../diagnostics/scroll_bench.rs");
-    let virtual_list = include_str!("../virtual_list.rs");
+    let virtual_list = include_str!("../list.rs");
     let view_traversal = include_str!("../view/node/traversal.rs");
     let text_box = include_str!("../view/control/text_box.rs");
     let layout_frame = include_str!("../layout/frame.rs");
@@ -6680,7 +6737,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && layout.contains("pub(crate) fn scroll_property_acceptance(")
             && layout.contains("pub(crate) fn residency_demand(")
             && layout.contains("pub(crate) fn residency_replenishment(")
-            && layout.contains("preparation: interaction::ScrollOffset")
+            && layout.contains("preparation: interaction::Offset")
             && scene_residency.contains("pub(crate) struct Residency")
             && scene_residency.contains("pub(crate) fn accepts(")
             && runtime_dispatch.contains("ScrollTransition::NeedsResidency")
@@ -6800,7 +6857,7 @@ fn payload_locality_has_separate_edit_projection_reveal_and_property_scroll_rail
 
 #[test]
 fn virtual_list_owns_observable_membership_and_recycled_slot_lifecycle() {
-    let virtual_list = include_str!("../virtual_list.rs");
+    let virtual_list = include_str!("../list.rs");
     let table = include_str!("../table.rs");
     let view_builder = include_str!("../view/node/builder.rs");
     let view_traversal = include_str!("../view/node/traversal.rs");
@@ -6815,11 +6872,13 @@ fn virtual_list_owns_observable_membership_and_recycled_slot_lifecycle() {
             && virtual_list.contains("Replace {")
             && virtual_list.contains("Move {")
             && virtual_list.contains("fn membership_revision(&self) -> u64")
-            && virtual_list.contains("fn changes_since(&self, _revision: u64) -> Vec<Change>")
-            && virtual_list.contains("fn item_revision(&self, _index: usize) -> Option<u64>")
-            && virtual_list.contains("fn factory_revision(&self) -> Option<u64>")
+            && virtual_list.contains("pub trait Model {")
+            && virtual_list.contains("fn changes_since(&self, revision: u64) -> Vec<Change>")
+            && virtual_list.contains("fn item_revision(&self, index: usize) -> u64")
+            && virtual_list.contains("pub trait Factory {")
+            && virtual_list.contains("fn revision(&self) -> u64")
             && virtual_list.contains("fn setup(&self, _slot: Slot)")
-            && virtual_list.contains("fn bind(&self, _slot: Slot, index: usize) -> view::Node")
+            && virtual_list.contains("fn bind(&self, slot: Slot, index: usize) -> view::Node")
             && virtual_list.contains("fn unbind(&self, _slot: Slot, _key: Key, _index: usize)")
             && virtual_list.contains("fn teardown(&self, _slot: Slot)"),
         "list membership, item revision, and factory lifecycle must remain one explicit list-owned contract"
@@ -6828,10 +6887,9 @@ fn virtual_list_owns_observable_membership_and_recycled_slot_lifecycle() {
         virtual_list.contains("active: HashMap<Key, BoundSlot>")
             && virtual_list.contains("recycled: Vec<AvailableSlot>")
             && virtual_list.contains("const MAX_RECYCLED_SLOTS: usize = 32")
-            && virtual_list
-                .contains("virtual-list providers must expose globally unique stable keys")
+            && virtual_list.contains("list models must expose globally unique stable keys")
             && virtual_list.contains("let departing = previous")
-            && virtual_list.contains("revision.is_none() || revision != self.factory_revision")
+            && virtual_list.contains("self.factory_revision != Some(revision)")
             && virtual_list
                 .contains("keyed_slots_reuse_moves_rebind_revisions_and_teardown_exactly")
             && virtual_list
@@ -6842,7 +6900,7 @@ fn virtual_list_owns_observable_membership_and_recycled_slot_lifecycle() {
         view_traversal.contains("model.reuse_slots_from(previous)")
             && runtime_presentation.contains("view.materialize_virtual_lists(")
             && !runtime_presentation.contains("struct Slots")
-            && table.contains("fn item_revision(&self, index: usize) -> Option<u64>")
+            && table.contains("fn item_revision(&self, index: usize) -> u64")
             && view_builder.contains("self.table_row = Some(row.at_index(index));")
             && layout_scene.contains(
                 "an unchanged application-view rebuild must retain every bound list slot",
@@ -6910,18 +6968,18 @@ fn scroll_truth_uses_continuous_adjustments_and_one_transition_contract() {
 
     assert!(
         interaction.contains("enum ScrollUpdate {")
-            && interaction.contains("Relative(ScrollDelta),")
-            && interaction.contains("Absolute(ScrollOffset),")
-            && interaction.contains("Geometry(ScrollOffset),")
+            && interaction.contains("Relative(Delta),")
+            && interaction.contains("Absolute(Offset),")
+            && interaction.contains("Geometry(Offset),")
             && interaction.contains("struct AxisAdjustment {")
             && interaction.contains("pub(super) fn configure(")
             && interaction.contains("pub(super) fn request(")
             && interaction.contains("pub(super) fn accept_resident(")
             && dispatch.contains("enum ScrollTransition {")
-            && dispatch.contains("PropertyTick(interaction::ScrollOffset),")
+            && dispatch.contains("PropertyTick(interaction::Offset),")
             && dispatch.contains("NeedsResidency {")
-            && dispatch.contains("desired: interaction::ScrollOffset,")
-            && dispatch.contains("resident_accepted: interaction::ScrollOffset,")
+            && dispatch.contains("desired: interaction::Offset,")
+            && dispatch.contains("resident_accepted: interaction::Offset,")
             && dispatch.contains("schedule_candidate: bool,")
             && dispatch.matches("self.apply_scroll_transition(").count() == 2,
         "relative and absolute input must cross one authoritative request/resident-acceptance and scheduling path"
@@ -6934,7 +6992,7 @@ fn scroll_truth_uses_continuous_adjustments_and_one_transition_contract() {
     }
 
     assert!(
-        scene.contains("value: interaction::ScrollOffset,")
+        scene.contains("value: interaction::Offset,")
             && interaction.contains("fn translation_to(self, current: Self) -> [f32; 2]")
             && spatial.contains("let delta = baseline.translation_to(offset);")
             && scene.contains("i64::from(travel) * i64::from(offset)")
@@ -6951,8 +7009,8 @@ fn scroll_truth_uses_continuous_adjustments_and_one_transition_contract() {
             && layout.contains("struct IncompleteResidency {")
             && layout.contains("struct Proof {")
             && layout.contains("accepted: Accepted,")
-            && layout.contains("key: crate::virtual_list::Key,")
-            && layout.contains("expected_keys: &[crate::virtual_list::Key]")
+            && layout.contains("key: crate::list::Key,")
+            && layout.contains("expected_keys: &[crate::list::Key]")
             && layout.contains("key != Some(&row.key)")
             && layout.contains("fn exact_virtual_residency(")
             && paint.contains("scene painting requires a complete scroll residency proof"),

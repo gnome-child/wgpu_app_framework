@@ -126,7 +126,7 @@ pub(crate) struct Area {
     render_surfaces: Vec<text_engine::layout::TextAreaSurface>,
     viewport: Viewport,
     state: text_engine::view::ViewState,
-    resolved_scroll_correction: Option<interaction::ScrollOffset>,
+    resolved_scroll_correction: Option<interaction::Offset>,
 }
 
 #[derive(Clone)]
@@ -835,7 +835,7 @@ impl Area {
         self.viewport
     }
 
-    pub(crate) fn resolved_scroll_correction(&self) -> Option<interaction::ScrollOffset> {
+    pub(crate) fn resolved_scroll_correction(&self) -> Option<interaction::Offset> {
         self.resolved_scroll_correction
     }
 }
@@ -890,8 +890,8 @@ fn text_color_from_scene(color: scene::Color) -> text_engine::Color {
     )
 }
 
-fn scroll_offset_for_text_state(state: &text_engine::view::ViewState) -> interaction::ScrollOffset {
-    interaction::ScrollOffset::new(
+fn scroll_offset_for_text_state(state: &text_engine::view::ViewState) -> interaction::Offset {
+    interaction::Offset::new(
         scroll_component(state.exact_scroll_x()),
         scroll_component(state.exact_scroll_y()),
     )
@@ -943,7 +943,7 @@ mod precision_tests {
             let state = text_engine::view::ViewState::new_at(0.0, Instant::now())
                 .with_integral_scroll(value, value);
             let projected = scroll_offset_for_text_state(&state);
-            assert_eq!(projected, interaction::ScrollOffset::new(value, value));
+            assert_eq!(projected, interaction::Offset::new(value, value));
         }
     }
 }

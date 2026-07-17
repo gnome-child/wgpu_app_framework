@@ -829,7 +829,7 @@ mod tests {
         let view = widget::view(|ui| {
             ui.column(|ui| {
                 ui.add(
-                    widget::Scroll::new()
+                    crate::Scroll::new()
                         .id("scroll.native")
                         .height(view::Dimension::fixed(56))
                         .children(|ui| {
@@ -1200,7 +1200,7 @@ mod tests {
             .view(move |_, _| {
                 widget::view(|ui| {
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("native.clipped.focus")
                             .height(view::Dimension::fixed(48))
                             .children(|ui| {
@@ -1235,7 +1235,7 @@ mod tests {
                 viewport.x() + viewport.width() / 2,
                 viewport.y() + viewport.height() / 2,
             ),
-            interaction::ScrollDelta::vertical(16),
+            interaction::Delta::vertical(16),
         )
         .expect("scroll should be handled");
         let focused = app

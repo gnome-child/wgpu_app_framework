@@ -100,7 +100,7 @@ fn project_scrollbar_property(
     property: &mut NodeProperty,
     projection: scene::ContentProjection,
     value: Option<scene::PropertyValue>,
-    scroll_offset: Option<crate::interaction::ScrollOffset>,
+    scroll_offset: Option<crate::interaction::Offset>,
     scale_factor: f32,
 ) {
     let (axis, edge, base_thickness, maximum_thickness, thumb) = match projection {
@@ -248,10 +248,10 @@ fn node_property_for_binding(
                 .and_then(|axis| value(scene::PropertyKind::scrollbar(axis)));
             let scroll_offset =
                 matches!(projection, scene::ContentProjection::ScrollbarThumb { .. })
-                    .then(|| value(scene::PropertyKind::ScrollOffset))
+                    .then(|| value(scene::PropertyKind::Offset))
                     .flatten()
                     .and_then(|value| match value {
-                        scene::PropertyValue::ScrollOffset { value, .. } => Some(value),
+                        scene::PropertyValue::Offset { value, .. } => Some(value),
                         _ => None,
                     });
             project_scrollbar_property(
@@ -1898,7 +1898,7 @@ impl PlanBuilder<'_> {
 
     fn subtree_has_dynamic_geometry(&self, commit: &scene::Commit, node: &scene::Node) -> bool {
         node.declares(scene::PropertyKind::Transform)
-            || node.declares(scene::PropertyKind::ScrollOffset)
+            || node.declares(scene::PropertyKind::Offset)
             || commit
                 .nodes()
                 .iter()
@@ -2365,7 +2365,7 @@ fn collect_property_dependents(
             }
             scene::ContentProjection::ScrollbarThumb { axis, .. } => {
                 kinds.push(scene::PropertyKind::scrollbar(axis));
-                kinds.push(scene::PropertyKind::ScrollOffset);
+                kinds.push(scene::PropertyKind::Offset);
             }
         };
         for kind in kinds {
@@ -2413,10 +2413,9 @@ fn collect_scroll_bindings(
             .scroll_path_owners(binding.path)
             .unwrap_or_default();
         for owner in owners {
-            let Some(property) = commit.property_index(scene::PropertyRef::new(
-                owner,
-                scene::PropertyKind::ScrollOffset,
-            )) else {
+            let Some(property) =
+                commit.property_index(scene::PropertyRef::new(owner, scene::PropertyKind::Offset))
+            else {
                 continue;
             };
             dependents

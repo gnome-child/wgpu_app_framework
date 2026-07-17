@@ -12,8 +12,8 @@ pub(super) struct Axes {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ContainerLayout {
     axes: Axes,
-    presentation: crate::view::ScrollChromePresentation,
-    direction: crate::view::ScrollDirection,
+    presentation: crate::scroll::Presentation,
+    direction: crate::scroll::Direction,
     introduction_passes: u8,
 }
 
@@ -61,8 +61,8 @@ impl Axes {
 impl ContainerLayout {
     pub(super) const fn new(
         axes: Axes,
-        presentation: crate::view::ScrollChromePresentation,
-        direction: crate::view::ScrollDirection,
+        presentation: crate::scroll::Presentation,
+        direction: crate::scroll::Direction,
         introduction_passes: u8,
     ) -> Self {
         Self {
@@ -73,19 +73,19 @@ impl ContainerLayout {
         }
     }
 
-    pub(super) fn initial(container: crate::view::ScrollContainer) -> Self {
+    pub(super) fn initial(container: crate::scroll::Configuration) -> Self {
         Self::new(
             Axes::new(
-                container.horizontal_policy == crate::view::ScrollAxisPolicy::Always,
-                container.vertical_policy == crate::view::ScrollAxisPolicy::Always,
+                container.horizontal_policy == crate::scroll::Policy::Always,
+                container.vertical_policy == crate::scroll::Policy::Always,
             ),
-            container.chrome,
+            container.presentation,
             container.direction,
             0,
         )
     }
 
-    pub(super) fn introduce(self, container: crate::view::ScrollContainer, overflow: Axes) -> Self {
+    pub(super) fn introduce(self, container: crate::scroll::Configuration, overflow: Axes) -> Self {
         let axes = Axes::new(
             self.axes.horizontal()
                 || axis_policy_shows(container.horizontal_policy, overflow.horizontal()),
@@ -97,7 +97,7 @@ impl ContainerLayout {
         } else {
             Self::new(
                 axes,
-                container.chrome,
+                container.presentation,
                 container.direction,
                 self.introduction_passes.saturating_add(1),
             )
@@ -108,11 +108,11 @@ impl ContainerLayout {
         self.axes
     }
 
-    pub(crate) const fn presentation(self) -> crate::view::ScrollChromePresentation {
+    pub(crate) const fn presentation(self) -> crate::scroll::Presentation {
         self.presentation
     }
 
-    pub(super) const fn direction(self) -> crate::view::ScrollDirection {
+    pub(super) const fn direction(self) -> crate::scroll::Direction {
         self.direction
     }
 
@@ -122,46 +122,46 @@ impl ContainerLayout {
 }
 
 pub(super) fn resolve_container(
-    authored: Option<crate::view::ScrollContainer>,
+    authored: Option<crate::scroll::Configuration>,
     theme: &theme::Theme,
     allowed: Axes,
-    horizontal_sizing: crate::view::ScrollSizing,
-    vertical_sizing: crate::view::ScrollSizing,
-) -> crate::view::ScrollContainer {
+    horizontal_sizing: crate::scroll::Sizing,
+    vertical_sizing: crate::scroll::Sizing,
+) -> crate::scroll::Configuration {
     let (policy, chrome) = match theme.scrollbar().metrics.policy {
         theme::ScrollbarPolicy::OverlayAuto => (
-            crate::view::ScrollAxisPolicy::Automatic,
-            crate::view::ScrollChromePresentation::Overlay,
+            crate::scroll::Policy::Automatic,
+            crate::scroll::Presentation::Overlay,
         ),
         theme::ScrollbarPolicy::GutterAlways => (
-            crate::view::ScrollAxisPolicy::Always,
-            crate::view::ScrollChromePresentation::Consuming,
+            crate::scroll::Policy::Always,
+            crate::scroll::Presentation::Consuming,
         ),
     };
     let mut container = authored.unwrap_or_else(|| {
-        crate::view::ScrollContainer::new(
+        crate::scroll::Configuration::new(
             policy,
             policy,
             chrome,
             horizontal_sizing,
             vertical_sizing,
-            crate::view::ScrollDirection::LeftToRight,
+            crate::scroll::Direction::LeftToRight,
         )
     });
     if !allowed.horizontal() {
-        container.horizontal_policy = crate::view::ScrollAxisPolicy::Never;
+        container.horizontal_policy = crate::scroll::Policy::Never;
     }
     if !allowed.vertical() {
-        container.vertical_policy = crate::view::ScrollAxisPolicy::Never;
+        container.vertical_policy = crate::scroll::Policy::Never;
     }
     container
 }
 
-fn axis_policy_shows(policy: crate::view::ScrollAxisPolicy, overflow: bool) -> bool {
+fn axis_policy_shows(policy: crate::scroll::Policy, overflow: bool) -> bool {
     match policy {
-        crate::view::ScrollAxisPolicy::Always => true,
-        crate::view::ScrollAxisPolicy::Automatic => overflow,
-        crate::view::ScrollAxisPolicy::Never | crate::view::ScrollAxisPolicy::External => false,
+        crate::scroll::Policy::Always => true,
+        crate::scroll::Policy::Automatic => overflow,
+        crate::scroll::Policy::Never | crate::scroll::Policy::External => false,
     }
 }
 
@@ -214,7 +214,7 @@ pub(crate) struct Chrome {
     scroll_target: interaction::Target,
     scope: ViewportScope,
     scrollbar: Scrollbar,
-    presentation: crate::view::ScrollChromePresentation,
+    presentation: crate::scroll::Presentation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -262,11 +262,11 @@ impl Chrome {
     pub(crate) fn scroll_offset_at(
         &self,
         point: super::super::geometry::Point,
-    ) -> interaction::ScrollOffset {
+    ) -> interaction::Offset {
         self.scrollbar.scroll_offset_at(point)
     }
 
-    pub(crate) fn resolved_scroll(&self) -> interaction::ScrollOffset {
+    pub(crate) fn resolved_scroll(&self) -> interaction::Offset {
         self.scrollbar.viewport.resolved_scroll()
     }
 
@@ -274,7 +274,7 @@ impl Chrome {
         self.scrollbar.axis
     }
 
-    pub(crate) fn presentation(&self) -> crate::view::ScrollChromePresentation {
+    pub(crate) fn presentation(&self) -> crate::scroll::Presentation {
         self.presentation
     }
 
@@ -318,10 +318,10 @@ impl Scrollbar {
         resize_cross_axis(self.thumb, self.axis, thickness.max(1))
     }
 
-    fn scroll_offset_at(self, point: super::super::geometry::Point) -> interaction::ScrollOffset {
+    fn scroll_offset_at(self, point: super::super::geometry::Point) -> interaction::Offset {
         let max = self.viewport.max_scroll();
         match self.axis {
-            Axis::Vertical => interaction::ScrollOffset::new(
+            Axis::Vertical => interaction::Offset::new(
                 self.viewport.resolved_scroll().x(),
                 axis_offset(
                     point.y(),
@@ -331,7 +331,7 @@ impl Scrollbar {
                     max.y(),
                 ),
             ),
-            Axis::Horizontal => interaction::ScrollOffset::new(
+            Axis::Horizontal => interaction::Offset::new(
                 axis_offset(
                     point.x(),
                     self.track.x(),
@@ -364,15 +364,13 @@ fn scrollbars_for_frame(frame: &Frame, theme: &theme::Theme) -> Vec<Chrome> {
     let scope = ViewportScope::new(frame, viewport);
     let presentation = container.map_or_else(
         || match theme.scrollbar().metrics.policy {
-            theme::ScrollbarPolicy::OverlayAuto => crate::view::ScrollChromePresentation::Overlay,
-            theme::ScrollbarPolicy::GutterAlways => {
-                crate::view::ScrollChromePresentation::Consuming
-            }
+            theme::ScrollbarPolicy::OverlayAuto => crate::scroll::Presentation::Overlay,
+            theme::ScrollbarPolicy::GutterAlways => crate::scroll::Presentation::Consuming,
         },
         ContainerLayout::presentation,
     );
     let direction = container.map_or(
-        crate::view::ScrollDirection::LeftToRight,
+        crate::scroll::Direction::LeftToRight,
         ContainerLayout::direction,
     );
     let horizontal = container.map_or_else(
@@ -447,13 +445,13 @@ fn scrollbar_for_axis(
     viewport: Viewport,
     theme: &theme::Theme,
     axis: Axis,
-    presentation: crate::view::ScrollChromePresentation,
-    direction: crate::view::ScrollDirection,
+    presentation: crate::scroll::Presentation,
+    direction: crate::scroll::Direction,
 ) -> Option<Scrollbar> {
     let scrollbar = theme.scrollbar();
     let thickness = match presentation {
-        crate::view::ScrollChromePresentation::Consuming => scrollbar.metrics.thickness,
-        crate::view::ScrollChromePresentation::Overlay => scrollbar.appearance.overlay_thickness,
+        crate::scroll::Presentation::Consuming => scrollbar.metrics.thickness,
+        crate::scroll::Presentation::Overlay => scrollbar.appearance.overlay_thickness,
     }
     .max(1);
     let margin = scrollbar.appearance.margin.max(0);
@@ -461,11 +459,11 @@ fn scrollbar_for_axis(
     let track = match axis {
         Axis::Vertical => Rect::new(
             match direction {
-                crate::view::ScrollDirection::LeftToRight => bounds
+                crate::scroll::Direction::LeftToRight => bounds
                     .right()
                     .saturating_sub(margin)
                     .saturating_sub(thickness),
-                crate::view::ScrollDirection::RightToLeft => bounds.x().saturating_add(margin),
+                crate::scroll::Direction::RightToLeft => bounds.x().saturating_add(margin),
             },
             bounds.y().saturating_add(margin),
             thickness,
@@ -641,7 +639,7 @@ fn reserve_gutters(rect: Rect, theme: &theme::Theme, axes: Axes) -> Rect {
 }
 
 fn reserve_container_gutters(rect: Rect, theme: &theme::Theme, container: ContainerLayout) -> Rect {
-    if container.presentation() != crate::view::ScrollChromePresentation::Consuming {
+    if container.presentation() != crate::scroll::Presentation::Consuming {
         return rect;
     }
 
@@ -650,8 +648,8 @@ fn reserve_container_gutters(rect: Rect, theme: &theme::Theme, container: Contai
     let vertical = if axes.vertical() { gutter } else { 0 };
     let horizontal = if axes.horizontal() { gutter } else { 0 };
     let x = match container.direction() {
-        crate::view::ScrollDirection::LeftToRight => rect.x(),
-        crate::view::ScrollDirection::RightToLeft => rect.x().saturating_add(vertical),
+        crate::scroll::Direction::LeftToRight => rect.x(),
+        crate::scroll::Direction::RightToLeft => rect.x().saturating_add(vertical),
     };
     Rect::new(
         x,

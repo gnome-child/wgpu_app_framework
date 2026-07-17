@@ -148,14 +148,13 @@ impl PresentedGeometry {
         &self,
         focus: session::Focus,
         axis: interaction::ScrollbarAxis,
-    ) -> Vec<(interaction::Target, view::ScrollDirection)> {
+    ) -> Vec<(interaction::Target, crate::scroll::Direction)> {
         self.layout.scroll_target_chain_for_focus(focus, axis)
     }
 }
 
-type VirtualMaterializations =
-    HashMap<crate::interaction::Id, crate::virtual_list::Materialization>;
-type VirtualMeasurements = HashMap<crate::interaction::Id, crate::virtual_list::Measurements>;
+type VirtualMaterializations = HashMap<crate::interaction::Id, crate::list::Materialization>;
+type VirtualMeasurements = HashMap<crate::interaction::Id, crate::list::Measurements>;
 
 const KINETIC_FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(4);
 
@@ -169,7 +168,7 @@ struct AnimationSchedules {
 struct KineticScroll {
     targets: Vec<interaction::Target>,
     source: interaction::ScrollSource,
-    velocity: interaction::ScrollDelta,
+    velocity: interaction::Delta,
     last_tick: std::time::Instant,
 }
 

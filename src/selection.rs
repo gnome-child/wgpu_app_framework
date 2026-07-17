@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::virtual_list::{Key, Provider};
+use crate::list::{Key, Model};
 
 /// Window-local keyed selection state for a provided container.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +28,7 @@ impl Endpoint {
         Self { key, index }
     }
 
-    fn resolve(self, provider: &dyn Provider) -> Option<Self> {
+    fn resolve(self, provider: &dyn Model) -> Option<Self> {
         provider
             .index_of(self.key)
             .map(|index| Self::new(self.key, index))
@@ -90,7 +90,7 @@ impl Selection {
 
     pub(crate) fn click(
         &mut self,
-        provider: &dyn Provider,
+        provider: &dyn Model,
         key: Key,
         index: usize,
         extend: bool,
@@ -107,7 +107,7 @@ impl Selection {
         *self != before
     }
 
-    pub(crate) fn select_all(&mut self, provider: &dyn Provider) -> bool {
+    pub(crate) fn select_all(&mut self, provider: &dyn Model) -> bool {
         let before = self.clone();
         let len = provider.len();
         self.membership = Membership::AllExcept(BTreeSet::new());
@@ -139,7 +139,7 @@ impl Selection {
 
     pub(crate) fn move_active(
         &mut self,
-        provider: &dyn Provider,
+        provider: &dyn Model,
         movement: Move,
         extend: bool,
     ) -> bool {
@@ -176,7 +176,7 @@ impl Selection {
         *self != before
     }
 
-    pub(crate) fn reconcile(&mut self, provider: &dyn Provider) -> bool {
+    pub(crate) fn reconcile(&mut self, provider: &dyn Model) -> bool {
         let before = self.clone();
         let len = provider.len();
         match &mut self.membership {
@@ -233,7 +233,7 @@ impl Selection {
         self.active = Some(endpoint);
     }
 
-    fn extend_to(&mut self, provider: &dyn Provider, key: Key, index: usize) {
+    fn extend_to(&mut self, provider: &dyn Model, key: Key, index: usize) {
         let anchor_index = self
             .anchor
             .and_then(|endpoint| provider.index_of(endpoint.key))
@@ -255,7 +255,7 @@ impl Selection {
         self.active = Some(Endpoint::new(key, index));
     }
 
-    fn nearest_selected(&self, provider: &dyn Provider, desired: usize) -> Option<(Key, usize)> {
+    fn nearest_selected(&self, provider: &dyn Model, desired: usize) -> Option<(Key, usize)> {
         if provider.len() == 0 || self.is_empty() {
             return None;
         }
@@ -290,13 +290,12 @@ impl Default for Selection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view;
     use std::{cell::RefCell, rc::Rc};
 
     #[derive(Clone)]
     struct Keys(Rc<RefCell<Vec<u64>>>);
 
-    impl Provider for Keys {
+    impl Model for Keys {
         fn len(&self) -> usize {
             self.0.borrow().len()
         }
@@ -312,8 +311,16 @@ mod tests {
                 .position(|value| *value == key.value())
         }
 
-        fn row(&self, _: usize) -> view::Node {
-            unreachable!("selection mechanics never construct provider rows")
+        fn membership_revision(&self) -> u64 {
+            0
+        }
+
+        fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+            Vec::new()
+        }
+
+        fn item_revision(&self, _index: usize) -> u64 {
+            0
         }
     }
 

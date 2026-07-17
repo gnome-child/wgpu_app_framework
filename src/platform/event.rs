@@ -276,16 +276,16 @@ pub(crate) fn popup_point_from_physical(
     realization.retained_point(local)
 }
 
-pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::ScrollDelta {
+pub fn scroll_delta(delta: MouseScrollDelta, scale_factor: f64) -> interaction::Delta {
     const LINE_SCROLL_LOGICAL_PIXELS: f64 = 28.0;
 
     match delta {
-        MouseScrollDelta::LineDelta(x, y) => interaction::ScrollDelta::from_logical_pixels(
+        MouseScrollDelta::LineDelta(x, y) => interaction::Delta::from_logical_pixels(
             x as f64 * LINE_SCROLL_LOGICAL_PIXELS,
             -(y as f64) * LINE_SCROLL_LOGICAL_PIXELS,
         ),
         MouseScrollDelta::PixelDelta(position) => {
-            interaction::ScrollDelta::from_physical_pixels(position.x, -position.y, scale_factor)
+            interaction::Delta::from_physical_pixels(position.x, -position.y, scale_factor)
         }
     }
 }
@@ -294,7 +294,7 @@ fn scroll_delta_with_phase(
     delta: MouseScrollDelta,
     scale_factor: f64,
     phase: TouchPhase,
-) -> interaction::ScrollDelta {
+) -> interaction::Delta {
     let (source, unit) = match delta {
         MouseScrollDelta::LineDelta(..) => (
             interaction::ScrollSource::Wheel,

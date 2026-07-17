@@ -598,9 +598,9 @@ fn pending_scroll_intent_is_obsolete(
 }
 
 fn scroll_axis_reversed(
-    active: interaction::ScrollOffset,
-    pending: interaction::ScrollOffset,
-    incoming: interaction::ScrollOffset,
+    active: interaction::Offset,
+    pending: interaction::Offset,
+    incoming: interaction::Offset,
     axis: interaction::ScrollbarAxis,
 ) -> bool {
     let pending_direction = pending.axis_cmp(active, axis);
@@ -773,13 +773,17 @@ mod tests {
             1_000_000
         }
 
-        fn key(&self, index: usize) -> crate::virtual_list::Key {
-            crate::virtual_list::Key::new(index as u64)
+        fn key(&self, index: usize) -> crate::list::Key {
+            crate::list::Key::new(index as u64)
         }
 
-        fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+        fn index_of(&self, key: crate::list::Key) -> Option<usize> {
             let index = key.value() as usize;
             (index < self.len()).then_some(index)
+        }
+
+        fn item_revision(&self, _row: usize) -> u64 {
+            0
         }
 
         fn cell(&self, row: usize, cell: crate::table::Cell) -> crate::view::Node {
@@ -860,7 +864,7 @@ mod tests {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(1)
+                    cell.row() == crate::list::Key::new(1)
                         && cell.column() == crate::interaction::Id::new("detail")
                 })
             })
@@ -868,7 +872,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -894,7 +898,7 @@ mod tests {
                 window,
                 size,
                 point,
-                crate::interaction::ScrollDelta::vertical(delta),
+                crate::interaction::Delta::vertical(delta),
             )
             .expect("scroll beyond active residency should request replenishment");
         let pending = shell.drain();
@@ -977,7 +981,7 @@ mod tests {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(1)
+                    cell.row() == crate::list::Key::new(1)
                         && cell.column() == crate::interaction::Id::new("detail")
                 })
             })
@@ -985,7 +989,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1000,7 +1004,7 @@ mod tests {
             .accepted_offsets()
             .expect("active table residency should prove a resident interval");
         let first_requested =
-            crate::interaction::ScrollOffset::new(0, active_maximum.y().saturating_add(1));
+            crate::interaction::Offset::new(0, active_maximum.y().saturating_add(1));
 
         shell
             .runtime_mut()
@@ -1025,7 +1029,7 @@ mod tests {
             .accepted_offsets()
             .expect("prepared residency should prove its accepted interval");
         let latest_requested =
-            crate::interaction::ScrollOffset::new(0, prepared_maximum.y().saturating_add(1));
+            crate::interaction::Offset::new(0, prepared_maximum.y().saturating_add(1));
 
         shell
             .runtime_mut()
@@ -1158,7 +1162,7 @@ mod tests {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(1)
+                    cell.row() == crate::list::Key::new(1)
                         && cell.column() == crate::interaction::Id::new("detail")
                 })
             })
@@ -1166,7 +1170,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1181,7 +1185,7 @@ mod tests {
             .accepted_offsets()
             .expect("active table residency should prove a resident interval");
         let first_requested =
-            crate::interaction::ScrollOffset::new(0, active_maximum.y().saturating_add(1));
+            crate::interaction::Offset::new(0, active_maximum.y().saturating_add(1));
 
         shell
             .runtime_mut()
@@ -1210,7 +1214,7 @@ mod tests {
             accepted_y <= prepared_maximum.y(),
             "fixture needs one newer offset inside the selected residency"
         );
-        let accepted = crate::interaction::ScrollOffset::new(0, accepted_y);
+        let accepted = crate::interaction::Offset::new(0, accepted_y);
 
         shell
             .runtime_mut()
@@ -1266,7 +1270,7 @@ mod tests {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(1)
+                    cell.row() == crate::list::Key::new(1)
                         && cell.column() == crate::interaction::Id::new("detail")
                 })
             })
@@ -1274,7 +1278,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1288,8 +1292,7 @@ mod tests {
         let (_, active_maximum) = projection
             .accepted_offsets()
             .expect("active table residency should prove a resident interval");
-        let requested =
-            crate::interaction::ScrollOffset::new(0, active_maximum.y().saturating_add(1));
+        let requested = crate::interaction::Offset::new(0, active_maximum.y().saturating_add(1));
 
         shell
             .runtime_mut()
@@ -1370,7 +1373,7 @@ mod tests {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(1)
+                    cell.row() == crate::list::Key::new(1)
                         && cell.column() == crate::interaction::Id::new("detail")
                 })
             })
@@ -1378,7 +1381,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1400,7 +1403,7 @@ mod tests {
             requested_y > active_maximum.y().saturating_add(1_000),
             "fixture must jump beyond the prepared trailing guard"
         );
-        let requested = crate::interaction::ScrollOffset::new(0, requested_y);
+        let requested = crate::interaction::Offset::new(0, requested_y);
 
         shell
             .runtime_mut()
@@ -1535,7 +1538,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1548,7 +1551,7 @@ mod tests {
         let (_, active_maximum) = projection
             .accepted_offsets()
             .expect("active table residency should prove an interval");
-        let first = crate::interaction::ScrollOffset::new(0, active_maximum.y() + 1);
+        let first = crate::interaction::Offset::new(0, active_maximum.y() + 1);
 
         shell
             .runtime_mut()
@@ -1562,7 +1565,7 @@ mod tests {
             .expect("first hard-edge request should select one residency candidate");
         assert!(!selected.property_only());
 
-        let latest = crate::interaction::ScrollOffset::new(
+        let latest = crate::interaction::Offset::new(
             0,
             selected
                 .layout()
@@ -1688,7 +1691,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1702,7 +1705,7 @@ mod tests {
             .accepted_offsets()
             .expect("active table residency should prove an interval");
         let threshold = projection.viewport().rect().height().max(2) / 2;
-        let soft = crate::interaction::ScrollOffset::new(
+        let soft = crate::interaction::Offset::new(
             0,
             maximum
                 .y()
@@ -1745,7 +1748,7 @@ mod tests {
             Some(scene::ResidencyUrgency::Proactive)
         );
 
-        let required_offset = crate::interaction::ScrollOffset::new(
+        let required_offset = crate::interaction::Offset::new(
             0,
             maximum
                 .y()
@@ -1823,7 +1826,7 @@ mod tests {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(1)
+                    cell.row() == crate::list::Key::new(1)
                         && cell.column() == crate::interaction::Id::new("detail")
                 })
             })
@@ -1831,7 +1834,7 @@ mod tests {
         let point = crate::geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
         let target = active
             .layout()
-            .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(1))
+            .scroll_target_at(point, crate::interaction::Delta::vertical(1))
             .expect("table cell should route vertical scrolling");
         let projection = active
             .layout()
@@ -1845,7 +1848,7 @@ mod tests {
         let (_, active_maximum) = projection
             .accepted_offsets()
             .expect("active table residency should prove a resident interval");
-        let forward = crate::interaction::ScrollOffset::new(
+        let forward = crate::interaction::Offset::new(
             0,
             active_maximum
                 .y()
@@ -1870,7 +1873,7 @@ mod tests {
             .runtime_mut()
             .handle_input(
                 window,
-                crate::Input::scroll_to(target, crate::interaction::ScrollOffset::default()),
+                crate::Input::scroll_to(target, crate::interaction::Offset::default()),
             )
             .expect("reversal into the active residency should be handled");
         let reverse_work = shell.drain();
@@ -1882,7 +1885,7 @@ mod tests {
         assert!(active.stack().same_structure(reverse.stack()));
         assert_eq!(
             reverse.properties().scroll_offset(scroll),
-            Some(crate::interaction::ScrollOffset::default())
+            Some(crate::interaction::Offset::default())
         );
 
         let pending = super::super::PendingPresentation::new(prepared);

@@ -10,11 +10,12 @@ is next.
     replace the current target-plus-offset behavior with six proved layers:
     per-axis adjustments, a generic scroll container, an eager viewport
     adapter, native text/list/table views, list-owned model/factory lifecycle,
-    and private residency/presentation. The campaign begins with independent
-    behavioral oracles, preserves complete-pixel and atomic-submission work,
-    and delays public names until eager viewport, text, and list prove the
-    implementation boundary. `scroll::Content` and public virtualization
-    planning are explicitly rejected. Ledger:
+    and private residency/presentation. Behavioral ownership and liveness are
+    complete; the public break now names the `scroll` configuration and motion
+    types plus `list::{List, Model, Factory}` without aliases.
+    `scroll::Content`, a public `Scrollable`/adjustment contract, and public
+    virtualization planning are explicitly rejected. Performance closure for
+    the remaining list chop is next. Ledger:
     `docs/audits/2026-07-17-scrolling-engine-campaign.md`.
 
 ## Specced and ready

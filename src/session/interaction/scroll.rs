@@ -31,9 +31,9 @@ impl Session {
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
-        maximum: interaction::ScrollOffset,
-        page: interaction::ScrollOffset,
-    ) -> Option<interaction::ScrollOffset> {
+        maximum: interaction::Offset,
+        page: interaction::Offset,
+    ) -> Option<interaction::Offset> {
         self.window_mut(id)?
             .interaction
             .configure_scroll(target, maximum, page)
@@ -44,7 +44,7 @@ impl Session {
         id: app_window::Id,
         target: interaction::Target,
         update: interaction::ScrollUpdate,
-    ) -> Option<interaction::ScrollOffset> {
+    ) -> Option<interaction::Offset> {
         let Some(window) = self.window_mut(id) else {
             return None;
         };
@@ -63,7 +63,7 @@ impl Session {
         axis: interaction::ScrollbarAxis,
         operation: interaction::ScrollOperation,
         reversed: bool,
-    ) -> Option<interaction::ScrollOffset> {
+    ) -> Option<interaction::Offset> {
         self.window(id)?
             .interaction
             .scroll()
@@ -86,8 +86,8 @@ impl Session {
         &mut self,
         id: app_window::Id,
         target: interaction::Target,
-        offset: interaction::ScrollOffset,
-    ) -> Option<interaction::ScrollOffset> {
+        offset: interaction::Offset,
+    ) -> Option<interaction::Offset> {
         let window = self.window_mut(id)?;
         window.interaction.accept_resident_scroll(target, offset)
     }

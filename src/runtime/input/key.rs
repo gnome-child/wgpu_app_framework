@@ -169,7 +169,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             .scroll_target_chain_for_focus(focus, axis);
         for (target, direction) in targets {
             let reversed = axis == crate::interaction::ScrollbarAxis::Horizontal
-                && direction == view::ScrollDirection::RightToLeft;
+                && direction == crate::scroll::Direction::RightToLeft;
             let operation = intent.operation(reversed);
             if let Some(outcome) = self.apply_scroll_operation(
                 window,

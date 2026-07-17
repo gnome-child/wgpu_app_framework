@@ -1,6 +1,6 @@
 use super::super::Runtime;
 use crate::{
-    command::Error, input, interaction, response, selection, session, state, virtual_list, window,
+    command::Error, input, interaction, list, response, selection, session, state, window,
 };
 
 #[derive(Clone, Copy)]
@@ -207,7 +207,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         ))
     }
 
-    fn table_page(&self, window: window::Id, model: &virtual_list::Model) -> usize {
+    fn table_page(&self, window: window::Id, model: &list::State) -> usize {
         self.presented_layout(window)
             .and_then(|layout| layout.virtual_list_page(model.id(), model.row_height()))
             .unwrap_or(10)

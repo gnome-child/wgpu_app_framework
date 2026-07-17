@@ -531,7 +531,7 @@ mod tests {
 
         let removed_cell = crate::table::Cell::new(
             crate::interaction::Id::new("removed-table"),
-            crate::virtual_list::Key::new(7),
+            crate::list::Key::new(7),
             crate::interaction::Id::new("removed-column"),
         );
         let removed_cell_target = Target::table_cell_editor(removed_cell);

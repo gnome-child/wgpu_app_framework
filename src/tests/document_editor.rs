@@ -872,7 +872,7 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
     app.handle_view(
         window,
         text_area
-            .scroll_action(interaction::ScrollDelta::vertical(96))
+            .scroll_action(interaction::Delta::vertical(96))
             .expect("text area should expose scroll"),
     )
     .expect("scroll should be handled");
@@ -882,7 +882,7 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
             .expect("window should have interaction state")
             .scroll()
             .offset(&scroll_target),
-        interaction::ScrollOffset::default()
+        interaction::Offset::default()
     );
     assert_eq!(
         app.session()
@@ -890,7 +890,7 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
             .expect("window should have interaction state")
             .scroll()
             .desired_offset(&scroll_target),
-        interaction::ScrollOffset::new(0, 96)
+        interaction::Offset::new(0, 96)
     );
 
     let file = projected
@@ -943,11 +943,11 @@ fn text_editor_restore_clears_pending_save_task_and_transient_dialog() {
     assert_eq!(interaction.pointer().capture(), None);
     assert_eq!(
         interaction.scroll().offset(&scroll_target),
-        interaction::ScrollOffset::default()
+        interaction::Offset::default()
     );
     assert_eq!(
         interaction.scroll().desired_offset(&scroll_target),
-        interaction::ScrollOffset::default()
+        interaction::Offset::default()
     );
     assert_eq!(app.pending_tasks(), 0);
     assert!(app.run_next_task().is_none());

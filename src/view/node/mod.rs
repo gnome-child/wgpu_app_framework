@@ -1,6 +1,6 @@
 use super::super::interaction;
 use super::{binding::Binding, style::Style};
-use crate::virtual_list;
+use crate::list;
 use crate::{subject, text};
 
 mod access;
@@ -13,10 +13,7 @@ pub(crate) mod standard_menu;
 mod traversal;
 
 pub use axis::Axis;
-pub(crate) use content::{
-    Content, MenuBar, Panel, Scroll, ScrollAxisPolicy, ScrollChromePresentation, ScrollContainer,
-    ScrollDirection, ScrollSizing,
-};
+pub(crate) use content::{Content, MenuBar, Panel, Scroll};
 pub(crate) use role::Role;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,7 +110,7 @@ pub(crate) enum PanelAttachment {
 #[derive(Clone)]
 pub struct Node {
     content: Content,
-    scroll_container: Option<ScrollContainer>,
+    scroll_container: Option<crate::scroll::Configuration>,
     id: Option<interaction::Id>,
     axis: Option<Axis>,
     style: Style,
@@ -138,7 +135,7 @@ pub struct Node {
 #[derive(Clone)]
 pub(crate) struct SceneKey {
     content: Content,
-    scroll_container: Option<ScrollContainer>,
+    scroll_container: Option<crate::scroll::Configuration>,
     axis: Option<Axis>,
     style: Style,
     label: Option<String>,
@@ -191,7 +188,7 @@ fn optional_binding_scene_state_eq(left: Option<&Binding>, right: Option<&Bindin
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProvidedRow {
     list: interaction::Id,
-    key: virtual_list::Key,
+    key: list::Key,
     index: usize,
 }
 
@@ -200,7 +197,7 @@ impl ProvidedRow {
         self.list
     }
 
-    pub(crate) fn key(self) -> virtual_list::Key {
+    pub(crate) fn key(self) -> list::Key {
         self.key
     }
 

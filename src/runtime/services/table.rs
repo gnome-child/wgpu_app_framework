@@ -11,13 +11,13 @@ pub(super) const RESPONDER_NAME: &str = "table_selection";
 
 struct Table<'a> {
     session: &'a mut session::Session,
-    model: &'a crate::virtual_list::Model,
+    model: &'a crate::list::State,
     window: window::Id,
 }
 
 struct SelectionTarget<'a> {
     session: &'a mut session::Session,
-    model: &'a crate::virtual_list::Model,
+    model: &'a crate::list::State,
     window: window::Id,
 }
 
@@ -62,7 +62,7 @@ fn table_model(
     composition: &composition::Store,
     window: Option<window::Id>,
     table: Option<interaction::Id>,
-) -> Option<(window::Id, &crate::virtual_list::Model)> {
+) -> Option<(window::Id, &crate::list::State)> {
     let window = window?;
     let table = table?;
     let model = composition.get(window)?.virtual_list_model(table)?;

@@ -1,8 +1,8 @@
 use crate::{interaction, view};
 
 use super::{
-    Button, Checkbox, Element, Label, Menu, MenuBar, Radio, Scroll, Separator, Slider,
-    StandardMenuBar, TextArea, TextBox, Widget,
+    Button, Checkbox, Element, Label, Menu, MenuBar, Radio, Separator, Slider, StandardMenuBar,
+    TextArea, TextBox, Widget,
 };
 
 pub struct Ui {
@@ -40,7 +40,7 @@ impl Ui {
     }
 
     pub fn scroll(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {
-        self.add(Scroll::new().children(children))
+        self.add(crate::Scroll::new().children(children))
     }
 
     pub fn menu_bar(&mut self, children: impl FnOnce(&mut Ui)) -> &mut Self {

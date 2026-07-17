@@ -38,7 +38,7 @@ struct VisualTransition {
 pub(super) struct Animations {
     transitions: HashMap<Key, VisualTransition>,
     scrollbar_activity: HashMap<ScrollKey, Instant>,
-    scrollbar_offsets: HashMap<ScrollKey, interaction::ScrollOffset>,
+    scrollbar_offsets: HashMap<ScrollKey, interaction::Offset>,
     visuals: HashMap<window::Id, scene::Visuals>,
 }
 
@@ -218,10 +218,8 @@ impl Animations {
                 pass.now,
             );
             let base_thickness = match chrome.presentation() {
-                view::ScrollChromePresentation::Consuming => {
-                    pass.theme.scrollbar().metrics.thickness
-                }
-                view::ScrollChromePresentation::Overlay => {
+                crate::scroll::Presentation::Consuming => pass.theme.scrollbar().metrics.thickness,
+                crate::scroll::Presentation::Overlay => {
                     pass.theme.scrollbar().appearance.overlay_thickness
                 }
             }
@@ -338,11 +336,11 @@ impl Animations {
         &self,
         key: &ScrollKey,
         pointer_active: bool,
-        presentation: view::ScrollChromePresentation,
+        presentation: crate::scroll::Presentation,
         theme: &theme::Theme,
         now: Instant,
     ) -> (f32, Option<Instant>) {
-        if presentation == view::ScrollChromePresentation::Consuming {
+        if presentation == crate::scroll::Presentation::Consuming {
             return (1.0, None);
         }
         let Some(last_activity) = self.scrollbar_activity.get(key).copied() else {
@@ -510,9 +508,9 @@ struct ScrollKey {
     target: interaction::Target,
 }
 
-fn idle_opacity_for(presentation: view::ScrollChromePresentation) -> f32 {
+fn idle_opacity_for(presentation: crate::scroll::Presentation) -> f32 {
     match presentation {
-        view::ScrollChromePresentation::Overlay => 0.0,
-        view::ScrollChromePresentation::Consuming => 1.0,
+        crate::scroll::Presentation::Overlay => 0.0,
+        crate::scroll::Presentation::Consuming => 1.0,
     }
 }

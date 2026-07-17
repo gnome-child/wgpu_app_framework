@@ -141,15 +141,15 @@ impl Node {
         self.active_item
     }
 
-    pub(crate) fn scroll_offset(&self) -> interaction::ScrollOffset {
+    pub(crate) fn scroll_offset(&self) -> interaction::Offset {
         self.content.scroll_offset()
     }
 
-    pub(crate) fn scroll_container(&self) -> Option<super::ScrollContainer> {
+    pub(crate) fn scroll_container(&self) -> Option<crate::scroll::Configuration> {
         self.scroll_container
     }
 
-    pub(crate) fn virtual_list_model(&self) -> Option<&crate::virtual_list::Model> {
+    pub(crate) fn virtual_list_model(&self) -> Option<&crate::list::State> {
         self.content.virtual_list()
     }
 
@@ -217,16 +217,16 @@ impl Node {
         self.content.text_box_mut()
     }
 
-    pub(super) fn virtual_list_model_mut(&mut self) -> Option<&mut crate::virtual_list::Model> {
+    pub(super) fn virtual_list_model_mut(&mut self) -> Option<&mut crate::list::State> {
         self.content.virtual_list_mut()
     }
 
-    pub(super) fn set_scroll_offset(&mut self, offset: interaction::ScrollOffset) {
+    pub(super) fn set_scroll_offset(&mut self, offset: interaction::Offset) {
         self.content.set_scroll_offset(offset);
     }
 
     #[allow(dead_code)]
-    pub(super) fn set_scroll_container(&mut self, container: super::ScrollContainer) {
+    pub(super) fn set_scroll_container(&mut self, container: crate::scroll::Configuration) {
         assert!(
             matches!(
                 self.role(),

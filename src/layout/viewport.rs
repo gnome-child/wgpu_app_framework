@@ -1,6 +1,6 @@
 use super::super::{
     geometry::{Rect, Size},
-    interaction::{ScrollDelta, ScrollOffset, ScrollbarAxis},
+    interaction::{Delta, Offset, ScrollbarAxis},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,18 +9,18 @@ pub(crate) struct Viewport {
     visible_frame: Rect,
     visible_content: Rect,
     content: Size,
-    offset: ScrollOffset,
-    max: ScrollOffset,
-    resolved: ScrollOffset,
+    offset: Offset,
+    max: Offset,
+    resolved: Offset,
 }
 
 impl Viewport {
-    pub(crate) fn new(rect: Rect, content: Size, offset: ScrollOffset) -> Self {
-        let max = ScrollOffset::new(
+    pub(crate) fn new(rect: Rect, content: Size, offset: Offset) -> Self {
+        let max = Offset::new(
             content.width().saturating_sub(rect.width()).max(0),
             content.height().saturating_sub(rect.height()).max(0),
         );
-        let resolved = offset.clamped(ScrollOffset::default(), max);
+        let resolved = offset.clamped(Offset::default(), max);
 
         Self {
             rect,
@@ -55,7 +55,7 @@ impl Viewport {
         self.content_coverage_within(self.rect, self.resolved)
     }
 
-    fn content_coverage_within(self, clip: Rect, offset: ScrollOffset) -> Option<Rect> {
+    fn content_coverage_within(self, clip: Rect, offset: Offset) -> Option<Rect> {
         let content = Rect::new(
             self.rect.x().saturating_sub(offset.x()),
             self.rect.y().saturating_sub(offset.y()),
@@ -69,23 +69,23 @@ impl Viewport {
         self.content
     }
 
-    pub(crate) fn max_scroll(self) -> ScrollOffset {
+    pub(crate) fn max_scroll(self) -> Offset {
         self.max
     }
 
-    pub(crate) fn resolved_scroll(self) -> ScrollOffset {
+    pub(crate) fn resolved_scroll(self) -> Offset {
         self.resolved
     }
 
-    pub(crate) fn resolve(self, offset: ScrollOffset) -> ScrollOffset {
-        offset.clamped(ScrollOffset::default(), self.max)
+    pub(crate) fn resolve(self, offset: Offset) -> Offset {
+        offset.clamped(Offset::default(), self.max)
     }
 
-    pub(crate) fn can_consume_from(self, offset: ScrollOffset, delta: ScrollDelta) -> bool {
+    pub(crate) fn can_consume_from(self, offset: Offset, delta: Delta) -> bool {
         let resolved = self.resolve(offset);
         (delta.x() < 0.0
             && resolved
-                .axis_cmp(ScrollOffset::default(), ScrollbarAxis::Horizontal)
+                .axis_cmp(Offset::default(), ScrollbarAxis::Horizontal)
                 .is_gt())
             || (delta.x() > 0.0
                 && resolved
@@ -93,7 +93,7 @@ impl Viewport {
                     .is_lt())
             || (delta.y() < 0.0
                 && resolved
-                    .axis_cmp(ScrollOffset::default(), ScrollbarAxis::Vertical)
+                    .axis_cmp(Offset::default(), ScrollbarAxis::Vertical)
                     .is_gt())
             || (delta.y() > 0.0 && resolved.axis_cmp(self.max, ScrollbarAxis::Vertical).is_lt())
     }
@@ -102,8 +102,8 @@ impl Viewport {
         self.max.x() > 0 || self.max.y() > 0
     }
 
-    pub(crate) fn reveal_rect(self, rect: Rect, margin: i32) -> ScrollOffset {
-        ScrollOffset::new(
+    pub(crate) fn reveal_rect(self, rect: Rect, margin: i32) -> Offset {
+        Offset::new(
             reveal_axis(
                 self.resolved.x(),
                 self.max.x(),
@@ -169,12 +169,12 @@ mod tests {
         let viewport = Viewport::new(
             Rect::new(0, 0, 100, 100),
             Size::new(100, 300),
-            ScrollOffset::default(),
+            Offset::default(),
         );
 
         assert_eq!(
             viewport.reveal_rect(Rect::new(0, 20, 100, 20), 0),
-            ScrollOffset::default()
+            Offset::default()
         );
     }
 
@@ -183,12 +183,12 @@ mod tests {
         let viewport = Viewport::new(
             Rect::new(0, 0, 100, 100),
             Size::new(100, 300),
-            ScrollOffset::default(),
+            Offset::default(),
         );
 
         assert_eq!(
             viewport.reveal_rect(Rect::new(0, 120, 100, 20), 0),
-            ScrollOffset::new(0, 40)
+            Offset::new(0, 40)
         );
     }
 
@@ -197,12 +197,12 @@ mod tests {
         let viewport = Viewport::new(
             Rect::new(0, 0, 100, 100),
             Size::new(100, 300),
-            ScrollOffset::new(0, 80),
+            Offset::new(0, 80),
         );
 
         assert_eq!(
             viewport.reveal_rect(Rect::new(0, -20, 100, 20), 0),
-            ScrollOffset::new(0, 60)
+            Offset::new(0, 60)
         );
     }
 
@@ -211,12 +211,12 @@ mod tests {
         let viewport = Viewport::new(
             Rect::new(0, 0, 100, 100),
             Size::new(100, 300),
-            ScrollOffset::default(),
+            Offset::default(),
         );
 
         assert_eq!(
             viewport.reveal_rect(Rect::new(0, 30, 100, 140), 0),
-            ScrollOffset::new(0, 30)
+            Offset::new(0, 30)
         );
     }
 
@@ -225,12 +225,12 @@ mod tests {
         let viewport = Viewport::new(
             Rect::new(0, 0, 100, 100),
             Size::new(100, 300),
-            ScrollOffset::default(),
+            Offset::default(),
         );
 
         assert_eq!(
             viewport.reveal_rect(Rect::new(0, 90, 100, 10), 8),
-            ScrollOffset::new(0, 8)
+            Offset::new(0, 8)
         );
     }
 }

@@ -118,7 +118,7 @@ pub(crate) enum SpatialNodeKind {
         owner: composition::tree::NodeId,
         target: ScrollTarget,
         axes: AxisOwnership,
-        baseline: interaction::ScrollOffset,
+        baseline: interaction::Offset,
     },
     SurfaceRoot {
         owner: composition::tree::NodeId,
@@ -181,7 +181,7 @@ pub(crate) struct SpatialTopology {
     draw_states: Vec<PropertyState>,
     draw_surfaces: Vec<Option<SpatialNodeId>>,
     content: Vec<ContentBinding>,
-    scroll_paths: Vec<Vec<(composition::tree::NodeId, interaction::ScrollOffset)>>,
+    scroll_paths: Vec<Vec<(composition::tree::NodeId, interaction::Offset)>>,
     binding_scroll_paths: HashMap<SpatialBinding, ScrollPathId>,
     frame_scroll_paths: HashMap<composition::tree::NodeId, ScrollPathId>,
     caret_states: HashMap<composition::tree::NodeId, Vec<PropertyState>>,
@@ -208,8 +208,8 @@ struct PresentedNode {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct PresentedTargetBindings {
-    horizontal: Option<(composition::tree::NodeId, interaction::ScrollOffset)>,
-    vertical: Option<(composition::tree::NodeId, interaction::ScrollOffset)>,
+    horizontal: Option<(composition::tree::NodeId, interaction::Offset)>,
+    vertical: Option<(composition::tree::NodeId, interaction::Offset)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -608,12 +608,9 @@ impl SpatialTopology {
         &self,
         properties: &Properties,
         target: &interaction::Target,
-    ) -> Option<(
-        Option<interaction::ScrollOffset>,
-        Option<interaction::ScrollOffset>,
-    )> {
+    ) -> Option<(Option<interaction::Offset>, Option<interaction::Offset>)> {
         let bindings = self.target_bindings.get(target)?;
-        let value = |binding: Option<(composition::tree::NodeId, interaction::ScrollOffset)>| {
+        let value = |binding: Option<(composition::tree::NodeId, interaction::Offset)>| {
             binding.map(|(owner, baseline)| properties.scroll_offset(owner).unwrap_or(baseline))
         };
         Some((value(bindings.horizontal), value(bindings.vertical)))
@@ -768,7 +765,7 @@ impl SpatialTopology {
     fn scroll_path_entries(
         &self,
         binding: SpatialBinding,
-    ) -> Result<Vec<(composition::tree::NodeId, interaction::ScrollOffset)>, SpatialError> {
+    ) -> Result<Vec<(composition::tree::NodeId, interaction::Offset)>, SpatialError> {
         let mut path = Vec::new();
         let mut current = binding.spatial;
         while current != binding.surface {
@@ -1363,7 +1360,7 @@ impl SpatialSnapshot {
     pub(crate) fn scroll_offset(
         &self,
         target: &interaction::Target,
-    ) -> Option<interaction::ScrollOffset> {
+    ) -> Option<interaction::Offset> {
         let mut horizontal = None;
         let mut vertical = None;
         let mut found = false;
@@ -1389,7 +1386,7 @@ impl SpatialSnapshot {
             }
         }
         found.then(|| {
-            interaction::ScrollOffset::default()
+            interaction::Offset::default()
                 .with_axis_from(
                     horizontal.unwrap_or_default(),
                     interaction::ScrollbarAxis::Horizontal,
@@ -1468,17 +1465,17 @@ mod tests {
     fn scroll_node(
         value: u64,
         parent: Option<composition::tree::NodeId>,
-        maximum: interaction::ScrollOffset,
+        maximum: interaction::Offset,
         target: ScrollTarget,
     ) -> Node {
         node(value, parent)
-            .with_properties([PropertyKind::ScrollOffset])
+            .with_properties([PropertyKind::Offset])
             .with_scroll(
                 ScrollDeclaration::new(
                     geometry::Rect::new(0, 0, 40, 40),
                     geometry::Rect::new(0, 0, 100, 100),
                     geometry::Rect::new(0, 0, 100, 100),
-                    interaction::ScrollOffset::default(),
+                    interaction::Offset::default(),
                     maximum,
                 )
                 .expect("test scroll declaration"),
@@ -1495,14 +1492,14 @@ mod tests {
             Arc::new(scroll_node(
                 1,
                 None,
-                interaction::ScrollOffset::new(60, 0),
+                interaction::Offset::new(60, 0),
                 ScrollTarget::scene_node(outer),
             )),
             Arc::new(node(2, Some(outer))),
             Arc::new(scroll_node(
                 3,
                 Some(group),
-                interaction::ScrollOffset::new(0, 60),
+                interaction::Offset::new(0, 60),
                 ScrollTarget::scene_node(inner),
             )),
         ];
@@ -1660,13 +1657,13 @@ mod tests {
             Arc::new(scroll_node(
                 11,
                 None,
-                interaction::ScrollOffset::new(60, 0),
+                interaction::Offset::new(60, 0),
                 shared.clone(),
             )),
             Arc::new(scroll_node(
                 12,
                 None,
-                interaction::ScrollOffset::new(0, 60),
+                interaction::Offset::new(0, 60),
                 shared.clone(),
             )),
         ];
@@ -1696,13 +1693,13 @@ mod tests {
             Arc::new(scroll_node(
                 21,
                 None,
-                interaction::ScrollOffset::new(60, 0),
+                interaction::Offset::new(60, 0),
                 shared.clone(),
             )),
             Arc::new(scroll_node(
                 22,
                 None,
-                interaction::ScrollOffset::new(60, 0),
+                interaction::Offset::new(60, 0),
                 shared,
             )),
         ];
@@ -1731,7 +1728,7 @@ mod tests {
         let nodes = vec![Arc::new(scroll_node(
             31,
             None,
-            interaction::ScrollOffset::new(60, 0),
+            interaction::Offset::new(60, 0),
             ScrollTarget::scene_node(scroll),
         ))];
         let topology = SpatialTopology::compile(

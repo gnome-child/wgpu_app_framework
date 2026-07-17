@@ -148,13 +148,13 @@ struct TableScroll {
 #[derive(Clone)]
 struct VirtualListContent {
     geometry: Option<VirtualGeometry>,
-    model: crate::virtual_list::Model,
+    model: crate::list::State,
 }
 
 #[derive(Clone)]
 struct VirtualGeometry {
     viewport: Viewport,
-    request: crate::virtual_list::Request,
+    request: crate::list::Request,
     container: super::chrome::ContainerLayout,
 }
 
@@ -296,8 +296,8 @@ impl Frame {
                     node.scroll_container(),
                     theme,
                     allowed_axes,
-                    view::ScrollSizing::Natural,
-                    view::ScrollSizing::Minimum,
+                    crate::scroll::Sizing::Natural,
+                    crate::scroll::Sizing::Minimum,
                 );
                 let color = text_area_color(node, theme);
                 let mut container_layout = chrome::ContainerLayout::initial(container);
@@ -656,7 +656,7 @@ impl Frame {
     pub(super) fn with_virtual_list(
         mut self,
         viewport: Viewport,
-        request: crate::virtual_list::Request,
+        request: crate::list::Request,
         container: super::chrome::ContainerLayout,
     ) -> Self {
         match &mut self.content {
@@ -1037,7 +1037,7 @@ impl Frame {
         }
     }
 
-    pub(crate) fn virtual_list_request(&self) -> Option<&crate::virtual_list::Request> {
+    pub(crate) fn virtual_list_request(&self) -> Option<&crate::list::Request> {
         match &self.content {
             FrameContent::VirtualList(content) => {
                 content.geometry.as_ref().map(|geometry| &geometry.request)
@@ -1046,7 +1046,7 @@ impl Frame {
         }
     }
 
-    pub(crate) fn virtual_list_key_at(&self, index: usize) -> Option<crate::virtual_list::Key> {
+    pub(crate) fn virtual_list_key_at(&self, index: usize) -> Option<crate::list::Key> {
         let FrameContent::VirtualList(content) = &self.content else {
             return None;
         };
@@ -1055,8 +1055,8 @@ impl Frame {
 
     pub(crate) fn virtual_list_request_for_offset(
         &self,
-        offset: interaction::ScrollOffset,
-    ) -> Option<crate::virtual_list::Request> {
+        offset: interaction::Offset,
+    ) -> Option<crate::list::Request> {
         let FrameContent::VirtualList(content) = &self.content else {
             return None;
         };
@@ -1070,8 +1070,8 @@ impl Frame {
 
     pub(crate) fn virtual_list_required_request_for_offset(
         &self,
-        offset: interaction::ScrollOffset,
-    ) -> Option<crate::virtual_list::Request> {
+        offset: interaction::Offset,
+    ) -> Option<crate::list::Request> {
         let FrameContent::VirtualList(content) = &self.content else {
             return None;
         };
@@ -1100,11 +1100,11 @@ impl Frame {
     }
 
     #[cfg(test)]
-    pub(crate) fn resolved_scroll(&self) -> Option<interaction::ScrollOffset> {
+    pub(crate) fn resolved_scroll(&self) -> Option<interaction::Offset> {
         self.viewport().map(Viewport::resolved_scroll)
     }
 
-    pub(crate) fn resolved_scroll_correction(&self) -> Option<interaction::ScrollOffset> {
+    pub(crate) fn resolved_scroll_correction(&self) -> Option<interaction::Offset> {
         match &self.content {
             FrameContent::Text(
                 TextContent::Area { model, layout, .. }

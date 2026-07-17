@@ -270,9 +270,9 @@ impl Node {
 
     pub(in crate::view) fn materialize_virtual_lists(
         &mut self,
-        requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
-        measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
-        previous_models: &HashMap<interaction::Id, crate::virtual_list::Model>,
+        requests: &HashMap<interaction::Id, crate::list::Materialization>,
+        measurements: &HashMap<interaction::Id, crate::list::Measurements>,
+        previous_models: &HashMap<interaction::Id, crate::list::State>,
     ) {
         if let Some(model) = self.virtual_list_model_mut() {
             if let Some(previous) = previous_models.get(&model.id()) {
@@ -292,7 +292,7 @@ impl Node {
 
     pub(in crate::view) fn collect_virtual_list_models(
         &self,
-        models: &mut HashMap<interaction::Id, crate::virtual_list::Model>,
+        models: &mut HashMap<interaction::Id, crate::list::State>,
     ) {
         if let Some(model) = self.virtual_list_model() {
             models.insert(model.id(), model.clone());
@@ -304,7 +304,7 @@ impl Node {
 
     pub(in crate::view) fn collect_provided_rows<'a>(
         &'a self,
-        rows: &mut HashMap<(interaction::Id, crate::virtual_list::Key), &'a Self>,
+        rows: &mut HashMap<(interaction::Id, crate::list::Key), &'a Self>,
     ) {
         if let Some(row) = self.provided_row() {
             rows.insert((row.list(), row.key()), self);
@@ -316,7 +316,7 @@ impl Node {
 
     pub(in crate::view) fn reuse_virtual_row_text_buffers_from(
         &mut self,
-        previous_rows: &HashMap<(interaction::Id, crate::virtual_list::Key), &Self>,
+        previous_rows: &HashMap<(interaction::Id, crate::list::Key), &Self>,
     ) -> usize {
         let mut reused = 0_usize;
         if let Some(row) = self.provided_row()
@@ -357,7 +357,7 @@ impl Node {
 
     pub(in crate::view) fn collect_selectable_virtual_lists(
         &self,
-        models: &mut Vec<crate::virtual_list::Model>,
+        models: &mut Vec<crate::list::State>,
     ) {
         if let Some(model) = self
             .virtual_list_model()
@@ -373,7 +373,7 @@ impl Node {
     pub(in crate::view) fn virtual_list_model_for_id(
         &self,
         id: interaction::Id,
-    ) -> Option<&crate::virtual_list::Model> {
+    ) -> Option<&crate::list::State> {
         if let Some(model) = self.virtual_list_model().filter(|model| model.id() == id) {
             return Some(model);
         }
@@ -386,7 +386,7 @@ impl Node {
         &self,
         focus: session::Focus,
         retained: &composition::tree::Node,
-    ) -> Option<&crate::virtual_list::Model> {
+    ) -> Option<&crate::list::State> {
         if let Some(model) = self
             .virtual_list_model()
             .filter(|model| model.is_selectable())
@@ -557,7 +557,7 @@ impl Node {
         retained: &composition::tree::Node,
         focus: Option<session::Focus>,
         targets: &[interaction::Target],
-        pins: &mut std::collections::HashMap<interaction::Id, Vec<crate::virtual_list::Key>>,
+        pins: &mut std::collections::HashMap<interaction::Id, Vec<crate::list::Key>>,
     ) {
         if self.virtual_list_model().is_some() {
             for (child, retained_child) in self.children.iter().zip(retained.children()) {
@@ -1096,7 +1096,7 @@ impl Node {
             | Role::Label => false,
             Role::VirtualList => self
                 .virtual_list_model()
-                .is_some_and(crate::virtual_list::Model::is_selectable),
+                .is_some_and(crate::list::State::is_selectable),
         }
     }
 }

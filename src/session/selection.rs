@@ -1,4 +1,4 @@
-use crate::{interaction, selection::Selection, virtual_list, window as app_window};
+use crate::{interaction, list, selection::Selection, window as app_window};
 
 use super::Session;
 
@@ -10,7 +10,7 @@ impl Session {
     pub(crate) fn reconcile_virtual_selections(
         &mut self,
         window: app_window::Id,
-        models: &[virtual_list::Model],
+        models: &[list::State],
     ) -> bool {
         self.window_mut(window)
             .is_some_and(|window| window.interaction.selections_mut().reconcile(models))
@@ -28,8 +28,8 @@ impl Session {
     pub(crate) fn select_virtual_row(
         &mut self,
         window: app_window::Id,
-        model: &virtual_list::Model,
-        key: virtual_list::Key,
+        model: &list::State,
+        key: list::Key,
         index: usize,
         extend: bool,
         toggle: bool,
@@ -47,7 +47,7 @@ impl Session {
     pub(crate) fn select_all_virtual_rows(
         &mut self,
         window: app_window::Id,
-        model: &virtual_list::Model,
+        model: &list::State,
     ) -> bool {
         let Some(window) = self.window_mut(window) else {
             return false;
@@ -62,7 +62,7 @@ impl Session {
     pub(crate) fn move_virtual_selection(
         &mut self,
         window: app_window::Id,
-        model: &virtual_list::Model,
+        model: &list::State,
         movement: crate::selection::Move,
         extend: bool,
     ) -> bool {

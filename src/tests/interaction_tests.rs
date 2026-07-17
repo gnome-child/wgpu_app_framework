@@ -1,5 +1,5 @@
 use super::*;
-use crate::virtual_list;
+use crate::list;
 
 #[derive(Clone)]
 struct ReplacingInteractionState {
@@ -75,7 +75,7 @@ impl Target<RecordSource> for HiddenLocalRouteState {
 struct ContextRow;
 
 impl Command for ContextRow {
-    type Args = virtual_list::Key;
+    type Args = list::Key;
     type Output = ();
 
     const NAME: &'static str = "test.context_row";
@@ -103,18 +103,18 @@ impl Command for CommitContextName {
 struct TableContextState {
     visible: bool,
     name: String,
-    row_invoked: Option<virtual_list::Key>,
+    row_invoked: Option<list::Key>,
     toggled: Option<(crate::table::Cell, bool)>,
 }
 
 impl State for TableContextState {}
 
 impl Target<ContextRow> for TableContextState {
-    fn state(&self, _: &virtual_list::Key, _: &Context) -> command::State {
+    fn state(&self, _: &list::Key, _: &Context) -> command::State {
         command::State::enabled()
     }
 
-    fn invoke(&mut self, key: virtual_list::Key, _: &mut Context) -> Response<()> {
+    fn invoke(&mut self, key: list::Key, _: &mut Context) -> Response<()> {
         self.row_invoked = Some(key);
         Response::changed(())
     }
@@ -156,11 +156,11 @@ struct PinnedContextState {
 impl State for PinnedContextState {}
 
 impl Target<ContextRow> for PinnedContextState {
-    fn state(&self, _: &virtual_list::Key, _: &Context) -> command::State {
+    fn state(&self, _: &list::Key, _: &Context) -> command::State {
         command::State::enabled()
     }
 
-    fn invoke(&mut self, _: virtual_list::Key, _: &mut Context) -> Response<()> {
+    fn invoke(&mut self, _: list::Key, _: &mut Context) -> Response<()> {
         Response::output(())
     }
 }
@@ -188,13 +188,21 @@ fn table_context_app() -> Runtime<TableContextState, (), View> {
     .view(|state, _| {
         let len = usize::from(state.visible);
         let name = state.name.clone();
+        let revision_name = name.clone();
         let source = crate::table::Source::new(
             len,
-            |_| virtual_list::Key::new(17),
-            move |key| (len == 1 && key == virtual_list::Key::new(17)).then_some(0),
+            |_| list::Key::new(17),
+            move |key| (len == 1 && key == list::Key::new(17)).then_some(0),
             move |_| ContextRecord {
                 name: name.clone(),
                 enabled: false,
+            },
+            move |_| {
+                revision_name.bytes().fold(0, |revision, byte| {
+                    revision
+                        .wrapping_mul(0x0000_0100_0000_01b3)
+                        .wrapping_add(u64::from(byte))
+                })
             },
         );
         let columns = vec![
@@ -717,7 +725,7 @@ fn table_context_cells_override_row_actions_and_virtual_removal_prunes_the_menu(
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 180);
     let initial = app.show_scene(window, size).expect("table should render");
-    let key = virtual_list::Key::new(17);
+    let key = list::Key::new(17);
     let name = crate::table::Cell::new("context.table".into(), key, "name".into());
     let enabled = crate::table::Cell::new("context.table".into(), key, "enabled".into());
     let row = initial
@@ -903,11 +911,7 @@ fn active_table_editor_uses_task_order_and_owns_select_all() {
     app.start();
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(320, 180);
-    let cell = crate::table::Cell::new(
-        "context.table".into(),
-        virtual_list::Key::new(17),
-        "name".into(),
-    );
+    let cell = crate::table::Cell::new("context.table".into(), list::Key::new(17), "name".into());
     app.show_scene(window, size).expect("table should render");
     app.handle_input(window, Input::focus(session::Focus::table_cell(cell)))
         .expect("the editable text cell should take focus");
@@ -1083,12 +1087,13 @@ fn table_context_preserves_multiselection_and_table_consumes_select_all() {
         .view(|_, _| {
             let source = crate::table::Source::new(
                 3,
-                |index| virtual_list::Key::new(index as u64),
+                |index| list::Key::new(index as u64),
                 |key| usize::try_from(key.value()).ok().filter(|index| *index < 3),
                 |index| ContextRecord {
                     name: format!("Row {index}"),
                     enabled: index % 2 == 0,
                 },
+                |index| index as u64,
             );
             let columns = vec![
                 crate::table::Column::text(
@@ -1116,7 +1121,7 @@ fn table_context_preserves_multiselection_and_table_consumes_select_all() {
     let row_point = |key| {
         let cell = crate::table::Cell::new(
             "selection.context".into(),
-            virtual_list::Key::new(key),
+            list::Key::new(key),
             "name".into(),
         );
         frame_point(
@@ -1209,11 +1214,12 @@ fn context_capture_pins_a_dematerialized_focal_row_but_not_a_deleted_one() {
     })
     .view(|state, _| {
         let keys = state.keys.clone();
+        let revision_keys = keys.clone();
         let source = crate::table::Source::new(
             keys.len(),
             {
                 let keys = keys.clone();
-                move |index| virtual_list::Key::new(keys[index])
+                move |index| list::Key::new(keys[index])
             },
             {
                 let keys = keys.clone();
@@ -1223,6 +1229,7 @@ fn context_capture_pins_a_dematerialized_focal_row_but_not_a_deleted_one() {
                 name: format!("Row {}", keys[index]),
                 enabled: false,
             },
+            move |index| revision_keys[index],
         );
         let columns = vec![
             crate::table::Column::text(
@@ -1248,11 +1255,7 @@ fn context_capture_pins_a_dematerialized_focal_row_but_not_a_deleted_one() {
     let window = app.session().windows()[0].id();
     let size = geometry::Size::new(260, 120);
     let initial = app.show_scene(window, size).expect("table should render");
-    let focal = crate::table::Cell::new(
-        "pinned.context".into(),
-        virtual_list::Key::new(0),
-        "name".into(),
-    );
+    let focal = crate::table::Cell::new("pinned.context".into(), list::Key::new(0), "name".into());
     let focal_point = frame_point(
         initial
             .layout()
@@ -1268,7 +1271,7 @@ fn context_capture_pins_a_dematerialized_focal_row_but_not_a_deleted_one() {
         window,
         size,
         geometry::Point::new(list_rect.x() + 1, list_rect.y() + 1),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("table should scroll while context is captured");
     app.show_scene(window, size)
@@ -1801,7 +1804,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
         .handle_view(
             window,
             text_area
-                .scroll_action(interaction::ScrollDelta::vertical(120))
+                .scroll_action(interaction::Delta::vertical(120))
                 .expect("text area should expose scroll"),
         )
         .expect("scroll should be handled");
@@ -1815,10 +1818,10 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
         .interaction(window)
         .expect("window should have interaction state")
         .scroll();
-    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
+    assert_eq!(scroll.offset(&target), interaction::Offset::default());
     assert_eq!(
         scroll.desired_offset(&target),
-        interaction::ScrollOffset::new(0, 120)
+        interaction::Offset::new(0, 120)
     );
     {
         let diagnostics = app
@@ -1838,7 +1841,7 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
     let scrolled_again = app
         .handle_input(
             window,
-            Input::scroll(target.clone(), interaction::ScrollDelta::new(8, -20)),
+            Input::scroll(target.clone(), interaction::Delta::new(8, -20)),
         )
         .expect("scroll input should be handled");
 
@@ -1851,10 +1854,10 @@ fn text_area_scroll_action_updates_framework_owned_scroll_state() {
         .interaction(window)
         .expect("window should have interaction state")
         .scroll();
-    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
+    assert_eq!(scroll.offset(&target), interaction::Offset::default());
     assert_eq!(
         scroll.desired_offset(&target),
-        interaction::ScrollOffset::new(8, 100)
+        interaction::Offset::new(8, 100)
     );
     {
         let diagnostics = app
@@ -1919,7 +1922,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
     assert_eq!(target, interaction::Target::text_area_id("preview"));
 
     let scrolled = app
-        .scroll_at(window, size, point, interaction::ScrollDelta::vertical(96))
+        .scroll_at(window, size, point, interaction::Delta::vertical(96))
         .expect("preview scroll should route by hit test");
 
     assert!(scrolled.is_handled());
@@ -1947,7 +1950,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
         .expect("preview text area should retain its scroll projection");
     assert_eq!(
         presentation.properties().scroll_offset(projection.node()),
-        Some(interaction::ScrollOffset::new(0, 96))
+        Some(interaction::Offset::new(0, 96))
     );
 
     assert_eq!(app.session().focused(window), None);
@@ -1957,7 +1960,7 @@ fn text_area_interaction_id_scrolls_without_focus() {
             .expect("window should have interaction state")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 96)
+        interaction::Offset::new(0, 96)
     );
     let text_area = presentation
         .layout()

@@ -182,7 +182,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         &mut self,
         window: app_window::Id,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     ) -> Result<input::Outcome, Error> {
         let Some(size) = self.window_size(window) else {
             return Ok(input::Outcome::ignored());
@@ -196,7 +196,7 @@ impl<M: State, E: Send + 'static> Shell<M, E> {
         window: app_window::Id,
         popup: interaction::Id,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     ) -> Result<input::Outcome, Error> {
         let Some(size) = self.window_size(window) else {
             return Ok(input::Outcome::ignored());

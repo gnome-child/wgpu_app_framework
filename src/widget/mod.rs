@@ -5,7 +5,6 @@ mod layout;
 mod menu;
 pub mod panel;
 mod root;
-mod scroll;
 mod trigger;
 mod ui;
 
@@ -16,7 +15,6 @@ pub use layout::{Direction, Layout};
 pub use menu::{Menu, MenuBar, StandardMenuBar};
 pub use panel::Panel;
 pub use root::Root;
-pub use scroll::Scroll;
 pub use ui::Ui;
 
 use super::view;

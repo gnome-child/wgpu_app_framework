@@ -109,7 +109,7 @@ fn host_window_event_mapper_routes_common_window_events() {
         window,
         host::WindowEvent::Scrolled {
             point,
-            delta: interaction::ScrollDelta::vertical(32),
+            delta: interaction::Delta::vertical(32),
         },
     ))
     .expect("scroll should route by hit test");
@@ -122,7 +122,7 @@ fn host_window_event_mapper_routes_common_window_events() {
             .expect("window should have interaction")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 32)
+        interaction::Offset::new(0, 32)
     );
     assert_eq!(
         host.shell()
@@ -132,7 +132,7 @@ fn host_window_event_mapper_routes_common_window_events() {
             .expect("window should have interaction")
             .scroll()
             .desired_offset(&target),
-        interaction::ScrollOffset::new(0, 32)
+        interaction::Offset::new(0, 32)
     );
 
     host.handle_event(host::Event::window(

@@ -72,7 +72,7 @@ enum Key {
     ProvidedRow {
         role: view::Role,
         axis: Option<view::Axis>,
-        key: crate::virtual_list::Key,
+        key: crate::list::Key,
     },
     TableCell {
         role: view::Role,
@@ -523,7 +523,7 @@ impl Key {
         }
     }
 
-    fn provided_row(self) -> Option<crate::virtual_list::Key> {
+    fn provided_row(self) -> Option<crate::list::Key> {
         match self {
             Self::ProvidedRow { key, .. } => Some(key),
             Self::Ordinary { .. } | Self::TableCell { .. } | Self::TableHeaderCell { .. } => None,

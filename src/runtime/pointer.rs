@@ -1,6 +1,6 @@
 use super::super::{
-    command::Error, geometry, input, interaction, layout, pointer, response, session, state, text,
-    view, virtual_list, window,
+    command::Error, geometry, input, interaction, layout, list, pointer, response, session, state,
+    text, view, window,
 };
 use super::Runtime;
 
@@ -58,8 +58,8 @@ impl ResolvedPress {
 
 #[derive(Clone)]
 struct VirtualRowGesture {
-    model: virtual_list::Model,
-    key: virtual_list::Key,
+    model: list::State,
+    key: list::Key,
     index: usize,
     cell: Option<crate::table::Cell>,
     was_focal: bool,
@@ -683,7 +683,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         window: window::Id,
         _size: geometry::Size,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     ) -> std::result::Result<input::Outcome, Error> {
         self.scroll_on_surface(window, _size, point, delta, crate::popup::Surface::Parent)
     }
@@ -693,7 +693,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         window: window::Id,
         _size: geometry::Size,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
         surface: crate::popup::Surface,
     ) -> std::result::Result<input::Outcome, Error> {
         self.session.set_pointer_location(window, point, surface);

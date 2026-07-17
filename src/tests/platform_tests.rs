@@ -173,7 +173,7 @@ fn platform_events_translate_winit_window_events_to_host_events() {
             ..
         } => {
             assert_eq!(point, geometry::Point::new(11, 16));
-            assert_eq!(delta, interaction::ScrollDelta::new(0, 24));
+            assert_eq!(delta, interaction::Delta::new(0, 24));
         }
         _ => panic!("expected scroll event"),
     }
@@ -194,7 +194,7 @@ fn platform_events_translate_winit_window_events_to_host_events() {
             ..
         } => {
             assert_eq!(point, geometry::Point::new(11, 16));
-            assert_eq!(delta, interaction::ScrollDelta::new(0, 28));
+            assert_eq!(delta, interaction::Delta::new(0, 28));
         }
         _ => panic!("expected line scroll event"),
     }
@@ -411,10 +411,7 @@ fn input_precision_case_fractional_line_wheel_preserves_line_scale() {
     use winit::event::MouseScrollDelta;
 
     let delta = platform::scroll_delta(MouseScrollDelta::LineDelta(0.0, -0.25), 1.75);
-    assert_eq!(
-        delta,
-        interaction::ScrollDelta::from_logical_pixels(0.0, 7.0)
-    );
+    assert_eq!(delta, interaction::Delta::from_logical_pixels(0.0, 7.0));
 }
 
 fn test_popup_realization(
@@ -527,7 +524,7 @@ fn popup_window_events_retain_popup_surface_and_map_to_retained_coordinates() {
             assert_eq!(event_window, parent);
             assert_eq!(popup, realization.popup());
             assert_eq!(point, geometry::Point::new(110, 70));
-            assert_eq!(delta, interaction::ScrollDelta::new(0, 20));
+            assert_eq!(delta, interaction::Delta::new(0, 20));
         }
         _ => panic!("expected parent scroll event"),
     }
@@ -1299,7 +1296,7 @@ fn wheel_deltas_accumulate_losslessly_before_one_frame() {
                 window,
                 host::WindowEvent::Scrolled {
                     point,
-                    delta: interaction::ScrollDelta::vertical(1),
+                    delta: interaction::Delta::vertical(1),
                 },
             ))
             .expect("wheel delta should update session truth");
@@ -1326,7 +1323,7 @@ fn wheel_deltas_accumulate_losslessly_before_one_frame() {
             .unwrap()
             .scroll()
             .desired_offset(&target),
-        interaction::ScrollOffset::new(0, 1_000)
+        interaction::Offset::new(0, 1_000)
     );
     assert!(
         platform
@@ -1360,7 +1357,7 @@ fn wheel_deltas_accumulate_losslessly_before_one_frame() {
             .unwrap()
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 1_000)
+        interaction::Offset::new(0, 1_000)
     );
 }
 
@@ -1514,7 +1511,7 @@ fn present_submitted_ime_geometry_follows_text_scroll_property_snapshot() {
             window,
             host::WindowEvent::Scrolled {
                 point,
-                delta: interaction::ScrollDelta::vertical(20),
+                delta: interaction::Delta::vertical(20),
             },
         ))
         .expect("resident scroll should update property state");

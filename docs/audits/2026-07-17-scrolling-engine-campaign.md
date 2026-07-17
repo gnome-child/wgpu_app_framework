@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-007 CLOSED — SE-008 NEXT**
+Status: **SE-008 CLOSED — SE-009 NEXT**
 
 Date: 2026-07-17
 
@@ -33,11 +33,13 @@ Request -> Plan -> Coverage
 ```
 
 `Content`, `Sequence`, `ResidentSet`, `Request`, `Plan`, and `Coverage` are
-forbidden public scrolling API candidates. Public names remain provisional
-through SE-007. The likely central name is `Scroll`; `scroll::Adjustment` is a
-candidate. A public `Scrollable` trait must be earned by a real application
-implementation axis after the eager viewport, native text, and native list
-vertical slices exist.
+forbidden public scrolling API candidates. SE-008 settled the public surface as
+`scroll::{Scroll, Offset, Delta, Configuration, Policy, Presentation, Sizing,
+Direction}` and `list::{List, Key, Slot, Change, Model, Factory}`. There is no
+public `Adjustment`: the proved adjustment is target-owned internal state, not
+an application-owned observable handle. There is no public `Scrollable` trait:
+applications still cannot implement a native scroller without private layout,
+frame, and residency types.
 
 ## 2. Campaign ledger
 
@@ -51,8 +53,8 @@ vertical slices exist.
 | SE-005 — Native text and list | **closed** | Eager viewport, text, and list share container behavior without a virtualization-shaped public abstraction. |
 | SE-006 — List model/factory lifecycle | **closed** | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
 | SE-007 — Private residency/presentation | **closed** | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
-| SE-008 — Names and public break | next | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
-| SE-009 — Performance and closure | queued | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
+| SE-008 — Names and public break | **closed** | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
+| SE-009 — Performance and closure | next | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
 
 Every commit must be green. Defaults preserve current appearance unless a
 stage explicitly owns visual policy. The campaign stops only for overlapping
@@ -694,7 +696,62 @@ zero application-view rebuilds; the warm table smoke retained the frozen 528
 property bytes with no content work or GPU-resource churn. SE-007 changes no
 public scrolling name. The public break remains wholly owned by SE-008.
 
-## 14. Resume protocol
+## 14. SE-008 names-and-public-break receipt
+
+The eager adapter now lives at public `scroll::Scroll` and remains re-exported
+as root `Scroll`. `scroll::Offset` and `scroll::Delta` replace the former
+interaction-qualified coordinate names. Independent `Policy`, `Presentation`,
+`Sizing`, and `Direction` values compose one authored `Configuration`. The
+ordinary eager adapter, native `List`, native `TextArea`, and `Table` all accept
+that configuration while retaining their separate layout implementations.
+
+The old `widget::Scroll`, `interaction::ScrollOffset`, and
+`interaction::ScrollDelta` public paths were deleted without aliases. The
+internal adjustment, session, exact outcome, accessible projection, viewport,
+and residency vocabulary remains private. A public `Adjustment` would falsely
+promise a shared application-owned observable object, and a public `Scrollable`
+trait would falsely promise an application implementation axis, so neither name
+was published.
+
+The old `virtual_list` module and root `VirtualList` were deleted. Public
+`list::List` takes an independent `list::Model` and `list::Factory`; it does not
+require one combined provider object. The model owns membership, stable keys,
+reverse lookup, ordered mutation receipts, and required per-item revisions. The
+factory owns required compatibility revision plus setup/bind/unbind/teardown.
+The former `Option` compatibility paths are gone. `table::Provider` likewise
+requires an item revision, and callback `table::Source::new` requires its
+revision projection explicitly. Private `State`, materialization requests,
+measurements, slots, and residency coverage do not cross the public boundary.
+
+Architecture gates require the new paths, reject the deleted paths and aliases,
+and reject public `Scrollable`, `Adjustment`, `Content`, `Request`, `Plan`, and
+`Coverage` candidates under `scroll`. The updated master design records the
+model/factory split and the reason the two tempting GTK names remain private.
+
+Verification passed:
+
+- 1,412 library tests: 1,408 passed and four intentional hardware acceptance
+  tests remained ignored;
+- three renderer-debug comparison tests passed with 27 intentional GPU ignores,
+  and both control-gallery example tests passed;
+- all 18 manifest/receipt/census Python checks;
+- release `table-scroll-work 1.25` retained exactly 528 property-upload bytes,
+  17 value visits/lookups, one dirty index, two write ranges, zero content work
+  or GPU-resource churn, and one plan reuse; and
+- release 1.25x residency crossings passed with candidate CPU observations of
+  2,758/1,598/436 us for text/table/list, zero/nine/three provider calls, and
+  complete-pixel activation.
+
+The refreshed boundary census found 381 entrance, 411 legacy-name/session,
+2,023 routing/container, 104 presentation-clock, and 1,044 list/lifecycle source
+hits. The apparent session-count drop is the deliberate removal of the repeated
+`ScrollOffset`/`ScrollDelta` spellings, not an ownership loss. The only broad
+public forbidden-name hits remain the unrelated file-dialog
+`session::{Request, RequestKind}`. SE-008 changes names and authoring only; the
+user-observed list chug/chop and the SE-007 native cadence/resource evidence
+remain the first unmet exit and belong wholly to SE-009.
+
+## 15. Resume protocol
 
 At every task entrance and after every context compaction:
 

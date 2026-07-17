@@ -216,9 +216,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
 
 fn scrollbar_offset(
     axis: interaction::ScrollbarAxis,
-    current: interaction::ScrollOffset,
-    candidate: interaction::ScrollOffset,
-) -> interaction::ScrollOffset {
+    current: interaction::Offset,
+    candidate: interaction::Offset,
+) -> interaction::Offset {
     match axis {
         interaction::ScrollbarAxis::Horizontal => current.with_x(candidate.x()),
         interaction::ScrollbarAxis::Vertical => current.with_y(candidate.y()),
@@ -231,8 +231,8 @@ mod tests {
 
     #[test]
     fn scrollbar_drag_preserves_the_other_desired_axis() {
-        let desired = interaction::ScrollOffset::new(70, 90);
-        let stale_layout = interaction::ScrollOffset::new(10, 20);
+        let desired = interaction::Offset::new(70, 90);
+        let stale_layout = interaction::Offset::new(10, 20);
 
         assert_eq!(
             scrollbar_offset(
@@ -240,11 +240,11 @@ mod tests {
                 desired,
                 stale_layout,
             ),
-            interaction::ScrollOffset::new(10, 90)
+            interaction::Offset::new(10, 90)
         );
         assert_eq!(
             scrollbar_offset(interaction::ScrollbarAxis::Vertical, desired, stale_layout,),
-            interaction::ScrollOffset::new(70, 20)
+            interaction::Offset::new(70, 20)
         );
     }
 }

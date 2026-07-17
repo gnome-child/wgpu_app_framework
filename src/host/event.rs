@@ -46,7 +46,7 @@ pub enum WindowEvent {
     },
     Scrolled {
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     },
     KeyDown {
         key: input::Key,

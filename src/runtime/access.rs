@@ -7,7 +7,7 @@ use super::super::{
     interaction, session,
     state::{self, Store},
     timeline::Timeline,
-    view, window,
+    window,
 };
 use super::Runtime;
 use std::time::Instant;
@@ -73,11 +73,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let direction = self
             .presented_geometry
             .get(&window)
-            .map_or(view::ScrollDirection::LeftToRight, |geometry| {
+            .map_or(crate::scroll::Direction::LeftToRight, |geometry| {
                 geometry.layout.scroll_direction_for_target(&target)
             });
         let reversed = axis == interaction::ScrollbarAxis::Horizontal
-            && direction == view::ScrollDirection::RightToLeft;
+            && direction == crate::scroll::Direction::RightToLeft;
         self.apply_scroll_operation(
             window,
             target,
@@ -428,7 +428,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                     if let Some(offset) = stack.scroll_offset(projection.node()) {
                         present_submitted_offsets
                             .entry(projection.target().clone())
-                            .and_modify(|current: &mut interaction::ScrollOffset| {
+                            .and_modify(|current: &mut interaction::Offset| {
                                 *current = current.componentwise_max(offset);
                             })
                             .or_insert(offset);
@@ -575,7 +575,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &self,
         window: window::Id,
         target: &interaction::Target,
-    ) -> Option<interaction::ScrollOffset> {
+    ) -> Option<interaction::Offset> {
         self.presented_geometry
             .get(&window)
             .and_then(|geometry| geometry.spatial.scroll_offset(target))

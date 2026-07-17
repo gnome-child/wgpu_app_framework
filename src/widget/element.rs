@@ -16,7 +16,7 @@ impl Element {
         Self::from_node(view::Node::panel())
     }
 
-    pub(in crate::widget) fn from_node(node: view::Node) -> Self {
+    pub(crate) fn from_node(node: view::Node) -> Self {
         Self {
             node,
             layout: Layout::default(),

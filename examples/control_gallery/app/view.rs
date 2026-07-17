@@ -13,9 +13,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 use wgpu_l3::{
-    Table, View, geometry, interaction, scene, table, text,
+    Table, View, geometry, interaction, list, scene, table, text,
     view::{Align, Context as ViewContext, Dimension, Padding},
-    virtual_list, widget, window,
+    widget, window,
 };
 
 pub(super) const QUERY_FOCUS: interaction::Id = interaction::Id::new("control_gallery.query");
@@ -102,7 +102,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                         let source = table::Source::new(
                             RECORD_COUNT,
                             move |index| {
-                                virtual_list::Key::new(
+                                list::Key::new(
                                     record_at(index, descending, key_order.as_ref()) as u64,
                                 )
                             },
@@ -142,8 +142,7 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                     }
                                 }
                             },
-                        )
-                        .item_revision({
+                            {
                             let notes = state.record_notes.clone();
                             let counts = state.record_counts.clone();
                             let enabled = state.record_enabled.clone();
@@ -164,7 +163,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                     .hash(&mut revision);
                                 revision.finish()
                             }
-                        });
+                            },
+                        );
                         let columns: Vec<table::TypedColumn<GalleryRecord>> = vec![
                             table::Column::text(
                                 "record",

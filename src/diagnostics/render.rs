@@ -1451,12 +1451,7 @@ pub async fn compare_control_gallery_property_tick(scale_factor: f32) -> Result<
     drop(initial);
 
     let outcome = app
-        .scroll_at(
-            window,
-            size,
-            point,
-            crate::interaction::ScrollDelta::vertical(8),
-        )
+        .scroll_at(window, size, point, crate::interaction::Delta::vertical(8))
         .map_err(|error| error.to_string())?;
     let tick = app
         .render_scene(window, size)
@@ -1727,7 +1722,7 @@ pub async fn measure_control_gallery_horizontal_table_scroll(
             window,
             size,
             point,
-            crate::interaction::ScrollDelta::horizontal(DELTA),
+            crate::interaction::Delta::horizontal(DELTA),
         )
         .map_err(|error| error.to_string())?;
     let tick = app
@@ -1855,7 +1850,7 @@ pub async fn compare_control_gallery_pending_property_refresh(
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == crate::interaction::Id::new("detail")
             })
         })
@@ -1879,13 +1874,8 @@ pub async fn compare_control_gallery_pending_property_refresh(
     }
     drop(candidate);
 
-    app.scroll_at(
-        window,
-        size,
-        point,
-        crate::interaction::ScrollDelta::vertical(24),
-    )
-    .map_err(|error| error.to_string())?;
+    app.scroll_at(window, size, point, crate::interaction::Delta::vertical(24))
+        .map_err(|error| error.to_string())?;
     let ticked_candidate = app
         .render_scene(window, size)
         .ok_or_else(|| "control gallery did not produce a pending scroll sample".to_owned())?;
@@ -2153,7 +2143,7 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == crate::interaction::Id::new("detail")
             })
         })
@@ -2161,7 +2151,7 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
     let point = crate::geometry::Point::new(body.rect().x() + 1, body.rect().y() + 1);
     let scroll_target = initial
         .layout()
-        .scroll_target_at(point, crate::interaction::ScrollDelta::vertical(DELTA))
+        .scroll_target_at(point, crate::interaction::Delta::vertical(DELTA))
         .ok_or_else(|| "control gallery table point has no routed scroll owner".to_owned())?;
     let projection = initial
         .layout()
@@ -2212,7 +2202,7 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             window,
             size,
             point,
-            crate::interaction::ScrollDelta::vertical(DELTA),
+            crate::interaction::Delta::vertical(DELTA),
         )
         .map_err(|error| error.to_string())?;
         let interaction = app

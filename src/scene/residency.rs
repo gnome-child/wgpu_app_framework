@@ -16,8 +16,8 @@ pub(crate) struct Residency {
     target: interaction::Target,
     nodes: Arc<[Resident]>,
     draw_order: Arc<[composition::tree::NodeId]>,
-    minimum: interaction::ScrollOffset,
-    maximum: interaction::ScrollOffset,
+    minimum: interaction::Offset,
+    maximum: interaction::Offset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,8 +66,8 @@ impl Residency {
         target: interaction::Target,
         nodes: Vec<Resident>,
         draw_order: Vec<composition::tree::NodeId>,
-        minimum: interaction::ScrollOffset,
-        maximum: interaction::ScrollOffset,
+        minimum: interaction::Offset,
+        maximum: interaction::Offset,
     ) -> Result<Self, ContractError> {
         if minimum
             .axis_cmp(maximum, interaction::ScrollbarAxis::Horizontal)
@@ -107,11 +107,11 @@ impl Residency {
         self.scroll
     }
 
-    pub(crate) fn accepts(&self, offset: interaction::ScrollOffset) -> bool {
+    pub(crate) fn accepts(&self, offset: interaction::Offset) -> bool {
         offset.lies_within(self.minimum, self.maximum)
     }
 
-    pub(crate) fn project(&self, offset: interaction::ScrollOffset) -> interaction::ScrollOffset {
+    pub(crate) fn project(&self, offset: interaction::Offset) -> interaction::Offset {
         offset.clamped(self.minimum, self.maximum)
     }
 
@@ -255,8 +255,8 @@ mod tests {
                 target.clone(),
                 vec![resident],
                 vec![scroll],
-                interaction::ScrollOffset::new(0, 20),
-                interaction::ScrollOffset::new(0, 10),
+                interaction::Offset::new(0, 20),
+                interaction::Offset::new(0, 10),
             ),
             Err(ContractError::InvertedOffsets)
         );
@@ -268,8 +268,8 @@ mod tests {
                 target,
                 vec![resident, resident],
                 vec![scroll],
-                interaction::ScrollOffset::default(),
-                interaction::ScrollOffset::new(0, 10),
+                interaction::Offset::default(),
+                interaction::Offset::new(0, 10),
             ),
             Err(ContractError::DuplicateNode(node)) if node == scroll
         ));
@@ -292,18 +292,18 @@ mod tests {
             interaction::Target::scroll("residency.scroll", "Residency"),
             vec![resident],
             vec![scroll],
-            interaction::ScrollOffset::new(10, 20),
-            interaction::ScrollOffset::new(30, 40),
+            interaction::Offset::new(10, 20),
+            interaction::Offset::new(30, 40),
         )
         .expect("residency fixture");
 
         assert_eq!(
-            residency.project(interaction::ScrollOffset::new(50, 0)),
-            interaction::ScrollOffset::new(30, 20)
+            residency.project(interaction::Offset::new(50, 0)),
+            interaction::Offset::new(30, 20)
         );
         assert_eq!(
-            residency.project(interaction::ScrollOffset::new(15, 35)),
-            interaction::ScrollOffset::new(15, 35)
+            residency.project(interaction::Offset::new(15, 35)),
+            interaction::Offset::new(15, 35)
         );
     }
 }

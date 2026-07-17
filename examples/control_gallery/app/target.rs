@@ -203,11 +203,11 @@ impl Target<ToggleExpandedRows> for State {
 }
 
 impl Target<OpenRecord> for State {
-    fn state(&self, _: &wgpu_l3::virtual_list::Key, _: &Context) -> command::State {
+    fn state(&self, _: &wgpu_l3::list::Key, _: &Context) -> command::State {
         command::State::enabled()
     }
 
-    fn invoke(&mut self, key: wgpu_l3::virtual_list::Key, _: &mut Context) -> Response<()> {
+    fn invoke(&mut self, key: wgpu_l3::list::Key, _: &mut Context) -> Response<()> {
         self.last_status = format!("opened record {}", key.value());
         Response::changed(())
     }

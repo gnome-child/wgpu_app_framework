@@ -34,9 +34,6 @@ pub use control::{Button, Checkbox, Radio, Slider, TextArea, TextBox, Wrap};
 pub(crate) use hint::{Hint, Tone};
 pub use node::{Axis, FloatingPlacement, NativePopupMaterialPreference, Node};
 pub(crate) use node::{PanelAttachment, PanelPolicy, Participation, ProvidedRow, Role, TablePart};
-pub(crate) use node::{
-    ScrollAxisPolicy, ScrollChromePresentation, ScrollContainer, ScrollDirection, ScrollSizing,
-};
 #[cfg(test)]
 pub(crate) use presentation::Presentation;
 pub use style::{Align, Dimension, Padding, Style};
@@ -175,8 +172,8 @@ impl View {
 
     pub(crate) fn materialize_virtual_lists(
         &mut self,
-        requests: &HashMap<interaction::Id, crate::virtual_list::Materialization>,
-        measurements: &HashMap<interaction::Id, crate::virtual_list::Measurements>,
+        requests: &HashMap<interaction::Id, crate::list::Materialization>,
+        measurements: &HashMap<interaction::Id, crate::list::Measurements>,
         previous: Option<&Self>,
     ) {
         let previous_models = previous.map_or_else(HashMap::new, Self::virtual_list_models);
@@ -197,22 +194,19 @@ impl View {
         self.root.project_table_widths(tables);
     }
 
-    pub(crate) fn selectable_virtual_lists(&self) -> Vec<crate::virtual_list::Model> {
+    pub(crate) fn selectable_virtual_lists(&self) -> Vec<crate::list::State> {
         let mut models = Vec::new();
         self.root.collect_selectable_virtual_lists(&mut models);
         models
     }
 
-    fn virtual_list_models(&self) -> HashMap<interaction::Id, crate::virtual_list::Model> {
+    fn virtual_list_models(&self) -> HashMap<interaction::Id, crate::list::State> {
         let mut models = HashMap::new();
         self.root.collect_virtual_list_models(&mut models);
         models
     }
 
-    pub(crate) fn virtual_list_model(
-        &self,
-        id: interaction::Id,
-    ) -> Option<&crate::virtual_list::Model> {
+    pub(crate) fn virtual_list_model(&self, id: interaction::Id) -> Option<&crate::list::State> {
         self.root.virtual_list_model_for_id(id)
     }
 
@@ -231,7 +225,7 @@ impl View {
         &self,
         tree: &Tree,
         focus: session::Focus,
-    ) -> Option<&crate::virtual_list::Model> {
+    ) -> Option<&crate::list::State> {
         self.root
             .selectable_virtual_list_for_focus_retained(focus, tree.root())
     }
@@ -331,7 +325,7 @@ impl View {
         tree: &Tree,
         focus: Option<session::Focus>,
         targets: &[interaction::Target],
-    ) -> HashMap<interaction::Id, Vec<crate::virtual_list::Key>> {
+    ) -> HashMap<interaction::Id, Vec<crate::list::Key>> {
         let mut pins = HashMap::new();
         self.root
             .collect_virtual_list_pins_retained(tree.root(), focus, targets, &mut pins);

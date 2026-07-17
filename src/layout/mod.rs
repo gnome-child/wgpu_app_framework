@@ -55,7 +55,7 @@ pub(crate) struct Layout {
     table_tracks: Vec<table::Track>,
     scene_scroll_paths: HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
     scroll_projections: Vec<ScrollProjection>,
-    virtual_list_requests: Vec<crate::virtual_list::Request>,
+    virtual_list_requests: Vec<crate::list::Request>,
     native_popup_owners: HashMap<composition::tree::NodeId, interaction::Id>,
 }
 
@@ -71,14 +71,14 @@ pub(crate) struct ScrollProjection {
 #[derive(Clone)]
 pub(crate) struct ResidencyDemand {
     target: interaction::Target,
-    desired: interaction::ScrollOffset,
-    preparation: interaction::ScrollOffset,
-    virtual_lists: Vec<crate::virtual_list::Request>,
+    desired: interaction::Offset,
+    preparation: interaction::Offset,
+    virtual_lists: Vec<crate::list::Request>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScrollPropertyAcceptance {
-    replenishment: Option<interaction::ScrollOffset>,
+    replenishment: Option<interaction::Offset>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,7 +100,7 @@ struct Proof {
     requested: Option<Requested>,
     rows: Vec<Row>,
     viewport: Viewport,
-    baseline: interaction::ScrollOffset,
+    baseline: interaction::Offset,
     bounds: Rect,
     accepted: Accepted,
 }
@@ -115,15 +115,15 @@ struct Requested {
 struct Row {
     node: composition::tree::NodeId,
     list: interaction::Id,
-    key: crate::virtual_list::Key,
+    key: crate::list::Key,
     index: usize,
     rect: Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Accepted {
-    minimum: interaction::ScrollOffset,
-    maximum: interaction::ScrollOffset,
+    minimum: interaction::Offset,
+    maximum: interaction::Offset,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,9 +161,7 @@ impl ScrollProjection {
         matches!(self.residency, ScrollResidency::Complete(_))
     }
 
-    pub(crate) fn accepted_offsets(
-        &self,
-    ) -> Option<(interaction::ScrollOffset, interaction::ScrollOffset)> {
+    pub(crate) fn accepted_offsets(&self) -> Option<(interaction::Offset, interaction::Offset)> {
         match &self.residency {
             ScrollResidency::Complete(proof) => {
                 Some((proof.accepted.minimum, proof.accepted.maximum))
@@ -186,15 +184,15 @@ impl ResidencyDemand {
         &self.target
     }
 
-    pub(crate) fn desired(&self) -> interaction::ScrollOffset {
+    pub(crate) fn desired(&self) -> interaction::Offset {
         self.desired
     }
 
-    pub(crate) fn preparation(&self) -> interaction::ScrollOffset {
+    pub(crate) fn preparation(&self) -> interaction::Offset {
         self.preparation
     }
 
-    pub(crate) fn virtual_lists(&self) -> &[crate::virtual_list::Request] {
+    pub(crate) fn virtual_lists(&self) -> &[crate::list::Request] {
         &self.virtual_lists
     }
 
@@ -204,7 +202,7 @@ impl ResidencyDemand {
 }
 
 impl ScrollPropertyAcceptance {
-    pub(crate) fn replenishment(self) -> Option<interaction::ScrollOffset> {
+    pub(crate) fn replenishment(self) -> Option<interaction::Offset> {
         self.replenishment
     }
 }
@@ -243,7 +241,7 @@ impl Proof {
         &self,
         node: composition::tree::NodeId,
         target: &interaction::Target,
-        offset: interaction::ScrollOffset,
+        offset: interaction::Offset,
     ) -> bool {
         self.node == node
             && &self.target == target
@@ -265,7 +263,7 @@ impl Proof {
 impl Accepted {
     fn for_resident(
         viewport: Viewport,
-        baseline: interaction::ScrollOffset,
+        baseline: interaction::Offset,
         required: Rect,
         bounds: Rect,
     ) -> Option<Self> {
@@ -293,21 +291,21 @@ impl Accepted {
             maximum.y(),
         )?;
         Some(Self {
-            minimum: interaction::ScrollOffset::new(minimum_x, minimum_y),
-            maximum: interaction::ScrollOffset::new(maximum_x, maximum_y),
+            minimum: interaction::Offset::new(minimum_x, minimum_y),
+            maximum: interaction::Offset::new(maximum_x, maximum_y),
         })
     }
 
-    fn contains(self, offset: interaction::ScrollOffset) -> bool {
+    fn contains(self, offset: interaction::Offset) -> bool {
         offset.lies_within(self.minimum, self.maximum)
     }
 
     fn replenishment(
         self,
         viewport: Viewport,
-        previous: interaction::ScrollOffset,
-        offset: interaction::ScrollOffset,
-    ) -> Option<interaction::ScrollOffset> {
+        previous: interaction::Offset,
+        offset: interaction::Offset,
+    ) -> Option<interaction::Offset> {
         let legal = viewport.max_scroll();
         let rect = viewport.rect();
         let x = accepted_axis_replenishment(
@@ -637,11 +635,11 @@ impl Layout {
     pub(crate) fn scroll_property_acceptance(
         &self,
         target: &interaction::Target,
-        previous: interaction::ScrollOffset,
-        offset: interaction::ScrollOffset,
+        previous: interaction::Offset,
+        offset: interaction::Offset,
     ) -> Option<ScrollPropertyAcceptance> {
         let mut owns_changed_axis = false;
-        let mut replenishment: Option<interaction::ScrollOffset> = None;
+        let mut replenishment: Option<interaction::Offset> = None;
         for projection in self
             .scroll_projections()
             .iter()
@@ -702,10 +700,10 @@ impl Layout {
     pub(crate) fn resolve_scroll_offset(
         &self,
         target: &interaction::Target,
-        offset: interaction::ScrollOffset,
-    ) -> interaction::ScrollOffset {
+        offset: interaction::Offset,
+    ) -> interaction::Offset {
         let mut found = false;
-        let mut maximum = interaction::ScrollOffset::default();
+        let mut maximum = interaction::Offset::default();
         for projection in self
             .scroll_projections
             .iter()
@@ -716,7 +714,7 @@ impl Layout {
             maximum = maximum.componentwise_max(candidate);
         }
         if found {
-            offset.clamped(interaction::ScrollOffset::default(), maximum)
+            offset.clamped(interaction::Offset::default(), maximum)
         } else {
             offset
         }
@@ -725,10 +723,10 @@ impl Layout {
     pub(crate) fn scroll_adjustment_geometry(
         &self,
         target: &interaction::Target,
-    ) -> Option<(interaction::ScrollOffset, interaction::ScrollOffset)> {
+    ) -> Option<(interaction::Offset, interaction::Offset)> {
         let mut found = false;
-        let mut maximum = interaction::ScrollOffset::default();
-        let mut page = interaction::ScrollOffset::default();
+        let mut maximum = interaction::Offset::default();
+        let mut page = interaction::Offset::default();
         for projection in self
             .scroll_projections
             .iter()
@@ -738,7 +736,7 @@ impl Layout {
             let viewport = projection.viewport;
             let candidate = viewport.max_scroll();
             maximum = maximum.componentwise_max(candidate);
-            page = page.componentwise_max(interaction::ScrollOffset::new(
+            page = page.componentwise_max(interaction::Offset::new(
                 viewport.rect().width(),
                 viewport.rect().height(),
             ));
@@ -822,7 +820,7 @@ impl Layout {
     pub(crate) fn residency_demand(
         &self,
         target: &interaction::Target,
-        offset: interaction::ScrollOffset,
+        offset: interaction::Offset,
     ) -> Option<ResidencyDemand> {
         self.residency_demand_for(target, offset, offset)
     }
@@ -830,8 +828,8 @@ impl Layout {
     pub(crate) fn residency_replenishment(
         &self,
         target: &interaction::Target,
-        desired: interaction::ScrollOffset,
-        preparation: interaction::ScrollOffset,
+        desired: interaction::Offset,
+        preparation: interaction::Offset,
     ) -> Option<ResidencyDemand> {
         self.residency_demand_for(target, desired, preparation)
     }
@@ -839,8 +837,8 @@ impl Layout {
     fn residency_demand_for(
         &self,
         target: &interaction::Target,
-        desired: interaction::ScrollOffset,
-        preparation: interaction::ScrollOffset,
+        desired: interaction::Offset,
+        preparation: interaction::Offset,
     ) -> Option<ResidencyDemand> {
         let proactive = desired != preparation;
         let projections = self
@@ -891,7 +889,7 @@ impl Layout {
         &self.table_tracks
     }
 
-    pub(crate) fn virtual_list_requests(&self) -> &[crate::virtual_list::Request] {
+    pub(crate) fn virtual_list_requests(&self) -> &[crate::list::Request] {
         &self.virtual_list_requests
     }
 
@@ -1129,7 +1127,7 @@ impl Layout {
     pub(crate) fn scroll_target_at(
         &self,
         point: Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     ) -> Option<interaction::Target> {
         self.scroll_target_at_surface(point, delta, crate::popup::Surface::Parent)
     }
@@ -1138,7 +1136,7 @@ impl Layout {
     pub(crate) fn scroll_target_at_surface(
         &self,
         point: Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
         surface: crate::popup::Surface,
     ) -> Option<interaction::Target> {
         self.scroll_target_at_surface_projected(
@@ -1153,10 +1151,10 @@ impl Layout {
     pub(crate) fn scroll_target_at_surface_projected(
         &self,
         point: Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
         surface: crate::popup::Surface,
         project: &impl Fn(composition::tree::NodeId, Point) -> Option<Point>,
-        offset: &impl Fn(&interaction::Target, Viewport) -> interaction::ScrollOffset,
+        offset: &impl Fn(&interaction::Target, Viewport) -> interaction::Offset,
     ) -> Option<interaction::Target> {
         self.frames
             .iter()
@@ -1220,7 +1218,7 @@ impl Layout {
         &self,
         focus: session::Focus,
         axis: interaction::ScrollbarAxis,
-    ) -> Vec<(interaction::Target, view::ScrollDirection)> {
+    ) -> Vec<(interaction::Target, crate::scroll::Direction)> {
         let Some(descendant) = self.frame_for_focus(focus) else {
             return Vec::new();
         };
@@ -1247,7 +1245,7 @@ impl Layout {
             }
             let direction = frame
                 .scroll_container_layout()
-                .map_or(view::ScrollDirection::LeftToRight, |container| {
+                .map_or(crate::scroll::Direction::LeftToRight, |container| {
                     container.direction()
                 });
             targets.push((target.clone(), direction));
@@ -1258,12 +1256,12 @@ impl Layout {
     pub(crate) fn scroll_direction_for_target(
         &self,
         target: &interaction::Target,
-    ) -> view::ScrollDirection {
+    ) -> crate::scroll::Direction {
         self.frames
             .iter()
             .find(|frame| frame.target() == Some(target))
             .and_then(Frame::scroll_container_layout)
-            .map_or(view::ScrollDirection::LeftToRight, |container| {
+            .map_or(crate::scroll::Direction::LeftToRight, |container| {
                 container.direction()
             })
     }
@@ -1295,10 +1293,10 @@ impl Layout {
         viewport_target: Option<&interaction::Target>,
         margin: i32,
         mut accepts_descendant: impl FnMut(&Frame) -> bool,
-    ) -> Vec<(interaction::Target, interaction::ScrollOffset)> {
+    ) -> Vec<(interaction::Target, interaction::Offset)> {
         if let Some(viewport_target) = viewport_target {
             let mut found = false;
-            let mut resolved = interaction::ScrollOffset::default();
+            let mut resolved = interaction::Offset::default();
             for viewport_frame in self
                 .frames
                 .iter()
@@ -1315,7 +1313,7 @@ impl Layout {
                 found = true;
                 let candidate = viewport.reveal_rect(descendant.rect(), margin);
                 let maximum = viewport.max_scroll();
-                resolved = interaction::ScrollOffset::new(
+                resolved = interaction::Offset::new(
                     if maximum.x() > 0 {
                         candidate.x()
                     } else {
@@ -1381,7 +1379,7 @@ impl Layout {
         &self,
         focus: session::Focus,
         margin: i32,
-    ) -> Vec<(interaction::Target, interaction::ScrollOffset)> {
+    ) -> Vec<(interaction::Target, interaction::Offset)> {
         self.reveal_offsets_for_descendant_chain(None, margin, |frame| {
             frame
                 .target()
@@ -1631,7 +1629,7 @@ fn scroll_layer_geometry(
 
 fn exact_virtual_residency(
     requested: Range<usize>,
-    expected_keys: &[crate::virtual_list::Key],
+    expected_keys: &[crate::list::Key],
     rows: &[Row],
     required: Rect,
     layer_bounds: Rect,
@@ -1754,7 +1752,7 @@ mod placement_tests {
         Row {
             node: composition::tree::NodeId::layout(&mut identity),
             list: interaction::Id::from("test.virtual-list"),
-            key: crate::virtual_list::Key::new(index as u64),
+            key: crate::list::Key::new(index as u64),
             index,
             rect,
         }
@@ -1868,7 +1866,7 @@ mod placement_tests {
             ],
             {
                 let mut stale = complete.to_vec();
-                stale[2].key = crate::virtual_list::Key::new(99);
+                stale[2].key = crate::list::Key::new(99);
                 stale
             },
         ] {

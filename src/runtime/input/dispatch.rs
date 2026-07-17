@@ -7,16 +7,16 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ScrollTransition {
     Unchanged,
-    PropertyTick(interaction::ScrollOffset),
+    PropertyTick(interaction::Offset),
     NeedsResidency {
-        desired: interaction::ScrollOffset,
-        resident_accepted: interaction::ScrollOffset,
+        desired: interaction::Offset,
+        resident_accepted: interaction::Offset,
         schedule_candidate: bool,
     },
 }
 
 impl ScrollTransition {
-    fn offset(self) -> Option<interaction::ScrollOffset> {
+    fn offset(self) -> Option<interaction::Offset> {
         match self {
             Self::Unchanged => None,
             Self::PropertyTick(offset)
@@ -267,7 +267,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         target: interaction::Target,
-        offset: interaction::ScrollOffset,
+        offset: interaction::Offset,
         source: interaction::ScrollSource,
     ) -> input::Outcome {
         let started = std::time::Instant::now();
@@ -280,7 +280,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                 interaction::ScrollUnit::Pixel,
                 started,
                 interaction::ScrollPhase::Update,
-                interaction::ScrollDelta::default(),
+                interaction::Delta::default(),
             ),
         );
         let transition = self.apply_scroll_transition(
@@ -398,7 +398,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         event.unit(),
                         event.timestamp(),
                         interaction::ScrollPhase::End,
-                        interaction::ScrollDelta::default(),
+                        interaction::Delta::default(),
                     )
                     .with_velocity(terminal),
                 );
@@ -456,11 +456,11 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             }
 
             let decay = (-DRAG_PER_SECOND * seconds).exp();
-            let mut next_velocity = interaction::ScrollDelta::from_logical_pixels(
+            let mut next_velocity = interaction::Delta::from_logical_pixels(
                 kinetic.velocity.x() * decay,
                 kinetic.velocity.y() * decay,
             );
-            let delta = interaction::ScrollDelta::from_logical_pixels(
+            let delta = interaction::Delta::from_logical_pixels(
                 (kinetic.velocity.x() - next_velocity.x()) / DRAG_PER_SECOND,
                 (kinetic.velocity.y() - next_velocity.y()) / DRAG_PER_SECOND,
             );
@@ -478,7 +478,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
             );
             let remainder = dispatch.scroll_outcome().remaining();
             let _ = dispatch.into_input();
-            next_velocity = interaction::ScrollDelta::from_logical_pixels(
+            next_velocity = interaction::Delta::from_logical_pixels(
                 if remainder.x() == 0.0 && next_velocity.x().abs() >= STOP_VELOCITY {
                     next_velocity.x()
                 } else {
@@ -501,7 +501,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         interaction::ScrollUnit::Pixel,
                         now,
                         interaction::ScrollPhase::Deceleration,
-                        interaction::ScrollDelta::default(),
+                        interaction::Delta::default(),
                     ),
                 );
                 let _ = finished.into_input();
@@ -640,9 +640,9 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         target_key: u64,
-        requested: interaction::ScrollOffset,
-        clamped: interaction::ScrollOffset,
-        resident_offset: interaction::ScrollOffset,
+        requested: interaction::Offset,
+        clamped: interaction::Offset,
+        resident_offset: interaction::Offset,
         resident_accepted: bool,
         outcome: &'static str,
     ) {
@@ -665,13 +665,13 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     }
 }
 
-fn kinetic_velocity_is_significant(velocity: interaction::ScrollDelta) -> bool {
+fn kinetic_velocity_is_significant(velocity: interaction::Delta) -> bool {
     velocity.x().abs().max(velocity.y().abs()) >= 4.0
 }
 
-fn bounded_kinetic_velocity(velocity: interaction::ScrollDelta) -> interaction::ScrollDelta {
+fn bounded_kinetic_velocity(velocity: interaction::Delta) -> interaction::Delta {
     const MAX_VELOCITY: f64 = 20_000.0;
-    interaction::ScrollDelta::from_logical_pixels(
+    interaction::Delta::from_logical_pixels(
         velocity.x().clamp(-MAX_VELOCITY, MAX_VELOCITY),
         velocity.y().clamp(-MAX_VELOCITY, MAX_VELOCITY),
     )
@@ -702,24 +702,24 @@ mod tests {
         runtime.session.configure_scroll(
             window,
             inner.clone(),
-            interaction::ScrollOffset::new(10, 0),
-            interaction::ScrollOffset::new(10, 10),
+            interaction::Offset::new(10, 0),
+            interaction::Offset::new(10, 10),
         );
         runtime.session.configure_scroll(
             window,
             middle.clone(),
-            interaction::ScrollOffset::new(0, 40),
-            interaction::ScrollOffset::new(10, 10),
+            interaction::Offset::new(0, 40),
+            interaction::Offset::new(10, 10),
         );
         runtime.session.configure_scroll(
             window,
             outer.clone(),
-            interaction::ScrollOffset::new(100, 10),
-            interaction::ScrollOffset::new(10, 10),
+            interaction::Offset::new(100, 10),
+            interaction::Offset::new(10, 10),
         );
 
         let started = std::time::Instant::now();
-        let input = interaction::ScrollDelta::from_logical_pixels(30.75, 40.5);
+        let input = interaction::Delta::from_logical_pixels(30.75, 40.5);
         let dispatch = runtime.dispatch_scroll_event(
             window,
             vec![inner.clone(), middle.clone(), outer.clone()],
@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(dispatch.scroll_outcome().applied(), input);
         assert_eq!(
             dispatch.scroll_outcome().remaining(),
-            interaction::ScrollDelta::default()
+            interaction::Delta::default()
         );
 
         let scroll = runtime.session.interaction(window).unwrap().scroll();
@@ -752,7 +752,7 @@ mod tests {
             [20.75, 0.5]
         );
 
-        let reverse = interaction::ScrollDelta::from_logical_pixels(-15.25, -50.75);
+        let reverse = interaction::Delta::from_logical_pixels(-15.25, -50.75);
         let dispatch = runtime.dispatch_scroll_event(
             window,
             vec![inner.clone(), middle.clone(), outer.clone()],
@@ -766,11 +766,11 @@ mod tests {
         );
         assert_eq!(
             dispatch.scroll_outcome().applied(),
-            interaction::ScrollDelta::from_logical_pixels(-15.25, -40.5)
+            interaction::Delta::from_logical_pixels(-15.25, -40.5)
         );
         assert_eq!(
             dispatch.scroll_outcome().remaining(),
-            interaction::ScrollDelta::from_logical_pixels(0.0, -10.25)
+            interaction::Delta::from_logical_pixels(0.0, -10.25)
         );
         let scroll = runtime.session.interaction(window).unwrap().scroll();
         assert_eq!(
@@ -800,8 +800,8 @@ mod tests {
         runtime.session.configure_scroll(
             window,
             target.clone(),
-            interaction::ScrollOffset::new(0, 1_000),
-            interaction::ScrollOffset::new(10, 100),
+            interaction::Offset::new(0, 1_000),
+            interaction::Offset::new(10, 100),
         );
 
         let started = std::time::Instant::now();
@@ -813,7 +813,7 @@ mod tests {
                 interaction::ScrollUnit::Pixel,
                 started,
                 interaction::ScrollPhase::Begin,
-                interaction::ScrollDelta::default(),
+                interaction::Delta::default(),
             ),
         );
         assert!(begin.input.is_handled());
@@ -825,12 +825,12 @@ mod tests {
                 interaction::ScrollUnit::Pixel,
                 started + std::time::Duration::from_millis(10),
                 interaction::ScrollPhase::Update,
-                interaction::ScrollDelta::from_logical_pixels(0.0, 12.5),
+                interaction::Delta::from_logical_pixels(0.0, 12.5),
             ),
         );
         assert_eq!(
             update.scroll_outcome().applied(),
-            interaction::ScrollDelta::from_logical_pixels(0.0, 12.5)
+            interaction::Delta::from_logical_pixels(0.0, 12.5)
         );
 
         let ended_at = started + std::time::Duration::from_millis(20);
@@ -842,9 +842,9 @@ mod tests {
                 interaction::ScrollUnit::Pixel,
                 ended_at,
                 interaction::ScrollPhase::End,
-                interaction::ScrollDelta::default(),
+                interaction::Delta::default(),
             )
-            .with_velocity(interaction::ScrollDelta::from_logical_pixels(0.0, 800.0)),
+            .with_velocity(interaction::Delta::from_logical_pixels(0.0, 800.0)),
         );
         assert!(end.input.is_handled());
         assert!(runtime.kinetic_scrolls.contains_key(&window));
@@ -872,12 +872,12 @@ mod tests {
                 interaction::ScrollUnit::Pixel,
                 ended_at + std::time::Duration::from_millis(17),
                 interaction::ScrollPhase::Begin,
-                interaction::ScrollDelta::from_logical_pixels(0.0, -1.0),
+                interaction::Delta::from_logical_pixels(0.0, -1.0),
             ),
         );
         assert_eq!(
             interrupted.scroll_outcome().applied(),
-            interaction::ScrollDelta::from_logical_pixels(0.0, -1.0)
+            interaction::Delta::from_logical_pixels(0.0, -1.0)
         );
         assert!(!runtime.kinetic_scrolls.contains_key(&window));
         assert_eq!(
@@ -899,8 +899,8 @@ mod tests {
         runtime.session.configure_scroll(
             window,
             target.clone(),
-            interaction::ScrollOffset::new(1, 1_000),
-            interaction::ScrollOffset::new(10, 100),
+            interaction::Offset::new(1, 1_000),
+            interaction::Offset::new(10, 100),
         );
 
         let started = std::time::Instant::now();
@@ -912,7 +912,7 @@ mod tests {
                 interaction::ScrollUnit::Pixel,
                 started,
                 interaction::ScrollPhase::Begin,
-                interaction::ScrollDelta::default(),
+                interaction::Delta::default(),
             ),
         );
         let ended_at = started + std::time::Duration::from_millis(1);
@@ -924,9 +924,9 @@ mod tests {
                 interaction::ScrollUnit::Pixel,
                 ended_at,
                 interaction::ScrollPhase::End,
-                interaction::ScrollDelta::default(),
+                interaction::Delta::default(),
             )
-            .with_velocity(interaction::ScrollDelta::from_logical_pixels(800.0, 800.0)),
+            .with_velocity(interaction::Delta::from_logical_pixels(800.0, 800.0)),
         );
 
         runtime.advance_kinetic_scrolls(ended_at + std::time::Duration::from_millis(16));

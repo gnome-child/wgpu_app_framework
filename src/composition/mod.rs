@@ -93,22 +93,19 @@ impl Composition {
         &self,
         focus: Option<session::Focus>,
         targets: &[interaction::Target],
-    ) -> std::collections::HashMap<interaction::Id, Vec<crate::virtual_list::Key>> {
+    ) -> std::collections::HashMap<interaction::Id, Vec<crate::list::Key>> {
         self.view
             .virtual_list_pins_retained(&self.tree, focus, targets)
     }
 
-    pub(crate) fn virtual_list_model(
-        &self,
-        id: interaction::Id,
-    ) -> Option<&crate::virtual_list::Model> {
+    pub(crate) fn virtual_list_model(&self, id: interaction::Id) -> Option<&crate::list::State> {
         self.view.virtual_list_model(id)
     }
 
     pub(crate) fn selectable_virtual_list_for_focus(
         &self,
         focus: session::Focus,
-    ) -> Option<&crate::virtual_list::Model> {
+    ) -> Option<&crate::list::State> {
         self.view
             .selectable_virtual_list_for_focus(&self.tree, focus)
     }

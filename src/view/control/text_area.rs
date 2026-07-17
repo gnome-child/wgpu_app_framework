@@ -14,7 +14,7 @@ pub struct TextArea {
     mode: text::surface::FieldMode,
     focus: Option<session::Focus>,
     focus_presentation: focus::Presentation,
-    scroll: interaction::ScrollOffset,
+    scroll: interaction::Offset,
     reveal: bool,
     preedit: Option<text::Preedit>,
     caret_epoch: Option<Instant>,
@@ -35,7 +35,7 @@ impl TextArea {
             mode: text::surface::FieldMode::Editable,
             focus: None,
             focus_presentation: focus::Presentation::default(),
-            scroll: interaction::ScrollOffset::default(),
+            scroll: interaction::Offset::default(),
             reveal: false,
             preedit: None,
             caret_epoch: None,
@@ -68,7 +68,7 @@ impl TextArea {
     ) -> Self {
         self.buffer = buffer;
         self.state = state;
-        self.scroll = interaction::ScrollOffset::default();
+        self.scroll = interaction::Offset::default();
         self.reveal = false;
         self.preedit = None;
         self.caret_epoch = None;
@@ -199,7 +199,7 @@ impl TextArea {
         target: Option<&interaction::Target>,
     ) {
         let Some(target) = target else {
-            self.scroll = interaction::ScrollOffset::default();
+            self.scroll = interaction::Offset::default();
             self.reveal = false;
             self.preedit = None;
             self.caret_epoch = None;
@@ -213,7 +213,7 @@ impl TextArea {
                 .is_some_and(|active| active == target);
         let projects_session = target.table_cell().is_none() || active_table_target;
         self.scroll = if !projects_session {
-            interaction::ScrollOffset::default()
+            interaction::Offset::default()
         } else {
             interaction.scroll().resident_offset(target)
         };
@@ -269,7 +269,7 @@ mod tests {
     fn scroll_reveal_and_blink_epoch_are_not_scene_content_state() {
         let first = TextArea::new("one\ntwo");
         let mut second = first.clone();
-        second.scroll = interaction::ScrollOffset::new(31, 47);
+        second.scroll = interaction::Offset::new(31, 47);
         second.reveal = true;
         second.caret_epoch = Some(Instant::now() + Duration::from_secs(1));
 
@@ -309,7 +309,7 @@ mod tests {
     fn projected_text_scroll_preserves_integral_values_past_f32_precision() {
         for value in [16_777_215, 16_777_216, 16_777_217, 24_000_001] {
             let mut area = TextArea::new("precision");
-            area.scroll = interaction::ScrollOffset::new(value, value);
+            area.scroll = interaction::Offset::new(value, value);
             let state = area.view_state_at(Instant::now());
             assert_eq!(state.exact_scroll_x(), f64::from(value));
             assert_eq!(state.exact_scroll_y(), f64::from(value));

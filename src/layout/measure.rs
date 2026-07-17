@@ -482,8 +482,8 @@ fn scroll_intrinsic_width(
         .scroll_container()
         .map(|container| container.horizontal_sizing)
     {
-        Some(view::ScrollSizing::Minimum) => theme.viewport().min_viewport_extent,
-        Some(view::ScrollSizing::Natural) => stack_intrinsic_width(node, engine, theme, profile),
+        Some(crate::scroll::Sizing::Minimum) => theme.viewport().min_viewport_extent,
+        Some(crate::scroll::Sizing::Natural) => stack_intrinsic_width(node, engine, theme, profile),
         None => match node.axis() {
             Some(view::Axis::Horizontal) => theme.viewport().min_viewport_extent,
             Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
@@ -496,10 +496,12 @@ fn scroll_intrinsic_width(
 fn scroll_intrinsic_height(node: &view::Node, theme: &theme::Theme) -> i32 {
     if let Some(container) = node.scroll_container() {
         return match container.vertical_sizing {
-            view::ScrollSizing::Minimum => {
+            crate::scroll::Sizing::Minimum => {
                 capped_height(node, theme.viewport().min_viewport_extent)
             }
-            view::ScrollSizing::Natural => capped_height(node, stack_intrinsic_height(node, theme)),
+            crate::scroll::Sizing::Natural => {
+                capped_height(node, stack_intrinsic_height(node, theme))
+            }
         };
     }
     match node.axis() {
@@ -525,10 +527,10 @@ fn scroll_intrinsic_height_for_width(
 ) -> i32 {
     if let Some(container) = node.scroll_container() {
         return match container.vertical_sizing {
-            view::ScrollSizing::Minimum => {
+            crate::scroll::Sizing::Minimum => {
                 capped_height(node, theme.viewport().min_viewport_extent)
             }
-            view::ScrollSizing::Natural => capped_height(
+            crate::scroll::Sizing::Natural => capped_height(
                 node,
                 stack_intrinsic_height_for_width(node, width, engine, theme, profile),
             ),
@@ -994,18 +996,18 @@ mod tests {
     use super::*;
 
     fn scroll_with_sizing(
-        horizontal: view::ScrollSizing,
-        vertical: view::ScrollSizing,
+        horizontal: crate::scroll::Sizing,
+        vertical: crate::scroll::Sizing,
     ) -> view::Node {
-        let container = view::ScrollContainer::new(
-            view::ScrollAxisPolicy::Automatic,
-            view::ScrollAxisPolicy::Automatic,
-            view::ScrollChromePresentation::Overlay,
+        let container = crate::scroll::Configuration::new(
+            crate::scroll::Policy::Automatic,
+            crate::scroll::Policy::Automatic,
+            crate::scroll::Presentation::Overlay,
             horizontal,
             vertical,
-            view::ScrollDirection::LeftToRight,
+            crate::scroll::Direction::LeftToRight,
         );
-        let mut scroll = view::Node::scroll().with_scroll_container(container);
+        let mut scroll = view::Node::scroll().with_scroll_configuration(container);
         for index in 0..10 {
             scroll = scroll.child(view::Node::label(format!(
                 "A deliberately long eager viewport row number {index}"
@@ -1016,8 +1018,14 @@ mod tests {
 
     #[test]
     fn eager_scroll_sizing_selects_minimum_or_natural_extent_independently() {
-        let minimum = scroll_with_sizing(view::ScrollSizing::Minimum, view::ScrollSizing::Minimum);
-        let natural = scroll_with_sizing(view::ScrollSizing::Natural, view::ScrollSizing::Natural);
+        let minimum = scroll_with_sizing(
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Sizing::Minimum,
+        );
+        let natural = scroll_with_sizing(
+            crate::scroll::Sizing::Natural,
+            crate::scroll::Sizing::Natural,
+        );
         let theme = theme::Theme::dark();
         let mut engine = engine::Engine::new();
         let profile = keymap::Profile::default();

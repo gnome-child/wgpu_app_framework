@@ -458,7 +458,7 @@ impl Retained {
                             .map(|(minimum, maximum)| offset.clamped(minimum, maximum))
                     })
                     .unwrap_or_else(|| declaration.baseline());
-                Some(super::PropertyValue::ScrollOffset {
+                Some(super::PropertyValue::Offset {
                     node: projection.node(),
                     value: offset,
                 })
@@ -1327,12 +1327,8 @@ fn project_scrollbar(
     let theme_scrollbar = theme.scrollbar();
     let visual = visuals.scrollbar(chrome.target());
     let base_thickness = match chrome.presentation() {
-        crate::view::ScrollChromePresentation::Consuming => {
-            theme_scrollbar.metrics.thickness.max(1)
-        }
-        crate::view::ScrollChromePresentation::Overlay => {
-            theme_scrollbar.appearance.overlay_thickness.max(1)
-        }
+        crate::scroll::Presentation::Consuming => theme_scrollbar.metrics.thickness.max(1),
+        crate::scroll::Presentation::Overlay => theme_scrollbar.appearance.overlay_thickness.max(1),
     };
     let maximum_thickness = theme_scrollbar
         .appearance

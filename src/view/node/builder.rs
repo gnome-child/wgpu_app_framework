@@ -157,15 +157,16 @@ impl Node {
 
     pub fn scroll() -> Self {
         Self::new(Content::Scroll(Scroll::Ordinary {
-            offset: interaction::ScrollOffset::default(),
+            offset: interaction::Offset::default(),
         }))
         .with_axis(Axis::Vertical)
     }
 
-    // Authored internally until SE-008 settles the public container vocabulary.
-    #[allow(dead_code)]
-    pub(crate) fn with_scroll_container(mut self, container: super::ScrollContainer) -> Self {
-        self.set_scroll_container(container);
+    pub(crate) fn with_scroll_configuration(
+        mut self,
+        configuration: crate::scroll::Configuration,
+    ) -> Self {
+        self.set_scroll_container(configuration);
         self
     }
 
@@ -173,17 +174,17 @@ impl Node {
         let id = model.id();
         Self::new(Content::Scroll(Scroll::Table {
             model,
-            offset: interaction::ScrollOffset::default(),
+            offset: interaction::Offset::default(),
         }))
         .with_interaction_id(id)
         .with_axis(Axis::Horizontal)
     }
 
-    pub(crate) fn virtual_list(model: crate::virtual_list::Model) -> Self {
+    pub(crate) fn virtual_list(model: crate::list::State) -> Self {
         let id = model.id();
         Self::new(Content::VirtualList {
             model,
-            offset: interaction::ScrollOffset::default(),
+            offset: interaction::Offset::default(),
         })
         .with_id(id)
         .with_axis(Axis::Vertical)
@@ -257,7 +258,7 @@ impl Node {
     pub(crate) fn with_provided_row(
         mut self,
         list: interaction::Id,
-        key: crate::virtual_list::Key,
+        key: crate::list::Key,
         index: usize,
     ) -> Self {
         if let Some(row) = self.table_row {

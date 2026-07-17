@@ -8,6 +8,7 @@ pub struct TextArea {
     wrap: view::Wrap,
     id: Option<interaction::Id>,
     focus: Option<session::Focus>,
+    configuration: Option<crate::scroll::Configuration>,
 }
 
 impl TextArea {
@@ -24,6 +25,7 @@ impl TextArea {
             wrap: view::Wrap::Word,
             id: None,
             focus: None,
+            configuration: None,
         }
     }
 
@@ -45,6 +47,11 @@ impl TextArea {
         self.focus = Some(focus);
         self
     }
+
+    pub fn configuration(mut self, configuration: crate::scroll::Configuration) -> Self {
+        self.configuration = Some(configuration);
+        self
+    }
 }
 
 impl Widget for TextArea {
@@ -61,6 +68,9 @@ impl Widget for TextArea {
         let mut node = view::Node::text_area_state(text_area);
         if let Some(id) = id {
             node = node.with_interaction_id(id);
+        }
+        if let Some(configuration) = self.configuration {
+            node = node.with_scroll_configuration(configuration);
         }
         node
     }

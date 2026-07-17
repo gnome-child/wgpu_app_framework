@@ -95,41 +95,77 @@ struct WrappedExtentProvider {
     row_calls: Rc<Cell<usize>>,
 }
 
-impl crate::virtual_list::Provider for StableExtentProvider {
+impl crate::list::Model for StableExtentProvider {
     fn len(&self) -> usize {
         100
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for StableExtentProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         view::Node::world_text(format!("Stable row {index}"), text::Overflow::EllipsisEnd)
             .with_style(view::Style::new().with_height(view::Dimension::fixed(24)))
     }
 }
 
-impl crate::virtual_list::Provider for WrappedExtentProvider {
+impl crate::list::Model for WrappedExtentProvider {
     fn len(&self) -> usize {
         10_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for WrappedExtentProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         self.row_calls.set(self.row_calls.get() + 1);
         let text = if index % 3 == 0 {
             format!("Short row {index}")
@@ -152,21 +188,39 @@ impl crate::virtual_list::Provider for WrappedExtentProvider {
     }
 }
 
-impl crate::virtual_list::Provider for VariableRowProvider {
+impl crate::list::Model for VariableRowProvider {
     fn len(&self) -> usize {
         10_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for VariableRowProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         self.row_calls.set(self.row_calls.get() + 1);
         view::Node::world_text(format!("Variable row {index}"), text::Overflow::EllipsisEnd)
             .with_style(
@@ -179,29 +233,39 @@ impl crate::virtual_list::Provider for VariableRowProvider {
     }
 }
 
-impl crate::virtual_list::Provider for MillionRowProvider {
+impl crate::list::Model for MillionRowProvider {
     fn len(&self) -> usize {
         1_000_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn item_revision(&self, _index: usize) -> Option<u64> {
-        Some(0)
+    fn membership_revision(&self) -> u64 {
+        0
     }
 
-    fn factory_revision(&self) -> Option<u64> {
-        Some(0)
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for MillionRowProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         self.row_calls.set(self.row_calls.get() + 1);
         view::Node::world_text(format!("Provider row {index}"), text::Overflow::EllipsisEnd)
     }
@@ -220,13 +284,17 @@ impl crate::table::Provider for WrappedTableProvider {
         2
     }
 
-    fn key(&self, row: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(row as u64)
+    fn key(&self, row: usize) -> crate::list::Key {
+        crate::list::Key::new(row as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let row = key.value() as usize;
         (row < self.len()).then_some(row)
+    }
+
+    fn item_revision(&self, _row: usize) -> u64 {
+        0
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -248,13 +316,17 @@ impl crate::table::Provider for MillionTableProvider {
         1_000_000
     }
 
-    fn key(&self, row: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(row as u64)
+    fn key(&self, row: usize) -> crate::list::Key {
+        crate::list::Key::new(row as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let row = key.value() as usize;
         (row < self.len()).then_some(row)
+    }
+
+    fn item_revision(&self, _row: usize) -> u64 {
+        0
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -609,14 +681,26 @@ impl crate::table::Provider for EditableTableProvider {
         self.records.len()
     }
 
-    fn key(&self, row: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(self.records[row].key)
+    fn key(&self, row: usize) -> crate::list::Key {
+        crate::list::Key::new(self.records[row].key)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         self.records
             .iter()
             .position(|record| record.key == key.value())
+    }
+
+    fn item_revision(&self, row: usize) -> u64 {
+        let record = &self.records[row];
+        record.name.bytes().fold(
+            record.key.wrapping_mul(2).wrapping_add(record.count as u64),
+            |revision, byte| {
+                revision
+                    .wrapping_mul(0x0000_0100_0000_01b3)
+                    .wrapping_add(u64::from(byte))
+            },
+        )
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -816,19 +900,19 @@ impl crate::table::Provider for MutableTableProvider {
         self.keys.borrow().len()
     }
 
-    fn key(&self, row: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(self.keys.borrow()[row])
+    fn key(&self, row: usize) -> crate::list::Key {
+        crate::list::Key::new(self.keys.borrow()[row])
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         self.keys
             .borrow()
             .iter()
             .position(|candidate| *candidate == key.value())
     }
 
-    fn item_revision(&self, _row: usize) -> Option<u64> {
-        Some(0)
+    fn item_revision(&self, row: usize) -> u64 {
+        self.keys.borrow()[row]
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -850,43 +934,85 @@ struct MutableContentProvider {
     values: Rc<RefCell<Vec<String>>>,
 }
 
-impl crate::virtual_list::Provider for MutableKeyProvider {
+impl crate::list::Model for MutableKeyProvider {
     fn len(&self) -> usize {
         self.keys.borrow().len()
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(self.keys.borrow()[index])
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(self.keys.borrow()[index])
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         self.keys
             .borrow()
             .iter()
             .position(|candidate| *candidate == key.value())
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, index: usize) -> u64 {
+        self.keys.borrow()[index]
+    }
+}
+
+impl crate::list::Factory for MutableKeyProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         let key = self.keys.borrow()[index];
         view::Node::world_text(format!("Key {key}"), text::Overflow::EllipsisEnd)
     }
 }
 
-impl crate::virtual_list::Provider for MutableContentProvider {
+impl crate::list::Model for MutableContentProvider {
     fn len(&self) -> usize {
         self.values.borrow().len()
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, index: usize) -> u64 {
+        self.values.borrow()[index]
+            .bytes()
+            .fold(0, |revision, byte| {
+                revision
+                    .wrapping_mul(0x0000_0100_0000_01b3)
+                    .wrapping_add(u64::from(byte))
+            })
+    }
+}
+
+impl crate::list::Factory for MutableContentProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         view::Node::world_text(
             self.values.borrow()[index].clone(),
             text::Overflow::EllipsisEnd,
@@ -906,23 +1032,41 @@ struct PinnedRowProvider {
     kind: PinnedRowKind,
 }
 
-impl crate::virtual_list::Provider for PinnedRowProvider {
+impl crate::list::Model for PinnedRowProvider {
     fn len(&self) -> usize {
         self.keys.borrow().len()
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(self.keys.borrow()[index])
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(self.keys.borrow()[index])
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         self.keys
             .borrow()
             .iter()
             .position(|candidate| *candidate == key.value())
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, index: usize) -> u64 {
+        self.keys.borrow()[index]
+    }
+}
+
+impl crate::list::Factory for PinnedRowProvider {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         let key = self.keys.borrow()[index];
         match self.kind {
             PinnedRowKind::Text if key == 0 => widget::Widget::into_node(
@@ -935,7 +1079,7 @@ impl crate::virtual_list::Provider for PinnedRowProvider {
                 view::Node::world_text(format!("Text {key}"), text::Overflow::EllipsisEnd)
             }
             PinnedRowKind::Capture => widget::Widget::into_node(
-                widget::Scroll::new()
+                crate::Scroll::new()
                     .height(view::Dimension::fixed(20))
                     .child(widget::Label::world(
                         format!("Capture {key}"),
@@ -1014,7 +1158,7 @@ fn million_row_virtual_list_converges_to_a_bounded_first_frame() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("million.rows", 20, provider.clone())
+                crate::List::new("million.rows", 20, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(100)),
             )
@@ -1062,7 +1206,7 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("million.jump", 24, provider.clone())
+                crate::List::new("million.jump", 24, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::grow()),
             )
@@ -1086,7 +1230,7 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
     let maximum = projection.viewport().max_scroll();
     assert_eq!(
         maximum,
-        interaction::ScrollOffset::new(0, 23_999_900),
+        interaction::Offset::new(0, 23_999_900),
         "one million 24-pixel rows must expose the gallery-scale integral extent"
     );
     let calls_before_jump = row_calls.get();
@@ -1095,7 +1239,7 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
         window,
         compact,
         point,
-        interaction::ScrollDelta::vertical(12_000_000),
+        interaction::Delta::vertical(12_000_000),
     )
     .expect("jump scroll should be handled");
     let jumped = app
@@ -1118,11 +1262,11 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
             .expect("window interaction")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 12_000_000)
+        interaction::Offset::new(0, 12_000_000)
     );
     assert_eq!(
         jumped.properties().scroll_offset(owner),
-        Some(interaction::ScrollOffset::new(0, 12_000_000)),
+        Some(interaction::Offset::new(0, 12_000_000)),
         "the scene property must derive from the same large integral position"
     );
     assert!(jumped_values.len() <= 9);
@@ -1142,7 +1286,7 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
         "a gallery-scale relative jump must retain bounded materialization; observed {jump_row_calls} row builds"
     );
 
-    let near_maximum = interaction::ScrollOffset::new(0, maximum.y() - 1);
+    let near_maximum = interaction::Offset::new(0, maximum.y() - 1);
     let calls_before_absolute = row_calls.get();
     app.handle_input(window, Input::scroll_to(target.clone(), near_maximum))
         .expect("a gallery-scale absolute thumb position should be accepted");
@@ -1174,13 +1318,8 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
         "a gallery-scale absolute jump must retain bounded materialization"
     );
 
-    app.scroll_at(
-        window,
-        compact,
-        point,
-        interaction::ScrollDelta::vertical(100),
-    )
-    .expect("the final relative tick should clamp to the exact maximum");
+    app.scroll_at(window, compact, point, interaction::Delta::vertical(100))
+        .expect("the final relative tick should clamp to the exact maximum");
     let at_end = app
         .show_scene(window, compact)
         .expect("the exact gallery maximum should render");
@@ -1221,7 +1360,7 @@ fn virtual_scroll_residency_does_not_bridge_a_distant_focus_pin() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("resident.rows", 24, provider.clone())
+                crate::List::new("resident.rows", 24, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(500)),
             )
@@ -1236,14 +1375,14 @@ fn virtual_scroll_residency_does_not_bridge_a_distant_focus_pin() {
     assert!(app.focus_virtual_row(
         window,
         interaction::Id::new("resident.rows"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         session::Focus::text("virtual.text.0"),
     ));
     app.scroll_at(
         window,
         size,
         frame_point_at(list_rect),
-        interaction::ScrollDelta::vertical(2_400),
+        interaction::Delta::vertical(2_400),
     )
     .expect("resident-window list should scroll away from its focus pin");
     let scrolled = app
@@ -1282,7 +1421,7 @@ fn virtual_scroll_residency_does_not_bridge_a_distant_focus_pin() {
     );
 
     let baseline = projection.viewport().resolved_scroll();
-    let beyond_resident = interaction::ScrollOffset::new(
+    let beyond_resident = interaction::Offset::new(
         baseline.x(),
         baseline
             .y()
@@ -1314,7 +1453,7 @@ fn variable_virtual_list_measures_mixed_rows_with_bounded_runtime_work() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::variable("variable.rows", 24, provider.clone())
+                crate::List::variable("variable.rows", 24, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(120)),
             )
@@ -1356,9 +1495,19 @@ fn variable_measurements_survive_a_same_range_mode_transition_and_rebuild() {
         })
         .view(move |_, _| {
             let list = if variable_for_view.get() {
-                crate::VirtualList::variable("retained.measurements", 24, StableExtentProvider)
+                crate::List::variable(
+                    "retained.measurements",
+                    24,
+                    StableExtentProvider,
+                    StableExtentProvider,
+                )
             } else {
-                crate::VirtualList::new("retained.measurements", 24, StableExtentProvider)
+                crate::List::new(
+                    "retained.measurements",
+                    24,
+                    StableExtentProvider,
+                    StableExtentProvider,
+                )
             };
             widget::view_node(
                 list.width(view::Dimension::grow())
@@ -1380,7 +1529,7 @@ fn variable_measurements_survive_a_same_range_mode_transition_and_rebuild() {
         .and_then(|composition| {
             composition.virtual_list_model(interaction::Id::new("retained.measurements"))
         })
-        .and_then(crate::virtual_list::Model::measurements)
+        .and_then(crate::list::State::measurements)
         .expect("variable list should expose its retained measurement owner");
 
     app.request_redraw(window);
@@ -1391,7 +1540,7 @@ fn variable_measurements_survive_a_same_range_mode_transition_and_rebuild() {
         .and_then(|composition| {
             composition.virtual_list_model(interaction::Id::new("retained.measurements"))
         })
-        .and_then(crate::virtual_list::Model::measurements)
+        .and_then(crate::list::State::measurements)
         .expect("rebuilt variable list should keep measured geometry");
 
     assert!(
@@ -1412,7 +1561,7 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::variable("measured.sequence", 24, provider.clone())
+                crate::List::variable("measured.sequence", 24, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(72)),
             )
@@ -1428,14 +1577,14 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
     assert!(app.focus_virtual_row(
         window,
         interaction::Id::new("measured.sequence"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         session::Focus::text("measured.row.0"),
     ));
     app.scroll_at(
         window,
         initial_size,
         frame_point_at(list.rect()),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("variable list should scroll");
     let scrolled = app
@@ -1451,7 +1600,7 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
         .and_then(|composition| {
             composition.virtual_list_model(interaction::Id::new("measured.sequence"))
         })
-        .and_then(crate::virtual_list::Model::measurements)
+        .and_then(crate::list::State::measurements)
         .expect("scrolled list should retain measured geometry");
 
     app.request_redraw(window);
@@ -1464,7 +1613,7 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
         .and_then(|composition| {
             composition.virtual_list_model(interaction::Id::new("measured.sequence"))
         })
-        .and_then(crate::virtual_list::Model::measurements)
+        .and_then(crate::list::State::measurements)
         .expect("remeasured list should retain its geometry owner");
     assert!(retained == rebuilt);
 
@@ -1565,7 +1714,7 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
         let first_row = cells
             .iter()
             .find(|(cell, _, _)| {
-                cell.row() == crate::virtual_list::Key::new(0) && cell.column() == header.column()
+                cell.row() == crate::list::Key::new(0) && cell.column() == header.column()
             })
             .expect("every header track should align to a first-row cell");
         assert_eq!(first_row.1.x(), header_rect.x());
@@ -1588,7 +1737,7 @@ fn million_row_table_composes_public_cells_with_bounded_aligned_tracks() {
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(0)
+                    cell.row() == crate::list::Key::new(0)
                         && cell.column() == interaction::Id::new(column)
                 })
             })
@@ -1808,7 +1957,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         .clone();
     let viewport = horizontal.viewport().expect("horizontal viewport");
     assert_eq!(viewport.content().width(), 310);
-    assert_eq!(viewport.max_scroll(), interaction::ScrollOffset::new(70, 0));
+    assert_eq!(viewport.max_scroll(), interaction::Offset::new(70, 0));
     assert!(
         initial
             .layout()
@@ -1904,7 +2053,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
             .iter()
             .find(|frame| {
                 frame.table_cell().is_some_and(|cell| {
-                    cell.row() == crate::virtual_list::Key::new(0) && cell.column() == column
+                    cell.row() == crate::list::Key::new(0) && cell.column() == column
                 })
             })
             .expect("body geometry")
@@ -2025,7 +2174,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         window,
         size,
         frame_point_at(initial_name.0),
-        interaction::ScrollDelta::horizontal(70),
+        interaction::Delta::horizontal(70),
     )
     .expect("horizontal delta should be consumed by the table scroll owner");
     let after_scroll = app
@@ -2060,7 +2209,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         scrolled
             .properties()
             .scroll_offset(horizontal_projection.node()),
-        Some(interaction::ScrollOffset::new(70, 0))
+        Some(interaction::Offset::new(70, 0))
     );
     let (scrolled_vertical_viewport, scrolled_vertical_track) = vertical_scrollbar(&scrolled);
     assert_eq!(
@@ -2079,7 +2228,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         );
     }
     assert_eq!(scrolled_action.0.right(), 310);
-    let horizontal_delta = interaction::ScrollOffset::new(-70, 0);
+    let horizontal_delta = interaction::Offset::new(-70, 0);
     let horizontal_alternate_row =
         translate(alternate_row, horizontal_delta.x(), horizontal_delta.y());
     let horizontal_detail_header =
@@ -2133,7 +2282,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         window,
         Input::scroll(
             table_scroll_target.clone(),
-            interaction::ScrollDelta::vertical(20),
+            interaction::Delta::vertical(20),
         ),
     )
     .expect("vertical delta should be consumed by the same table owner");
@@ -2145,7 +2294,7 @@ fn table_projects_minimum_tracks_once_and_scrolls_header_body_and_rules_together
         initial.commit(),
         diagonally_scrolled.commit()
     ));
-    let body_delta = interaction::ScrollOffset::new(-70, -20);
+    let body_delta = interaction::Offset::new(-70, -20);
     assert!(diagonally_scrolled.scene().quads().iter().any(|quad| {
         quad.rect() == translate(alternate_row, body_delta.x(), body_delta.y())
             && quad.fill() == table_theme.table().alternate_row_tint
@@ -2238,7 +2387,7 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
         header.rect().y().saturating_add(1),
     );
     let original = header.target().expect("sortable header target").clone();
-    let scroll_delta = interaction::ScrollDelta::horizontal(16);
+    let scroll_delta = interaction::Delta::horizontal(16);
     let horizontal = initial
         .layout()
         .scroll_target_at(point, scroll_delta)
@@ -2310,7 +2459,7 @@ fn stationary_pointer_reprojects_header_hover_in_the_presented_scroll_frame() {
             .expect("window interaction")
             .scroll()
             .offset(&horizontal),
-        interaction::ScrollOffset::new(32, 0),
+        interaction::Offset::new(32, 0),
         "the presented frame must select both requests, not the skipped 16-pixel candidate"
     );
     let shown_target = app
@@ -2367,7 +2516,7 @@ fn stationary_pointer_transfers_hover_as_virtual_table_rows_scroll_beneath_it() 
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == interaction::Id::new("record")
             })
         })
@@ -2384,7 +2533,7 @@ fn stationary_pointer_transfers_hover_as_virtual_table_rows_scroll_beneath_it() 
         .show_scene(window, size)
         .expect("record hover should present before scrolling");
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(48))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(48))
         .expect("table body should scroll beneath the stationary point");
     let shown = app
         .show_scene(window, size)
@@ -2434,7 +2583,7 @@ fn sticky_header_keeps_stationary_hover_while_only_the_body_scrolls() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == interaction::Id::new("count")
             })
         })
@@ -2443,7 +2592,7 @@ fn sticky_header_keeps_stationary_hover_while_only_the_body_scrolls() {
         .layout()
         .scroll_target_at(
             frame_point_at(body.rect()),
-            interaction::ScrollDelta::vertical(48),
+            interaction::Delta::vertical(48),
         )
         .expect("body should resolve its vertical viewport");
 
@@ -2451,7 +2600,7 @@ fn sticky_header_keeps_stationary_hover_while_only_the_body_scrolls() {
         .expect("Count header hover should be handled");
     app.handle_input(
         window,
-        Input::scroll(vertical, interaction::ScrollDelta::vertical(48)),
+        Input::scroll(vertical, interaction::Delta::vertical(48)),
     )
     .expect("body should scroll without moving the pointer");
     let shown = app
@@ -2510,7 +2659,7 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("name")
             })
         })
@@ -2539,7 +2688,7 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
     assert!(revealed.layout().frames().iter().any(|frame| {
         frame.is_active_item()
             && frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("action")
             })
     }));
@@ -2568,15 +2717,12 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
         .iter()
         .filter(|projection| projection.target() == &table_target)
         .map(|projection| projection.viewport().max_scroll())
-        .fold(
-            interaction::ScrollOffset::default(),
-            |maximum, candidate| {
-                interaction::ScrollOffset::new(
-                    maximum.x().max(candidate.x()),
-                    maximum.y().max(candidate.y()),
-                )
-            },
-        );
+        .fold(interaction::Offset::default(), |maximum, candidate| {
+            interaction::Offset::new(
+                maximum.x().max(candidate.x()),
+                maximum.y().max(candidate.y()),
+            )
+        });
     assert!(maximum.x() > 0 && maximum.y() > 0);
     let scroll = app
         .session()
@@ -2592,7 +2738,7 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
     assert!(diagonal.layout().frames().iter().any(|frame| {
         frame.is_active_item()
             && frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(999_999)
+                cell.row() == crate::list::Key::new(999_999)
                     && cell.column() == interaction::Id::new("action")
             })
     }));
@@ -2786,7 +2932,7 @@ fn expanded_table_rows_measure_intrinsic_content_at_resolved_track_widths() {
         window,
         size,
         geometry::Point::new(40, 60),
-        interaction::ScrollDelta::horizontal(40),
+        interaction::Delta::horizontal(40),
     )
     .expect("expanded table should scroll horizontally");
     let scrolled = app
@@ -2849,7 +2995,7 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
         window,
         size,
         frame_point_at(list.rect()),
-        interaction::ScrollDelta::vertical(400),
+        interaction::Delta::vertical(400),
     )
     .expect("body scroll should be handled");
     let scrolled = app
@@ -2913,7 +3059,7 @@ fn table_header_stays_fixed_while_keyed_rows_scroll_reorder_and_shrink() {
             .iter()
             .all(|row| row.table() == interaction::Id::new("mutable.table"))
     );
-    assert_eq!(visible_rows[0].key(), crate::virtual_list::Key::new(0));
+    assert_eq!(visible_rows[0].key(), crate::list::Key::new(0));
 }
 
 #[test]
@@ -3130,7 +3276,7 @@ fn held_count_enabled_boundary_moves_with_the_pointer_without_reallocating_other
                 frame
                     .table_cell()
                     .filter(|cell| {
-                        cell.row() == crate::virtual_list::Key::new(0)
+                        cell.row() == crate::list::Key::new(0)
                             && cell.column() == interaction::Id::new(column)
                     })
                     .map(|_| frame.rect())
@@ -3580,7 +3726,7 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == interaction::Id::new("detail")
             })
         })
@@ -3591,7 +3737,7 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
         app.session().active_table_cell(window, table),
         Some(crate::table::Cell::new(
             table,
-            crate::virtual_list::Key::new(1),
+            crate::list::Key::new(1),
             interaction::Id::new("detail")
         ))
     );
@@ -3610,7 +3756,7 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
         app.session().active_table_cell(window, table),
         Some(crate::table::Cell::new(
             table,
-            crate::virtual_list::Key::new(2),
+            crate::list::Key::new(2),
             interaction::Id::new("action")
         ))
     );
@@ -3631,14 +3777,14 @@ fn table_keyboard_tracks_a_keyed_logical_row_and_column_without_scanning() {
         app.session().active_table_cell(window, table),
         Some(crate::table::Cell::new(
             table,
-            crate::virtual_list::Key::new(999_999),
+            crate::list::Key::new(999_999),
             interaction::Id::new("action")
         ))
     );
     assert!(moved.layout().frames().iter().any(|frame| {
         frame.is_active_item()
             && frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(999_999)
+                cell.row() == crate::list::Key::new(999_999)
                     && cell.column() == interaction::Id::new("action")
             })
     }));
@@ -3666,12 +3812,12 @@ fn editable_table_text_and_number_cells_commit_reject_and_cancel_by_cell_identit
         .expect("editable table should render");
     let name = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let count = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("count"),
     );
 
@@ -3875,7 +4021,7 @@ fn rejected_count_input_app() -> (
     let size = geometry::Size::new(320, 124);
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("count"),
     );
     let initial = app
@@ -4200,12 +4346,12 @@ fn rejected_departure_blocks_other_cell_activation_selection_and_click_chain() {
     let table = interaction::Id::new("editable.table");
     let invalid = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("count"),
     );
     let destination = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(8),
+        crate::list::Key::new(8),
         interaction::Id::new("name"),
     );
 
@@ -4350,7 +4496,7 @@ fn rejected_task_transition_blocks_controls_shortcuts_and_tab() {
     let size = geometry::Size::new(360, 400);
     let invalid = crate::table::Cell::new(
         interaction::Id::new("task.gate.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("count"),
     );
 
@@ -4491,7 +4637,7 @@ fn selectable_rows_gate_members_by_pre_gesture_focality_and_modifiers() {
             .find(|frame| {
                 frame.role() == view::Role::Button
                     && frame.table_cell().is_some_and(|cell| {
-                        cell.row() == crate::virtual_list::Key::new(row)
+                        cell.row() == crate::list::Key::new(row)
                             && cell.column() == interaction::Id::new("action")
                     })
             })
@@ -4511,7 +4657,7 @@ fn selectable_rows_gate_members_by_pre_gesture_focality_and_modifiers() {
         app.session()
             .selection(window, table)
             .and_then(|selection| selection.active()),
-        Some(crate::virtual_list::Key::new(8))
+        Some(crate::list::Key::new(8))
     );
 
     app.show_scene(window, size)
@@ -4531,9 +4677,9 @@ fn selectable_rows_gate_members_by_pre_gesture_focality_and_modifiers() {
         .session()
         .selection(window, table)
         .expect("range selection should remain installed");
-    assert!(selection.contains(crate::virtual_list::Key::new(7)));
-    assert!(selection.contains(crate::virtual_list::Key::new(8)));
-    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(7)));
+    assert!(selection.contains(crate::list::Key::new(7)));
+    assert!(selection.contains(crate::list::Key::new(8)));
+    assert_eq!(selection.active(), Some(crate::list::Key::new(7)));
     assert_eq!(app.state().invocations, vec!["button"]);
 
     app.show_scene(window, size)
@@ -4582,12 +4728,12 @@ fn text_task_deactivates_when_focal_row_changes_and_reentry_is_selection_only() 
     let table = interaction::Id::new("editable.table");
     let row7 = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let row8 = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(8),
+        crate::list::Key::new(8),
         interaction::Id::new("name"),
     );
     let initial = app
@@ -4662,7 +4808,7 @@ fn table_text_selects_row_before_participation_and_keeps_one_text_box_identity()
     let table = interaction::Id::new("editable.table");
     let cell = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let initial = app
@@ -4817,12 +4963,12 @@ fn inactive_table_text_draft_retains_storage_without_repainting_selection() {
     let size = geometry::Size::new(320, 148);
     let first = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let second = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(8),
+        crate::list::Key::new(8),
         interaction::Id::new("name"),
     );
     let initial = app
@@ -4935,7 +5081,7 @@ fn ellipsized_table_selection_paints_visible_glyphs_and_copies_source_ranges() {
     let size = geometry::Size::new(320, 124);
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let initial = app
@@ -5041,9 +5187,10 @@ fn display_newlines_are_compact_residue_and_expanded_line_breaks() {
             .view(move |_, _| {
                 let source = crate::table::Source::new(
                     1,
-                    |_| crate::virtual_list::Key::new(0),
+                    |_| crate::list::Key::new(0),
                     |key| (key.value() == 0).then_some(0),
                     |_| Record { value: Multiline },
+                    |_| 0,
                 );
                 widget::view_node(
                     crate::Table::typed(
@@ -5112,7 +5259,7 @@ fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing
 
     let display_only = crate::table::Cell::new(
         interaction::Id::new("control_gallery.records"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         interaction::Id::new("record"),
     );
     app.handle_input(
@@ -5130,7 +5277,7 @@ fn table_cell_text_input_without_a_draft_never_falls_through_to_document_editing
 
     let stale = crate::table::Cell::new(
         interaction::Id::new("control_gallery.records"),
-        crate::virtual_list::Key::new(u64::MAX),
+        crate::list::Key::new(u64::MAX),
         interaction::Id::new("note"),
     );
     app.handle_input(
@@ -5170,7 +5317,7 @@ fn table_focus_presentation_follows_modality_and_active_edit_surface() {
     let size = geometry::Size::new(320, 124);
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let initial = app
@@ -5290,7 +5437,7 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
         .expect("editable records should render");
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         interaction::Id::new("name"),
     );
     let focus = session::Focus::table_cell(cell);
@@ -5308,7 +5455,7 @@ fn editable_table_draft_pins_through_scroll_follows_reorder_and_dies_on_deletion
         window,
         size,
         frame_point_at(list.rect()),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("table body should scroll");
     let scrolled = app
@@ -5374,7 +5521,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("name")
             })
         })
@@ -5402,7 +5549,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
         app.session()
             .active_table_cell(window, interaction::Id::new("editable.table"))
             .map(crate::table::Cell::row),
-        Some(crate::virtual_list::Key::new(49))
+        Some(crate::list::Key::new(49))
     );
     app.handle_input(
         window,
@@ -5416,7 +5563,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
     .expect("Enter should materialize and enter the active editor");
     let last_name = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(49),
+        crate::list::Key::new(49),
         interaction::Id::new("name"),
     );
     assert!(
@@ -5439,7 +5586,7 @@ fn editable_table_keyboard_enters_commits_leaves_and_materializes_cells() {
     .expect("Tab should leave after committing and enter the next public editor");
     let last_count = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(49),
+        crate::list::Key::new(49),
         interaction::Id::new("count"),
     );
     assert!(
@@ -5470,7 +5617,7 @@ fn table_edit_commit_keys_move_canonical_current_cell_without_trapping_tab() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("name")
             })
         })
@@ -5496,7 +5643,7 @@ fn table_edit_commit_keys_move_canonical_current_cell_without_trapping_tab() {
             .active_table_cell(window, interaction::Id::new("editable.table")),
         Some(crate::table::Cell::new(
             interaction::Id::new("editable.table"),
-            crate::virtual_list::Key::new(1),
+            crate::list::Key::new(1),
             interaction::Id::new("name"),
         ))
     );
@@ -5521,7 +5668,7 @@ fn table_edit_commit_keys_move_canonical_current_cell_without_trapping_tab() {
         app.session()
             .active_table_cell(window, interaction::Id::new("editable.table"))
             .map(crate::table::Cell::row),
-        Some(crate::virtual_list::Key::new(0))
+        Some(crate::list::Key::new(0))
     );
 
     app.handle_input(
@@ -5571,7 +5718,7 @@ fn table_payload_edit_preserves_scroll_topology_and_state() {
 
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         interaction::Id::new("name"),
     );
     let trigger = app.trigger::<SetRecordName>(SetRecordNameArgs {
@@ -5621,9 +5768,14 @@ fn virtual_list_payload_edit_preserves_scroll_topology_and_state() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("mutable.payload.rows", 20, provider.clone())
-                    .width(view::Dimension::grow())
-                    .height(view::Dimension::fixed(100)),
+                crate::List::new(
+                    "mutable.payload.rows",
+                    20,
+                    provider.clone(),
+                    provider.clone(),
+                )
+                .width(view::Dimension::grow())
+                .height(view::Dimension::fixed(100)),
             )
         });
     app.start();
@@ -5669,7 +5821,7 @@ fn virtual_list_growth_shrink_and_reorder_follow_stable_provider_keys() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("mutable.rows", 20, provider.clone())
+                crate::List::new("mutable.rows", 20, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(100)),
             )
@@ -5738,7 +5890,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("pinned.text.rows", 24, provider.clone())
+                crate::List::new("pinned.text.rows", 24, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(96)),
             )
@@ -5768,7 +5920,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
         window,
         size,
         frame_point_at(list_rect),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("virtual text rows should scroll");
     let scrolled = app
@@ -5835,7 +5987,7 @@ fn virtual_list_focus_and_active_edit_pin_while_inactive_drafts_dematerialize() 
         window,
         size,
         frame_point_at(list_rect),
-        interaction::ScrollDelta::vertical(-720),
+        interaction::Delta::vertical(-720),
     )
     .expect("virtual text rows should scroll back");
     app.show_scene(window, size)
@@ -5862,9 +6014,14 @@ fn virtual_list_pointer_capture_pins_until_provider_deletion() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("pinned.capture.rows", 24, provider.clone())
-                    .width(view::Dimension::grow())
-                    .height(view::Dimension::fixed(96)),
+                crate::List::new(
+                    "pinned.capture.rows",
+                    24,
+                    provider.clone(),
+                    provider.clone(),
+                )
+                .width(view::Dimension::grow())
+                .height(view::Dimension::fixed(96)),
             )
         });
     app.start();
@@ -5888,7 +6045,7 @@ fn virtual_list_pointer_capture_pins_until_provider_deletion() {
         window,
         size,
         frame_point_at(list_rect),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("outer virtual list should scroll");
     let scrolled = app
@@ -5929,7 +6086,7 @@ fn virtual_list_materializes_logical_target_before_focus_transfer() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("logical.focus.rows", 24, provider.clone())
+                crate::List::new("logical.focus.rows", 24, provider.clone(), provider.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(96)),
             )
@@ -5945,7 +6102,7 @@ fn virtual_list_materializes_logical_target_before_focus_transfer() {
         window,
         size,
         frame_point_at(list_rect),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("logical focus list should scroll");
     app.show_scene(window, size)
@@ -5961,7 +6118,7 @@ fn virtual_list_materializes_logical_target_before_focus_transfer() {
     assert!(app.focus_virtual_row(
         window,
         interaction::Id::new("logical.focus.rows"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         first,
     ));
     assert!(
@@ -5990,7 +6147,7 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("selectable.million", 20, provider.clone())
+                crate::List::new("selectable.million", 20, provider.clone(), provider.clone())
                     .selectable()
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(100)),
@@ -6036,12 +6193,12 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
         .selection(window, list_id)
         .expect("selection should remain installed");
     assert_eq!(selection.len(), 3);
-    assert!(!selection.contains(crate::virtual_list::Key::new(1)));
-    assert!(selection.contains(crate::virtual_list::Key::new(2)));
-    assert!(selection.contains(crate::virtual_list::Key::new(3)));
-    assert!(selection.contains(crate::virtual_list::Key::new(4)));
-    assert_eq!(selection.anchor(), Some(crate::virtual_list::Key::new(2)));
-    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(4)));
+    assert!(!selection.contains(crate::list::Key::new(1)));
+    assert!(selection.contains(crate::list::Key::new(2)));
+    assert!(selection.contains(crate::list::Key::new(3)));
+    assert!(selection.contains(crate::list::Key::new(4)));
+    assert_eq!(selection.anchor(), Some(crate::list::Key::new(2)));
+    assert_eq!(selection.active(), Some(crate::list::Key::new(4)));
 
     app.handle_input(
         window,
@@ -6055,8 +6212,8 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
         .session()
         .selection(window, list_id)
         .expect("keyboard range should remain installed");
-    assert_eq!(extended.anchor(), Some(crate::virtual_list::Key::new(2)));
-    assert_eq!(extended.active(), Some(crate::virtual_list::Key::new(5)));
+    assert_eq!(extended.anchor(), Some(crate::list::Key::new(2)));
+    assert_eq!(extended.active(), Some(crate::list::Key::new(5)));
     assert_eq!(extended.len(), 4);
     app.handle_input(
         window,
@@ -6117,10 +6274,7 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
         .selection(window, list_id)
         .expect("selection should remain installed");
     assert_eq!(selection.len(), 1);
-    assert_eq!(
-        selection.active(),
-        Some(crate::virtual_list::Key::new(999_999))
-    );
+    assert_eq!(selection.active(), Some(crate::list::Key::new(999_999)));
     assert!(
         moved
             .scene()
@@ -6143,7 +6297,7 @@ fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("mutable.selection", 20, provider.clone())
+                crate::List::new("mutable.selection", 20, provider.clone(), provider.clone())
                     .selectable()
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(100)),
@@ -6184,9 +6338,9 @@ fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
         .session()
         .selection(window, list)
         .expect("selection should remain installed");
-    assert!(selection.contains(crate::virtual_list::Key::new(1)));
-    assert!(selection.contains(crate::virtual_list::Key::new(3)));
-    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(3)));
+    assert!(selection.contains(crate::list::Key::new(1)));
+    assert!(selection.contains(crate::list::Key::new(3)));
+    assert_eq!(selection.active(), Some(crate::list::Key::new(3)));
 
     keys.borrow_mut().retain(|key| *key != 3);
     app.request_redraw(window);
@@ -6197,9 +6351,9 @@ fn selectable_virtual_list_reconciles_reorder_and_deleted_active_key() {
         .selection(window, list)
         .expect("selection should remain installed");
     assert_eq!(selection.len(), 1);
-    assert!(selection.contains(crate::virtual_list::Key::new(1)));
-    assert_eq!(selection.active(), Some(crate::virtual_list::Key::new(1)));
-    assert_eq!(selection.anchor(), Some(crate::virtual_list::Key::new(1)));
+    assert!(selection.contains(crate::list::Key::new(1)));
+    assert_eq!(selection.active(), Some(crate::list::Key::new(1)));
+    assert_eq!(selection.anchor(), Some(crate::list::Key::new(1)));
 }
 
 #[test]
@@ -6214,7 +6368,7 @@ fn virtual_selection_is_window_local_and_survives_runtime_snapshot_restore() {
         })
         .view(move |_, _| {
             widget::view_node(
-                crate::VirtualList::new("window.selection", 20, provider.clone())
+                crate::List::new("window.selection", 20, provider.clone(), provider.clone())
                     .selectable()
                     .width(view::Dimension::grow())
                     .height(view::Dimension::fixed(100)),
@@ -6238,13 +6392,13 @@ fn virtual_selection_is_window_local_and_survives_runtime_snapshot_restore() {
         app.session()
             .selection(first_window, list)
             .expect("first selection should exist")
-            .contains(crate::virtual_list::Key::new(1))
+            .contains(crate::list::Key::new(1))
     );
     assert!(
         app.session()
             .selection(second_window, list)
             .expect("second selection should exist")
-            .contains(crate::virtual_list::Key::new(2))
+            .contains(crate::list::Key::new(2))
     );
 
     let snapshot = app.snapshot();
@@ -6259,13 +6413,13 @@ fn virtual_selection_is_window_local_and_survives_runtime_snapshot_restore() {
         app.session()
             .selection(first_window, list)
             .expect("restored first selection should exist")
-            .contains(crate::virtual_list::Key::new(1))
+            .contains(crate::list::Key::new(1))
     );
     assert!(
         app.session()
             .selection(second_window, list)
             .expect("restored second selection should exist")
-            .contains(crate::virtual_list::Key::new(2))
+            .contains(crate::list::Key::new(2))
     );
 }
 
@@ -6283,14 +6437,24 @@ fn virtual_selection_is_list_local_within_one_window() {
             widget::view(|ui| {
                 ui.column(|ui| {
                     ui.add(
-                        crate::VirtualList::new("selection.first", 20, first_provider.clone())
-                            .selectable()
-                            .height(view::Dimension::fixed(80)),
+                        crate::List::new(
+                            "selection.first",
+                            20,
+                            first_provider.clone(),
+                            first_provider.clone(),
+                        )
+                        .selectable()
+                        .height(view::Dimension::fixed(80)),
                     );
                     ui.add(
-                        crate::VirtualList::new("selection.second", 20, second_provider.clone())
-                            .selectable()
-                            .height(view::Dimension::fixed(80)),
+                        crate::List::new(
+                            "selection.second",
+                            20,
+                            second_provider.clone(),
+                            second_provider.clone(),
+                        )
+                        .selectable()
+                        .height(view::Dimension::fixed(80)),
                     );
                 });
             })
@@ -6326,9 +6490,9 @@ fn virtual_selection_is_list_local_within_one_window() {
         .selection(window, interaction::Id::new("selection.second"))
         .expect("second list selection should exist");
     assert_eq!(first.len(), 1);
-    assert!(first.contains(crate::virtual_list::Key::new(1)));
+    assert!(first.contains(crate::list::Key::new(1)));
     assert_eq!(second.len(), 1);
-    assert!(second.contains(crate::virtual_list::Key::new(2)));
+    assert!(second.contains(crate::list::Key::new(2)));
 }
 
 #[test]
@@ -6670,7 +6834,7 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
     let view = widget::view(|ui| {
         ui.column(|ui| {
             ui.add(
-                widget::Scroll::new()
+                crate::Scroll::new()
                     .id("scroll.generic")
                     .height(view::Dimension::fixed(72))
                     .children(|ui| {
@@ -6740,7 +6904,7 @@ fn generic_scroll_measures_content_clips_children_and_paints_scrollbar() {
 #[test]
 fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_placement() {
     fn configured_layout(
-        container: view::ScrollContainer,
+        container: crate::scroll::Configuration,
         content: geometry::Size,
     ) -> layout::Layout {
         let child = view::Node::panel().with_style(
@@ -6750,7 +6914,7 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
         );
         let scroll = view::Node::scroll()
             .with_layout_axis(view::Axis::Overlay)
-            .with_scroll_container(container)
+            .with_scroll_configuration(container)
             .with_style(
                 view::Style::new()
                     .with_width(view::Dimension::fixed(100))
@@ -6769,13 +6933,13 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
         )
     }
 
-    let consuming = view::ScrollContainer::new(
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollChromePresentation::Consuming,
-        view::ScrollSizing::Minimum,
-        view::ScrollSizing::Minimum,
-        view::ScrollDirection::LeftToRight,
+    let consuming = crate::scroll::Configuration::new(
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Presentation::Consuming,
+        crate::scroll::Sizing::Minimum,
+        crate::scroll::Sizing::Minimum,
+        crate::scroll::Direction::LeftToRight,
     );
     let layout = configured_layout(consuming, geometry::Size::new(95, 110));
     let frame = layout.find_role(view::Role::Scroll)[0];
@@ -6792,13 +6956,13 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
     );
 
     let overlay = configured_layout(
-        view::ScrollContainer::new(
-            view::ScrollAxisPolicy::Automatic,
-            view::ScrollAxisPolicy::Automatic,
-            view::ScrollChromePresentation::Overlay,
-            view::ScrollSizing::Minimum,
-            view::ScrollSizing::Minimum,
-            view::ScrollDirection::LeftToRight,
+        crate::scroll::Configuration::new(
+            crate::scroll::Policy::Automatic,
+            crate::scroll::Policy::Automatic,
+            crate::scroll::Presentation::Overlay,
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Direction::LeftToRight,
         ),
         geometry::Size::new(120, 110),
     );
@@ -6811,17 +6975,17 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
         overlay
             .chrome()
             .iter()
-            .all(|chrome| chrome.presentation() == view::ScrollChromePresentation::Overlay)
+            .all(|chrome| chrome.presentation() == crate::scroll::Presentation::Overlay)
     );
 
     let external = configured_layout(
-        view::ScrollContainer::new(
-            view::ScrollAxisPolicy::External,
-            view::ScrollAxisPolicy::Never,
-            view::ScrollChromePresentation::Consuming,
-            view::ScrollSizing::Minimum,
-            view::ScrollSizing::Minimum,
-            view::ScrollDirection::LeftToRight,
+        crate::scroll::Configuration::new(
+            crate::scroll::Policy::External,
+            crate::scroll::Policy::Never,
+            crate::scroll::Presentation::Consuming,
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Direction::LeftToRight,
         ),
         geometry::Size::new(140, 130),
     );
@@ -6833,13 +6997,13 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
     assert!(external.chrome().is_empty());
 
     let rtl = configured_layout(
-        view::ScrollContainer::new(
-            view::ScrollAxisPolicy::Never,
-            view::ScrollAxisPolicy::Always,
-            view::ScrollChromePresentation::Consuming,
-            view::ScrollSizing::Minimum,
-            view::ScrollSizing::Minimum,
-            view::ScrollDirection::RightToLeft,
+        crate::scroll::Configuration::new(
+            crate::scroll::Policy::Never,
+            crate::scroll::Policy::Always,
+            crate::scroll::Presentation::Consuming,
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Direction::RightToLeft,
         ),
         geometry::Size::new(80, 80),
     );
@@ -6858,20 +7022,20 @@ fn eager_scroll_container_separates_axis_policy_chrome_convergence_and_rtl_place
 
 #[test]
 fn eager_text_and_list_share_container_policy_without_sharing_domain_layout() {
-    let container = view::ScrollContainer::new(
-        view::ScrollAxisPolicy::Never,
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollChromePresentation::Consuming,
-        view::ScrollSizing::Natural,
-        view::ScrollSizing::Minimum,
-        view::ScrollDirection::RightToLeft,
+    let container = crate::scroll::Configuration::new(
+        crate::scroll::Policy::Never,
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Presentation::Consuming,
+        crate::scroll::Sizing::Natural,
+        crate::scroll::Sizing::Minimum,
+        crate::scroll::Direction::RightToLeft,
     );
     let fixed = view::Style::new()
         .with_width(view::Dimension::fixed(120))
         .with_height(view::Dimension::fixed(60));
     let eager = view::Node::scroll()
         .with_interaction_id("native.contract.eager")
-        .with_scroll_container(container)
+        .with_scroll_configuration(container)
         .with_style(fixed.clone())
         .child(
             view::Node::panel()
@@ -6886,14 +7050,19 @@ fn eager_text_and_list_share_container_policy_without_sharing_domain_layout() {
         )
         .with_focus(session::Focus::text("native.contract.text")),
     )
-    .with_scroll_container(container)
+    .with_scroll_configuration(container)
     .with_style(fixed.clone());
     let list = crate::Widget::into_node(
-        crate::VirtualList::new("native.contract.list", 20, StableExtentProvider)
-            .height(view::Dimension::fixed(60))
-            .width(view::Dimension::fixed(120)),
+        crate::List::new(
+            "native.contract.list",
+            20,
+            StableExtentProvider,
+            StableExtentProvider,
+        )
+        .height(view::Dimension::fixed(60))
+        .width(view::Dimension::fixed(120)),
     )
-    .with_scroll_container(container);
+    .with_scroll_configuration(container);
     let view = view::View::new(
         view::Node::root().child(
             view::Node::stack(view::Axis::Vertical)
@@ -6926,7 +7095,7 @@ fn eager_text_and_list_share_container_policy_without_sharing_domain_layout() {
             .expect("scroll species must own a viewport");
         assert_eq!(
             resolved.presentation(),
-            view::ScrollChromePresentation::Consuming
+            crate::scroll::Presentation::Consuming
         );
         assert_eq!(resolved.introduction_passes(), 1);
         assert_eq!(viewport.rect().x(), frame.rect().x() + 10);
@@ -6947,13 +7116,13 @@ fn eager_text_and_list_share_container_policy_without_sharing_domain_layout() {
 
 #[test]
 fn eager_scroll_keyboard_and_accessible_actions_share_rtl_adjustment_semantics() {
-    let container = view::ScrollContainer::new(
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollAxisPolicy::Never,
-        view::ScrollChromePresentation::Overlay,
-        view::ScrollSizing::Minimum,
-        view::ScrollSizing::Natural,
-        view::ScrollDirection::RightToLeft,
+    let container = crate::scroll::Configuration::new(
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Policy::Never,
+        crate::scroll::Presentation::Overlay,
+        crate::scroll::Sizing::Minimum,
+        crate::scroll::Sizing::Natural,
+        crate::scroll::Direction::RightToLeft,
     );
     let mut app = Runtime::new(EditorState::default())
         .commands(|commands| {
@@ -6973,7 +7142,7 @@ fn eager_scroll_keyboard_and_accessible_actions_share_rtl_adjustment_semantics()
             );
             let scroll = view::Node::scroll()
                 .with_layout_axis(view::Axis::Horizontal)
-                .with_scroll_container(container)
+                .with_scroll_configuration(container)
                 .with_style(
                     view::Style::new()
                         .with_width(view::Dimension::fixed(100))
@@ -7062,13 +7231,13 @@ fn eager_scroll_keyboard_and_accessible_actions_share_rtl_adjustment_semantics()
 
 #[test]
 fn eager_scroll_keyboard_drives_step_page_home_and_end_operations() {
-    let container = view::ScrollContainer::new(
-        view::ScrollAxisPolicy::Never,
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollChromePresentation::Overlay,
-        view::ScrollSizing::Natural,
-        view::ScrollSizing::Minimum,
-        view::ScrollDirection::LeftToRight,
+    let container = crate::scroll::Configuration::new(
+        crate::scroll::Policy::Never,
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Presentation::Overlay,
+        crate::scroll::Sizing::Natural,
+        crate::scroll::Sizing::Minimum,
+        crate::scroll::Direction::LeftToRight,
     );
     let mut app = Runtime::new(EditorState::default())
         .commands(|commands| {
@@ -7087,7 +7256,7 @@ fn eager_scroll_keyboard_drives_step_page_home_and_end_operations() {
                     .with_height(view::Dimension::fixed(300)),
             );
             let scroll = view::Node::scroll()
-                .with_scroll_container(container)
+                .with_scroll_configuration(container)
                 .with_style(
                     view::Style::new()
                         .with_width(view::Dimension::fixed(100))
@@ -7136,13 +7305,13 @@ fn eager_scroll_keyboard_drives_step_page_home_and_end_operations() {
 
 #[test]
 fn focused_eager_descendant_reveals_minimally_through_every_scroll_ancestor() {
-    let container = view::ScrollContainer::new(
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollAxisPolicy::Automatic,
-        view::ScrollChromePresentation::Overlay,
-        view::ScrollSizing::Natural,
-        view::ScrollSizing::Minimum,
-        view::ScrollDirection::LeftToRight,
+    let container = crate::scroll::Configuration::new(
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Policy::Automatic,
+        crate::scroll::Presentation::Overlay,
+        crate::scroll::Sizing::Natural,
+        crate::scroll::Sizing::Minimum,
+        crate::scroll::Direction::LeftToRight,
     );
     let mut app =
         Runtime::new(EditorState::default())
@@ -7160,7 +7329,7 @@ fn focused_eager_descendant_reveals_minimally_through_every_scroll_ancestor() {
                     .with_style(view::Style::new().with_height(view::Dimension::fixed(32)));
                 let inner =
                     view::Node::scroll()
-                        .with_scroll_container(container)
+                        .with_scroll_configuration(container)
                         .with_label("Inner reveal")
                         .with_style(
                             view::Style::new()
@@ -7176,7 +7345,7 @@ fn focused_eager_descendant_reveals_minimally_through_every_scroll_ancestor() {
                         ));
                 let outer =
                     view::Node::scroll()
-                        .with_scroll_container(container)
+                        .with_scroll_configuration(container)
                         .with_label("Outer reveal")
                         .with_style(
                             view::Style::new()
@@ -7269,7 +7438,7 @@ fn focused_eager_descendant_reveals_minimally_through_every_scroll_ancestor() {
 
     app.handle_input(
         window,
-        Input::scroll_to(outer_target.clone(), interaction::ScrollOffset::default()),
+        Input::scroll_to(outer_target.clone(), interaction::Offset::default()),
     )
     .expect("manual scrolling after reveal must remain available");
     app.show_scene(window, size)
@@ -7280,7 +7449,7 @@ fn focused_eager_descendant_reveals_minimally_through_every_scroll_ancestor() {
             .unwrap()
             .scroll()
             .desired_offset(&outer_target),
-        interaction::ScrollOffset::default(),
+        interaction::Offset::default(),
         "focus reveal is a one-shot operation and must not pin the focused widget"
     );
 }
@@ -7295,7 +7464,7 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
         .view(move |_, _| {
             widget::view(|ui| {
                 ui.add(
-                    widget::Scroll::new()
+                    crate::Scroll::new()
                         .id("scroll.clipped.focus")
                         .height(view::Dimension::fixed(48))
                         .children(|ui| {
@@ -7324,7 +7493,7 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
         window,
         size,
         frame_point_at(viewport),
-        interaction::ScrollDelta::vertical(16),
+        interaction::Delta::vertical(16),
     )
     .expect("scroll should be handled");
 
@@ -7355,7 +7524,7 @@ fn deferred_focus_outline_retains_its_generic_scroll_clip() {
         window,
         size,
         frame_point_at(viewport),
-        interaction::ScrollDelta::vertical(64),
+        interaction::Delta::vertical(64),
     )
     .expect("second scroll should be handled");
     let fully_clipped = app
@@ -7507,7 +7676,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
         .view(|_, _| {
             widget::view(|ui| {
                 ui.add(
-                    widget::Scroll::new()
+                    crate::Scroll::new()
                         .id("scroll.last")
                         .height(view::Dimension::fixed(72))
                         .children(|ui| {
@@ -7541,7 +7710,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
                 .expect("scroll should expose viewport")
                 .rect(),
         ),
-        interaction::ScrollDelta::vertical(10_000),
+        interaction::Delta::vertical(10_000),
     )
     .expect("scroll input should be handled");
 
@@ -7582,7 +7751,7 @@ fn viewport_max_scroll_reaches_last_placed_descendant() {
 fn grow_children_collapse_to_intrinsic_inside_scroll_axis() {
     let view = widget::view(|ui| {
         ui.add(
-            widget::Scroll::new()
+            crate::Scroll::new()
                 .height(view::Dimension::fixed(80))
                 .children(|ui| {
                     ui.add(
@@ -7621,7 +7790,7 @@ fn justify_content_is_start_when_scroll_content_exceeds_viewport() {
     let view = widget::view(|ui| {
         ui.column(|ui| {
             ui.add(
-                widget::Scroll::new()
+                crate::Scroll::new()
                     .height(view::Dimension::fixed(40))
                     .layout(|layout| layout.justify_content(view::Align::End))
                     .children(|ui| {
@@ -7668,7 +7837,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
             widget::view(|ui| {
                 ui.column(|ui| {
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.feedback")
                             .height(view::Dimension::fixed(72))
                             .children(|ui| {
@@ -7722,7 +7891,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
             layout
                 .scroll_property_acceptance(
                     &target,
-                    interaction::ScrollOffset::default(),
+                    interaction::Offset::default(),
                     expected_max_scroll,
                 )
                 .is_some()
@@ -7731,7 +7900,7 @@ fn generic_scroll_feedback_clamps_session_offset_after_present() {
     );
 
     let point = frame_point_at(scroll.rect());
-    let delta = interaction::ScrollDelta::vertical(400);
+    let delta = interaction::Delta::vertical(400);
     assert_eq!(
         initial.layout().scroll_target_at(point, delta),
         Some(target.clone())
@@ -7784,7 +7953,7 @@ fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_s
             widget::view(|ui| {
                 ui.column(|ui| {
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.continuous.vertical")
                             .height(view::Dimension::fixed(72))
                             .children(|ui| {
@@ -7798,7 +7967,7 @@ fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_s
                             }),
                     );
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.continuous.horizontal")
                             .row()
                             .height(view::Dimension::fixed(48))
@@ -7848,14 +8017,14 @@ fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_s
         window,
         size,
         vertical_point,
-        interaction::ScrollDelta::from_logical_pixels(0.0, 0.75),
+        interaction::Delta::from_logical_pixels(0.0, 0.75),
     )
     .expect("fractional vertical motion should be admitted");
     app.scroll_at(
         window,
         size,
         horizontal_point,
-        interaction::ScrollDelta::from_logical_pixels(0.25, 0.0),
+        interaction::Delta::from_logical_pixels(0.25, 0.0),
     )
     .expect("fractional horizontal motion should be admitted");
     let first = app
@@ -7876,11 +8045,11 @@ fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_s
     assert_eq!(first_horizontal.x(), 0);
     assert_eq!(first_horizontal.y(), 0);
     assert_eq!(
-        interaction::ScrollOffset::default().translation_to(first_vertical),
+        interaction::Offset::default().translation_to(first_vertical),
         [0.0, -0.75]
     );
     assert_eq!(
-        interaction::ScrollOffset::default().translation_to(first_horizontal),
+        interaction::Offset::default().translation_to(first_horizontal),
         [-0.25, 0.0]
     );
     assert_eq!(
@@ -7899,14 +8068,14 @@ fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_s
         window,
         size,
         vertical_point,
-        interaction::ScrollDelta::from_logical_pixels(0.0, -0.25),
+        interaction::Delta::from_logical_pixels(0.0, -0.25),
     )
     .expect("a vertical reversal inside the same integer pixel should remain routable");
     app.scroll_at(
         window,
         size,
         horizontal_point,
-        interaction::ScrollDelta::from_logical_pixels(-0.125, 0.0),
+        interaction::Delta::from_logical_pixels(-0.125, 0.0),
     )
     .expect("a horizontal reversal inside the same integer pixel should remain routable");
     let reversed = app
@@ -7923,11 +8092,11 @@ fn generic_eager_horizontal_and_vertical_subpixel_motion_reaches_the_submitted_s
     assert!(reversed.property_only());
     assert!(std::sync::Arc::ptr_eq(&commit, reversed.commit()));
     assert_eq!(
-        interaction::ScrollOffset::default().translation_to(reversed_vertical),
+        interaction::Offset::default().translation_to(reversed_vertical),
         [0.0, -0.5]
     );
     assert_eq!(
-        interaction::ScrollOffset::default().translation_to(reversed_horizontal),
+        interaction::Offset::default().translation_to(reversed_horizontal),
         [-0.125, 0.0]
     );
     assert_eq!(
@@ -7947,7 +8116,7 @@ fn gutter_scrollbar_metrics_reduce_viewport_width() {
     let view = widget::view(|ui| {
         ui.column(|ui| {
             ui.add(
-                widget::Scroll::new()
+                crate::Scroll::new()
                     .id("scroll.gutter")
                     .height(view::Dimension::fixed(72))
                     .children(|ui| {
@@ -7994,7 +8163,7 @@ fn generic_scroll_pointer_drag_updates_viewport_offset() {
             widget::view(|ui| {
                 ui.column(|ui| {
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.drag")
                             .height(view::Dimension::fixed(72))
                             .children(|ui| {
@@ -8103,17 +8272,17 @@ fn generation_state_case_superseded_request_cannot_regress_resident_or_present_s
     let node = scroll.node_id();
     let point = frame_point_at(scroll.rect());
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(16))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(16))
         .expect("first scroll should be admitted");
     let older = app
         .render_scene(window, size)
         .expect("older property candidate should prepare");
     assert_eq!(
         older.stack().scroll_offset(node),
-        Some(interaction::ScrollOffset::new(0, 16))
+        Some(interaction::Offset::new(0, 16))
     );
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(16))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(16))
         .expect("second scroll should be admitted");
     let newer = app
         .render_scene(window, size)
@@ -8121,7 +8290,7 @@ fn generation_state_case_superseded_request_cannot_regress_resident_or_present_s
     assert!(newer.epoch() > older.epoch());
     assert_eq!(
         newer.stack().scroll_offset(node),
-        Some(interaction::ScrollOffset::new(0, 32))
+        Some(interaction::Offset::new(0, 32))
     );
 
     for candidate in [&newer, &older] {
@@ -8150,12 +8319,12 @@ fn generation_state_case_superseded_request_cannot_regress_resident_or_present_s
             .expect("scroll interaction should remain")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 32)
+        interaction::Offset::new(0, 32)
     );
     assert_eq!(
         app.presented_properties(window)
             .and_then(|properties| properties.scroll_offset(node)),
-        Some(interaction::ScrollOffset::new(0, 32))
+        Some(interaction::Offset::new(0, 32))
     );
     assert_eq!(app.present_submitted_epoch(window), Some(newer.epoch()));
 }
@@ -8187,7 +8356,7 @@ fn generation_state_case_coalesced_requests_select_one_latest_property_candidate
         .begin_renderer_measurement();
     for tick in 0..3 {
         let outcome = app
-            .scroll_at(window, size, point, interaction::ScrollDelta::vertical(8))
+            .scroll_at(window, size, point, interaction::Delta::vertical(8))
             .expect("each in-window delta should be accepted");
         assert_eq!(
             outcome.effect(),
@@ -8198,7 +8367,7 @@ fn generation_state_case_coalesced_requests_select_one_latest_property_candidate
     let absolute = app
         .handle_input(
             window,
-            Input::scroll_to(target.clone(), interaction::ScrollOffset::new(0, 32)),
+            Input::scroll_to(target.clone(), interaction::Offset::new(0, 32)),
         )
         .expect("in-window absolute scroll should be accepted");
     assert_eq!(
@@ -8212,7 +8381,7 @@ fn generation_state_case_coalesced_requests_select_one_latest_property_candidate
             .expect("window interaction")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 32)
+        interaction::Offset::new(0, 32)
     );
 
     let tick = app
@@ -8223,7 +8392,7 @@ fn generation_state_case_coalesced_requests_select_one_latest_property_candidate
     assert!(tick.properties().serial() > initial_serial);
     assert_eq!(
         tick.properties().scroll_offset(projection.node()),
-        Some(interaction::ScrollOffset::new(0, 32))
+        Some(interaction::Offset::new(0, 32))
     );
     app.finish_render_report(
         window,
@@ -8455,7 +8624,7 @@ fn control_gallery_property_tick_does_not_move_the_table_viewport_clip() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(1)
+                cell.row() == crate::list::Key::new(1)
                     && cell.column() == interaction::Id::new("detail")
             })
         })
@@ -8463,7 +8632,7 @@ fn control_gallery_property_tick_does_not_move_the_table_viewport_clip() {
     let point = geometry::Point::new(cell.rect().x() + 1, cell.rect().y() + 1);
     let target = initial
         .layout()
-        .scroll_target_at(point, interaction::ScrollDelta::vertical(4))
+        .scroll_target_at(point, interaction::Delta::vertical(4))
         .expect("table witness should route vertical scrolling");
     let viewport = initial
         .layout()
@@ -8475,7 +8644,7 @@ fn control_gallery_property_tick_does_not_move_the_table_viewport_clip() {
         .map(|projection| projection.viewport().visible_content())
         .expect("table should expose its visible viewport");
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(4))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(4))
         .expect("small table scroll should be accepted by active residency");
     let tick = app
         .render_scene(window, size)
@@ -8509,7 +8678,7 @@ fn viewport_intrinsics_ignore_content_extent() {
     let view = widget::view(|ui| {
         ui.column(|ui| {
             ui.add(
-                widget::Scroll::new()
+                crate::Scroll::new()
                     .height(view::Dimension::fit())
                     .children(|ui| {
                         for index in 0..12 {
@@ -8541,7 +8710,7 @@ fn viewport_intrinsics_ignore_content_extent() {
 fn scrollbar_thumb_wins_hit_test_over_content() {
     let view = widget::view(|ui| {
         ui.add(
-            widget::Scroll::new()
+            crate::Scroll::new()
                 .id("scroll.hit")
                 .height(view::Dimension::fixed(72))
                 .children(|ui| {
@@ -8572,7 +8741,7 @@ fn scrollbar_thumb_wins_hit_test_over_content() {
 fn scrollbar_hover_envelope_wins_hit_test_over_content() {
     let view = widget::view(|ui| {
         ui.add(
-            widget::Scroll::new()
+            crate::Scroll::new()
                 .id("scroll.hover-envelope")
                 .height(view::Dimension::fixed(72))
                 .children(|ui| {
@@ -8698,7 +8867,7 @@ fn overlay_auto_hides_idle_appears_after_activity_and_fades_out() {
         window,
         size,
         frame_point_at(scroll.rect()),
-        interaction::ScrollDelta::vertical(80),
+        interaction::Delta::vertical(80),
     )
     .expect("scroll should be handled");
 
@@ -8802,13 +8971,8 @@ fn two_axis_table_activity_and_fade_follow_one_scroll_owner() {
         );
     }
 
-    app.scroll_at(
-        window,
-        size,
-        body_point,
-        interaction::ScrollDelta::vertical(80),
-    )
-    .expect("vertical table movement should be handled");
+    app.scroll_at(window, size, body_point, interaction::Delta::vertical(80))
+        .expect("vertical table movement should be handled");
     let activity_at = now + std::time::Duration::from_millis(10);
     app.show_scene_at(window, size, activity_at)
         .expect("activity should begin the shared fade-in");
@@ -8897,13 +9061,8 @@ fn two_axis_table_scrollbar_capture_and_mutation_are_axis_symmetric() {
         .find(|frame| frame.table_cell().is_some())
         .map(|frame| frame_point_at(frame.rect()))
         .expect("table body input point");
-    app.scroll_at(
-        window,
-        size,
-        body_point,
-        interaction::ScrollDelta::vertical(80),
-    )
-    .expect("vertical wheel should establish a nonzero other-axis value");
+    app.scroll_at(window, size, body_point, interaction::Delta::vertical(80))
+        .expect("vertical wheel should establish a nonzero other-axis value");
     let vertically_scrolled = app
         .show_scene(window, size)
         .expect("vertical property should present");
@@ -8958,7 +9117,7 @@ fn two_axis_table_scrollbar_capture_and_mutation_are_axis_symmetric() {
         .desired_offset(&table_target);
     assert_eq!(
         after_horizontal_drag,
-        interaction::ScrollOffset::new(horizontal_max, 80),
+        interaction::Offset::new(horizontal_max, 80),
         "horizontal chrome must preserve the desired vertical component"
     );
     app.pointer_up_at(window, size, horizontal_drag)
@@ -9017,7 +9176,7 @@ fn two_axis_table_scrollbar_capture_and_mutation_are_axis_symmetric() {
         .desired_offset(&table_target);
     assert_eq!(
         after_vertical_drag,
-        interaction::ScrollOffset::new(horizontal_max, vertical_max),
+        interaction::Offset::new(horizontal_max, vertical_max),
         "vertical chrome must preserve the desired horizontal component"
     );
     app.pointer_up_at(window, size, vertical_drag)
@@ -9208,7 +9367,7 @@ fn text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic
             window,
             size,
             point,
-            interaction::ScrollDelta::horizontal(maximum.x()),
+            interaction::Delta::horizontal(maximum.x()),
         )
         .expect("movement inside the text runway should be handled");
     assert_eq!(property.effect(), &response::Effect::None);
@@ -9223,7 +9382,7 @@ fn text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic
     drop(property_frame);
 
     let boundary = app
-        .scroll_at(window, size, point, interaction::ScrollDelta::horizontal(1))
+        .scroll_at(window, size, point, interaction::Delta::horizontal(1))
         .expect("movement beyond the text runway should be handled");
     assert_eq!(
         boundary.effect(),
@@ -9237,11 +9396,11 @@ fn text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic
         .scroll();
     assert_eq!(
         pending.offset(&target),
-        interaction::ScrollOffset::new(maximum.x(), 0)
+        interaction::Offset::new(maximum.x(), 0)
     );
     assert_eq!(
         pending.desired_offset(&target),
-        interaction::ScrollOffset::new(maximum.x() + 1, 0)
+        interaction::Offset::new(maximum.x() + 1, 0)
     );
 
     let replenished = app
@@ -9262,7 +9421,7 @@ fn text_area_horizontal_boundary_replenishes_one_bounded_window_without_semantic
             .expect("text interaction")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(maximum.x() + 1, 0)
+        interaction::Offset::new(maximum.x() + 1, 0)
     );
     let next_projection = replenished
         .layout()
@@ -9423,7 +9582,7 @@ fn two_axis_text_scrollbars_share_activity_but_keep_per_axis_hover_and_mutation(
             .expect("text interaction")
             .scroll()
             .desired_offset(&text_target),
-        interaction::ScrollOffset::new(horizontal_max, 0)
+        interaction::Offset::new(horizontal_max, 0)
     );
     app.pointer_up_at(window, size, horizontal_drag)
         .expect("horizontal text capture should release");
@@ -9451,7 +9610,7 @@ fn two_axis_text_scrollbars_share_activity_but_keep_per_axis_hover_and_mutation(
     );
     app.pointer_drag_at(window, size, vertical_drag)
         .expect("vertical text scrollbar should mutate y");
-    let expected = interaction::ScrollOffset::new(horizontal_max, vertical_max);
+    let expected = interaction::Offset::new(horizontal_max, vertical_max);
     assert_eq!(
         app.session()
             .interaction(window)
@@ -9621,7 +9780,7 @@ fn viewport_clip_applies_inside_floating_panel() {
                 .height(view::Dimension::fixed(120))
                 .children(|ui| {
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.floating")
                             .height(view::Dimension::fixed(48))
                             .children(|ui| {
@@ -9689,7 +9848,7 @@ fn scrolled_out_content_is_not_interactive() {
                 ui.column(|ui| {
                     ui.text_box(widget::TextBox::new("").focus(focus));
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("clip.results")
                             .height(view::Dimension::fixed(72))
                             .children(|ui| {
@@ -9721,7 +9880,7 @@ fn scrolled_out_content_is_not_interactive() {
                 .expect("scroll should expose viewport")
                 .rect(),
         ),
-        interaction::ScrollDelta::vertical(56),
+        interaction::Delta::vertical(56),
     )
     .expect("scroll should be handled");
     app.request_redraw(window);
@@ -9773,12 +9932,12 @@ fn table_text_cursor_follows_row_press_admission_without_pointer_motion() {
     let table = interaction::Id::new("editable.table");
     let row7 = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let row8 = crate::table::Cell::new(
         table,
-        crate::virtual_list::Key::new(8),
+        crate::list::Key::new(8),
         interaction::Id::new("name"),
     );
     let initial = app
@@ -10130,7 +10289,7 @@ fn pointer_cursor_stays_with_palette_query_after_results_scroll() {
                 .expect("results should expose viewport")
                 .rect(),
         ),
-        interaction::ScrollDelta::vertical(84),
+        interaction::Delta::vertical(84),
     )
     .expect("palette results should scroll");
     let scrolled = app
@@ -10375,7 +10534,7 @@ fn command_palette_search_box_wins_over_clipped_results() {
                 .expect("results should expose viewport")
                 .rect(),
         ),
-        interaction::ScrollDelta::vertical(180),
+        interaction::Delta::vertical(180),
     )
     .expect("palette results should scroll");
     let scroll = app
@@ -10383,7 +10542,7 @@ fn command_palette_search_box_wins_over_clipped_results() {
         .interaction(window)
         .expect("palette interaction")
         .scroll();
-    let expected_offset = interaction::ScrollOffset::new(0, 114);
+    let expected_offset = interaction::Offset::new(0, 114);
     assert_eq!(scroll.desired_offset(&results_target), expected_offset);
     assert_eq!(scroll.resident_offset(&results_target), expected_offset);
     let rendered = app
@@ -11288,7 +11447,7 @@ fn scroll_target_at_ignores_clipped_viewports() {
     assert_eq!(
         rendered
             .layout()
-            .scroll_target_at(point, interaction::ScrollDelta::vertical(24)),
+            .scroll_target_at(point, interaction::Delta::vertical(24)),
         None
     );
 }
@@ -11566,7 +11725,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
     let drawable_commit = std::sync::Arc::clone(presentation.stack().base().drawable_commit());
 
     let outcome = app
-        .scroll_at(window, size, point, interaction::ScrollDelta::vertical(96))
+        .scroll_at(window, size, point, interaction::Delta::vertical(96))
         .expect("coordinate scroll should be handled");
 
     assert!(outcome.is_handled());
@@ -11576,13 +11735,10 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .interaction(window)
         .expect("window should have interaction state")
         .scroll();
-    assert_eq!(
-        scroll.offset(&target),
-        interaction::ScrollOffset::new(0, 96)
-    );
+    assert_eq!(scroll.offset(&target), interaction::Offset::new(0, 96));
     assert_eq!(
         scroll.desired_offset(&target),
-        interaction::ScrollOffset::new(0, 96)
+        interaction::Offset::new(0, 96)
     );
 
     let scrolled = app
@@ -11602,7 +11758,7 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
         .expect("text area should retain the universal scroll projection");
     assert_eq!(
         scrolled.properties().scroll_offset(projection.node()),
-        Some(interaction::ScrollOffset::new(0, 96))
+        Some(interaction::Offset::new(0, 96))
     );
     let chrome = scrolled
         .layout()
@@ -11631,9 +11787,9 @@ fn runtime_host_scroll_coordinates_route_to_scroll_target() {
                 opacity: 1.0,
                 thickness: theme.scrollbar().appearance.overlay_thickness as f32,
             },
-            crate::scene::PropertyValue::ScrollOffset {
+            crate::scene::PropertyValue::Offset {
                 node: projection.node(),
-                value: interaction::ScrollOffset::new(0, 96),
+                value: interaction::Offset::new(0, 96),
             },
         ],
         Vec::new(),
@@ -11702,10 +11858,10 @@ fn platform_wheel_down_scroll_moves_text_area_content_up() {
         .interaction(window)
         .expect("window should retain interaction state")
         .scroll();
-    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
+    assert_eq!(scroll.offset(&target), interaction::Offset::default());
     assert_eq!(
         scroll.desired_offset(&target),
-        interaction::ScrollOffset::new(0, 448)
+        interaction::Offset::new(0, 448)
     );
 
     let scrolled = app
@@ -11785,7 +11941,7 @@ fn wrapped_text_resize_preserves_the_presented_source_anchor_through_geometry_fe
             window,
             wide,
             point,
-            interaction::ScrollDelta::vertical(requested_y),
+            interaction::Delta::vertical(requested_y),
         )
         .expect("resident property scroll should be handled");
     assert!(outcome.is_handled());
@@ -11890,12 +12046,7 @@ fn generation_state_case_no_op_request_mints_no_candidate_generation() {
         .scroll
         .frame_scroll_commits;
     let outcome = app
-        .scroll_at(
-            window,
-            size,
-            point,
-            interaction::ScrollDelta::vertical(4_000),
-        )
+        .scroll_at(window, size, point, interaction::Delta::vertical(4_000))
         .expect("coordinate scroll should be handled");
     assert_eq!(outcome.effect(), &response::Effect::None);
     let scroll = app
@@ -11903,10 +12054,10 @@ fn generation_state_case_no_op_request_mints_no_candidate_generation() {
         .interaction(window)
         .expect("window should have interaction state")
         .scroll();
-    assert_eq!(scroll.offset(&target), interaction::ScrollOffset::default());
+    assert_eq!(scroll.offset(&target), interaction::Offset::default());
     assert_eq!(
         scroll.desired_offset(&target),
-        interaction::ScrollOffset::default()
+        interaction::Offset::default()
     );
     assert!(
         !app.session()
@@ -11969,20 +12120,17 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
         .clone();
     let point = geometry::Point::new(text_area.rect().x() + 4, text_area.rect().y() + 4);
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(240))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(240))
         .expect("coordinate scroll should be handled");
     let scroll = app
         .session()
         .interaction(window)
         .expect("window should have interaction state")
         .scroll();
-    assert_eq!(
-        scroll.offset(&target),
-        interaction::ScrollOffset::new(0, 240)
-    );
+    assert_eq!(scroll.offset(&target), interaction::Offset::new(0, 240));
     assert_eq!(
         scroll.desired_offset(&target),
-        interaction::ScrollOffset::new(0, 240)
+        interaction::Offset::new(0, 240)
     );
 
     app.handle_input(window, Input::focus(focus))
@@ -12010,7 +12158,7 @@ fn text_area_caret_reveal_resolves_framework_owned_scroll_after_edit() {
             .expect("window should have interaction state")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::default()
+        interaction::Offset::default()
     );
     let text_area = revealed
         .layout()
@@ -12117,7 +12265,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
         .clone();
     let point = geometry::Point::new(text_area.rect().x() + 8, text_area.rect().y() + 8);
 
-    app.scroll_at(window, size, point, interaction::ScrollDelta::vertical(220))
+    app.scroll_at(window, size, point, interaction::Delta::vertical(220))
         .expect("scroll should route to text area");
 
     let scrolled = app
@@ -12143,7 +12291,7 @@ fn text_area_selection_highlight_is_clipped_to_text_area_viewport() {
             .expect("window should retain interaction state")
             .scroll()
             .offset(&target),
-        interaction::ScrollOffset::new(0, 220)
+        interaction::Offset::new(0, 220)
     );
     assert!(!highlights.is_empty());
 
@@ -12902,9 +13050,10 @@ fn expanded_sort_header_stays_single_line_beside_a_trailing_active_chevron() {
     const LABEL: &str = "A deliberately long sortable column header";
     let source = crate::table::Source::new(
         1,
-        |_| crate::virtual_list::Key::new(0),
-        |key| (key == crate::virtual_list::Key::new(0)).then_some(0),
+        |_| crate::list::Key::new(0),
+        |key| (key == crate::list::Key::new(0)).then_some(0),
         |_| "value".to_owned(),
+        |_| 0,
     );
     let mut app = Runtime::new(SourceState::default())
         .commands(|commands| {
@@ -13053,7 +13202,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("note")
             })
         })
@@ -13072,7 +13221,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("record")
             })
         })
@@ -13085,7 +13234,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("count")
             })
         })
@@ -13149,7 +13298,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("note")
             })
         })
@@ -13179,7 +13328,7 @@ fn control_gallery_compact_and_expanded_tables_share_tracks_and_change_row_flow(
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("count")
             })
         })
@@ -13224,7 +13373,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
     let size = geometry::Size::new(760, 700);
     let cell = crate::table::Cell::new(
         interaction::Id::new("control_gallery.records"),
-        crate::virtual_list::Key::new(0),
+        crate::list::Key::new(0),
         interaction::Id::new("note"),
     );
     app.show_scene(window, size)
@@ -13261,7 +13410,7 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
         window,
         size,
         frame_point_at(list.rect()),
-        interaction::ScrollDelta::vertical(720),
+        interaction::Delta::vertical(720),
     )
     .expect("short table viewport should scroll");
     let scrolled = app
@@ -13483,7 +13632,7 @@ fn table_participation_changes_chrome_without_changing_control_behavior() {
     let editable_size = geometry::Size::new(320, 124);
     let cell = crate::table::Cell::new(
         interaction::Id::new("editable.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("name"),
     );
     let idle = editable
@@ -13561,7 +13710,7 @@ fn typed_boolean_table_cells_project_value_and_keep_native_toggle_grammar() {
         .iter()
         .find(|frame| {
             frame.table_cell().is_some_and(|cell| {
-                cell.row() == crate::virtual_list::Key::new(0)
+                cell.row() == crate::list::Key::new(0)
                     && cell.column() == interaction::Id::new("enabled")
             })
         })
@@ -13587,7 +13736,7 @@ fn typed_boolean_table_cells_project_value_and_keep_native_toggle_grammar() {
         .expect("unchecked value should reproject");
     assert!(unchecked.layout().frames().iter().any(|frame| {
         frame.table_cell().is_some_and(|cell| {
-            cell.row() == crate::virtual_list::Key::new(0)
+            cell.row() == crate::list::Key::new(0)
                 && cell.column() == interaction::Id::new("enabled")
         }) && frame.checkbox().is_some_and(|checkbox| !checkbox.checked())
     }));
@@ -15332,7 +15481,7 @@ fn scroll_app() -> Runtime<SourceState, (), View> {
             widget::view(|ui| {
                 ui.column(|ui| {
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.test")
                             .height(view::Dimension::fixed(72))
                             .children(|ui| {
@@ -15396,7 +15545,7 @@ fn nested_clipped_scroll_app() -> Runtime<SourceState, (), View> {
                 ui.column(|ui| {
                     ui.text_box(widget::TextBox::new("").focus(focus));
                     ui.add(
-                        widget::Scroll::new()
+                        crate::Scroll::new()
                             .id("scroll.outer")
                             .label("Outer Scroll")
                             .height(view::Dimension::fixed(64))
@@ -15404,7 +15553,7 @@ fn nested_clipped_scroll_app() -> Runtime<SourceState, (), View> {
                                 ui.label("Outer row 0");
                                 ui.label("Outer row 1");
                                 ui.add(
-                                    widget::Scroll::new()
+                                    crate::Scroll::new()
                                         .id("scroll.inner")
                                         .label("Inner Scroll")
                                         .height(view::Dimension::fixed(54))
@@ -15442,7 +15591,7 @@ fn scroll_outer_until_inner_overlaps_search(
                 .expect("outer scroll should expose viewport")
                 .rect(),
         ),
-        interaction::ScrollDelta::vertical(112),
+        interaction::Delta::vertical(112),
     )
     .expect("outer scroll should be handled");
     // These tests inspect authored layout geometry rather than the production

@@ -101,29 +101,39 @@ struct Rows {
     calls: Rc<Cell<usize>>,
 }
 
-impl crate::virtual_list::Provider for Rows {
+impl crate::list::Model for Rows {
     fn len(&self) -> usize {
         1_000_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn item_revision(&self, _index: usize) -> Option<u64> {
-        Some(0)
+    fn membership_revision(&self) -> u64 {
+        0
     }
 
-    fn factory_revision(&self) -> Option<u64> {
-        Some(0)
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
     }
 
-    fn row(&self, index: usize) -> crate::view::Node {
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for Rows {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> crate::view::Node {
         self.calls.set(self.calls.get().saturating_add(1));
         crate::view::Node::world_text(
             format!("Residency row {index}"),
@@ -142,17 +152,17 @@ impl crate::table::Provider for TableRows {
         1_000_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn item_revision(&self, _index: usize) -> Option<u64> {
-        Some(0)
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> crate::view::Node {
@@ -172,8 +182,8 @@ struct Snapshot {
     residency: scene::Residency,
     node: crate::composition::tree::NodeId,
     target: interaction::Target,
-    accepted: (interaction::ScrollOffset, interaction::ScrollOffset),
-    maximum: interaction::ScrollOffset,
+    accepted: (interaction::Offset, interaction::Offset),
+    maximum: interaction::Offset,
 }
 
 fn fixture(
@@ -234,7 +244,7 @@ fn fixture(
                 .height(crate::view::Dimension::grow()),
             ),
             ResidencyPayload::VirtualList => crate::widget::view_node(
-                crate::virtual_list::VirtualList::new(VIRTUAL_TARGET, 24, rows.clone())
+                crate::list::List::new(VIRTUAL_TARGET, 24, rows.clone(), rows.clone())
                     .width(crate::view::Dimension::grow())
                     .height(crate::view::Dimension::grow()),
             ),
@@ -544,7 +554,7 @@ pub async fn measure_residency_crossing_work(
             baseline.maximum
         ));
     }
-    let requested = interaction::ScrollOffset::new(0, requested_y);
+    let requested = interaction::Offset::new(0, requested_y);
     let calls_before = calls.get();
     let candidate_started = Instant::now();
     app.handle_input(
@@ -769,7 +779,7 @@ pub async fn measure_residency_crossing_work(
     } else {
         requested.y().saturating_sub(1)
     };
-    let follow = interaction::ScrollOffset::new(0, follow_y);
+    let follow = interaction::Offset::new(0, follow_y);
     app.handle_input(window, crate::Input::scroll_to(next.target.clone(), follow))
         .map_err(|error| error.to_string())?;
     let property = app

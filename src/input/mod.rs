@@ -23,11 +23,11 @@ pub enum Input {
     PointerLeft,
     Scroll {
         target: interaction::Target,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     },
     ScrollTo {
         target: interaction::Target,
-        offset: interaction::ScrollOffset,
+        offset: interaction::Offset,
     },
     Shortcut(command::KeyChord),
     KeyDown {
@@ -104,11 +104,11 @@ impl Input {
         Self::PointerLeft
     }
 
-    pub fn scroll(target: interaction::Target, delta: interaction::ScrollDelta) -> Self {
+    pub fn scroll(target: interaction::Target, delta: interaction::Delta) -> Self {
         Self::Scroll { target, delta }
     }
 
-    pub fn scroll_to(target: interaction::Target, offset: interaction::ScrollOffset) -> Self {
+    pub fn scroll_to(target: interaction::Target, offset: interaction::Offset) -> Self {
         Self::ScrollTo { target, offset }
     }
 

@@ -128,7 +128,7 @@ impl Command for ToggleExpandedRows {
 }
 
 impl Command for OpenRecord {
-    type Args = wgpu_l3::virtual_list::Key;
+    type Args = wgpu_l3::list::Key;
     type Output = ();
 
     const NAME: &'static str = "control_gallery.open_record";

@@ -71,13 +71,13 @@ pub enum Event {
     Scrolled {
         window: window::Id,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     },
     PopupScrolled {
         window: window::Id,
         popup: interaction::Id,
         point: geometry::Point,
-        delta: interaction::ScrollDelta,
+        delta: interaction::Delta,
     },
     KeyDown {
         window: window::Id,

@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-007 RE-CENSUS — PRIVATE RESIDENCY/PRESENTATION CONNECTED**
+Status: **SE-008 RE-CENSUS — PUBLIC NAMES SET, PERFORMANCE NEXT**
 
 Date: 2026-07-17
 
@@ -23,7 +23,7 @@ around the scrolling-engine rewrite.
 | Pointer location used for wheel targeting | `src/platform/event.rs::WindowEvents` | host event and runtime routing | Scroll container session entrance; pointer state itself remains platform input state. |
 | Per-axis canonical value and range geometry | `src/interaction/scroll.rs::AxisAdjustment` | `Scroll::request`, configuration, exact projection helpers | Connected target layer: independent horizontal/vertical fixed-point coordinates, lower/upper/page/step/page-increment configuration, clamping, and per-axis revision. |
 | Desired and resident-accepted x/y offsets | `src/interaction/scroll.rs::ScrollEntry` | session, runtime transition, layout projection | Desired is derived from the two adjustments; resident-accepted remains a private residency receipt and never competes for canonical ownership. |
-| Public `ScrollOffset` accessors and `ScrollDelta` (`f64` x/y) | `src/interaction/scroll.rs` | all input, routing, layout, scene, render, tests | Public constructor/accessor signatures remain unchanged; private coordinates are signed `i64` whole plus 32 fixed fraction bits. Renderer conversion occurs only after rebasing. Public names remain provisional. |
+| Public `scroll::Offset` accessors and `scroll::Delta` (`f64` x/y) | `src/scroll.rs`, backed by `src/interaction/scroll.rs` | all input, routing, layout, scene, render, tests | SE-008 settled names under `scroll`; private coordinates are signed `i64` whole plus 32 fixed fraction bits. Renderer conversion occurs only after rebasing. The former interaction-qualified names have no aliases. |
 | Per-target and per-axis scroll revisions | `src/interaction/scroll.rs::Scroll::revisions`, `AxisAdjustment::revision` | presentation/layout invalidation and adjustment observation | Value and configuration changes are revisioned; configuration-only changes are observable without pretending a clamp occurred. |
 | Viewport, active-descendant, and keyboard-focus reveal requests | `src/interaction/scroll.rs::reveal_requests`, `src/layout/mod.rs::reveal_offsets_for_focus` | session, native reveal, eager container ancestors | Connected scroll-container operation. Ordinary eager focus reveal is minimal, one-shot, and inner-to-outer; native multi-projection views retain domain target selection and merge axes before admission. |
 | Programmatic relative/absolute/geometry requests | `src/input/mod.rs`, `src/runtime/input/dispatch.rs` | session interaction and layout | Scroll container source-neutral operation using the same session/outcome path as direct input. |
@@ -31,13 +31,13 @@ around the scrolling-engine rewrite.
 | Desired/preparation/range/runway projection | `src/layout/mod.rs::ScrollProjection` | runtime presentation, scene residency | Split: adjustment owns canonical range/value; residency/presentation privately owns coverage/preparation/admission. |
 | Deepest-first scroll ancestor chain | `src/layout/mod.rs::scroll_target_chain_at_surface_projected` | runtime pointer scrolling | Connected scroll-container routing. It selects the deepest visible scroll frame, retains only its ancestors, deduplicates shared targets, and never pre-filters on one coupled-axis consume predicate. |
 | Exact applied/remaining result | `src/interaction/scroll.rs::ScrollOutcome`, `src/runtime/input/dispatch.rs::dispatch_scroll_event` | nested direct and kinetic dispatch | Connected scroll-container outcome. Actual fixed-point changes are measured after each target transition and the independent x/y remainder is handed to the next ancestor. |
-| Generic frame viewport layout and authored container contract | `src/view/node/mod.rs::Node`, `src/view/node/content.rs::ScrollContainer`, `src/layout/chrome.rs`, `src/layout/algorithm.rs`, `src/layout/frame.rs` | eager widgets, native text, native virtual lists | Connected container contract. Policy belongs to the container node; all three species resolve and retain per-axis policy, presentation, direction, and monotonic chrome introduction. Eager child stacks alone use the viewport adapter; text shaping and list measurement/materialization remain native. |
+| Generic frame viewport layout and authored container contract | `src/scroll.rs::Configuration`, `src/view/node/mod.rs::Node`, `src/layout/chrome.rs`, `src/layout/algorithm.rs`, `src/layout/frame.rs` | eager widgets, native text, native lists and tables | Connected public authoring contract. Policy belongs to the container node; all species resolve and retain per-axis policy, presentation, direction, and monotonic chrome introduction. Eager child stacks alone use the viewport adapter; text shaping and list measurement/materialization remain native. |
 | Scrollbar track/thumb geometry and drag-to-offset mapping | `src/layout/chrome.rs` | runtime routing and scene chrome | Connected scroll-container chrome projected from the matching axis adjustment and resolved per-frame policy/presentation/direction. |
 | Scrollbar opacity, hover/press thickness, fade deadline | `src/runtime/visual.rs`, `src/scene/visual.rs` | scene chrome painting | Scroll container presentation/chrome; overlay/layout consumption and axis behavior become distinct policies. |
 | Theme `OverlayAuto` / `GutterAlways` | `src/theme/mod.rs`, `src/theme/toml.rs` | shared eager/text/list default resolution plus table layout chrome | Appearance default. Shared container resolution maps it to independent axis behavior plus overlay/consuming presentation while each native domain constrains unsupported axes. Authored container state is not a theme-presentation alias. |
 | Text reveal/caret correction and height/width indexes | `src/text/layout/**`, `src/runtime/input/text/**` | text area layout, IME, selection | Native text owns domain layout and anchor geometry; container owns scrolling and ancestor reveal. |
-| Virtual-list membership, item revision, and recycled factory lifecycle | `src/virtual_list.rs::Provider`, `Model::slots` | virtual list model/materialization | Connected list model/factory. Stable key, current index, and process-local slot identity are separate; ordered membership changes, content/factory revisions, uniqueness, setup/bind/unbind/teardown, and a capped recycle reserve remain list-owned. Public names are provisional until SE-008. |
-| Virtual-list measurements and variable-height region | `src/virtual_list.rs::Measurements`, `src/virtual_list/variable.rs` | list layout and correction | Native list/list model. Preserve anchored correction; separate membership identity from recycled slot identity. |
+| List membership, item revision, and recycled factory lifecycle | `src/list.rs::{Model, Factory, State}` | list model/materialization | Connected list model/factory. Stable key, current index, and process-local slot identity are separate; ordered membership changes, required content/factory revisions, uniqueness, setup/bind/unbind/teardown, and a capped recycle reserve remain list-owned. Model and factory are separate public inputs. |
+| List measurements and variable-height region | `src/list.rs::Measurements`, `src/list/variable.rs` | list layout and correction | Native list/list model. Preserve anchored correction; separate membership identity from recycled slot identity. |
 | Table row/provider realization and cell layout | `src/table.rs`, `src/layout/table.rs`, `src/runtime/services/table.rs` | native table presentation | Native view. It shares container/adjustment behavior but keeps table-owned domain layout. |
 | Candidate spatial ancestry and property values | `src/scene/spatial.rs::SpatialTopology`, `src/scene/commit.rs::Properties` | renderer and submitted snapshot | Residency/presentation private projection. Not public scroll content. |
 | Desired coverage, candidate selection, runway, coalescing, follow-ups | `src/runtime/presentation.rs`, `src/scene/residency.rs`, `src/platform/native/surface.rs` | native preparation and diagnostics | Connected private residency/presentation. Required coverage has a dedicated frame need ahead of ordinary layout/paint/property traffic; proactive coverage yields. Selected fronts retire by matching epoch and author at most one newest-intent continuation. |
@@ -51,11 +51,12 @@ around the scrolling-engine rewrite.
 No current scroll state is unassigned. Missing target concepts are recorded as
 gaps rather than assigned phantom owners: a platform accessibility adapter
 remains absent. Ordinary eager `Scroll`, native text, and native virtual-list
-frames prove one private container contract while retaining three distinct
+frames prove one shared container contract while retaining three distinct
 layout implementations. Observable list mutation and factory slot lifecycle are
 connected beneath list ownership. Private residency scheduling and installed-
-view rematerialization are also connected; SE-008 owns the next public naming
-boundary.
+view rematerialization are also connected. SE-008 settled public names without
+adding a public adjustment or scrollable implementation axis; SE-009 owns the
+remaining performance boundary.
 
 ## 2. Production entrance census
 
@@ -122,8 +123,8 @@ platform gesture entrance.
 - `src/text/layout/**`
 - `src/view/control/text_area.rs`
 - `src/widget/control/text_area.rs`
-- `src/virtual_list.rs`
-- `src/virtual_list/variable.rs`
+- `src/list.rs`
+- `src/list/variable.rs`
 - `src/table.rs`
 - `src/layout/table.rs`
 - `src/runtime/services/table.rs`
@@ -160,9 +161,9 @@ platform gesture entrance.
    metadata through host and shell adaptation.
 2. Closed by SE-003: production pointer routing uses a deepest-first ancestor
    chain and exact applied/remainder outcome independently per axis.
-3. Closed by SE-002: `ScrollOffset` retains its public integral accessors but
-   privately carries a wide fixed-point coordinate; fractional deltas update
-   and submit continuously without an integral-pixel gate.
+3. Closed by SE-002 and named by SE-008: `scroll::Offset` retains integral
+   accessors but privately carries a wide fixed-point coordinate; fractional
+   deltas update and submit continuously without an integral-pixel gate.
 4. Closed by SE-006: virtual-list ownership observes membership changes,
    same-key and factory revisions, rejects duplicate/inconsistent keys, and owns
    a bounded setup/bind/unbind/teardown slot pool distinct from item position.
@@ -337,7 +338,7 @@ redirecting that evidence into the clean text path.
 
 ## 10. SE-006 delta
 
-`src/virtual_list.rs` now owns observable insert/remove/replace/move changes,
+`src/list.rs` now owns observable insert/remove/replace/move changes,
 same-key content revision, factory compatibility revision, strict stable-key
 round trips, and process-local recycled slots. `Model::slots` survives view
 projection through the installed prior model, while `runtime/presentation.rs`
@@ -414,7 +415,38 @@ new state owners. Inspection found no new public forbidden-name candidate; the
 two broad hits remain the unrelated file-dialog `session::Request` and
 `RequestKind`. SE-007 adds no public API.
 
-## 12. Repeatable census commands
+## 12. SE-008 delta
+
+`src/scroll.rs` is the sole public scrolling namespace. It exports eager
+`Scroll`, `Offset`, `Delta`, and the container policy species `Configuration`,
+`Policy`, `Presentation`, `Sizing`, and `Direction`. Root `Scroll` remains the
+normal widget spelling. The former `src/widget/scroll.rs`, public interaction
+offset/delta exports, and `src/virtual_list.rs` paths are deleted with no
+aliases. Configuration is authorable on eager `Scroll`, native `List`, native
+`TextArea`, and `Table`.
+
+`src/list.rs` exports separate `Model` and `Factory` contracts and `List`
+accepts them independently. Required membership/item/factory revisions replace
+the former optional compatibility behavior. Stable `Key`, recycled `Slot`, and
+ordered `Change` remain distinct. Table's adapter implements both contracts;
+its callback source now requires an explicit item-revision projection.
+
+The proved axis adjustment remains target-owned internal state, so no public
+`Adjustment` handle exists. Native implementations still depend on private
+frame/layout/residency contracts, so no public `Scrollable` trait exists.
+Private request, materialization, plan, and coverage types remain under their
+real owners and do not enter the public scroll namespace.
+
+The boundary census found 381 entrance, 411 legacy-name/session, 2,023
+routing/container, 104 presentation-clock, and 1,044 list/lifecycle source
+hits. Inspection found no new owner and no scrolling public forbidden-name hit.
+The broad search still finds only the unrelated public file-dialog
+`session::Request` and `RequestKind`. The complete workspace all-target/all-
+feature suite passed 1,412 library tests (four intentional hardware ignores),
+three renderer-debug comparisons (27 hardware ignores), and two example tests;
+all 18 Python checks and the release table/list/text smokes passed.
+
+## 13. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:

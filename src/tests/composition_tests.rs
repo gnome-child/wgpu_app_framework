@@ -207,7 +207,7 @@ fn retired_duplicate_node_does_not_report_a_still_present_table_cell_removed() {
     let window = window::Id::new(1);
     let cell = crate::table::Cell::new(
         interaction::Id::new("retained.table"),
-        crate::virtual_list::Key::new(7),
+        crate::list::Key::new(7),
         interaction::Id::new("value"),
     );
     let duplicate = || view::Node::label("Value").with_table_cell(cell);

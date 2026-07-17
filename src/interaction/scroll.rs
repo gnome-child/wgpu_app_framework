@@ -16,7 +16,7 @@ struct ScrollEntry {
     target: Target,
     horizontal: AxisAdjustment,
     vertical: AxisAdjustment,
-    resident_accepted: ScrollOffset,
+    resident_accepted: Offset,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -24,11 +24,11 @@ struct ScrollSession {
     active_source: Option<ScrollSource>,
     active_unit: Option<ScrollUnit>,
     last_timestamp: Option<std::time::Instant>,
-    last_update: Option<(std::time::Instant, ScrollDelta)>,
-    velocity: ScrollDelta,
-    kinetic_velocity: Option<ScrollDelta>,
+    last_update: Option<(std::time::Instant, Delta)>,
+    velocity: Delta,
+    kinetic_velocity: Option<Delta>,
     edge_behavior: EdgeBehavior,
-    elastic_displacement: ScrollDelta,
+    elastic_displacement: Delta,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -60,21 +60,21 @@ pub(crate) enum Reveal {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct ScrollOffset {
+pub struct Offset {
     x: Coordinate,
     y: Coordinate,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct ScrollDelta {
+pub struct Delta {
     x: f64,
     y: f64,
     sample: Option<ScrollSample>,
 }
 
-impl Eq for ScrollDelta {}
+impl Eq for Delta {}
 
-impl PartialEq for ScrollDelta {
+impl PartialEq for Delta {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == other.y
     }
@@ -95,8 +95,8 @@ pub(crate) struct ScrollEvent {
     unit: ScrollUnit,
     timestamp: std::time::Instant,
     phase: ScrollPhase,
-    delta: ScrollDelta,
-    velocity: ScrollDelta,
+    delta: Delta,
+    velocity: Delta,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,15 +129,15 @@ pub(crate) enum ScrollPhase {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScrollOutcome {
-    applied: ScrollDelta,
-    remaining: ScrollDelta,
+    applied: Delta,
+    remaining: Delta,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollSessionDisposition {
     Ignored,
     Tracked,
-    Apply(ScrollDelta),
+    Apply(Delta),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -152,9 +152,9 @@ enum EdgeBehavior {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScrollUpdate {
-    Relative(ScrollDelta),
-    Absolute(ScrollOffset),
-    Geometry(ScrollOffset),
+    Relative(Delta),
+    Absolute(Offset),
+    Geometry(Offset),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -239,13 +239,13 @@ impl Scroll {
         self.revisions.get(target).copied().unwrap_or_default()
     }
 
-    pub(crate) fn kinetic_velocity(&self, target: &Target) -> Option<ScrollDelta> {
+    pub(crate) fn kinetic_velocity(&self, target: &Target) -> Option<Delta> {
         self.sessions
             .get(target)
             .and_then(|session| session.kinetic_velocity)
     }
 
-    pub(crate) fn resident_offset(&self, target: &Target) -> ScrollOffset {
+    pub(crate) fn resident_offset(&self, target: &Target) -> Offset {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
@@ -254,11 +254,11 @@ impl Scroll {
     }
 
     #[cfg(test)]
-    pub(crate) fn offset(&self, target: &Target) -> ScrollOffset {
+    pub(crate) fn offset(&self, target: &Target) -> Offset {
         self.resident_offset(target)
     }
 
-    pub(crate) fn desired_offset(&self, target: &Target) -> ScrollOffset {
+    pub(crate) fn desired_offset(&self, target: &Target) -> Offset {
         self.offsets
             .iter()
             .find(|entry| &entry.target == target)
@@ -272,7 +272,7 @@ impl Scroll {
         axis: ScrollbarAxis,
         operation: ScrollOperation,
         reversed: bool,
-    ) -> Option<ScrollOffset> {
+    ) -> Option<Offset> {
         let entry = self.offsets.iter().find(|entry| &entry.target == target)?;
         let mut offset = entry.desired();
         match axis {
@@ -301,9 +301,9 @@ impl Scroll {
     pub(super) fn configure(
         &mut self,
         target: Target,
-        maximum: ScrollOffset,
-        page: ScrollOffset,
-    ) -> Option<ScrollOffset> {
+        maximum: Offset,
+        page: Offset,
+    ) -> Option<Offset> {
         let index = self.entry_index_or_insert(target.clone());
         let before = self.offsets[index].desired();
         let horizontal_changed = self.offsets[index]
@@ -335,7 +335,7 @@ impl Scroll {
             .collect()
     }
 
-    pub(super) fn request(&mut self, target: Target, update: ScrollUpdate) -> Option<ScrollOffset> {
+    pub(super) fn request(&mut self, target: Target, update: ScrollUpdate) -> Option<Offset> {
         let index = self.entry_index_or_insert(target.clone());
         let before = self.offsets[index].desired();
         match update {
@@ -359,8 +359,8 @@ impl Scroll {
     pub(super) fn accept_resident(
         &mut self,
         target: Target,
-        resident_accepted: ScrollOffset,
-    ) -> Option<ScrollOffset> {
+        resident_accepted: Offset,
+    ) -> Option<Offset> {
         let before = self.resident_offset(&target);
         if before == resident_accepted {
             return None;
@@ -463,15 +463,15 @@ impl Scroll {
             target,
             horizontal: AxisAdjustment::unconfigured(),
             vertical: AxisAdjustment::unconfigured(),
-            resident_accepted: ScrollOffset::default(),
+            resident_accepted: Offset::default(),
         });
         self.offsets.len() - 1
     }
 }
 
 impl ScrollEntry {
-    fn desired(&self) -> ScrollOffset {
-        ScrollOffset {
+    fn desired(&self) -> Offset {
+        Offset {
             x: self.horizontal.value,
             y: self.vertical.value,
         }
@@ -650,9 +650,9 @@ impl ScrollSession {
                 }
                 self.active_source = None;
                 self.last_update = None;
-                self.velocity = ScrollDelta::default();
+                self.velocity = Delta::default();
                 self.kinetic_velocity = None;
-                self.elastic_displacement = ScrollDelta::default();
+                self.elastic_displacement = Delta::default();
                 ScrollSessionDisposition::Tracked
             }
             ScrollPhase::Deceleration => {
@@ -673,9 +673,9 @@ impl ScrollSession {
         self.active_source = Some(source);
         self.last_timestamp = Some(timestamp);
         self.last_update = None;
-        self.velocity = ScrollDelta::default();
+        self.velocity = Delta::default();
         self.kinetic_velocity = None;
-        self.elastic_displacement = ScrollDelta::default();
+        self.elastic_displacement = Delta::default();
     }
 
     fn observe_update(&mut self, event: ScrollEvent) {
@@ -710,12 +710,12 @@ impl ScrollSession {
             .plus(outcome.remaining.scaled(resistance));
         ScrollOutcome {
             applied: outcome.applied.plus(outcome.remaining),
-            remaining: ScrollDelta::default(),
+            remaining: Delta::default(),
         }
     }
 }
 
-fn disposition_for(delta: ScrollDelta) -> ScrollSessionDisposition {
+fn disposition_for(delta: Delta) -> ScrollSessionDisposition {
     if delta.is_zero() {
         ScrollSessionDisposition::Tracked
     } else {
@@ -822,7 +822,7 @@ impl Reveal {
     }
 }
 
-impl ScrollOffset {
+impl Offset {
     pub fn new(x: i32, y: i32) -> Self {
         Self {
             x: Coordinate::from_i64(i64::from(x)),
@@ -899,8 +899,8 @@ impl ScrollOffset {
         ]
     }
 
-    pub(crate) fn delta_to(self, current: Self) -> ScrollDelta {
-        ScrollDelta::from_logical_pixels(current.x.difference(self.x), current.y.difference(self.y))
+    pub(crate) fn delta_to(self, current: Self) -> Delta {
+        Delta::from_logical_pixels(current.x.difference(self.x), current.y.difference(self.y))
     }
 
     #[cfg(test)]
@@ -919,7 +919,7 @@ impl ScrollOffset {
     }
 }
 
-impl ScrollDelta {
+impl Delta {
     pub fn new(x: i32, y: i32) -> Self {
         Self::from_logical_pixels(f64::from(x), f64::from(y))
     }
@@ -991,7 +991,7 @@ impl ScrollDelta {
                 sample: None,
                 ..self
             },
-            velocity: ScrollDelta::from_logical_pixels(sample.velocity[0], sample.velocity[1]),
+            velocity: Delta::from_logical_pixels(sample.velocity[0], sample.velocity[1]),
         }
     }
 
@@ -1020,39 +1020,39 @@ impl ScrollEvent {
         unit: ScrollUnit,
         timestamp: std::time::Instant,
         phase: ScrollPhase,
-        delta: ScrollDelta,
+        delta: Delta,
     ) -> Self {
         Self {
             source,
             unit,
             timestamp,
             phase,
-            delta: ScrollDelta {
+            delta: Delta {
                 sample: None,
                 ..delta
             },
-            velocity: ScrollDelta::default(),
+            velocity: Delta::default(),
         }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn with_velocity(mut self, velocity: ScrollDelta) -> Self {
-        self.velocity = ScrollDelta {
+    pub(crate) fn with_velocity(mut self, velocity: Delta) -> Self {
+        self.velocity = Delta {
             sample: None,
             ..velocity
         };
         self
     }
 
-    pub(crate) fn with_delta(mut self, delta: ScrollDelta) -> Self {
-        self.delta = ScrollDelta {
+    pub(crate) fn with_delta(mut self, delta: Delta) -> Self {
+        self.delta = Delta {
             sample: None,
             ..delta
         };
         self
     }
 
-    pub(crate) fn delta(self) -> ScrollDelta {
+    pub(crate) fn delta(self) -> Delta {
         self.delta
     }
 
@@ -1077,11 +1077,7 @@ impl ScrollEvent {
 }
 
 impl ScrollOutcome {
-    pub(crate) fn from_offsets(
-        input: ScrollDelta,
-        before: ScrollOffset,
-        after: ScrollOffset,
-    ) -> Self {
+    pub(crate) fn from_offsets(input: Delta, before: Offset, after: Offset) -> Self {
         let applied = before.delta_to(after);
         Self {
             applied,
@@ -1089,9 +1085,9 @@ impl ScrollOutcome {
         }
     }
 
-    pub(crate) fn unconsumed(input: ScrollDelta) -> Self {
+    pub(crate) fn unconsumed(input: Delta) -> Self {
         Self {
-            applied: ScrollDelta::default(),
+            applied: Delta::default(),
             remaining: input,
         }
     }
@@ -1103,11 +1099,11 @@ impl ScrollOutcome {
         }
     }
 
-    pub(crate) fn applied(self) -> ScrollDelta {
+    pub(crate) fn applied(self) -> Delta {
         self.applied
     }
 
-    pub(crate) fn remaining(self) -> ScrollDelta {
+    pub(crate) fn remaining(self) -> Delta {
         self.remaining
     }
 }
@@ -1127,16 +1123,12 @@ mod tests {
     fn accessible_projection_and_operations_read_the_canonical_adjustment() {
         let target = Target::scroll("accessible.scroll", "Accessible scroll");
         let mut scroll = Scroll::default();
-        scroll.configure(
-            target.clone(),
-            ScrollOffset::new(400, 800),
-            ScrollOffset::new(100, 200),
-        );
+        scroll.configure(target.clone(), Offset::new(400, 800), Offset::new(100, 200));
         scroll.request(
             target.clone(),
-            ScrollUpdate::Absolute(ScrollOffset::new(125, 250)),
+            ScrollUpdate::Absolute(Offset::new(125, 250)),
         );
-        scroll.accept_resident(target.clone(), ScrollOffset::new(100, 200));
+        scroll.accept_resident(target.clone(), Offset::new(100, 200));
 
         let horizontal = scroll
             .accessible_axis(&target, ScrollbarAxis::Horizontal)
@@ -1194,11 +1186,11 @@ mod tests {
             ScrollUnit::Pixel,
             started,
             ScrollPhase::Begin,
-            ScrollDelta::from_logical_pixels(0.25, 0.5),
+            Delta::from_logical_pixels(0.25, 0.5),
         );
         assert_eq!(
             session.handle(begin),
-            ScrollSessionDisposition::Apply(ScrollDelta::from_logical_pixels(0.25, 0.5))
+            ScrollSessionDisposition::Apply(Delta::from_logical_pixels(0.25, 0.5))
         );
 
         let updated_at = started + std::time::Duration::from_millis(10);
@@ -1207,15 +1199,15 @@ mod tests {
             ScrollUnit::Pixel,
             updated_at,
             ScrollPhase::Update,
-            ScrollDelta::from_logical_pixels(1.25, -0.5),
+            Delta::from_logical_pixels(1.25, -0.5),
         );
         assert_eq!(
             session.handle(update),
-            ScrollSessionDisposition::Apply(ScrollDelta::from_logical_pixels(1.25, -0.5))
+            ScrollSessionDisposition::Apply(Delta::from_logical_pixels(1.25, -0.5))
         );
 
         let ended_at = updated_at + std::time::Duration::from_millis(10);
-        let terminal = ScrollDelta::from_logical_pixels(80.0, -25.0);
+        let terminal = Delta::from_logical_pixels(80.0, -25.0);
         assert_eq!(
             session.handle(
                 ScrollEvent::new(
@@ -1223,7 +1215,7 @@ mod tests {
                     ScrollUnit::Pixel,
                     ended_at,
                     ScrollPhase::End,
-                    ScrollDelta::default(),
+                    Delta::default(),
                 )
                 .with_velocity(terminal),
             ),
@@ -1231,7 +1223,7 @@ mod tests {
         );
         assert_eq!(session.kinetic_velocity, Some(terminal));
 
-        let deceleration = ScrollDelta::from_logical_pixels(0.75, -0.25);
+        let deceleration = Delta::from_logical_pixels(0.75, -0.25);
         assert_eq!(
             session.handle(ScrollEvent::new(
                 ScrollSource::Touchpad,
@@ -1250,14 +1242,14 @@ mod tests {
                 ScrollUnit::Line,
                 interrupted_at,
                 ScrollPhase::Begin,
-                ScrollDelta::vertical(28),
+                Delta::vertical(28),
             )),
-            ScrollSessionDisposition::Apply(ScrollDelta::vertical(28))
+            ScrollSessionDisposition::Apply(Delta::vertical(28))
         );
         assert_eq!(session.active_source, Some(ScrollSource::Wheel));
         assert_eq!(session.active_unit, Some(ScrollUnit::Line));
         assert_eq!(session.kinetic_velocity, None);
-        assert_eq!(session.velocity, ScrollDelta::default());
+        assert_eq!(session.velocity, Delta::default());
 
         assert_eq!(
             session.handle(ScrollEvent::new(
@@ -1265,7 +1257,7 @@ mod tests {
                 ScrollUnit::Line,
                 updated_at,
                 ScrollPhase::Update,
-                ScrollDelta::vertical(1),
+                Delta::vertical(1),
             )),
             ScrollSessionDisposition::Ignored,
             "a stale sample must not mutate the active direct-input session"
@@ -1278,7 +1270,7 @@ mod tests {
                 ScrollUnit::Line,
                 interrupted_at + std::time::Duration::from_millis(1),
                 ScrollPhase::Cancel,
-                ScrollDelta::default(),
+                Delta::default(),
             )),
             ScrollSessionDisposition::Tracked
         );
@@ -1290,52 +1282,36 @@ mod tests {
     fn scroll_outcome_preserves_exact_independent_axis_remainders() {
         let mut scroll = Scroll::default();
         let target = Target::scroll("outcome.axes", "Outcome Axes");
-        scroll.configure(
-            target.clone(),
-            ScrollOffset::new(10, 100),
-            ScrollOffset::new(5, 20),
-        );
+        scroll.configure(target.clone(), Offset::new(10, 100), Offset::new(5, 20));
 
-        let input = ScrollDelta::from_logical_pixels(12.25, 40.5);
+        let input = Delta::from_logical_pixels(12.25, 40.5);
         let before = scroll.desired_offset(&target);
         let after = scroll
             .request(target.clone(), ScrollUpdate::Relative(input))
             .expect("diagonal input should change both configured axes");
         let outcome = ScrollOutcome::from_offsets(input, before, after);
-        assert_eq!(
-            outcome.applied(),
-            ScrollDelta::from_logical_pixels(10.0, 40.5)
-        );
-        assert_eq!(
-            outcome.remaining(),
-            ScrollDelta::from_logical_pixels(2.25, 0.0)
-        );
+        assert_eq!(outcome.applied(), Delta::from_logical_pixels(10.0, 40.5));
+        assert_eq!(outcome.remaining(), Delta::from_logical_pixels(2.25, 0.0));
 
-        let reverse = ScrollDelta::from_logical_pixels(-12.0, -50.0);
+        let reverse = Delta::from_logical_pixels(-12.0, -50.0);
         let before = after;
         let after = scroll
             .request(target, ScrollUpdate::Relative(reverse))
             .expect("reverse input should move both axes back to their lower bounds");
         let outcome = ScrollOutcome::from_offsets(reverse, before, after);
-        assert_eq!(
-            outcome.applied(),
-            ScrollDelta::from_logical_pixels(-10.0, -40.5)
-        );
-        assert_eq!(
-            outcome.remaining(),
-            ScrollDelta::from_logical_pixels(-2.0, -9.5)
-        );
+        assert_eq!(outcome.applied(), Delta::from_logical_pixels(-10.0, -40.5));
+        assert_eq!(outcome.remaining(), Delta::from_logical_pixels(-2.0, -9.5));
     }
 
     #[test]
     fn clamped_edges_handoff_remainder_while_elastic_edges_absorb_it_privately() {
         let outcome = ScrollOutcome {
-            applied: ScrollDelta::from_logical_pixels(10.0, 20.0),
-            remaining: ScrollDelta::from_logical_pixels(2.0, -4.0),
+            applied: Delta::from_logical_pixels(10.0, 20.0),
+            remaining: Delta::from_logical_pixels(2.0, -4.0),
         };
         let mut clamped = ScrollSession::default();
         assert_eq!(clamped.resolve_edge(outcome), outcome);
-        assert_eq!(clamped.elastic_displacement, ScrollDelta::default());
+        assert_eq!(clamped.elastic_displacement, Delta::default());
 
         let mut elastic = ScrollSession {
             edge_behavior: EdgeBehavior::Elastic {
@@ -1344,14 +1320,11 @@ mod tests {
             ..ScrollSession::default()
         };
         let resolved = elastic.resolve_edge(outcome);
-        assert_eq!(
-            resolved.applied(),
-            ScrollDelta::from_logical_pixels(12.0, 16.0)
-        );
-        assert_eq!(resolved.remaining(), ScrollDelta::default());
+        assert_eq!(resolved.applied(), Delta::from_logical_pixels(12.0, 16.0));
+        assert_eq!(resolved.remaining(), Delta::default());
         assert_eq!(
             elastic.elastic_displacement,
-            ScrollDelta::from_logical_pixels(0.5, -1.0)
+            Delta::from_logical_pixels(0.5, -1.0)
         );
     }
 
@@ -1362,18 +1335,15 @@ mod tests {
         let second = Target::scroll("same.scroll", "Second Label");
 
         assert_eq!(
-            scroll.request(
-                first.clone(),
-                ScrollUpdate::Relative(ScrollDelta::vertical(42))
-            ),
-            Some(ScrollOffset::new(0, 42))
+            scroll.request(first.clone(), ScrollUpdate::Relative(Delta::vertical(42))),
+            Some(Offset::new(0, 42))
         );
-        assert_eq!(scroll.offset(&first), ScrollOffset::default());
+        assert_eq!(scroll.offset(&first), Offset::default());
         assert_eq!(
-            scroll.accept_resident(first, ScrollOffset::new(0, 42)),
-            Some(ScrollOffset::new(0, 42))
+            scroll.accept_resident(first, Offset::new(0, 42)),
+            Some(Offset::new(0, 42))
         );
-        assert_eq!(scroll.offset(&second), ScrollOffset::new(0, 42));
+        assert_eq!(scroll.offset(&second), Offset::new(0, 42));
 
         assert!(scroll.reveal(second));
         assert!(scroll.should_reveal(&Target::scroll("same.scroll", "Third Label")));
@@ -1385,34 +1355,25 @@ mod tests {
         let target = Target::scroll("shared.scroll", "Shared");
 
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::new(18, 24)),
-            ),
-            Some(ScrollOffset::new(18, 24))
+            scroll.request(target.clone(), ScrollUpdate::Relative(Delta::new(18, 24)),),
+            Some(Offset::new(18, 24))
         );
-        assert_eq!(scroll.offset(&target), ScrollOffset::default());
-        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(18, 24));
+        assert_eq!(scroll.offset(&target), Offset::default());
+        assert_eq!(scroll.desired_offset(&target), Offset::new(18, 24));
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Absolute(ScrollOffset::new(40, 60)),
-            ),
-            Some(ScrollOffset::new(40, 60))
+            scroll.request(target.clone(), ScrollUpdate::Absolute(Offset::new(40, 60)),),
+            Some(Offset::new(40, 60))
         );
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Geometry(ScrollOffset::new(40, 60)),
-            ),
+            scroll.request(target.clone(), ScrollUpdate::Geometry(Offset::new(40, 60)),),
             None
         );
-        assert_eq!(scroll.offset(&target), ScrollOffset::default());
+        assert_eq!(scroll.offset(&target), Offset::default());
         assert_eq!(
-            scroll.accept_resident(target.clone(), ScrollOffset::new(40, 60)),
-            Some(ScrollOffset::new(40, 60))
+            scroll.accept_resident(target.clone(), Offset::new(40, 60)),
+            Some(Offset::new(40, 60))
         );
-        assert_eq!(scroll.offset(&target), ScrollOffset::new(40, 60));
+        assert_eq!(scroll.offset(&target), Offset::new(40, 60));
     }
 
     #[test]
@@ -1421,22 +1382,16 @@ mod tests {
         let target = Target::scroll("pending.scroll", "Pending");
 
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::vertical(30)),
-            ),
-            Some(ScrollOffset::new(0, 30))
+            scroll.request(target.clone(), ScrollUpdate::Relative(Delta::vertical(30)),),
+            Some(Offset::new(0, 30))
         );
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::vertical(40)),
-            ),
-            Some(ScrollOffset::new(0, 70))
+            scroll.request(target.clone(), ScrollUpdate::Relative(Delta::vertical(40)),),
+            Some(Offset::new(0, 70))
         );
 
-        assert_eq!(scroll.offset(&target), ScrollOffset::default());
-        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 70));
+        assert_eq!(scroll.offset(&target), Offset::default());
+        assert_eq!(scroll.desired_offset(&target), Offset::new(0, 70));
     }
 
     #[test]
@@ -1444,43 +1399,34 @@ mod tests {
         let mut scroll = Scroll::default();
         let target = Target::scroll("progress.scroll", "Progress");
 
-        scroll.request(
-            target.clone(),
-            ScrollUpdate::Absolute(ScrollOffset::new(0, 300)),
-        );
+        scroll.request(target.clone(), ScrollUpdate::Absolute(Offset::new(0, 300)));
         assert_eq!(
-            scroll.accept_resident(target.clone(), ScrollOffset::new(0, 120)),
-            Some(ScrollOffset::new(0, 120))
+            scroll.accept_resident(target.clone(), Offset::new(0, 120)),
+            Some(Offset::new(0, 120))
         );
-        assert_eq!(scroll.offset(&target), ScrollOffset::new(0, 120));
-        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 300));
+        assert_eq!(scroll.offset(&target), Offset::new(0, 120));
+        assert_eq!(scroll.desired_offset(&target), Offset::new(0, 300));
 
         assert_eq!(
-            scroll.accept_resident(target.clone(), ScrollOffset::new(0, 300)),
-            Some(ScrollOffset::new(0, 300))
+            scroll.accept_resident(target.clone(), Offset::new(0, 300)),
+            Some(Offset::new(0, 300))
         );
-        assert_eq!(scroll.offset(&target), ScrollOffset::new(0, 300));
-        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(0, 300));
+        assert_eq!(scroll.offset(&target), Offset::new(0, 300));
+        assert_eq!(scroll.desired_offset(&target), Offset::new(0, 300));
     }
 
     #[test]
     fn desired_projection_changes_only_the_projection_clone() {
         let mut scroll = Scroll::default();
         let target = Target::scroll("projection.scroll", "Projection");
-        scroll.request(
-            target.clone(),
-            ScrollUpdate::Absolute(ScrollOffset::new(0, 240)),
-        );
+        scroll.request(target.clone(), ScrollUpdate::Absolute(Offset::new(0, 240)));
 
         let mut projection = scroll.clone();
         projection.project_desired();
 
-        assert_eq!(scroll.offset(&target), ScrollOffset::default());
-        assert_eq!(projection.offset(&target), ScrollOffset::new(0, 240));
-        assert_eq!(
-            projection.desired_offset(&target),
-            ScrollOffset::new(0, 240)
-        );
+        assert_eq!(scroll.offset(&target), Offset::default());
+        assert_eq!(projection.offset(&target), Offset::new(0, 240));
+        assert_eq!(projection.desired_offset(&target), Offset::new(0, 240));
     }
 
     #[test]
@@ -1491,31 +1437,22 @@ mod tests {
 
         assert_eq!(scroll.revision(&first), 0);
         assert_eq!(scroll.revision(&second), 0);
-        scroll.request(
-            first.clone(),
-            ScrollUpdate::Absolute(ScrollOffset::new(12, 24)),
-        );
+        scroll.request(first.clone(), ScrollUpdate::Absolute(Offset::new(12, 24)));
         let requested = scroll.revision(&first);
         assert!(requested > 0);
         assert_eq!(scroll.revision(&second), 0);
 
         assert_eq!(
-            scroll.request(
-                first.clone(),
-                ScrollUpdate::Geometry(ScrollOffset::new(12, 24)),
-            ),
+            scroll.request(first.clone(), ScrollUpdate::Geometry(Offset::new(12, 24)),),
             None
         );
         assert_eq!(scroll.revision(&first), requested);
 
-        scroll.accept_resident(first.clone(), ScrollOffset::new(12, 24));
+        scroll.accept_resident(first.clone(), Offset::new(12, 24));
         let accepted = scroll.revision(&first);
         assert!(accepted > requested);
 
-        scroll.request(
-            first.clone(),
-            ScrollUpdate::Relative(ScrollDelta::horizontal(5)),
-        );
+        scroll.request(first.clone(), ScrollUpdate::Relative(Delta::horizontal(5)));
         let pending = scroll.revision(&first);
         assert!(pending > accepted);
         let mut projection = scroll.clone();
@@ -1533,7 +1470,7 @@ mod tests {
                 scroll
                     .request(
                         target.clone(),
-                        ScrollUpdate::Relative(ScrollDelta::from_physical_pixels(
+                        ScrollUpdate::Relative(Delta::from_physical_pixels(
                             0.0,
                             *physical_y,
                             scale,
@@ -1571,13 +1508,13 @@ mod tests {
         for physical_y in physical {
             scroll.request(
                 target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::from_physical_pixels(0.0, physical_y, scale)),
+                ScrollUpdate::Relative(Delta::from_physical_pixels(0.0, physical_y, scale)),
             );
             maximum = maximum.max(scroll.desired_offset(&target).y());
         }
         let desired = scroll.desired_offset(&target);
         assert!(maximum > 0, "scale={scale} reversal never moved visually");
-        assert_eq!(desired, ScrollOffset::default());
+        assert_eq!(desired, Offset::default());
         assert_eq!(desired.precise_y(), 0.0);
     }
 
@@ -1670,21 +1607,18 @@ mod tests {
         let fractional = scroll
             .request(
                 target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.75)),
+                ScrollUpdate::Relative(Delta::from_logical_pixels(0.0, 0.75)),
             )
             .unwrap();
         assert_eq!(fractional.precise_y(), 0.75);
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Absolute(ScrollOffset::new(0, 40)),
-            ),
-            Some(ScrollOffset::new(0, 40))
+            scroll.request(target.clone(), ScrollUpdate::Absolute(Offset::new(0, 40)),),
+            Some(Offset::new(0, 40))
         );
         let desired = scroll
             .request(
                 target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.5)),
+                ScrollUpdate::Relative(Delta::from_logical_pixels(0.0, 0.5)),
             )
             .unwrap();
         assert_eq!(desired.precise_y(), 40.5);
@@ -1697,14 +1631,11 @@ mod tests {
         let target = Target::scroll("precision.keyboard", "Precision Keyboard");
         scroll.request(
             target.clone(),
-            ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, -0.4)),
+            ScrollUpdate::Relative(Delta::from_logical_pixels(0.0, -0.4)),
         );
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::vertical(28)),
-            ),
-            Some(ScrollOffset {
+            scroll.request(target.clone(), ScrollUpdate::Relative(Delta::vertical(28)),),
+            Some(Offset {
                 x: Coordinate::ZERO,
                 y: Coordinate::from_ticks(
                     Coordinate::from_i64(28).ticks()
@@ -1716,9 +1647,9 @@ mod tests {
         assert_eq!(
             scroll.request(
                 target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 1.4)),
+                ScrollUpdate::Relative(Delta::from_logical_pixels(0.0, 1.4)),
             ),
-            Some(ScrollOffset::new(0, 29))
+            Some(Offset::new(0, 29))
         );
     }
 
@@ -1728,14 +1659,11 @@ mod tests {
         let target = Target::scroll("precision.reveal", "Precision Reveal");
         scroll.request(
             target.clone(),
-            ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, 0.75)),
+            ScrollUpdate::Relative(Delta::from_logical_pixels(0.0, 0.75)),
         );
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Geometry(ScrollOffset::new(0, 72)),
-            ),
-            Some(ScrollOffset::new(0, 72))
+            scroll.request(target.clone(), ScrollUpdate::Geometry(Offset::new(0, 72)),),
+            Some(Offset::new(0, 72))
         );
         assert_eq!(scroll.desired_offset(&target).precise_y(), 72.0);
     }
@@ -1746,16 +1674,13 @@ mod tests {
         let target = Target::scroll("precision.programmatic", "Precision Programmatic");
         scroll.request(
             target.clone(),
-            ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.0, -0.75)),
+            ScrollUpdate::Relative(Delta::from_logical_pixels(0.0, -0.75)),
         );
         assert_eq!(
-            scroll.request(
-                target.clone(),
-                ScrollUpdate::Absolute(ScrollOffset::new(36, 84)),
-            ),
-            Some(ScrollOffset::new(36, 84))
+            scroll.request(target.clone(), ScrollUpdate::Absolute(Offset::new(36, 84)),),
+            Some(Offset::new(36, 84))
         );
-        assert_eq!(scroll.desired_offset(&target), ScrollOffset::new(36, 84));
+        assert_eq!(scroll.desired_offset(&target), Offset::new(36, 84));
         assert_eq!(scroll.desired_offset(&target).precise_x(), 36.0);
         assert_eq!(scroll.desired_offset(&target).precise_y(), 84.0);
     }
@@ -1766,11 +1691,7 @@ mod tests {
         let target = Target::scroll("adjustment.continuous", "Continuous Adjustment");
 
         assert_eq!(
-            scroll.configure(
-                target.clone(),
-                ScrollOffset::new(100, 200),
-                ScrollOffset::new(20, 40),
-            ),
+            scroll.configure(target.clone(), Offset::new(100, 200), Offset::new(20, 40),),
             None
         );
         let configured_target_revision = scroll.revision(&target);
@@ -1796,7 +1717,7 @@ mod tests {
         let desired = scroll
             .request(
                 target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(0.25, 0.75)),
+                ScrollUpdate::Relative(Delta::from_logical_pixels(0.25, 0.75)),
             )
             .unwrap();
         assert_eq!(desired.precise_x(), 0.25);
@@ -1807,16 +1728,12 @@ mod tests {
         let clamped = scroll
             .request(
                 target.clone(),
-                ScrollUpdate::Relative(ScrollDelta::from_logical_pixels(150.0, 250.0)),
+                ScrollUpdate::Relative(Delta::from_logical_pixels(150.0, 250.0)),
             )
             .unwrap();
-        assert_eq!(clamped, ScrollOffset::new(100, 200));
+        assert_eq!(clamped, Offset::new(100, 200));
 
-        scroll.configure(
-            target.clone(),
-            ScrollOffset::new(100, 200),
-            ScrollOffset::new(20, 40),
-        );
+        scroll.configure(target.clone(), Offset::new(100, 200), Offset::new(20, 40));
         assert_eq!(
             scroll.revision(&target),
             configured_target_revision + 2,
@@ -1830,12 +1747,8 @@ mod tests {
         assert_eq!(unchanged.horizontal.revision, configured_revision + 2);
 
         assert_eq!(
-            scroll.configure(
-                target.clone(),
-                ScrollOffset::new(50, 80),
-                ScrollOffset::new(10, 16),
-            ),
-            Some(ScrollOffset::new(50, 80))
+            scroll.configure(target.clone(), Offset::new(50, 80), Offset::new(10, 16),),
+            Some(Offset::new(50, 80))
         );
         let reconfigured = scroll
             .offsets
@@ -1857,7 +1770,7 @@ mod tests {
 
     #[test]
     fn wide_coordinates_rebase_before_renderer_float_projection() {
-        let baseline = ScrollOffset {
+        let baseline = Offset {
             x: Coordinate::from_ticks(
                 Coordinate::from_i64(20_000_000).ticks() + Coordinate::SCALE / 4,
             ),
@@ -1865,7 +1778,7 @@ mod tests {
                 Coordinate::from_i64(30_000_000).ticks() + Coordinate::SCALE / 2,
             ),
         };
-        let current = ScrollOffset {
+        let current = Offset {
             x: Coordinate::from_ticks(baseline.x.ticks() + Coordinate::SCALE / 2),
             y: Coordinate::from_ticks(baseline.y.ticks() - Coordinate::SCALE / 4),
         };

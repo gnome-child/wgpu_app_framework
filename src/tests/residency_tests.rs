@@ -34,29 +34,39 @@ struct Rows {
     calls: Rc<Cell<usize>>,
 }
 
-impl crate::virtual_list::Provider for Rows {
+impl crate::list::Model for Rows {
     fn len(&self) -> usize {
         1_000_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn item_revision(&self, _index: usize) -> Option<u64> {
-        Some(0)
+    fn membership_revision(&self) -> u64 {
+        0
     }
 
-    fn factory_revision(&self) -> Option<u64> {
-        Some(0)
+    fn changes_since(&self, _revision: u64) -> Vec<crate::list::Change> {
+        Vec::new()
     }
 
-    fn row(&self, index: usize) -> view::Node {
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
+    }
+}
+
+impl crate::list::Factory for Rows {
+    fn revision(&self) -> u64 {
+        0
+    }
+
+    fn bind(&self, _slot: crate::list::Slot, index: usize) -> view::Node {
         self.calls.set(self.calls.get().saturating_add(1));
         view::Node::world_text(
             format!("Residency row {index}"),
@@ -75,17 +85,17 @@ impl crate::table::Provider for TableRows {
         1_000_000
     }
 
-    fn key(&self, index: usize) -> crate::virtual_list::Key {
-        crate::virtual_list::Key::new(index as u64)
+    fn key(&self, index: usize) -> crate::list::Key {
+        crate::list::Key::new(index as u64)
     }
 
-    fn index_of(&self, key: crate::virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: crate::list::Key) -> Option<usize> {
         let index = key.value() as usize;
         (index < self.len()).then_some(index)
     }
 
-    fn item_revision(&self, _index: usize) -> Option<u64> {
-        Some(0)
+    fn item_revision(&self, _index: usize) -> u64 {
+        0
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -111,8 +121,8 @@ struct Snapshot {
     residency: scene::Residency,
     node: composition::tree::NodeId,
     target: interaction::Target,
-    accepted: (interaction::ScrollOffset, interaction::ScrollOffset),
-    maximum: interaction::ScrollOffset,
+    accepted: (interaction::Offset, interaction::Offset),
+    maximum: interaction::Offset,
     viewport_height: i32,
 }
 
@@ -157,7 +167,7 @@ fn fixture(payload: Payload) -> Fixture {
                 .height(view::Dimension::grow()),
             ),
             Payload::VirtualList => widget::view_node(
-                crate::VirtualList::new(VIRTUAL_TARGET, 24, rows.clone())
+                crate::List::new(VIRTUAL_TARGET, 24, rows.clone(), rows.clone())
                     .width(view::Dimension::grow())
                     .height(view::Dimension::grow()),
             ),
@@ -212,7 +222,7 @@ fn prepare_reverse_baseline(
     size: geometry::Size,
     initial: &Snapshot,
 ) -> Snapshot {
-    let middle = interaction::ScrollOffset::new(0, initial.maximum.y() / 2);
+    let middle = interaction::Offset::new(0, initial.maximum.y() / 2);
     app.handle_input(window, Input::scroll_to(initial.target.clone(), middle))
         .expect("reverse fixture jump should be handled");
     let presentation = app
@@ -229,21 +239,21 @@ fn prepare_reverse_baseline(
     prepared
 }
 
-fn requested_offset(snapshot: &Snapshot, transition: Transition) -> interaction::ScrollOffset {
+fn requested_offset(snapshot: &Snapshot, transition: Transition) -> interaction::Offset {
     let (minimum, maximum) = snapshot.accepted;
     match transition {
         Transition::ResidentInterior => {
             assert!(maximum.y() >= minimum.y().saturating_add(2));
-            interaction::ScrollOffset::new(0, minimum.y().saturating_add(1))
+            interaction::Offset::new(0, minimum.y().saturating_add(1))
         }
         Transition::GuardEdge => maximum,
         Transition::ForwardCrossing => {
             assert!(maximum.y() < snapshot.maximum.y());
-            interaction::ScrollOffset::new(0, maximum.y().saturating_add(1))
+            interaction::Offset::new(0, maximum.y().saturating_add(1))
         }
         Transition::ReverseCrossing => {
             assert!(minimum.y() > 0);
-            interaction::ScrollOffset::new(0, minimum.y().saturating_sub(1))
+            interaction::Offset::new(0, minimum.y().saturating_sub(1))
         }
         Transition::LargeJump => {
             let middle = snapshot.maximum.y() / 2;
@@ -253,7 +263,7 @@ fn requested_offset(snapshot: &Snapshot, transition: Transition) -> interaction:
                 middle
             };
             assert!(!(minimum.y()..=maximum.y()).contains(&y));
-            interaction::ScrollOffset::new(0, y)
+            interaction::Offset::new(0, y)
         }
     }
 }
@@ -524,7 +534,7 @@ fn run_case(payload: Payload, transition: Transition, scale_milli: u32) {
             assert!(requested.y() > minimum.y());
             requested.y().saturating_sub(1)
         };
-        let follow = interaction::ScrollOffset::new(0, follow_y);
+        let follow = interaction::Offset::new(0, follow_y);
         drop(candidate);
         fixture
             .app
@@ -565,7 +575,7 @@ fn resident_motion_starts_bounded_replenishment_before_the_hard_edge() {
             .y()
             .saturating_sub(threshold)
             .max(minimum.y().saturating_add(1));
-        let soft = interaction::ScrollOffset::new(0, soft_y);
+        let soft = interaction::Offset::new(0, soft_y);
         assert!(initial.residency.accepts(soft));
 
         fixture
@@ -582,7 +592,7 @@ fn resident_motion_starts_bounded_replenishment_before_the_hard_edge() {
             Some(soft)
         );
 
-        let latest = interaction::ScrollOffset::new(0, soft.y().saturating_add(1).min(maximum.y()));
+        let latest = interaction::Offset::new(0, soft.y().saturating_add(1).min(maximum.y()));
         assert!(latest.y() > soft.y());
         fixture
             .app
@@ -671,7 +681,7 @@ fn resident_motion_starts_bounded_replenishment_before_the_hard_edge() {
             ),
         );
 
-        let beyond_old = interaction::ScrollOffset::new(
+        let beyond_old = interaction::Offset::new(
             0,
             maximum
                 .y()
@@ -709,7 +719,7 @@ fn required_large_jump_materializes_the_critical_viewport_before_predictive_runw
             .show_scene(window, size)
             .expect("initial payload residency should prepare");
         let initial = snapshot(&initial_presentation);
-        let jump = interaction::ScrollOffset::new(0, initial.maximum.y() / 2);
+        let jump = interaction::Offset::new(0, initial.maximum.y() / 2);
         assert!(!initial.residency.accepts(jump));
 
         fixture
@@ -758,7 +768,7 @@ fn consecutive_required_crossings_do_not_accumulate_drawable_table_rows() {
     let initial = snapshot(&initial_presentation);
     drop(initial_presentation);
 
-    let first_offset = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
+    let first_offset = interaction::Offset::new(0, initial.accepted.1.y().saturating_add(1));
     fixture
         .app
         .handle_input(
@@ -781,7 +791,7 @@ fn consecutive_required_crossings_do_not_accumulate_drawable_table_rows() {
     drop(first);
 
     let second_offset =
-        interaction::ScrollOffset::new(0, first_snapshot.accepted.1.y().saturating_add(1));
+        interaction::Offset::new(0, first_snapshot.accepted.1.y().saturating_add(1));
     fixture
         .app
         .handle_input(
@@ -834,7 +844,7 @@ fn control_gallery_required_crossing_does_not_draw_the_retention_cache() {
     let mut current = initial;
     let mut final_observation = None;
     for crossing in 0..16 {
-        let requested = interaction::ScrollOffset::new(0, current.accepted.1.y().saturating_add(1));
+        let requested = interaction::Offset::new(0, current.accepted.1.y().saturating_add(1));
         let before = app
             .diagnostics(window)
             .expect("control-gallery diagnostics before a required crossing")
@@ -1011,7 +1021,7 @@ fn run_table_absolute_burst(forward: bool) {
         let first = baseline.accepted.0.y().saturating_sub(1);
         [first, first.saturating_sub(24), first.saturating_sub(96)]
     };
-    let latest = interaction::ScrollOffset::new(0, offsets[2]);
+    let latest = interaction::Offset::new(0, offsets[2]);
     assert!(
         !(baseline.accepted.0.y()..=baseline.accepted.1.y()).contains(&latest.y()),
         "burst fixture must cross the active accepted interval"
@@ -1022,10 +1032,7 @@ fn run_table_absolute_burst(forward: bool) {
             .app
             .handle_input(
                 window,
-                Input::scroll_to(
-                    baseline.target.clone(),
-                    interaction::ScrollOffset::new(0, y),
-                ),
+                Input::scroll_to(baseline.target.clone(), interaction::Offset::new(0, y)),
             )
             .expect("every absolute burst request should be handled");
     }
@@ -1142,7 +1149,7 @@ fn run_fast_residency_burst_with_pre_realization_coalescing(payload: Payload) {
         .frame
         .view_rebuilds;
 
-    let first = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
+    let first = interaction::Offset::new(0, initial.accepted.1.y().saturating_add(1));
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target.clone(), first))
@@ -1166,7 +1173,7 @@ fn run_fast_residency_burst_with_pre_realization_coalescing(payload: Payload) {
     for step in 1_i32..=12 {
         let y =
             prepared_maximum.saturating_add(span.saturating_mul(step).saturating_div(13).max(1));
-        latest = interaction::ScrollOffset::new(0, y);
+        latest = interaction::Offset::new(0, y);
         fixture
             .app
             .handle_input(window, Input::scroll_to(initial.target.clone(), latest))
@@ -1251,7 +1258,7 @@ fn late_selected_residency_completion_schedules_the_latest_follow_up() {
     let initial = snapshot(&initial_presentation);
     drop(initial_presentation);
 
-    let first = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
+    let first = interaction::Offset::new(0, initial.accepted.1.y().saturating_add(1));
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target.clone(), first))
@@ -1266,7 +1273,7 @@ fn late_selected_residency_completion_schedules_the_latest_follow_up() {
         .maximum
         .y()
         .saturating_sub(selected_snapshot.accepted.1.y());
-    let latest = interaction::ScrollOffset::new(
+    let latest = interaction::Offset::new(
         0,
         selected_snapshot
             .accepted
@@ -1366,7 +1373,7 @@ fn virtual_materialization_request_cannot_false_converge_a_stale_composition() {
     let initial = snapshot(&initial_presentation);
     drop(initial_presentation);
 
-    let jump = interaction::ScrollOffset::new(0, initial.maximum.y() / 3);
+    let jump = interaction::Offset::new(0, initial.maximum.y() / 3);
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target, jump))
@@ -1409,7 +1416,7 @@ fn required_residency_is_not_stranded_behind_stale_row_click_layout() {
         .expect("initial table diagnostics")
         .frame
         .view_rebuilds;
-    let requested = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
+    let requested = interaction::Offset::new(0, initial.accepted.1.y().saturating_add(1));
 
     fixture
         .app
@@ -1480,7 +1487,7 @@ fn stale_presented_table_click_during_large_absolute_jump_converges() {
     );
     drop(initial_presentation);
 
-    let edge = interaction::ScrollOffset::new(0, initial.accepted.1.y().saturating_add(1));
+    let edge = interaction::Offset::new(0, initial.accepted.1.y().saturating_add(1));
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target.clone(), edge))
@@ -1491,7 +1498,7 @@ fn stale_presented_table_click_during_large_absolute_jump_converges() {
         .expect("the first hard-edge request should select a residency candidate");
     assert!(!in_flight.property_only());
 
-    let jump = interaction::ScrollOffset::new(0, initial.maximum.y() / 2);
+    let jump = interaction::Offset::new(0, initial.maximum.y() / 2);
     assert!(!((initial.accepted.0.y())..=initial.accepted.1.y()).contains(&jump.y()));
     fixture
         .app
@@ -1537,7 +1544,7 @@ fn stale_presented_table_click_after_reversed_large_jump_converges() {
     let initial = snapshot(&initial_presentation);
     drop(initial_presentation);
 
-    let baseline = interaction::ScrollOffset::new(0, 6_395);
+    let baseline = interaction::Offset::new(0, 6_395);
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target.clone(), baseline))
@@ -1561,7 +1568,7 @@ fn stale_presented_table_click_after_reversed_large_jump_converges() {
     );
     drop(baseline_presentation);
 
-    let earlier_forward = interaction::ScrollOffset::new(0, 13_333_086);
+    let earlier_forward = interaction::Offset::new(0, 13_333_086);
     fixture
         .app
         .handle_input(
@@ -1569,7 +1576,7 @@ fn stale_presented_table_click_after_reversed_large_jump_converges() {
             Input::scroll_to(initial.target.clone(), earlier_forward),
         )
         .expect("first large forward table jump should be handled");
-    let forward = interaction::ScrollOffset::new(0, 18_893_267);
+    let forward = interaction::Offset::new(0, 18_893_267);
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target.clone(), forward))
@@ -1580,7 +1587,7 @@ fn stale_presented_table_click_after_reversed_large_jump_converges() {
         .expect("large forward jump should select a residency candidate");
     assert!(!in_flight.property_only());
 
-    let reversed = interaction::ScrollOffset::new(0, 8_283_534);
+    let reversed = interaction::Offset::new(0, 8_283_534);
     fixture
         .app
         .handle_input(window, Input::scroll_to(initial.target.clone(), reversed))

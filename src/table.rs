@@ -3,9 +3,7 @@ use std::{
     marker::PhantomData, rc::Rc, str::FromStr, sync::Arc,
 };
 
-use crate::{
-    command, context, interaction, scene, session, subject, text, view, virtual_list, widget,
-};
+use crate::{command, context, interaction, list, scene, session, subject, text, view, widget};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Presentation {
@@ -116,18 +114,12 @@ impl command::Command for SortBy {
 /// Synchronous record source for a read-only virtual table.
 pub trait Provider {
     fn len(&self) -> usize;
-    fn key(&self, row: usize) -> virtual_list::Key;
-    fn index_of(&self, key: virtual_list::Key) -> Option<usize>;
+    fn key(&self, row: usize) -> list::Key;
+    fn index_of(&self, key: list::Key) -> Option<usize>;
     fn cell(&self, row: usize, cell: Cell) -> view::Node;
 
     /// Revision of the data projected by every cell in one stable row.
-    ///
-    /// `None` conservatively rebuilds the row whenever the application view is
-    /// rebuilt. Returning `Some` permits the list factory to retain unchanged
-    /// row slots across residency preparation.
-    fn item_revision(&self, _row: usize) -> Option<u64> {
-        None
-    }
+    fn item_revision(&self, row: usize) -> u64;
 
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -137,10 +129,10 @@ pub trait Provider {
 /// A bounded, application-owned record projection for a typed table.
 pub struct Source<R> {
     len: usize,
-    key: Rc<dyn Fn(usize) -> virtual_list::Key>,
-    index_of: Rc<dyn Fn(virtual_list::Key) -> Option<usize>>,
+    key: Rc<dyn Fn(usize) -> list::Key>,
+    index_of: Rc<dyn Fn(list::Key) -> Option<usize>>,
     record: Rc<dyn Fn(usize) -> R>,
-    item_revision: Rc<dyn Fn(usize) -> Option<u64>>,
+    item_revision: Rc<dyn Fn(usize) -> u64>,
     records: Option<Rc<[R]>>,
 }
 
@@ -160,24 +152,19 @@ impl<R> Clone for Source<R> {
 impl<R> Source<R> {
     pub fn new(
         len: usize,
-        key: impl Fn(usize) -> virtual_list::Key + 'static,
-        index_of: impl Fn(virtual_list::Key) -> Option<usize> + 'static,
+        key: impl Fn(usize) -> list::Key + 'static,
+        index_of: impl Fn(list::Key) -> Option<usize> + 'static,
         record: impl Fn(usize) -> R + 'static,
+        item_revision: impl Fn(usize) -> u64 + 'static,
     ) -> Self {
         Self {
             len,
             key: Rc::new(key),
             index_of: Rc::new(index_of),
             record: Rc::new(record),
-            item_revision: Rc::new(|_| None),
+            item_revision: Rc::new(item_revision),
             records: None,
         }
-    }
-
-    /// Supplies stable per-record revisions for incremental row binding.
-    pub fn item_revision(mut self, revision: impl Fn(usize) -> u64 + 'static) -> Self {
-        self.item_revision = Rc::new(move |index| Some(revision(index)));
-        self
     }
 }
 
@@ -187,13 +174,10 @@ where
 {
     /// Builds a bounded in-memory source whose order follows the table's
     /// projected sort state and the selected column's derived `Ord` ordering.
-    pub fn records(
-        records: impl Into<Rc<[R]>>,
-        key: impl Fn(&R) -> virtual_list::Key + 'static,
-    ) -> Self {
+    pub fn records(records: impl Into<Rc<[R]>>, key: impl Fn(&R) -> list::Key + 'static) -> Self {
         let records = records.into();
         let generation = records.as_ptr() as usize as u64;
-        let keys: Rc<[virtual_list::Key]> = records.iter().map(key).collect::<Vec<_>>().into();
+        let keys: Rc<[list::Key]> = records.iter().map(key).collect::<Vec<_>>().into();
         let mut indices = HashMap::with_capacity(keys.len());
         for (index, key) in keys.iter().copied().enumerate() {
             assert!(
@@ -213,7 +197,7 @@ where
                 let records = Rc::clone(&records);
                 Rc::new(move |index| records[index].clone())
             },
-            item_revision: Rc::new(move |_| Some(generation)),
+            item_revision: Rc::new(move |_| generation),
             records: Some(records),
         }
     }
@@ -222,7 +206,7 @@ where
 type CellProjection<R> = dyn Fn(&R, Cell, Presentation) -> view::Node;
 type ValueValidation<V> = dyn Fn(&V) -> Result<(), String> + Send + Sync;
 type OrderProjection = dyn Fn(&dyn Any, &dyn Any) -> Ordering;
-type RowContext = dyn Fn(virtual_list::Key) -> command::AnyTrigger;
+type RowContext = dyn Fn(list::Key) -> command::AnyTrigger;
 
 /// A heterogeneous typed column after its value and capabilities are erased.
 pub struct TypedColumn<R> {
@@ -355,12 +339,13 @@ pub struct Table {
     presentation_projection: Option<Rc<std::cell::Cell<Presentation>>>,
     sort_projection: Option<Rc<std::cell::Cell<Option<SortState>>>>,
     row_context: Option<Rc<RowContext>>,
+    configuration: Option<crate::scroll::Configuration>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cell {
     table: interaction::Id,
-    row: virtual_list::Key,
+    row: list::Key,
     column: interaction::Id,
 }
 
@@ -443,7 +428,7 @@ impl Model {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Row {
     table: interaction::Id,
-    key: virtual_list::Key,
+    key: list::Key,
     index: usize,
 }
 
@@ -831,6 +816,7 @@ impl Table {
             presentation_projection: None,
             sort_projection: None,
             row_context: None,
+            configuration: None,
         }
     }
 
@@ -926,9 +912,14 @@ impl Table {
         self
     }
 
+    pub fn configuration(mut self, configuration: crate::scroll::Configuration) -> Self {
+        self.configuration = Some(configuration);
+        self
+    }
+
     /// Adds one typed context-only command to each virtual row. The stable row
     /// key supplies concrete arguments without changing primary-click behavior.
-    pub fn context_rows<C>(mut self, map: impl Fn(virtual_list::Key) -> C::Args + 'static) -> Self
+    pub fn context_rows<C>(mut self, map: impl Fn(list::Key) -> C::Args + 'static) -> Self
     where
         C: command::Command,
         C::Args: Clone,
@@ -959,10 +950,15 @@ impl widget::Widget for Table {
             provider: self.provider,
             row_context: self.row_context,
         };
-        let list = match self.presentation {
-            Presentation::Compact => crate::VirtualList::new(self.id, self.row_height, rows),
-            Presentation::Expanded => crate::VirtualList::variable(self.id, self.row_height, rows),
+        let mut list = match self.presentation {
+            Presentation::Compact => crate::List::new(self.id, self.row_height, rows.clone(), rows),
+            Presentation::Expanded => {
+                crate::List::variable(self.id, self.row_height, rows.clone(), rows)
+            }
         };
+        if let Some(configuration) = self.configuration {
+            list = list.configuration(configuration);
+        }
         let body = widget::Widget::into_node(
             list.selectable()
                 .width(view::Dimension::grow())
@@ -990,7 +986,7 @@ impl widget::Widget for Table {
             )
             .child(header)
             .child(body);
-        let horizontal_scroll = view::Node::table_scroll(model)
+        let mut horizontal_scroll = view::Node::table_scroll(model)
             .with_subject(subject::Segment::from_label("Table columns"))
             .with_style(
                 view::Style::new()
@@ -998,6 +994,9 @@ impl widget::Widget for Table {
                     .with_height(view::Dimension::grow()),
             )
             .child(surface);
+        if let Some(configuration) = self.configuration {
+            horizontal_scroll = horizontal_scroll.with_scroll_configuration(configuration);
+        }
 
         view::Node::table(self.id)
             .with_style(style)
@@ -1006,11 +1005,7 @@ impl widget::Widget for Table {
 }
 
 impl Cell {
-    pub(crate) fn new(
-        table: interaction::Id,
-        row: virtual_list::Key,
-        column: interaction::Id,
-    ) -> Self {
+    pub(crate) fn new(table: interaction::Id, row: list::Key, column: interaction::Id) -> Self {
         Self { table, row, column }
     }
 
@@ -1018,7 +1013,7 @@ impl Cell {
         self.table
     }
 
-    pub fn row(self) -> virtual_list::Key {
+    pub fn row(self) -> list::Key {
         self.row
     }
 
@@ -1032,7 +1027,7 @@ impl Row {
         self.table
     }
 
-    pub(crate) fn key(self) -> virtual_list::Key {
+    pub(crate) fn key(self) -> list::Key {
         self.key
     }
 
@@ -1046,21 +1041,29 @@ impl Row {
     }
 }
 
-impl virtual_list::Provider for Rows {
+impl list::Model for Rows {
     fn len(&self) -> usize {
         self.provider.len()
     }
 
-    fn key(&self, index: usize) -> virtual_list::Key {
+    fn key(&self, index: usize) -> list::Key {
         self.provider.key(index)
     }
 
-    fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: list::Key) -> Option<usize> {
         self.provider.index_of(key)
     }
 
-    fn item_revision(&self, index: usize) -> Option<u64> {
-        let mut revision = self.provider.item_revision(index)?;
+    fn membership_revision(&self) -> u64 {
+        0
+    }
+
+    fn changes_since(&self, _revision: u64) -> Vec<list::Change> {
+        Vec::new()
+    }
+
+    fn item_revision(&self, index: usize) -> u64 {
+        let mut revision = self.provider.item_revision(index);
         let columns = self.model.columns.borrow();
         revision = revision
             .wrapping_mul(0x9e37_79b9_7f4a_7c15)
@@ -1085,18 +1088,18 @@ impl virtual_list::Provider for Rows {
                     .wrapping_add(component);
             }
         }
-        Some(
-            revision
-                .wrapping_mul(2)
-                .wrapping_add(u64::from(self.row_context.is_some())),
-        )
+        revision
+            .wrapping_mul(2)
+            .wrapping_add(u64::from(self.row_context.is_some()))
+    }
+}
+
+impl list::Factory for Rows {
+    fn revision(&self) -> u64 {
+        0
     }
 
-    fn factory_revision(&self) -> Option<u64> {
-        Some(0)
-    }
-
-    fn row(&self, index: usize) -> view::Node {
+    fn bind(&self, _slot: list::Slot, index: usize) -> view::Node {
         let key = self.provider.key(index);
         let columns = self.model.columns.borrow();
         let children: Vec<view::Node> = columns
@@ -1191,24 +1194,22 @@ where
         self.source.len
     }
 
-    fn key(&self, row: usize) -> virtual_list::Key {
+    fn key(&self, row: usize) -> list::Key {
         (self.source.key)(self.source_row(row))
     }
 
-    fn index_of(&self, key: virtual_list::Key) -> Option<usize> {
+    fn index_of(&self, key: list::Key) -> Option<usize> {
         (self.source.index_of)(key).map(|index| self.projected_index(index))
     }
 
-    fn item_revision(&self, row: usize) -> Option<u64> {
+    fn item_revision(&self, row: usize) -> u64 {
         let source_row = self.source_row(row);
-        (self.source.item_revision)(source_row).map(|revision| {
-            revision
-                .wrapping_mul(2)
-                .wrapping_add(match self.presentation.get() {
-                    Presentation::Compact => 0,
-                    Presentation::Expanded => 1,
-                })
-        })
+        (self.source.item_revision)(source_row)
+            .wrapping_mul(2)
+            .wrapping_add(match self.presentation.get() {
+                Presentation::Compact => 0,
+                Presentation::Expanded => 1,
+            })
     }
 
     fn cell(&self, row: usize, cell: Cell) -> view::Node {
@@ -1347,7 +1348,7 @@ mod tests {
         };
         let cell = Cell::new(
             interaction::Id::new("std.table"),
-            virtual_list::Key::new(0),
+            list::Key::new(0),
             interaction::Id::new("address"),
         );
         let address_node = (address.cell)(&record, cell, Presentation::Compact);
@@ -1420,7 +1421,7 @@ mod tests {
         let record = Record { value: Counted(1) };
         let cell = Cell::new(
             interaction::Id::new("counted.table"),
-            virtual_list::Key::new(0),
+            list::Key::new(0),
             interaction::Id::new("value"),
         );
         let node = (column.cell)(&record, cell, Presentation::Compact);
@@ -1471,7 +1472,7 @@ mod tests {
         };
         let cell = Cell::new(
             interaction::Id::new("std.table"),
-            virtual_list::Key::new(0),
+            list::Key::new(0),
             interaction::Id::new("passive"),
         );
 
@@ -1528,9 +1529,7 @@ mod tests {
             },
         ]
         .into();
-        let source = Source::records(Rc::clone(&records), |record| {
-            virtual_list::Key::new(record.key)
-        });
+        let source = Source::records(Rc::clone(&records), |record| list::Key::new(record.key));
         let columns = || {
             vec![
                 Column::text(
@@ -1559,10 +1558,7 @@ mod tests {
             [10, 20, 30, 40],
             "equal values retain their base record order"
         );
-        assert_eq!(
-            ascending.provider.index_of(virtual_list::Key::new(30)),
-            Some(2)
-        );
+        assert_eq!(ascending.provider.index_of(list::Key::new(30)), Some(2));
 
         let descending = Table::typed("records", 24, columns(), source.clone())
             .sorted_by("group", SortDirection::Descending);
@@ -1584,7 +1580,7 @@ mod tests {
         );
 
         let empty = Source::records(Rc::<[Record]>::from([]), |record| {
-            virtual_list::Key::new(record.key)
+            list::Key::new(record.key)
         });
         let empty = Table::typed("empty.records", 24, columns(), empty)
             .sorted_by("group", SortDirection::Ascending);
@@ -1596,14 +1592,11 @@ mod tests {
             enabled: true,
         }]
         .into();
-        let replacement = Source::records(replacement, |record| virtual_list::Key::new(record.key));
+        let replacement = Source::records(replacement, |record| list::Key::new(record.key));
         let replacement = Table::typed("records", 24, columns(), replacement)
             .sorted_by("group", SortDirection::Ascending);
         assert_eq!(replacement.provider.key(0).value(), 50);
-        assert_eq!(
-            replacement.provider.index_of(virtual_list::Key::new(50)),
-            Some(0)
-        );
+        assert_eq!(replacement.provider.index_of(list::Key::new(50)), Some(0));
     }
 
     #[test]
@@ -1612,12 +1605,13 @@ mod tests {
         let observed = Rc::clone(&projections);
         let source = Source::new(
             2,
-            |row| virtual_list::Key::new(row as u64),
+            |row| list::Key::new(row as u64),
             |key| Some(key.value() as usize),
             move |row| {
                 observed.set(observed.get() + 1);
                 row
             },
+            |row| row as u64,
         );
         let table = interaction::Id::new("typed.test");
         let first = interaction::Id::new("first");
@@ -1649,7 +1643,7 @@ mod tests {
             order: RefCell::new(None),
             orderings: [(first, ordering)].into_iter().collect(),
         };
-        let key = virtual_list::Key::new(0);
+        let key = list::Key::new(0);
         assert_eq!(Provider::key(&provider, 0), key);
         assert_eq!(Provider::index_of(&provider, key), Some(0));
         assert_eq!(
@@ -1660,11 +1654,7 @@ mod tests {
         Provider::cell(&provider, 0, Cell::new(table, key, first));
         Provider::cell(&provider, 0, Cell::new(table, key, second));
         assert_eq!(projections.get(), 1);
-        Provider::cell(
-            &provider,
-            1,
-            Cell::new(table, virtual_list::Key::new(1), first),
-        );
+        Provider::cell(&provider, 1, Cell::new(table, list::Key::new(1), first));
         assert_eq!(projections.get(), 2);
     }
 }

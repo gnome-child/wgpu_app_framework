@@ -33,9 +33,9 @@ struct FrameTrace {
     first_request_serial: u64,
     last_request_serial: u64,
     coalesced_inputs: usize,
-    requested: crate::interaction::ScrollOffset,
-    clamped: crate::interaction::ScrollOffset,
-    resident_offset: crate::interaction::ScrollOffset,
+    requested: crate::interaction::Offset,
+    clamped: crate::interaction::Offset,
+    resident_offset: crate::interaction::Offset,
     resident_accepted: bool,
     outcome: TransitionOutcome,
     input_started_at: Option<Instant>,
@@ -216,9 +216,9 @@ impl Scroll {
         &mut self,
         epoch: crate::window::PresentationEpoch,
         target_key: u64,
-        requested: crate::interaction::ScrollOffset,
-        clamped: crate::interaction::ScrollOffset,
-        resident_offset: crate::interaction::ScrollOffset,
+        requested: crate::interaction::Offset,
+        clamped: crate::interaction::Offset,
+        resident_offset: crate::interaction::Offset,
         resident_accepted: bool,
         outcome: &'static str,
     ) {
@@ -689,7 +689,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{Scroll, TRACE_LIMIT};
-    use crate::{interaction::ScrollOffset, window::PresentationEpoch};
+    use crate::{interaction::Offset, window::PresentationEpoch};
 
     #[test]
     fn trace_correlates_transition_candidate_and_present_submission() {
@@ -699,9 +699,9 @@ mod tests {
         scroll.record_transition(
             epoch,
             41,
-            ScrollOffset::new(20, 0),
-            ScrollOffset::new(18, 0),
-            ScrollOffset::new(18, 0),
+            Offset::new(20, 0),
+            Offset::new(18, 0),
+            Offset::new(18, 0),
             true,
             "property-tick",
         );
@@ -727,9 +727,9 @@ mod tests {
         scroll.record_transition(
             epoch,
             44,
-            ScrollOffset::new(0, 20),
-            ScrollOffset::new(0, 20),
-            ScrollOffset::new(0, 20),
+            Offset::new(0, 20),
+            Offset::new(0, 20),
+            Offset::new(0, 20),
             true,
             "property-tick",
         );
@@ -777,9 +777,9 @@ mod tests {
             scroll.record_transition(
                 epoch,
                 41,
-                ScrollOffset::new(offset, 0),
-                ScrollOffset::new(offset, 0),
-                ScrollOffset::new(offset, 0),
+                Offset::new(offset, 0),
+                Offset::new(offset, 0),
+                Offset::new(offset, 0),
                 true,
                 "property-tick",
             );
@@ -800,9 +800,9 @@ mod tests {
             scroll.record_transition(
                 epoch,
                 target_key,
-                ScrollOffset::new(offset, 0),
-                ScrollOffset::new(offset, 0),
-                ScrollOffset::new(offset, 0),
+                Offset::new(offset, 0),
+                Offset::new(offset, 0),
+                Offset::new(offset, 0),
                 true,
                 "property-tick",
             );
@@ -829,9 +829,9 @@ mod tests {
             scroll.record_transition(
                 epoch,
                 41,
-                ScrollOffset::new(offset, 0),
-                ScrollOffset::new(offset, 0),
-                ScrollOffset::new(offset, 0),
+                Offset::new(offset, 0),
+                Offset::new(offset, 0),
+                Offset::new(offset, 0),
                 true,
                 "property-tick",
             );
@@ -850,18 +850,18 @@ mod tests {
         scroll.record_transition(
             epoch,
             41,
-            ScrollOffset::new(80, 0),
-            ScrollOffset::new(80, 0),
-            ScrollOffset::new(20, 0),
+            Offset::new(80, 0),
+            Offset::new(80, 0),
+            Offset::new(20, 0),
             false,
             "needs-residency",
         );
         scroll.record_transition(
             epoch,
             41,
-            ScrollOffset::new(80, 0),
-            ScrollOffset::new(80, 0),
-            ScrollOffset::new(20, 0),
+            Offset::new(80, 0),
+            Offset::new(80, 0),
+            Offset::new(20, 0),
             false,
             "unchanged",
         );
@@ -880,9 +880,9 @@ mod tests {
         scroll.record_transition(
             request_epoch,
             41,
-            ScrollOffset::new(80, 0),
-            ScrollOffset::new(80, 0),
-            ScrollOffset::new(20, 0),
+            Offset::new(80, 0),
+            Offset::new(80, 0),
+            Offset::new(20, 0),
             false,
             "needs-residency",
         );
@@ -911,9 +911,9 @@ mod tests {
         scroll.record_transition(
             request_epoch,
             91,
-            ScrollOffset::new(0, 80),
-            ScrollOffset::new(0, 80),
-            ScrollOffset::new(0, 20),
+            Offset::new(0, 80),
+            Offset::new(0, 80),
+            Offset::new(0, 20),
             false,
             "needs-residency",
         );
@@ -986,9 +986,9 @@ mod tests {
         scroll.record_transition(
             epoch,
             41,
-            ScrollOffset::new(20, 0),
-            ScrollOffset::new(20, 0),
-            ScrollOffset::new(20, 0),
+            Offset::new(20, 0),
+            Offset::new(20, 0),
+            Offset::new(20, 0),
             true,
             "property-tick",
         );
@@ -1011,9 +1011,9 @@ mod tests {
             scroll.record_transition(
                 epoch,
                 offset as u64,
-                ScrollOffset::new(offset as i32, 0),
-                ScrollOffset::new(offset as i32, 0),
-                ScrollOffset::new(offset as i32, 0),
+                Offset::new(offset as i32, 0),
+                Offset::new(offset as i32, 0),
+                Offset::new(offset as i32, 0),
                 true,
                 "property-tick",
             );
@@ -1033,9 +1033,9 @@ mod tests {
         scroll.record_transition(
             epoch,
             41,
-            ScrollOffset::default(),
-            ScrollOffset::default(),
-            ScrollOffset::default(),
+            Offset::default(),
+            Offset::default(),
+            Offset::default(),
             false,
             "unchanged",
         );

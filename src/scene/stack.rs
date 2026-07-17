@@ -99,7 +99,7 @@ impl Stack {
     pub(crate) fn scroll_offset(
         &self,
         node: super::super::composition::tree::NodeId,
-    ) -> Option<super::super::interaction::ScrollOffset> {
+    ) -> Option<super::super::interaction::Offset> {
         self.layers
             .iter()
             .find_map(|layer| layer.properties().scroll_offset(node))
@@ -169,7 +169,7 @@ impl Stack {
                     }
                     advances |= projected != from;
                 }
-                _ if projected == super::super::interaction::ScrollOffset::default() => {}
+                _ if projected == super::super::interaction::Offset::default() => {}
                 _ => return None,
             }
         }
@@ -210,9 +210,9 @@ impl Stack {
 }
 
 fn scroll_offset_lies_between(
-    from: super::super::interaction::ScrollOffset,
-    projected: super::super::interaction::ScrollOffset,
-    to: super::super::interaction::ScrollOffset,
+    from: super::super::interaction::Offset,
+    projected: super::super::interaction::Offset,
+    to: super::super::interaction::Offset,
 ) -> bool {
     projected.lies_within(from.componentwise_min(to), from.componentwise_max(to))
 }
@@ -373,34 +373,34 @@ impl MaterialProjection {
 #[cfg(test)]
 mod tests {
     use super::scroll_offset_lies_between;
-    use crate::interaction::ScrollOffset;
+    use crate::interaction::Offset;
 
     #[test]
     fn progressive_scroll_projection_is_componentwise_and_never_overshoots() {
         assert!(scroll_offset_lies_between(
-            ScrollOffset::new(10, 20),
-            ScrollOffset::new(20, 30),
-            ScrollOffset::new(30, 40),
+            Offset::new(10, 20),
+            Offset::new(20, 30),
+            Offset::new(30, 40),
         ));
         assert!(scroll_offset_lies_between(
-            ScrollOffset::new(30, 40),
-            ScrollOffset::new(20, 30),
-            ScrollOffset::new(10, 20),
+            Offset::new(30, 40),
+            Offset::new(20, 30),
+            Offset::new(10, 20),
         ));
         assert!(scroll_offset_lies_between(
-            ScrollOffset::new(10, 40),
-            ScrollOffset::new(20, 30),
-            ScrollOffset::new(30, 20),
+            Offset::new(10, 40),
+            Offset::new(20, 30),
+            Offset::new(30, 20),
         ));
         assert!(!scroll_offset_lies_between(
-            ScrollOffset::new(10, 20),
-            ScrollOffset::new(31, 30),
-            ScrollOffset::new(30, 40),
+            Offset::new(10, 20),
+            Offset::new(31, 30),
+            Offset::new(30, 40),
         ));
         assert!(!scroll_offset_lies_between(
-            ScrollOffset::new(10, 40),
-            ScrollOffset::new(20, 41),
-            ScrollOffset::new(30, 20),
+            Offset::new(10, 40),
+            Offset::new(20, 41),
+            Offset::new(30, 20),
         ));
     }
 }

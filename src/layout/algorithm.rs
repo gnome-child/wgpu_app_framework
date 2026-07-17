@@ -252,12 +252,16 @@ fn layout_scroll(
     );
 }
 
-fn eager_scroll_container(node: &view::Node, theme: &theme::Theme) -> view::ScrollContainer {
+fn eager_scroll_container(node: &view::Node, theme: &theme::Theme) -> crate::scroll::Configuration {
     let (horizontal_sizing, vertical_sizing) = match node.axis() {
-        Some(view::Axis::Horizontal) => (view::ScrollSizing::Minimum, view::ScrollSizing::Natural),
-        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => {
-            (view::ScrollSizing::Natural, view::ScrollSizing::Minimum)
-        }
+        Some(view::Axis::Horizontal) => (
+            crate::scroll::Sizing::Minimum,
+            crate::scroll::Sizing::Natural,
+        ),
+        Some(view::Axis::Vertical) | Some(view::Axis::Overlay) | None => (
+            crate::scroll::Sizing::Natural,
+            crate::scroll::Sizing::Minimum,
+        ),
     };
     chrome::resolve_container(
         node.scroll_container(),
@@ -380,7 +384,7 @@ fn layout_table_scroll(
 
 fn layout_virtual_list(
     node: &view::Node,
-    model: &crate::virtual_list::Model,
+    model: &crate::list::State,
     retained: &composition::tree::Node,
     path: path::Path,
     rect: Rect,
@@ -392,8 +396,8 @@ fn layout_virtual_list(
         node.scroll_container(),
         ctx.theme,
         chrome::Axes::VERTICAL,
-        view::ScrollSizing::Natural,
-        view::ScrollSizing::Minimum,
+        crate::scroll::Sizing::Natural,
+        crate::scroll::Sizing::Minimum,
     );
     let mut container_layout = chrome::ContainerLayout::initial(container);
     if let Some(measurements) = model.measurements() {
@@ -483,13 +487,13 @@ fn layout_variable_virtual_list(
     rect: Rect,
     floating_layer: bool,
     clip: Option<Clip>,
-    container: view::ScrollContainer,
+    container: crate::scroll::Configuration,
     mut container_layout: chrome::ContainerLayout,
-    model: &crate::virtual_list::Model,
-    measured_sequence: crate::virtual_list::Measurements,
+    model: &crate::list::State,
+    measured_sequence: crate::list::Measurements,
     ctx: &mut LayoutContext<'_>,
 ) {
-    let provider = model.provider();
+    let provider = model.model();
     let requested_offset = node.scroll_offset();
     let table_projection = ctx.table_projection.clone();
     let row_height_floor = model.row_height();

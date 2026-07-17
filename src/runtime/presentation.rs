@@ -453,7 +453,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
     fn install_virtual_materialization(
         &mut self,
         window: window::Id,
-        request: &crate::virtual_list::Request,
+        request: &crate::list::Request,
     ) {
         let mut materializations = self
             .virtual_materializations
@@ -463,9 +463,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         let current = materializations
             .get(&request.id())
             .cloned()
-            .unwrap_or_else(|| {
-                crate::virtual_list::Materialization::new(request.range(), Vec::new())
-            });
+            .unwrap_or_else(|| crate::list::Materialization::new(request.range(), Vec::new()));
         materializations.insert(request.id(), current.with_runway(request.range()));
         self.virtual_materializations
             .insert(window, materializations);
@@ -547,7 +545,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
         &mut self,
         window: window::Id,
         layout: &layout::Layout,
-        offsets: Vec<(interaction::Target, interaction::ScrollOffset)>,
+        offsets: Vec<(interaction::Target, interaction::Offset)>,
     ) -> bool {
         let mut changed_any = false;
         for (target, offset) in offsets {
@@ -569,7 +567,7 @@ impl<M: state::State, E: Send + 'static, V> Runtime<M, E, V> {
                         interaction::ScrollUnit::Pixel,
                         std::time::Instant::now(),
                         interaction::ScrollPhase::Update,
-                        interaction::ScrollDelta::default(),
+                        interaction::Delta::default(),
                     ),
                 );
             }
@@ -771,9 +769,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             let current = next_materializations
                 .get(&request.id())
                 .cloned()
-                .unwrap_or_else(|| {
-                    crate::virtual_list::Materialization::new(request.range(), Vec::new())
-                });
+                .unwrap_or_else(|| crate::list::Materialization::new(request.range(), Vec::new()));
             let materialization = if current.preserves(&request.range()) {
                 current
             } else {
@@ -1228,7 +1224,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
     pub(in crate::runtime) fn present_with_virtual_pin(
         &mut self,
         window: window::Id,
-        virtual_pin: Option<(crate::interaction::Id, crate::virtual_list::Key)>,
+        virtual_pin: Option<(crate::interaction::Id, crate::list::Key)>,
     ) -> Option<view::View> {
         if !self.session.contains(window) {
             log::debug!("skipping present for unknown window {window:?}");
@@ -1437,7 +1433,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         &mut self,
         window: window::Id,
         list: crate::interaction::Id,
-        key: crate::virtual_list::Key,
+        key: crate::list::Key,
         focus: session::Focus,
     ) -> bool {
         let Some(view) = self.present_with_virtual_pin(window, Some((list, key))) else {
@@ -1979,7 +1975,7 @@ fn active_descendant_reveal_offsets(
     target: &interaction::Target,
     selected_palette_index: Option<usize>,
     margin: i32,
-) -> Vec<(interaction::Target, interaction::ScrollOffset)> {
+) -> Vec<(interaction::Target, interaction::Offset)> {
     let palette_results_target = interaction::CommandPalette::results_target();
     let table_scroll = layout.is_table_scroll_target(target);
     let mut palette_row = 0_usize;

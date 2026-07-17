@@ -1,7 +1,7 @@
 mod command_palette;
 mod menu;
 pub(crate) mod pointer;
-mod scroll;
+pub(crate) mod scroll;
 mod selection;
 pub(crate) mod table;
 mod target;
@@ -14,7 +14,7 @@ pub(crate) use scroll::{
     AccessibleScrollAction, AccessibleScrollAxis, Scroll, ScrollEvent, ScrollOperation,
     ScrollOutcome, ScrollPhase, ScrollSessionDisposition, ScrollSource, ScrollUnit, ScrollUpdate,
 };
-pub use scroll::{ScrollDelta, ScrollOffset};
+pub(crate) use scroll::{Delta, Offset};
 pub(crate) use selection::Selections;
 pub(crate) use table::Tables;
 pub(crate) use target::ScrollbarAxis;
@@ -327,7 +327,7 @@ impl Interaction {
         &mut self,
         target: Target,
         update: scroll::ScrollUpdate,
-    ) -> Option<ScrollOffset> {
+    ) -> Option<Offset> {
         self.scroll.request(target, update)
     }
 
@@ -350,17 +350,17 @@ impl Interaction {
     pub(super) fn configure_scroll(
         &mut self,
         target: Target,
-        maximum: ScrollOffset,
-        page: ScrollOffset,
-    ) -> Option<ScrollOffset> {
+        maximum: Offset,
+        page: Offset,
+    ) -> Option<Offset> {
         self.scroll.configure(target, maximum, page)
     }
 
     pub(super) fn accept_resident_scroll(
         &mut self,
         target: Target,
-        offset: ScrollOffset,
-    ) -> Option<ScrollOffset> {
+        offset: Offset,
+    ) -> Option<Offset> {
         self.scroll.accept_resident(target, offset)
     }
 
