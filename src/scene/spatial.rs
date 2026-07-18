@@ -36,6 +36,10 @@ impl AxisOwnership {
             vertical: maximum.y() > 0,
         }
     }
+
+    fn is_empty(self) -> bool {
+        !self.horizontal && !self.vertical
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,8 +188,15 @@ pub(crate) struct SpatialTopology {
     scroll_paths: Vec<Vec<(composition::tree::NodeId, interaction::Offset)>>,
     binding_scroll_paths: HashMap<SpatialBinding, ScrollPathId>,
     frame_scroll_paths: HashMap<composition::tree::NodeId, ScrollPathId>,
+    residency_memberships: HashMap<composition::tree::NodeId, ResidencyMembership>,
     caret_states: HashMap<composition::tree::NodeId, Vec<PropertyState>>,
     target_bindings: HashMap<interaction::Target, PresentedTargetBindings>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ResidencyMembership {
+    nodes: Vec<composition::tree::NodeId>,
+    draw_order: Vec<composition::tree::NodeId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -318,6 +329,7 @@ impl SpatialTopology {
             scroll_paths: vec![Vec::new()],
             binding_scroll_paths: HashMap::new(),
             frame_scroll_paths: HashMap::new(),
+            residency_memberships: HashMap::new(),
             caret_states: HashMap::new(),
             target_bindings: HashMap::new(),
         };
@@ -333,6 +345,7 @@ impl SpatialTopology {
         }
         topology.compile_scroll_paths()?;
         topology.compile_frame_scroll_paths(nodes)?;
+        topology.compile_residency_memberships(nodes);
         topology.compile_presented_indices();
         Ok(topology)
     }
@@ -366,6 +379,18 @@ impl SpatialTopology {
                     }
             })
             .map(|binding| binding.state)
+    }
+
+    pub(crate) fn residency_membership(
+        &self,
+        scroll: composition::tree::NodeId,
+    ) -> Option<(&[composition::tree::NodeId], &[composition::tree::NodeId])> {
+        self.residency_memberships.get(&scroll).map(|membership| {
+            (
+                membership.nodes.as_slice(),
+                membership.draw_order.as_slice(),
+            )
+        })
     }
 
     pub(crate) fn project_semantic_order(
@@ -710,7 +735,7 @@ impl SpatialTopology {
                     .copied()
                     .ok_or(SpatialError::UnknownNode(parent_id))?;
                 if let Some(declaration) = parent_node.scroll() {
-                    entries.push((parent_id, declaration.baseline()));
+                    entries.push((parent_id, declaration.property_origin()));
                 }
                 parent = parent_node.parent();
             }
@@ -729,6 +754,52 @@ impl SpatialTopology {
             self.frame_scroll_paths.insert(node.id(), path);
         }
         Ok(())
+    }
+
+    fn compile_residency_memberships(&mut self, nodes: &[std::sync::Arc<Node>]) {
+        let scroll_nodes = nodes
+            .iter()
+            .filter(|node| node.scroll().is_some())
+            .map(|node| node.id())
+            .collect::<HashSet<_>>();
+        let mut memberships_by_node =
+            HashMap::<composition::tree::NodeId, Vec<composition::tree::NodeId>>::new();
+
+        for node in nodes {
+            let mut owners = Vec::new();
+            if scroll_nodes.contains(&node.id()) {
+                owners.push(node.id());
+            }
+            if let Some(path) = self.frame_scroll_paths.get(&node.id())
+                // Frame paths are stored nearest-owner first. Residency belongs
+                // to the nearest scroll; choosing the last entry would attach
+                // nested table rows to the outer gallery scroll instead.
+                && let Some((owner, _)) = self.scroll_paths[path.index()].first()
+                && !owners.contains(owner)
+            {
+                owners.push(*owner);
+            }
+            for owner in &owners {
+                self.residency_memberships
+                    .entry(*owner)
+                    .or_default()
+                    .nodes
+                    .push(node.id());
+            }
+            memberships_by_node.insert(node.id(), owners);
+        }
+
+        for binding in &self.content {
+            if let Some(owners) = memberships_by_node.get(&binding.key.node) {
+                for owner in owners {
+                    self.residency_memberships
+                        .entry(*owner)
+                        .or_default()
+                        .draw_order
+                        .push(binding.key.node);
+                }
+            }
+        }
     }
 
     fn compile_presented_indices(&mut self) {
@@ -1166,11 +1237,17 @@ impl SpatialTopology {
         let declaration = owner
             .scroll()
             .ok_or(SpatialError::MissingScroll(owner.id()))?;
+        let axes = AxisOwnership::from_declaration(declaration);
+        // A zero-range viewport still participates in input/accessibility/layout ownership, but
+        // it cannot contribute a render-time translation. Keeping a spatial node for it would
+        // manufacture a unique GPU transform (and text batch) for every non-scrolling widget.
+        if axes.is_empty() {
+            return Ok(parent);
+        }
         let target = owner
             .scroll_target()
             .cloned()
             .ok_or(SpatialError::MissingScrollTarget(owner.id()))?;
-        let axes = AxisOwnership::from_declaration(declaration);
         for (axis, owned) in [("horizontal", axes.horizontal), ("vertical", axes.vertical)] {
             if !owned {
                 continue;
@@ -1193,7 +1270,7 @@ impl SpatialTopology {
                 owner: owner.id(),
                 target,
                 axes,
-                baseline: declaration.baseline(),
+                baseline: declaration.property_origin(),
             },
         )?;
         scrolls.insert((parent, owner.id()), node);
@@ -1844,5 +1921,75 @@ mod tests {
             .expect("second scroll path");
         assert_eq!(first_path, ScrollPathId::ROOT);
         assert_eq!(second_path, ScrollPathId::ROOT);
+    }
+
+    #[test]
+    fn zero_range_scroll_nodes_do_not_manufacture_spatial_paths() {
+        let first = id(61);
+        let second = id(62);
+        let moving = id(63);
+        let nodes = vec![
+            Arc::new(scroll_node(
+                61,
+                None,
+                interaction::Offset::default(),
+                ScrollTarget::scene_node(first),
+            )),
+            Arc::new(scroll_node(
+                62,
+                None,
+                interaction::Offset::default(),
+                ScrollTarget::scene_node(second),
+            )),
+            Arc::new(scroll_node(
+                63,
+                None,
+                interaction::Offset::new(1, 0),
+                ScrollTarget::scene_node(moving),
+            )),
+        ];
+        let topology = SpatialTopology::compile(
+            &nodes,
+            Some(&[
+                Draw::PushScroll { node: first },
+                Draw::Content {
+                    node: first,
+                    index: 0,
+                    projection: ContentProjection::Normal,
+                },
+                Draw::PopScroll,
+                Draw::PushScroll { node: second },
+                Draw::Content {
+                    node: second,
+                    index: 0,
+                    projection: ContentProjection::Normal,
+                },
+                Draw::PopScroll,
+                Draw::PushScroll { node: moving },
+                Draw::Content {
+                    node: moving,
+                    index: 0,
+                    projection: ContentProjection::Normal,
+                },
+                Draw::PopScroll,
+            ]),
+        )
+        .expect("zero-range scroll topology");
+
+        assert_eq!(topology.draw_states[1].spatial, SpatialBinding::ROOT);
+        assert_eq!(topology.draw_states[4].spatial, SpatialBinding::ROOT);
+        assert_ne!(topology.draw_states[7].spatial, SpatialBinding::ROOT);
+        assert_eq!(
+            topology
+                .scroll_path(topology.draw_states[1].spatial)
+                .expect("first identity path"),
+            ScrollPathId::ROOT
+        );
+        assert_eq!(
+            topology
+                .scroll_path(topology.draw_states[4].spatial)
+                .expect("second identity path"),
+            ScrollPathId::ROOT
+        );
     }
 }

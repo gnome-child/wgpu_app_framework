@@ -1,5 +1,6 @@
 mod frame;
 mod pipeline;
+mod presentation;
 mod render;
 #[cfg(feature = "renderer-debug")]
 mod residency;
@@ -14,6 +15,8 @@ pub use crate::render::RenderReport;
 pub use crate::render::RendererEnvironment;
 pub use frame::Frame;
 pub use pipeline::Pipeline;
+pub use presentation::Presentation;
+pub(crate) use presentation::{ChangeSpecies, PrimaryFrameNeed};
 pub use render::Render;
 #[cfg(feature = "renderer-debug")]
 #[doc(hidden)]
@@ -30,7 +33,8 @@ pub use render::{
 #[doc(hidden)]
 pub use residency::{
     ResidencyCrossingReceipt, ResidencyPayload, compare_table_runway_property_text,
-    measure_residency_crossing_work,
+    measure_residency_crossing_work, measure_residency_crossing_work_at_height,
+    measure_residency_jump_work,
 };
 pub(crate) use scroll::CandidateWork;
 pub use scroll::Scroll;
@@ -49,6 +53,7 @@ pub struct Diagnostics {
     pub scroll: Scroll,
     pub frame: Frame,
     pub pipeline: Pipeline,
+    pub presentation: Presentation,
     pub render: Render,
 }
 
@@ -63,6 +68,11 @@ impl Diagnostics {
         use std::fmt::Write as _;
 
         let mut receipt = self.render.receipt_text(workload);
+        receipt.push_str(
+            &self
+                .presentation
+                .receipt_text(self.pipeline.frames_prepared),
+        );
         let _ = writeln!(receipt, "events_received={}", self.pipeline.events_received);
         let _ = writeln!(receipt, "frames_prepared={}", self.pipeline.frames_prepared);
         let _ = writeln!(
@@ -508,6 +518,18 @@ mod tests {
         let receipt = Diagnostics::default().renderer_receipt_text("receipt-test");
 
         for field in [
+            "presentation_receipt_schema=wgpu_l3.presentation_compiler.v1",
+            "presentation_receipt_complete=true",
+            "primary_property_frames=0",
+            "mixed_property_residency_frames=0",
+            "materialization_calls=0",
+            "entering_rows=0",
+            "composition_nodes_changed=0",
+            "layout_nodes_visited=0",
+            "scene_frames_scanned=0",
+            "scene_commit_nodes_registered=0",
+            "scene_semantic_candidate_nodes_visited=0",
+            "scene_residency_layout_frames_visited=0",
             "scene_assembly_p95_us=0",
             "event_handling_p95_us=0",
             "presentation_layout_p95_us=0",

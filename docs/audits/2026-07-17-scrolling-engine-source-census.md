@@ -1,6 +1,6 @@
 # Scrolling engine source census
 
-Status: **SE-008 RE-CENSUS — PUBLIC NAMES SET, PERFORMANCE NEXT**
+Status: **SE-009 IN PROGRESS — RETAINED BATCHING AND BOUNDED RUNWAY CONNECTED**
 
 Date: 2026-07-17
 
@@ -446,7 +446,50 @@ feature suite passed 1,412 library tests (four intentional hardware ignores),
 three renderer-debug comparisons (27 hardware ignores), and two example tests;
 all 18 Python checks and the release table/list/text smokes passed.
 
-## 13. Repeatable census commands
+## 13. SE-009 delta
+
+`src/render/renderer.rs` retains one GPU renderer per top-level rendering
+context/window/surface. Its single `render::text_renderer::TextRenderer` owns
+the shared glyphon cache, atlas, swash cache, and inline shaping cache for every
+widget in that context. Retained glyphon `TextRenderer` instances are prepared
+vertex batches keyed by a compatible ordered resource group, not widget- or
+cell-owned cache/renderer systems.
+
+`src/render/retained.rs` now plans text across compatible retained resources
+under one render target, spatial binding, ordering segment, and clip scope. It
+may move only provably non-overlapping regular primitives and remains bounded to
+128 text areas per batch. Composite keys and commit owners keep exact old/new
+presentation coexistence. Shapes, text batches, and transform viewports each
+retain separately capped expired-resource reserves. Diagnostics distinguish
+glyph batches, text surfaces, and clip batches from semantic controls.
+
+`src/scene/spatial.rs` elides a render spatial node when both scroll axes have a
+zero maximum. Such a node remains a real input/layout/accessibility/control
+owner but cannot translate a pixel; retaining a GPU spatial path for each table
+cell manufactured false renderer state and prevented text batching. Any nonzero
+axis retains its independent spatial path.
+
+Table body cells remain real selectable `TextArea` or editable `TextBox`
+controls. Their effective clip is one shared table-body viewport geometry/state,
+repeated only in a small constant number of structural ordering scopes rather
+than per cell. Layout, scene, and GPU diagnostics reject unique per-cell clips,
+per-cell clip scopes, and unbounded clip batches.
+
+`src/layout/frame.rs` now uses `list::State::request_for_transition` for both
+required and proactive residency preparation. The former critical-only required
+request left merely two overscan rows after a stop, reversal, or thumb crossing;
+native traces showed it selecting a full residency about every two subsequent
+inputs. Every required recovery now restores the same bounded directional
+runway, capped at 80 rows, while materialization replacement still forbids
+unioning obsolete drawable rows. Deterministic witnesses require at least one
+forward viewport and one-half reverse viewport after a jump.
+
+The native batching receipts, post-transition residency evidence, isolated
+before/after GPU counts, and remaining native verification gate are recorded in
+sections 16--17 of the campaign. These changes add no public scrolling or list
+API and do not alter the six target ownership layers.
+
+## 14. Repeatable census commands
 
 Run these at every stage boundary, then inspect and classify new production
 hits rather than relying on raw counts:

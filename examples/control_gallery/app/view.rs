@@ -164,7 +164,8 @@ pub fn view(state: &State, _: ViewContext) -> View {
                                 revision.finish()
                             }
                             },
-                        );
+                        )
+                        .residency_revision(0);
                         let columns: Vec<table::TypedColumn<GalleryRecord>> = vec![
                             table::Column::text(
                                 "record",

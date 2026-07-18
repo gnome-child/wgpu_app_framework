@@ -2,6 +2,7 @@ use super::super::interaction;
 use super::{binding::Binding, style::Style};
 use crate::list;
 use crate::{subject, text};
+use std::collections::VecDeque;
 
 mod access;
 mod action;
@@ -129,7 +130,7 @@ pub struct Node {
     table_header_presentation: Option<crate::table::HeaderPresentation>,
     participation: Option<Participation>,
     context_menu: bool,
-    children: Vec<Node>,
+    children: VecDeque<Node>,
 }
 
 #[derive(Clone)]
@@ -189,6 +190,7 @@ fn optional_binding_scene_state_eq(left: Option<&Binding>, right: Option<&Bindin
 pub(crate) struct ProvidedRow {
     list: interaction::Id,
     key: list::Key,
+    slot: list::Slot,
     index: usize,
 }
 
@@ -199,6 +201,10 @@ impl ProvidedRow {
 
     pub(crate) fn key(self) -> list::Key {
         self.key
+    }
+
+    pub(crate) fn slot(self) -> list::Slot {
+        self.slot
     }
 
     pub(crate) fn index(self) -> usize {

@@ -18,19 +18,22 @@ use measure::{
     menu_title_width, resolved_height, resolved_height_for_width, resolved_row_width,
     resolved_width, size_hint,
 };
+use std::{collections::HashMap, sync::Arc};
 
 const SCROLL_AXIS_LIMIT: i32 = i32::MAX / 4;
 
 pub(super) fn compose_frames(
     root: &view::Node,
     retained_root: &composition::tree::Node,
+    changes: &composition::tree::Changes,
+    previous: Option<&super::Layout>,
     size: Size,
     engine: &mut engine::Engine,
     theme: &theme::Theme,
     animation_frame: animation::Frame,
     keymap: keymap::Profile,
-) -> Vec<Frame> {
-    let mut ctx = LayoutContext::new(engine, theme, animation_frame, keymap);
+) -> FrameComposition {
+    let mut ctx = LayoutContext::new(engine, theme, animation_frame, keymap, changes, previous);
     layout_node(
         root,
         retained_root,
@@ -43,6 +46,14 @@ pub(super) fn compose_frames(
     ctx.finish()
 }
 
+pub(super) struct FrameComposition {
+    pub(super) frames: Vec<Frame>,
+    pub(super) virtual_row_fragments: Vec<super::VirtualRowFragment>,
+    pub(super) row_sequences: HashMap<interaction::Id, super::RowSequence>,
+    pub(super) frames_constructed: usize,
+    pub(super) frames_reused: usize,
+}
+
 struct LayoutContext<'a> {
     engine: &'a mut engine::Engine,
     theme: &'a theme::Theme,
@@ -50,6 +61,13 @@ struct LayoutContext<'a> {
     keymap: keymap::Profile,
     frames: Vec<Frame>,
     table_projection: Option<table::Projection>,
+    changes: &'a composition::tree::Changes,
+    previous_rows: HashMap<composition::tree::NodeId, super::VirtualRowFragment>,
+    previous_row_sequences: HashMap<interaction::Id, super::RowSequence>,
+    virtual_row_fragments: Vec<super::VirtualRowFragment>,
+    row_sequences: HashMap<interaction::Id, super::RowSequence>,
+    frames_constructed: usize,
+    frames_reused: usize,
 }
 
 impl<'a> LayoutContext<'a> {
@@ -58,7 +76,13 @@ impl<'a> LayoutContext<'a> {
         theme: &'a theme::Theme,
         animation_frame: animation::Frame,
         keymap: keymap::Profile,
+        changes: &'a composition::tree::Changes,
+        previous: Option<&super::Layout>,
     ) -> Self {
+        let keyed_residency = changes
+            .residency_deltas()
+            .iter()
+            .any(|delta| !delta.is_reset());
         Self {
             engine,
             theme,
@@ -66,11 +90,34 @@ impl<'a> LayoutContext<'a> {
             keymap,
             frames: Vec::new(),
             table_projection: None,
+            changes,
+            previous_rows: if keyed_residency {
+                HashMap::new()
+            } else {
+                previous
+                    .into_iter()
+                    .flat_map(|layout| layout.virtual_row_fragments().cloned())
+                    .map(|fragment| (fragment.root, fragment))
+                    .collect()
+            },
+            previous_row_sequences: previous
+                .map(|layout| layout.frames.row_sequences())
+                .unwrap_or_default(),
+            virtual_row_fragments: Vec::new(),
+            row_sequences: HashMap::new(),
+            frames_constructed: 0,
+            frames_reused: 0,
         }
     }
 
-    fn finish(self) -> Vec<Frame> {
-        self.frames
+    fn finish(self) -> FrameComposition {
+        FrameComposition {
+            frames: self.frames,
+            virtual_row_fragments: self.virtual_row_fragments,
+            row_sequences: self.row_sequences,
+            frames_constructed: self.frames_constructed,
+            frames_reused: self.frames_reused,
+        }
     }
 
     fn frame(
@@ -82,6 +129,7 @@ impl<'a> LayoutContext<'a> {
         floating_layer: bool,
         clip: Option<Clip>,
     ) -> Frame {
+        self.frames_constructed = self.frames_constructed.saturating_add(1);
         Frame::new(
             FrameInput {
                 node,
@@ -98,6 +146,92 @@ impl<'a> LayoutContext<'a> {
             self.engine,
             self.theme,
         )
+    }
+
+    fn reuse_virtual_row(
+        &mut self,
+        retained: &composition::tree::Node,
+        path: &path::Path,
+        rect: Rect,
+        floating_layer: bool,
+        clip: Option<Clip>,
+    ) -> bool {
+        let Some(fragment) = self.previous_rows.get(&retained.node_id()).cloned() else {
+            return false;
+        };
+        if fragment.frames.iter().any(|frame| {
+            let id = frame.node_id();
+            self.changes.added().contains(&id)
+                || self.changes.changed().contains(&id)
+                || self.changes.removed().contains(&id)
+                || self.changes.departed().contains(&id)
+        }) {
+            return false;
+        }
+        let Some(root) = fragment.frames.first() else {
+            return false;
+        };
+        if root.node_id() != retained.node_id()
+            || root.content_revision() != retained.content_revision()
+            || root.rect() != rect
+            || root.clip() != clip
+            || root.is_floating_layer() != floating_layer
+        {
+            return false;
+        }
+        let from = root.layout_path().clone();
+        let rebased = fragment
+            .frames
+            .iter()
+            .map(|frame| frame.rebased_layout_path(&from, path))
+            .collect::<Option<Vec<_>>>();
+        let Some(rebased) = rebased else {
+            return false;
+        };
+        self.frames_reused = self.frames_reused.saturating_add(rebased.len());
+        self.frames.extend(rebased);
+        self.virtual_row_fragments.push(fragment);
+        true
+    }
+
+    fn finish_virtual_row(&mut self, root: composition::tree::NodeId, start: usize) {
+        let frames = Arc::<[Frame]>::from(self.frames[start..].to_vec());
+        let row = frames
+            .first()
+            .and_then(Frame::provided_row)
+            .expect("virtual-row fragment root carries provider identity");
+        self.virtual_row_fragments.push(super::VirtualRowFragment {
+            root,
+            list: row.list(),
+            key: row.key(),
+            frames,
+        });
+    }
+
+    fn detach_virtual_row(
+        &mut self,
+        root: composition::tree::NodeId,
+        start: usize,
+    ) -> super::VirtualRowFragment {
+        let frames = Arc::<[Frame]>::from(self.frames.split_off(start));
+        let row = frames
+            .first()
+            .and_then(Frame::provided_row)
+            .expect("detached virtual-row fragment root carries provider identity");
+        super::VirtualRowFragment {
+            root,
+            list: row.list(),
+            key: row.key(),
+            frames,
+        }
+    }
+
+    fn residency_delta(&self, list: interaction::Id) -> Option<crate::list::AppliedResidencyDelta> {
+        self.changes
+            .residency_deltas()
+            .iter()
+            .copied()
+            .find(|delta| delta.list() == list && !delta.is_reset())
     }
 }
 
@@ -284,11 +418,11 @@ fn layout_table_scroll(
 ) {
     let surface = node
         .children()
-        .first()
+        .front()
         .expect("table scroll owner must carry one surface");
     let header = surface
         .children()
-        .first()
+        .front()
         .expect("table surface must carry its header");
     let columns = model.column_dimensions();
     debug_assert_eq!(columns.len(), header.children().len());
@@ -448,11 +582,65 @@ fn layout_virtual_list(
     .with_visible(visible_frame, visible_content);
     let offset = viewport.resolved_scroll();
     let request = model.request_for_viewport(offset.y(), viewport_rect.height());
-    let row_clip = Some(Clip::new(visible_content));
+    // Viewport coverage is a fixed outer scene/spatial clip. Threading it into
+    // row-local layout would make every resident row's clip (and nested
+    // viewport key) borrow the current property baseline.
+    let row_clip = None;
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)
         .with_virtual_list(viewport, request, container_layout);
     ctx.frames.push(frame);
+
+    if let Some(delta) = ctx.residency_delta(model.id()) {
+        let previous = ctx
+            .previous_row_sequences
+            .get(&model.id())
+            .cloned()
+            .expect("keyed layout residency needs the previous row sequence");
+        let mut front = Vec::with_capacity(delta.insert_front());
+        for (index, child) in node
+            .children()
+            .iter()
+            .take(delta.insert_front())
+            .enumerate()
+        {
+            front.push(layout_uniform_virtual_row(
+                child,
+                retained_child(retained, index),
+                &path,
+                viewport_rect,
+                row_height,
+                floating_layer,
+                row_clip,
+                ctx,
+            ));
+        }
+        let back_start = node.children().len().saturating_sub(delta.insert_back());
+        let mut back = Vec::with_capacity(delta.insert_back());
+        for (index, child) in node.children().iter().enumerate().skip(back_start) {
+            back.push(layout_uniform_virtual_row(
+                child,
+                retained_child(retained, index),
+                &path,
+                viewport_rect,
+                row_height,
+                floating_layer,
+                row_clip,
+                ctx,
+            ));
+        }
+        let entering_frames = front
+            .iter()
+            .chain(&back)
+            .map(|fragment| fragment.frames().len())
+            .sum::<usize>();
+        let sequence = previous.edited(delta, front, back);
+        ctx.frames_reused = ctx
+            .frames_reused
+            .saturating_add(sequence.frame_len().saturating_sub(entering_frames));
+        ctx.row_sequences.insert(model.id(), sequence);
+        return;
+    }
 
     for (index, child) in node.children().iter().enumerate() {
         let row = child
@@ -461,19 +649,69 @@ fn layout_virtual_list(
         let logical_y = (row.index() as i64).saturating_mul(row_height as i64);
         let y = (viewport_rect.y() as i64)
             .saturating_add(logical_y)
-            .saturating_sub(offset.y() as i64)
             .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         let child_rect = Rect::new(viewport_rect.x(), y, viewport_rect.width(), row_height);
-        layout_node(
-            child,
-            retained_child(retained, index),
-            path.child(index),
+        let retained = retained_child(retained, index);
+        let child_path = path.virtual_row(row.key());
+        let child_clip = child_clip(child, row_clip);
+        if ctx.reuse_virtual_row(
+            retained,
+            &child_path,
             child_rect,
             floating_layer,
-            child_clip(child, row_clip),
+            child_clip,
+        ) {
+            continue;
+        }
+        let fragment_start = ctx.frames.len();
+        layout_node(
+            child,
+            retained,
+            child_path,
+            child_rect,
+            floating_layer,
+            child_clip,
             ctx,
         );
+        ctx.finish_virtual_row(retained.node_id(), fragment_start);
     }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one entering row needs its resolved virtual-list geometry and retained identity"
+)]
+fn layout_uniform_virtual_row(
+    child: &view::Node,
+    retained: &composition::tree::Node,
+    path: &path::Path,
+    viewport_rect: Rect,
+    row_height: i32,
+    floating_layer: bool,
+    row_clip: Option<Clip>,
+    ctx: &mut LayoutContext<'_>,
+) -> super::VirtualRowFragment {
+    let row = child
+        .provided_row()
+        .expect("materialized VirtualList children carry provider identity");
+    let logical_y = (row.index() as i64).saturating_mul(row_height as i64);
+    let y = (viewport_rect.y() as i64)
+        .saturating_add(logical_y)
+        .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    let child_rect = Rect::new(viewport_rect.x(), y, viewport_rect.width(), row_height);
+    let child_path = path.virtual_row(row.key());
+    let child_clip = child_clip(child, row_clip);
+    let start = ctx.frames.len();
+    layout_node(
+        child,
+        retained,
+        child_path,
+        child_rect,
+        floating_layer,
+        child_clip,
+        ctx,
+    );
+    ctx.detach_virtual_row(retained.node_id(), start)
 }
 
 #[expect(
@@ -552,8 +790,9 @@ fn layout_variable_virtual_list(
         requested_offset.with_y(offset_y),
     )
     .with_visible(visible_frame, visible_content);
-    let offset = viewport.resolved_scroll();
-    let row_clip = Some(Clip::new(visible_content));
+    // See the fixed-height path: submitted viewport coverage is projected
+    // outside the content-local row subtree.
+    let row_clip = None;
     let frame = ctx
         .frame(node, retained, path.clone(), rect, floating_layer, clip)
         .with_virtual_list(viewport, request, container_layout);
@@ -566,23 +805,36 @@ fn layout_variable_virtual_list(
             .expect("materialized VirtualList children must carry provider identity");
         let y = viewport_rect
             .y()
-            .saturating_add(region.offset_for_index(row.index()))
-            .saturating_sub(offset.y());
+            .saturating_add(region.offset_for_index(row.index()));
         let child_rect = Rect::new(
             viewport_rect.x(),
             y,
             viewport_rect.width(),
             region.height_for(row.key()),
         );
-        layout_node(
-            child,
-            retained_child(retained, index),
-            path.child(index),
+        let retained = retained_child(retained, index);
+        let child_path = path.virtual_row(row.key());
+        let child_clip = child_clip(child, row_clip);
+        if ctx.reuse_virtual_row(
+            retained,
+            &child_path,
             child_rect,
             floating_layer,
-            child_clip(child, row_clip),
+            child_clip,
+        ) {
+            continue;
+        }
+        let fragment_start = ctx.frames.len();
+        layout_node(
+            child,
+            retained,
+            child_path,
+            child_rect,
+            floating_layer,
+            child_clip,
             ctx,
         );
+        ctx.finish_virtual_row(retained.node_id(), fragment_start);
     }
 }
 
@@ -1175,7 +1427,7 @@ fn layout_horizontal_stack(
 }
 
 fn table_stack_matches(node: &view::Node, projection: &table::Projection) -> bool {
-    node.children().first().is_some_and(|child| {
+    node.children().front().is_some_and(|child| {
         child
             .table_header_cell()
             .is_some_and(|cell| cell.table() == projection.table())
@@ -1325,7 +1577,7 @@ fn layout_floating_panel(
         );
 
         if node.auxiliary_hint().is_some()
-            && let Some(child) = node.children().first()
+            && let Some(child) = node.children().front()
         {
             let reserved = node.auxiliary_hint().map_or(0, |hint| {
                 i32::from(hint.icon().is_some()).saturating_mul(

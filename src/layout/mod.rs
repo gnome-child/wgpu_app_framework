@@ -1,14 +1,16 @@
 use super::{
     composition::{self, tree},
     geometry::{Point, Rect, Size},
-    interaction, keymap, session,
+    interaction, keymap, scene, session,
     theme::Theme,
     view,
 };
 use crate::animation;
 use std::{
     collections::{HashMap, HashSet},
+    ops::Index,
     ops::Range,
+    sync::Arc,
 };
 
 mod algorithm;
@@ -32,8 +34,8 @@ pub(crate) use control::{
     table_choice_mark_rect, table_content_rect, table_header_label_rect, table_sort_indicator_rect,
 };
 pub(crate) use engine::Engine;
-pub(crate) use frame::Frame;
 pub(crate) use frame::SceneKey as FrameSceneKey;
+pub(crate) use frame::{Clip as FrameClip, Frame};
 pub(crate) use hit::Hit;
 pub use text::Text;
 pub(crate) use typography::{
@@ -50,13 +52,469 @@ pub(crate) enum PopupSurfaces {
 #[derive(Clone)]
 pub(crate) struct Layout {
     size: Size,
-    frames: Vec<Frame>,
+    frames: FrameList,
     chrome: Vec<Chrome>,
     table_tracks: Vec<table::Track>,
     scene_scroll_paths: HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
     scroll_projections: Vec<ScrollProjection>,
     virtual_list_requests: Vec<crate::list::Request>,
     native_popup_owners: HashMap<composition::tree::NodeId, interaction::Id>,
+    residency_deltas: Vec<crate::list::AppliedResidencyDelta>,
+    residency_predecessors: HashMap<interaction::Id, RowSequence>,
+    frames_constructed: usize,
+    frames_reused: usize,
+}
+
+#[derive(Clone)]
+pub(crate) struct FrameList {
+    segments: Arc<[FrameSegment]>,
+    len: usize,
+    rows: usize,
+}
+
+#[derive(Clone)]
+enum FrameSegment {
+    Ordinary(Arc<[Frame]>),
+    VirtualRows(RowSequence),
+}
+
+pub(crate) struct FrameIter<'a> {
+    frames: &'a FrameList,
+    front: usize,
+    back: usize,
+}
+
+pub(crate) struct VirtualRowIter<'a> {
+    frames: &'a FrameList,
+    front: usize,
+    back: usize,
+}
+
+#[derive(Clone)]
+pub(crate) struct VirtualRowFragment {
+    root: composition::tree::NodeId,
+    list: interaction::Id,
+    key: crate::list::Key,
+    frames: Arc<[Frame]>,
+}
+
+impl VirtualRowFragment {
+    pub(crate) fn root(&self) -> composition::tree::NodeId {
+        self.root
+    }
+
+    pub(crate) fn list(&self) -> interaction::Id {
+        self.list
+    }
+
+    pub(crate) fn key(&self) -> crate::list::Key {
+        self.key
+    }
+
+    pub(crate) fn frames(&self) -> &[Frame] {
+        &self.frames
+    }
+
+    pub(crate) fn shares_storage_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.frames, &other.frames)
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct RowSequence {
+    root: Option<Arc<RowNode>>,
+    identity: Arc<()>,
+}
+
+struct RowNode {
+    fragment: VirtualRowFragment,
+    priority: u64,
+    left: Option<Arc<RowNode>>,
+    right: Option<Arc<RowNode>>,
+    rows: usize,
+    frames: usize,
+}
+
+impl FrameList {
+    fn from_flat(frames: Vec<Frame>, rows: &[VirtualRowFragment]) -> Self {
+        let row_roots = rows
+            .iter()
+            .cloned()
+            .map(|row| (row.root(), row))
+            .collect::<HashMap<_, _>>();
+        let mut segments = Vec::new();
+        let mut ordinary = Vec::new();
+        let mut row_run = Vec::new();
+        let mut row_list = None;
+        let mut index = 0;
+        while index < frames.len() {
+            if let Some(row) = row_roots.get(&frames[index].node_id()) {
+                if !ordinary.is_empty() {
+                    flush_row_run(&mut segments, &mut row_run);
+                    row_list = None;
+                    segments.push(FrameSegment::Ordinary(Arc::from(std::mem::take(
+                        &mut ordinary,
+                    ))));
+                }
+                if row_list.is_some_and(|list| list != row.list()) {
+                    flush_row_run(&mut segments, &mut row_run);
+                }
+                row_list = Some(row.list());
+                debug_assert!(
+                    frames[index..]
+                        .iter()
+                        .zip(row.frames())
+                        .all(|(frame, row_frame)| frame.node_id() == row_frame.node_id()),
+                    "virtual-row chunk must preserve flat frame order"
+                );
+                row_run.push(row.clone());
+                index = index.saturating_add(row.frames().len());
+            } else {
+                flush_row_run(&mut segments, &mut row_run);
+                row_list = None;
+                ordinary.push(frames[index].clone());
+                index += 1;
+            }
+        }
+        flush_row_run(&mut segments, &mut row_run);
+        if !ordinary.is_empty() {
+            segments.push(FrameSegment::Ordinary(Arc::from(ordinary)));
+        }
+        Self {
+            segments: Arc::from(segments),
+            len: frames.len(),
+            rows: rows.len(),
+        }
+    }
+
+    fn from_sparse(frames: Vec<Frame>, mut rows: HashMap<interaction::Id, RowSequence>) -> Self {
+        let mut segments = Vec::new();
+        let mut ordinary = Vec::new();
+        let mut len = 0_usize;
+        let mut row_count = 0_usize;
+        for frame in frames {
+            let list = frame.virtual_list_request().map(crate::list::Request::id);
+            ordinary.push(frame);
+            len += 1;
+            if let Some(list) = list
+                && let Some(sequence) = rows.remove(&list)
+            {
+                segments.push(FrameSegment::Ordinary(Arc::from(std::mem::take(
+                    &mut ordinary,
+                ))));
+                len = len.saturating_add(sequence.frame_len());
+                row_count = row_count.saturating_add(sequence.len());
+                segments.push(FrameSegment::VirtualRows(sequence));
+            }
+        }
+        if !ordinary.is_empty() {
+            segments.push(FrameSegment::Ordinary(Arc::from(ordinary)));
+        }
+        assert!(
+            rows.is_empty(),
+            "every retained row sequence needs a list frame"
+        );
+        Self {
+            segments: Arc::from(segments),
+            len,
+            rows: row_count,
+        }
+    }
+
+    fn row_sequences(&self) -> HashMap<interaction::Id, RowSequence> {
+        self.segments
+            .iter()
+            .filter_map(|segment| match segment {
+                FrameSegment::VirtualRows(rows) => {
+                    rows.get(0).map(|row| (row.list(), rows.clone()))
+                }
+                FrameSegment::Ordinary(_) => None,
+            })
+            .collect()
+    }
+
+    pub(crate) fn iter(&self) -> FrameIter<'_> {
+        FrameIter {
+            frames: self,
+            front: 0,
+            back: self.len,
+        }
+    }
+
+    fn virtual_rows(&self) -> VirtualRowIter<'_> {
+        VirtualRowIter {
+            frames: self,
+            front: 0,
+            back: self.rows,
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+
+    fn frame(&self, mut index: usize) -> Option<&Frame> {
+        for segment in self.segments.iter() {
+            match segment {
+                FrameSegment::Ordinary(frames) => {
+                    if index < frames.len() {
+                        return frames.get(index);
+                    }
+                    index -= frames.len();
+                }
+                FrameSegment::VirtualRows(rows) => {
+                    if index < rows.frame_len() {
+                        return rows.frame(index);
+                    }
+                    index -= rows.frame_len();
+                }
+            }
+        }
+        None
+    }
+
+    fn virtual_row(&self, mut index: usize) -> Option<&VirtualRowFragment> {
+        for segment in self.segments.iter() {
+            if let FrameSegment::VirtualRows(rows) = segment {
+                if index < rows.len() {
+                    return rows.get(index);
+                }
+                index -= rows.len();
+            }
+        }
+        None
+    }
+}
+
+fn flush_row_run(segments: &mut Vec<FrameSegment>, rows: &mut Vec<VirtualRowFragment>) {
+    if !rows.is_empty() {
+        segments.push(FrameSegment::VirtualRows(RowSequence::from_rows(
+            std::mem::take(rows),
+        )));
+    }
+}
+
+impl RowSequence {
+    fn from_rows(rows: Vec<VirtualRowFragment>) -> Self {
+        let root = rows.into_iter().fold(None, |root, fragment| {
+            merge_rows(root, Some(row_node(fragment, None, None)))
+        });
+        Self {
+            root,
+            identity: Arc::new(()),
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        row_count(&self.root)
+    }
+
+    fn frame_len(&self) -> usize {
+        frame_count(&self.root)
+    }
+
+    pub(crate) fn get(&self, mut index: usize) -> Option<&VirtualRowFragment> {
+        let mut node = self.root.as_deref()?;
+        loop {
+            let left = row_count(&node.left);
+            if index < left {
+                node = node.left.as_deref()?;
+            } else if index == left {
+                return Some(&node.fragment);
+            } else {
+                index -= left + 1;
+                node = node.right.as_deref()?;
+            }
+        }
+    }
+
+    fn frame(&self, mut index: usize) -> Option<&Frame> {
+        let mut node = self.root.as_deref()?;
+        loop {
+            let left = frame_count(&node.left);
+            if index < left {
+                node = node.left.as_deref()?;
+                continue;
+            }
+            index -= left;
+            if index < node.fragment.frames().len() {
+                return node.fragment.frames().get(index);
+            }
+            index -= node.fragment.frames().len();
+            node = node.right.as_deref()?;
+        }
+    }
+
+    fn edited(
+        &self,
+        delta: crate::list::AppliedResidencyDelta,
+        front: Vec<VirtualRowFragment>,
+        back: Vec<VirtualRowFragment>,
+    ) -> Self {
+        assert!(
+            !delta.is_reset(),
+            "reset residency cannot edit a retained sequence"
+        );
+        assert_eq!(front.len(), delta.insert_front());
+        assert_eq!(back.len(), delta.insert_back());
+        let (_, after_front) = split_rows(self.root.clone(), delta.remove_front());
+        let keep = row_count(&after_front).saturating_sub(delta.remove_back());
+        let (middle, _) = split_rows(after_front, keep);
+        let front = RowSequence::from_rows(front).root;
+        let back = RowSequence::from_rows(back).root;
+        Self {
+            root: merge_rows(merge_rows(front, middle), back),
+            identity: Arc::new(()),
+        }
+    }
+
+    pub(crate) fn identity(&self) -> std::sync::Weak<()> {
+        Arc::downgrade(&self.identity)
+    }
+}
+
+fn row_count(node: &Option<Arc<RowNode>>) -> usize {
+    node.as_ref().map_or(0, |node| node.rows)
+}
+
+fn frame_count(node: &Option<Arc<RowNode>>) -> usize {
+    node.as_ref().map_or(0, |node| node.frames)
+}
+
+fn row_priority(key: crate::list::Key) -> u64 {
+    crate::persistent::sequence_priority(key.value())
+}
+
+fn row_node(
+    fragment: VirtualRowFragment,
+    left: Option<Arc<RowNode>>,
+    right: Option<Arc<RowNode>>,
+) -> Arc<RowNode> {
+    let rows = 1 + row_count(&left) + row_count(&right);
+    let frames = fragment.frames().len() + frame_count(&left) + frame_count(&right);
+    Arc::new(RowNode {
+        priority: row_priority(fragment.key()),
+        fragment,
+        left,
+        right,
+        rows,
+        frames,
+    })
+}
+
+fn merge_rows(left: Option<Arc<RowNode>>, right: Option<Arc<RowNode>>) -> Option<Arc<RowNode>> {
+    match (left, right) {
+        (None, right) => right,
+        (left, None) => left,
+        (Some(left), Some(right)) if left.priority >= right.priority => {
+            let merged = merge_rows(left.right.clone(), Some(right));
+            Some(row_node(left.fragment.clone(), left.left.clone(), merged))
+        }
+        (Some(left), Some(right)) => {
+            let merged = merge_rows(Some(left), right.left.clone());
+            Some(row_node(
+                right.fragment.clone(),
+                merged,
+                right.right.clone(),
+            ))
+        }
+    }
+}
+
+fn split_rows(
+    root: Option<Arc<RowNode>>,
+    count: usize,
+) -> (Option<Arc<RowNode>>, Option<Arc<RowNode>>) {
+    let Some(root) = root else {
+        return (None, None);
+    };
+    let left_count = row_count(&root.left);
+    if count <= left_count {
+        let (left, middle) = split_rows(root.left.clone(), count);
+        let right = Some(row_node(root.fragment.clone(), middle, root.right.clone()));
+        (left, right)
+    } else {
+        let (middle, right) = split_rows(root.right.clone(), count.saturating_sub(left_count + 1));
+        let left = Some(row_node(root.fragment.clone(), root.left.clone(), middle));
+        (left, right)
+    }
+}
+
+impl<'a> Iterator for FrameIter<'a> {
+    type Item = &'a Frame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+        let frame = self.frames.frame(self.front);
+        self.front += 1;
+        frame
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back - self.front;
+        (remaining, Some(remaining))
+    }
+}
+
+impl DoubleEndedIterator for FrameIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+        self.back -= 1;
+        self.frames.frame(self.back)
+    }
+}
+
+impl ExactSizeIterator for FrameIter<'_> {}
+
+impl<'a> Iterator for VirtualRowIter<'a> {
+    type Item = &'a VirtualRowFragment;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+        let row = self.frames.virtual_row(self.front);
+        self.front += 1;
+        row
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back - self.front;
+        (remaining, Some(remaining))
+    }
+}
+
+impl DoubleEndedIterator for VirtualRowIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+        self.back -= 1;
+        self.frames.virtual_row(self.back)
+    }
+}
+
+impl ExactSizeIterator for VirtualRowIter<'_> {}
+
+impl<'a> IntoIterator for &'a FrameList {
+    type Item = &'a Frame;
+    type IntoIter = FrameIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl Index<usize> for FrameList {
+    type Output = Frame;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.frame(index).expect("frame index out of bounds")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,8 +522,19 @@ pub(crate) struct ScrollProjection {
     node: composition::tree::NodeId,
     target: interaction::Target,
     viewport: Viewport,
+    geometry_space: ScrollGeometrySpace,
     layer_bounds: Rect,
     residency: ScrollResidency,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScrollGeometrySpace {
+    /// Descendant geometry was authored relative to the commit's resident
+    /// property value and moves by the delta from that value.
+    BaselineRelative,
+    /// Descendant geometry was authored in stable scroll-content coordinates
+    /// and moves by the complete submitted property value.
+    ContentLocal,
 }
 
 #[derive(Clone)]
@@ -145,6 +614,10 @@ impl ScrollProjection {
         self.viewport
     }
 
+    pub(crate) fn geometry_space(&self) -> ScrollGeometrySpace {
+        self.geometry_space
+    }
+
     #[cfg(any(test, feature = "renderer-debug"))]
     pub(crate) fn layer_bounds(&self) -> Rect {
         self.layer_bounds
@@ -214,6 +687,7 @@ impl Proof {
         requested: Option<Requested>,
         rows: Vec<Row>,
         viewport: Viewport,
+        geometry_space: ScrollGeometrySpace,
         required: Rect,
         bounds: Rect,
     ) -> Option<Self> {
@@ -221,7 +695,7 @@ impl Proof {
             return None;
         }
         let baseline = viewport.resolved_scroll();
-        let accepted = Accepted::for_resident(viewport, baseline, required, bounds)?;
+        let accepted = Accepted::for_resident(viewport, baseline, geometry_space, bounds)?;
         let proof = Self {
             node,
             target,
@@ -264,12 +738,17 @@ impl Accepted {
     fn for_resident(
         viewport: Viewport,
         baseline: interaction::Offset,
-        required: Rect,
+        geometry_space: ScrollGeometrySpace,
         bounds: Rect,
     ) -> Option<Self> {
         let rect = viewport.rect();
+        let required = viewport.viewport_content_coverage()?;
         let content = viewport.content();
         let maximum = viewport.max_scroll();
+        let geometry_baseline = match geometry_space {
+            ScrollGeometrySpace::BaselineRelative => baseline,
+            ScrollGeometrySpace::ContentLocal => interaction::Offset::default(),
+        };
         let (minimum_x, maximum_x) = accepted_axis(
             bounds.x(),
             bounds.right(),
@@ -277,7 +756,7 @@ impl Accepted {
             required.x(),
             required.right(),
             content.width(),
-            baseline.x(),
+            geometry_baseline.x(),
             maximum.x(),
         )?;
         let (minimum_y, maximum_y) = accepted_axis(
@@ -287,7 +766,7 @@ impl Accepted {
             required.y(),
             required.bottom(),
             content.height(),
-            baseline.y(),
+            geometry_baseline.y(),
             maximum.y(),
         )?;
         Some(Self {
@@ -406,6 +885,15 @@ fn union_rect(left: Rect, right: Rect) -> Rect {
     )
 }
 
+fn translate_rect_by_offset(rect: Rect, offset: interaction::Offset) -> Rect {
+    Rect::new(
+        rect.x().saturating_add(offset.x()),
+        rect.y().saturating_add(offset.y()),
+        rect.width(),
+        rect.height(),
+    )
+}
+
 fn intersect_rect(left: Rect, right: Rect) -> Option<Rect> {
     let x = left.x().max(right.x());
     let y = left.y().max(right.y());
@@ -461,18 +949,22 @@ impl Layout {
         keymap: keymap::Profile,
     ) -> Self {
         let tree = tree::Layout::new(view);
+        let changes = tree::Changes::default();
         Self::compose_view_tree_with_theme_at(
             view,
             tree.root(),
+            &changes,
             size,
             engine,
             theme,
             frame,
             keymap,
             PopupSurfaces::InFrame,
+            None,
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn compose_composition_with_theme_at(
         composition: &composition::Composition,
         size: Size,
@@ -482,31 +974,71 @@ impl Layout {
         keymap: keymap::Profile,
         popup_surfaces: PopupSurfaces,
     ) -> Self {
-        Self::compose_view_tree_with_theme_at(
-            composition.view(),
-            composition.tree().root(),
+        Self::compose_composition_with_theme_at_reusing(
+            composition,
             size,
             engine,
             theme,
             frame,
             keymap,
             popup_surfaces,
+            None,
         )
     }
 
-    fn compose_view_tree_with_theme_at(
-        view: &view::View,
-        root: &tree::Node,
+    pub(crate) fn compose_composition_with_theme_at_reusing(
+        composition: &composition::Composition,
         size: Size,
         engine: &mut Engine,
         theme: &Theme,
         frame: animation::Frame,
         keymap: keymap::Profile,
         popup_surfaces: PopupSurfaces,
+        previous: Option<&Self>,
+    ) -> Self {
+        Self::compose_view_tree_with_theme_at(
+            composition.view(),
+            composition.tree().root(),
+            composition.changes(),
+            size,
+            engine,
+            theme,
+            frame,
+            keymap,
+            popup_surfaces,
+            previous,
+        )
+    }
+
+    fn compose_view_tree_with_theme_at(
+        view: &view::View,
+        root: &tree::Node,
+        changes: &tree::Changes,
+        size: Size,
+        engine: &mut Engine,
+        theme: &Theme,
+        frame: animation::Frame,
+        keymap: keymap::Profile,
+        popup_surfaces: PopupSurfaces,
+        previous: Option<&Self>,
     ) -> Self {
         let size = size.sanitized();
-        let frames =
-            algorithm::compose_frames(view.root(), root, size, engine, theme, frame, keymap);
+        let composed = algorithm::compose_frames(
+            view.root(),
+            root,
+            changes,
+            previous,
+            size,
+            engine,
+            theme,
+            frame,
+            keymap,
+        );
+        let frames = if composed.row_sequences.is_empty() {
+            FrameList::from_flat(composed.frames, &composed.virtual_row_fragments)
+        } else {
+            FrameList::from_sparse(composed.frames, composed.row_sequences)
+        };
         let chrome = chrome::project(&frames, theme);
         let table_tracks = table::project(&frames);
         let scene_scroll_paths = project_scene_scroll_paths(&frames);
@@ -547,6 +1079,20 @@ impl Layout {
             scroll_projections,
             virtual_list_requests,
             native_popup_owners,
+            residency_deltas: changes.residency_deltas().to_vec(),
+            residency_predecessors: changes
+                .residency_deltas()
+                .iter()
+                .filter(|delta| !delta.is_reset())
+                .filter_map(|delta| {
+                    previous?
+                        .virtual_row_sequence(delta.list())
+                        .cloned()
+                        .map(|rows| (delta.list(), rows))
+                })
+                .collect(),
+            frames_constructed: composed.frames_constructed,
+            frames_reused: composed.frames_reused,
         }
     }
 
@@ -554,8 +1100,56 @@ impl Layout {
         self.size
     }
 
-    pub(crate) fn frames(&self) -> &[Frame] {
+    pub(crate) fn frames(&self) -> &FrameList {
         &self.frames
+    }
+
+    pub(crate) fn virtual_row_fragments(&self) -> VirtualRowIter<'_> {
+        self.frames.virtual_rows()
+    }
+
+    /// Returns the structurally shared row sequence for one virtual list.
+    /// Looking up a list visits only the bounded ordinary/virtual segment
+    /// spine; indexing a row then follows the persistent treap path.
+    pub(crate) fn virtual_row_sequence(&self, list: interaction::Id) -> Option<&RowSequence> {
+        self.frames
+            .segments
+            .iter()
+            .find_map(|segment| match segment {
+                FrameSegment::VirtualRows(rows)
+                    if rows.get(0).is_some_and(|row| row.list() == list) =>
+                {
+                    Some(rows)
+                }
+                FrameSegment::Ordinary(_) | FrameSegment::VirtualRows(_) => None,
+            })
+    }
+
+    pub(crate) fn virtual_row_predecessor(&self, list: interaction::Id) -> Option<&RowSequence> {
+        self.residency_predecessors.get(&list)
+    }
+
+    pub(crate) fn ordinary_frames(&self) -> impl Iterator<Item = &Frame> {
+        self.frames
+            .segments
+            .iter()
+            .filter_map(|segment| match segment {
+                FrameSegment::Ordinary(frames) => Some(frames.iter()),
+                FrameSegment::VirtualRows(_) => None,
+            })
+            .flatten()
+    }
+
+    pub(crate) fn residency_deltas(&self) -> &[crate::list::AppliedResidencyDelta] {
+        &self.residency_deltas
+    }
+
+    pub(crate) fn frames_constructed(&self) -> usize {
+        self.frames_constructed
+    }
+
+    pub(crate) fn frames_reused(&self) -> usize {
+        self.frames_reused
     }
 
     pub(crate) fn overflow_tip_for_target(&self, target: &interaction::Target) -> Option<&str> {
@@ -607,6 +1201,46 @@ impl Layout {
             .get(&node)
             .map(Vec::as_slice)
             .unwrap_or(&[])
+    }
+
+    /// Fixed submitted coverage for a retained fragment. Content-local row
+    /// bodies carry their viewport clip in local layout coordinates, so the
+    /// outer commit clip is reconstructed from the owning viewport geometry,
+    /// never from the current property value.
+    pub(crate) fn scene_fragment_clip(&self, node: composition::tree::NodeId) -> Option<FrameClip> {
+        let frame = self.frames.iter().find(|frame| frame.node_id() == node)?;
+        let content_local = self.scene_scroll_path(node).iter().rev().find_map(|owner| {
+            self.scroll_projections.iter().find(|projection| {
+                projection.node == *owner
+                    && projection.geometry_space == ScrollGeometrySpace::ContentLocal
+            })
+        });
+        content_local.map_or_else(
+            || frame.clip(),
+            |projection| {
+                let rounding = frame
+                    .clip()
+                    .map_or(scene::Rounding::none(), FrameClip::rounding);
+                Some(FrameClip::rounded(
+                    projection.viewport.visible_content(),
+                    rounding,
+                ))
+            },
+        )
+    }
+
+    /// A content-local body is clipped by the fixed fragment coverage after
+    /// spatial projection. Baking the viewport clip into the body would move
+    /// that clip with the row and reintroduce a property dependency.
+    pub(crate) fn scene_body_clip(&self, node: composition::tree::NodeId) -> Option<FrameClip> {
+        let frame = self.frames.iter().find(|frame| frame.node_id() == node)?;
+        let content_local = self.scene_scroll_path(node).iter().any(|owner| {
+            self.scroll_projections.iter().any(|projection| {
+                projection.node == *owner
+                    && projection.geometry_space == ScrollGeometrySpace::ContentLocal
+            })
+        });
+        (!content_local).then(|| frame.clip()).flatten()
     }
 
     pub(crate) fn scene_scroll_path_is_drawable(&self, node: composition::tree::NodeId) -> bool {
@@ -744,46 +1378,6 @@ impl Layout {
         found.then_some((maximum, page))
     }
 
-    pub(crate) fn resident_node_ids(
-        &self,
-        scroll: composition::tree::NodeId,
-    ) -> Vec<composition::tree::NodeId> {
-        let Some(projection) = self
-            .scroll_projections
-            .iter()
-            .find(|projection| projection.node == scroll)
-        else {
-            return Vec::new();
-        };
-        let ScrollResidency::Complete(proof) = &projection.residency else {
-            return Vec::new();
-        };
-        let row_roots = proof.requested.as_ref().map_or_else(HashSet::new, |_| {
-            proof
-                .rows
-                .iter()
-                .map(|row| row.node)
-                .collect::<HashSet<_>>()
-        });
-        self.frames
-            .iter()
-            .filter(|frame| {
-                if frame.node_id() == scroll {
-                    return true;
-                }
-                if self.scene_scroll_path(frame.node_id()).last() != Some(&scroll) {
-                    return false;
-                }
-                row_roots.is_empty()
-                    || row_roots.contains(&frame.node_id())
-                    || self.frames.iter().any(|root| {
-                        row_roots.contains(&root.node_id()) && frame.is_descendant_of(root)
-                    })
-            })
-            .map(Frame::node_id)
-            .collect()
-    }
-
     pub(crate) fn virtual_resident_node_ids(&self) -> HashSet<composition::tree::NodeId> {
         let roots = self
             .frames
@@ -899,7 +1493,15 @@ impl Layout {
     /// census is shared by surface ownership and overlay scene extraction so
     /// interaction and presentation cannot disagree about the boundary.
     pub(crate) fn root_floating_panels(&self) -> impl Iterator<Item = &Frame> {
-        root_floating_panels(&self.frames)
+        self.frames
+            .iter()
+            .filter(|frame| frame.role() == view::Role::FloatingPanel)
+            .filter(|frame| {
+                !self.frames.iter().any(|candidate| {
+                    candidate.role() == view::Role::FloatingPanel
+                        && frame.is_descendant_of(candidate)
+                })
+            })
     }
 
     pub(crate) fn virtual_list_page(&self, id: interaction::Id, row_height: i32) -> Option<usize> {
@@ -1397,7 +1999,7 @@ impl Layout {
 }
 
 fn project_scene_scroll_paths(
-    frames: &[Frame],
+    frames: &FrameList,
 ) -> HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>> {
     let by_node = frames
         .iter()
@@ -1424,22 +2026,49 @@ fn project_scene_scroll_paths(
 }
 
 fn project_scroll_projections(
-    frames: &[Frame],
+    frames: &FrameList,
     table_tracks: &[table::Track],
     scene_scroll_paths: &HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
 ) -> Vec<ScrollProjection> {
+    let nearest_scroll = |node| {
+        scene_scroll_paths
+            .get(&node)
+            .and_then(|ancestry| ancestry.last())
+            .copied()
+    };
+    let mut descendant_frames = HashMap::<composition::tree::NodeId, Vec<&Frame>>::new();
+    for frame in frames {
+        if let Some(owner) = nearest_scroll(frame.node_id()) {
+            descendant_frames.entry(owner).or_default().push(frame);
+        }
+    }
+    let mut descendant_tracks = HashMap::<composition::tree::NodeId, Vec<&table::Track>>::new();
+    for track in table_tracks {
+        if let Some(owner) = nearest_scroll(track.owner_node()) {
+            descendant_tracks.entry(owner).or_default().push(track);
+        }
+    }
+    let no_frames = Vec::new();
+    let no_tracks = Vec::new();
     frames
         .iter()
         .filter_map(|frame| {
             let viewport = frame.property_scroll_viewport()?;
             let target = frame.target()?.clone();
             let node = frame.node_id();
-            let (layer_bounds, residency) =
-                scroll_layer_geometry(frames, table_tracks, scene_scroll_paths, node, viewport);
+            let geometry_space = frame.scroll_geometry_space();
+            let (layer_bounds, residency) = scroll_layer_geometry(
+                frame,
+                descendant_frames.get(&node).unwrap_or(&no_frames),
+                descendant_tracks.get(&node).unwrap_or(&no_tracks),
+                viewport,
+                geometry_space,
+            );
             Some(ScrollProjection {
                 node,
                 target,
                 viewport,
+                geometry_space,
                 layer_bounds,
                 residency,
             })
@@ -1448,35 +2077,22 @@ fn project_scroll_projections(
 }
 
 fn scroll_layer_geometry(
-    frames: &[Frame],
-    table_tracks: &[table::Track],
-    scene_scroll_paths: &HashMap<composition::tree::NodeId, Vec<composition::tree::NodeId>>,
-    owner: composition::tree::NodeId,
+    owner_frame: &Frame,
+    descendant_frames: &[&Frame],
+    descendant_tracks: &[&table::Track],
     viewport: Viewport,
+    geometry_space: ScrollGeometrySpace,
 ) -> (Rect, ScrollResidency) {
-    let nearest_scroll = |node| {
-        scene_scroll_paths
-            .get(&node)
-            .and_then(|ancestry| ancestry.last())
-            .copied()
-    };
-    let owner_frame = frames.iter().find(|frame| frame.node_id() == owner);
-    let explicit_prepared_bounds =
-        owner_frame.is_some_and(|frame| frame.text_area_layout().is_some());
-    let mut bounds = owner_frame.and_then(|frame| frame.scroll_resident_bounds());
-    for frame in frames
-        .iter()
-        .filter(|frame| frame.node_id() != owner && nearest_scroll(frame.node_id()) == Some(owner))
-    {
+    let owner = owner_frame.node_id();
+    let explicit_prepared_bounds = owner_frame.text_area_layout().is_some();
+    let mut bounds = owner_frame.scroll_resident_bounds();
+    for frame in descendant_frames {
         bounds = Some(union_rect(
             bounds.unwrap_or_else(|| frame.rect()),
             frame.rect(),
         ));
     }
-    for track in table_tracks
-        .iter()
-        .filter(|track| nearest_scroll(track.owner_node()) == Some(owner))
-    {
+    for track in descendant_tracks {
         bounds = Some(union_rect(
             bounds.unwrap_or_else(|| track.rule_rect()),
             track.rule_rect(),
@@ -1488,6 +2104,12 @@ fn scroll_layer_geometry(
     let Some(required) = viewport.viewport_content_coverage() else {
         return (visible, ScrollResidency::Empty);
     };
+    let geometry_offset = match geometry_space {
+        ScrollGeometrySpace::BaselineRelative => interaction::Offset::default(),
+        ScrollGeometrySpace::ContentLocal => viewport.resolved_scroll(),
+    };
+    let visible = translate_rect_by_offset(visible, geometry_offset);
+    let required = translate_rect_by_offset(required, geometry_offset);
     // Residency is the content owner's actual prepared runway. Capping this to a
     // fixed fraction of the viewport throws away ready pixels and forces a
     // candidate activation at the artificial boundary, which presents as an
@@ -1498,25 +2120,19 @@ fn scroll_layer_geometry(
     } else {
         bounds.map_or(visible, |bounds| union_rect(bounds, visible))
     };
-    let virtual_request = frames
-        .iter()
-        .find(|frame| frame.node_id() == owner)
-        .and_then(Frame::virtual_list_request);
+    let virtual_request = owner_frame.virtual_list_request();
     let residency = match virtual_request {
         Some(request) if !request.range().is_empty() => {
             let requested = request.range();
             let expected_keys = requested
                 .clone()
-                .map(|index| owner_frame?.virtual_list_key_at(index))
+                .map(|index| owner_frame.virtual_list_key_at(index))
                 .collect::<Option<Vec<_>>>();
-            let rows = frames
+            let rows = descendant_frames
                 .iter()
                 .filter_map(|frame| {
                     let row = frame.provided_row()?;
-                    (row.list() == request.id()
-                        && requested.contains(&row.index())
-                        && nearest_scroll(frame.node_id()) == Some(owner))
-                    .then_some(Row {
+                    (row.list() == request.id() && requested.contains(&row.index())).then_some(Row {
                         node: frame.node_id(),
                         list: row.list(),
                         key: row.key(),
@@ -1541,12 +2157,7 @@ fn scroll_layer_geometry(
                     Err(reason) => {
                         ScrollResidency::Incomplete(IncompleteResidency::new(reason))
                     }
-                    Ok(rows) => match frames
-                        .iter()
-                        .find(|frame| frame.node_id() == owner)
-                        .and_then(Frame::target)
-                        .cloned()
-                    {
+                    Ok(rows) => match owner_frame.target().cloned() {
                         Some(target) => Proof::new(
                             owner,
                             target,
@@ -1556,6 +2167,7 @@ fn scroll_layer_geometry(
                             }),
                             rows.rows,
                             viewport,
+                            geometry_space,
                             required,
                             rows.bounds,
                         )
@@ -1584,10 +2196,8 @@ fn scroll_layer_geometry(
             request.id(),
             request.range(),
         ))),
-        None => frames
-            .iter()
-            .find(|frame| frame.node_id() == owner)
-            .and_then(Frame::target)
+        None => owner_frame
+            .target()
             .cloned()
             .and_then(|target| {
                 Proof::new(
@@ -1596,6 +2206,7 @@ fn scroll_layer_geometry(
                     None,
                     Vec::new(),
                     viewport,
+                    geometry_space,
                     required,
                     layer_bounds,
                 )
@@ -1732,7 +2343,7 @@ fn exact_virtual_residency(
     })
 }
 
-fn root_floating_panels(frames: &[Frame]) -> impl Iterator<Item = &Frame> {
+fn root_floating_panels(frames: &FrameList) -> impl Iterator<Item = &Frame> {
     frames
         .iter()
         .filter(|frame| frame.role() == view::Role::FloatingPanel)

@@ -80,6 +80,7 @@ renderer_debug bench <case> <iterations>
 renderer_debug scroll-bench-list
 renderer_debug scroll-bench <workload> [warmup samples]
 renderer_debug residency-crossing-work [text|table|virtual-list] [scale]
+renderer_debug residency-jump-work [table|virtual-list] [scale]
 ```
 
 Use `cargo run --release -p renderer_debug -- <arguments>` to invoke them.
@@ -111,6 +112,9 @@ window dimensions, and anchor-correction counters. Run both in release mode.
 resident property tick for text, table, and virtual-list payloads. It verifies
 exact retained output, attaches CPU and GPU work to the selected property
 generation, and defaults to the fractional scale 1.25.
+`residency-jump-work` drives a disjoint list/table page jump and requires
+recycled presentation slots to bound GPU resource creation, replacement, and
+removal instead of rebuilding the resident page's resource identity.
 
 `work`, `retention`, `partial-update`, and `churn` expose semantic work rather
 than elapsed time alone: node realization, primitive and text preparation,

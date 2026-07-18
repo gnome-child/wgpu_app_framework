@@ -234,6 +234,42 @@ fn retired_duplicate_node_does_not_report_a_still_present_table_cell_removed() {
 }
 
 #[test]
+fn recycled_list_slot_preserves_row_and_cell_nodes_across_logical_rebind() {
+    let mut store = composition::Store::default();
+    let window = window::Id::new(1);
+    let slot = crate::list::Slot::from_test_value(7);
+
+    let first = store.install(window, recycled_table_row_view(slot, 10, "Record 10"));
+    let first_row = first.tree().root().children()[0].children()[0].node_id();
+    let first_cell = first.tree().root().children()[0].children()[0].children()[0].node_id();
+
+    let rebound = store.install(window, recycled_table_row_view(slot, 90, "Record 90"));
+    let rebound_row = rebound.tree().root().children()[0].children()[0].node_id();
+    let rebound_cell = rebound.tree().root().children()[0].children()[0].children()[0].node_id();
+
+    assert_eq!(
+        rebound_row, first_row,
+        "the recycled row slot is presentation identity"
+    );
+    assert_eq!(
+        rebound_cell, first_cell,
+        "stable structure inside the recycled slot must retain renderer identity"
+    );
+    assert!(rebound.changes().added().is_empty());
+    assert!(rebound.changes().removed().is_empty());
+    assert_eq!(rebound.changes().departed(), &[first_row, first_cell]);
+    assert_eq!(
+        rebound.changes().removed_table_cells(),
+        &[crate::table::Cell::new(
+            interaction::Id::new("recycled.table"),
+            crate::list::Key::new(10),
+            interaction::Id::new("name"),
+        )],
+        "logical table state must retire while presentation identity is recycled"
+    );
+}
+
+#[test]
 fn removed_idless_text_box_reports_its_focus_element_for_draft_pruning() {
     let mut store = composition::Store::default();
     let window = window::Id::new(1);
@@ -416,4 +452,15 @@ fn anonymous_button_view() -> View {
     View::new(view::Node::root().child(widget::Widget::into_node(
         widget::Button::new("Run").trigger::<Ping>(()),
     )))
+}
+
+fn recycled_table_row_view(slot: crate::list::Slot, key: u64, label: &'static str) -> View {
+    let table = interaction::Id::new("recycled.table");
+    let column = interaction::Id::new("name");
+    let key = crate::list::Key::new(key);
+    let cell = crate::table::Cell::new(table, key, column);
+    let row = view::Node::stack(view::Axis::Horizontal)
+        .with_provided_row(table, key, slot, key.value() as usize)
+        .child(view::Node::label(label).with_table_cell(cell));
+    View::new(view::Node::root().child(view::Node::stack(view::Axis::Vertical).child(row)))
 }

@@ -1,6 +1,6 @@
 use super::*;
 
-use std::{cell::Cell, rc::Rc, sync::Arc};
+use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc};
 
 const TEXT_TARGET: &str = "residency.text";
 const TABLE_TARGET: &str = "residency.table";
@@ -96,6 +96,10 @@ impl crate::table::Provider for TableRows {
 
     fn item_revision(&self, _index: usize) -> u64 {
         0
+    }
+
+    fn residency_revision(&self) -> Option<u64> {
+        Some(0)
     }
 
     fn cell(&self, row: usize, cell: crate::table::Cell) -> view::Node {
@@ -214,6 +218,109 @@ fn snapshot(presentation: &scene::Presentation) -> Snapshot {
         maximum: projection.viewport().max_scroll(),
         viewport_height: projection.viewport().rect().height(),
     }
+}
+
+#[test]
+fn residency_candidates_preserve_overlapping_table_cell_local_geometry_and_scene_keys() {
+    let mut fixture = fixture(Payload::Table);
+    let window = fixture.app.session().windows()[0].id();
+    let size = logical_size(1_000);
+    let initial = fixture
+        .app
+        .show_scene(window, size)
+        .expect("initial table presentation");
+    let initial_snapshot = snapshot(&initial);
+    let initial_cells = initial
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_cell().is_some())
+        .map(|frame| (frame.node_id(), (frame.rect(), frame.scene_key())))
+        .collect::<HashMap<_, _>>();
+    let initial_fragments = initial
+        .layout()
+        .virtual_row_fragments()
+        .cloned()
+        .collect::<Vec<_>>();
+    let initial_scene_fragment_splices = fixture
+        .app
+        .diagnostics(window)
+        .expect("initial presentation diagnostics")
+        .presentation
+        .scene_row_fragments_spliced;
+    assert!(!initial_cells.is_empty());
+
+    let crossing = interaction::Offset::new(
+        initial_snapshot.accepted.1.x(),
+        initial_snapshot
+            .accepted
+            .1
+            .y()
+            .saturating_add(1)
+            .min(initial_snapshot.maximum.y()),
+    );
+    assert!(!initial_snapshot.residency.accepts(crossing));
+    fixture
+        .app
+        .handle_input(
+            window,
+            Input::scroll_to(initial_snapshot.target.clone(), crossing),
+        )
+        .expect("crossing request");
+    let candidate = fixture
+        .app
+        .show_scene(window, size)
+        .expect("residency candidate");
+
+    let shared_fragments = candidate
+        .layout()
+        .virtual_row_fragments()
+        .filter(|candidate| {
+            initial_fragments.iter().any(|initial| {
+                initial.root() == candidate.root() && initial.shares_storage_with(candidate)
+            })
+        })
+        .count();
+    assert!(
+        shared_fragments > 0,
+        "overlap did not retain row fragment storage"
+    );
+    assert!(candidate.layout().frames_reused() > 0);
+    assert!(candidate.layout().frames_constructed() < candidate.layout().frames().len());
+    let candidate_diagnostics = fixture
+        .app
+        .diagnostics(window)
+        .expect("candidate presentation diagnostics");
+    assert!(
+        candidate_diagnostics
+            .presentation
+            .scene_row_fragments_spliced
+            > initial_scene_fragment_splices,
+        "overlap layout storage was retained but its scene fragments were not spliced"
+    );
+
+    let mut overlaps = 0_usize;
+    for frame in candidate
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_cell().is_some())
+    {
+        let Some((rect, key)) = initial_cells.get(&frame.node_id()) else {
+            continue;
+        };
+        overlaps = overlaps.saturating_add(1);
+        assert_eq!(frame.rect(), *rect, "overlap borrowed the new scroll value");
+        assert_eq!(
+            frame.scene_key(),
+            *key,
+            "overlap changed its semantic scene key across a residency baseline"
+        );
+    }
+    assert!(
+        overlaps > 0,
+        "residency candidate retained no table-cell overlap"
+    );
 }
 
 fn prepare_reverse_baseline(
@@ -483,12 +590,12 @@ fn run_case(payload: Payload, transition: Transition, scale_milli: u32) {
         if transition == Transition::ForwardCrossing {
             let entering_budget = match payload {
                 Payload::Text => 0,
-                Payload::Table => 9,
-                Payload::VirtualList => 3,
+                Payload::Table => 48,
+                Payload::VirtualList => 16,
             };
             assert!(
                 payload_calls <= entering_budget,
-                "one residency crossing may realize only entering rows: payload={payload:?} budget={entering_budget} calls={payload_calls}"
+                "one residency crossing may realize only rows entering its bounded runway: payload={payload:?} budget={entering_budget} calls={payload_calls}"
             );
         }
         let shaped = diagnostics_after
@@ -555,6 +662,11 @@ fn run_case(payload: Payload, transition: Transition, scale_milli: u32) {
             "the first post-crossing tick must not snap geometry to another offset"
         );
     }
+}
+
+#[test]
+fn property_scroll_bypasses_the_presentation_compiler() {
+    run_case(Payload::Table, Transition::ResidentInterior, 1_000);
 }
 
 #[test]
@@ -709,7 +821,7 @@ fn resident_motion_starts_bounded_replenishment_before_the_hard_edge() {
 }
 
 #[test]
-fn required_large_jump_materializes_the_critical_viewport_before_predictive_runway() {
+fn required_large_jump_restores_a_bounded_directional_runway() {
     for payload in [Payload::Table, Payload::VirtualList] {
         let mut fixture = fixture(payload);
         let window = fixture.app.session().windows()[0].id();
@@ -738,8 +850,6 @@ fn required_large_jump_materializes_the_critical_viewport_before_predictive_runw
             .filter_map(|frame| frame.provided_row())
             .count();
         let visible_rows = (initial.viewport_height.max(1) as usize).div_ceil(24);
-        // Two rows of overscan on each side plus one partially intersected row
-        // are the complete critical request; directional runway is separate.
         let critical_row_limit = visible_rows.saturating_add(5);
 
         assert!(!candidate.property_only());
@@ -750,8 +860,23 @@ fn required_large_jump_materializes_the_critical_viewport_before_predictive_runw
             Some(jump)
         );
         assert!(
-            provided_rows <= critical_row_limit,
-            "required {payload:?} jump materialized {provided_rows} rows before first presentation; critical viewport limit is {critical_row_limit}"
+            provided_rows > critical_row_limit,
+            "required {payload:?} jump restored no predictive runway: provided={provided_rows} critical_limit={critical_row_limit}"
+        );
+        assert!(
+            provided_rows <= 80,
+            "required {payload:?} jump exceeded the bounded runway: {provided_rows} rows"
+        );
+        assert!(
+            candidate_snapshot.accepted.1.y().saturating_sub(jump.y()) >= initial.viewport_height,
+            "required {payload:?} jump must leave at least one forward viewport resident: jump={jump:?} accepted={:?}",
+            candidate_snapshot.accepted,
+        );
+        assert!(
+            jump.y().saturating_sub(candidate_snapshot.accepted.0.y())
+                >= initial.viewport_height.div_euclid(2),
+            "required {payload:?} jump must retain a reverse runway after stop/direction changes: jump={jump:?} accepted={:?}",
+            candidate_snapshot.accepted,
         );
     }
 }
@@ -813,13 +938,18 @@ fn consecutive_required_crossings_do_not_accumulate_drawable_table_rows() {
 
     assert!(second_snapshot.residency.accepts(second_offset));
     assert!(
-        second_rows.len() <= first_rows.len().saturating_add(2),
-        "nearby required crossings must not accumulate old drawable rows: first={first_rows:?} second={second_rows:?}"
+        second_rows.len() <= 80,
+        "nearby required crossings must retain the declared runway cap: second={second_rows:?}"
+    );
+    assert!(
+        second_rows.first() > first_rows.first()
+            && first_rows.difference(&second_rows).next().is_some(),
+        "nearby required crossings must retire rows behind the new bounded runway instead of unioning old drawable rows: first={first_rows:?} second={second_rows:?}"
     );
 }
 
 #[test]
-fn control_gallery_required_crossing_does_not_draw_the_retention_cache() {
+fn control_gallery_required_crossing_draws_only_bounded_runway() {
     let mut app = control_gallery::app(control_gallery::State::default());
     app.start();
     let window = app.session().windows()[0].id();
@@ -888,14 +1018,11 @@ fn control_gallery_required_crossing_does_not_draw_the_retention_cache() {
     let (final_snapshot, provided_rows, entering_rows, line_shapes, scene_paints) =
         final_observation.expect("the final required crossing must be observed");
     let visible_rows = (final_snapshot.viewport_height.max(1) as usize).div_ceil(24);
-    // The base request includes two overscan rows on both sides and can retain
-    // a small number of pinned/partially intersected rows. This budget is
-    // deliberately well below the independent 80-row reuse-cache cap.
     let critical_row_limit = visible_rows.saturating_add(8);
 
     assert!(
-        provided_rows <= critical_row_limit,
-        "required table residency must draw only its exact critical rows; retained rows belong to a separate reuse cache: provided={provided_rows} critical_limit={critical_row_limit}"
+        provided_rows > critical_row_limit && provided_rows <= 80,
+        "required table residency must replace its exhausted critical range with one bounded runway: provided={provided_rows} critical_limit={critical_row_limit}"
     );
     assert!(
         entering_rows > 0 && entering_rows < provided_rows,
@@ -907,8 +1034,8 @@ fn control_gallery_required_crossing_does_not_draw_the_retention_cache() {
         entering_rows.saturating_mul(4)
     );
     assert!(
-        scene_paints <= critical_row_limit.saturating_mul(8).saturating_add(64),
-        "candidate scene work must stay proportional to the critical control-gallery rows: paints={scene_paints} critical_rows={critical_row_limit}"
+        scene_paints <= 80_usize.saturating_mul(8).saturating_add(64),
+        "candidate scene work must stay proportional to the bounded control-gallery runway: paints={scene_paints}"
     );
 }
 

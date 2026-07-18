@@ -1,6 +1,6 @@
 # Scrolling engine campaign
 
-Status: **SE-008 CLOSED — SE-009 NEXT**
+Status: **SE-009 IN PROGRESS — RENDERER BATCHING VALIDATED, RUNWAY FIX AWAITS NATIVE VERIFICATION**
 
 Date: 2026-07-17
 
@@ -54,7 +54,7 @@ frame, and residency types.
 | SE-006 — List model/factory lifecycle | **closed** | Mutation touches affected ranges/bindings; realization is limited to entering items; identity and slot lifecycle are distinct. |
 | SE-007 — Private residency/presentation | **closed** | Warm transform-only motion performs zero application-view rebuilds; every selected front retires or is superseded with one latest-intent continuation. |
 | SE-008 — Names and public break | **closed** | Proved names replace old paths in one green migration, with no aliases or compatibility layer. |
-| SE-009 — Performance and closure | next | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
+| SE-009 — Performance and closure | **in progress** | Required CPU/GPU/native protocols meet the frozen gates and the source census reaches a fixed point. |
 
 Every commit must be green. Defaults preserve current appearance unless a
 stage explicitly owns visual policy. The campaign stops only for overlapping
@@ -751,7 +751,243 @@ public forbidden-name hits remain the unrelated file-dialog
 user-observed list chug/chop and the SE-007 native cadence/resource evidence
 remain the first unmet exit and belong wholly to SE-009.
 
-## 15. Resume protocol
+## 15. SE-009 entry evidence: liveness without cadence
+
+The user rebuilt the SE-009 working tree after recycled list slots gained stable
+presentation identity and retained renderer resources gained bounded unowned
+reserves. Fast wheel scrolling and drag scrolling remained live, but the table
+still visibly chopped. The native receipt is
+`control-gallery-500px-idle-1784312823398.txt`, captured on the same 240 Hz
+Windows/DX12 RTX 4070 Ti SUPER environment. Its durable facts are:
+
+- all 181 attempted frames submitted, acquire p95 remained 45 us, and the final
+  candidate/GPU/present serials converged at 147, so the result is neither a
+  surface-acquire stall nor a recurrence of the stranded resident range;
+- 904 scroll inputs produced 868 desired changes, 865 coalesced requests, three
+  direct schedules, 43 selections, and 40 follow-ups, retaining exact selected-
+  front accounting;
+- ordinary warm resident advances often created zero GPU resources, proving the
+  recycle path is active, but they still painted roughly 163--170 nodes,
+  prepared 80--87 primitive batches and 100--108 text resources, and the latest
+  table frame retained 243 draw calls across 88 passes;
+- property-frame draw p50/p95 was 4,010/6,568 us against a 4,167 us refresh
+  interval; overall draw p50/p95 was 4,106/6,629 us, frame-interval p50/p95 was
+  34,995/521,091 us, and 94 of 181 frames missed the renderer deadline;
+- presentation-layout p95 remained 11,836 us and native-event-pass p95 was
+  22,201 us; and
+- one 52-input coalesced candidate accumulated 219 primitive prepares, 279 text
+  prepares, 76,000 content-upload bytes, 435 retained-resource creations, and
+  1,367,777 us input-to-present-submitted latency. The final retained resource
+  count/high-water was 721/1,104 with 1,367 creations and 605 removals.
+
+This receipt rejects resource recycling as a sufficient fix. SE-009 must now
+bound retry/slice accumulation and remove the table's per-cell draw/preparation
+cadence cost while preserving exact old/new-frame coexistence. The clean large-
+text path remains the control.
+
+An SE-009 experiment that replaced inactive typed table text with lightweight
+labels was rejected before landing. Native verification found three semantic
+regressions: read-only cells lost text selection/copy, an editable cell could
+show focus and an I-beam without projecting its caret until typing, and deleting
+an active draft could leave the old value painted until focus left. These are
+source-of-truth violations, not acceptable performance tradeoffs. Read-only
+cells therefore remain real selectable text surfaces, and editable cells retain
+one draft/control state across inactive and active presentation. Shift-range
+selection may make multiple resident rows eligible for batch editing, so SE-009
+may not assume that only one resident cell can require real editor semantics.
+Preparation reuse or batching must sit below those semantics.
+
+## 16. SE-009 table-performance research
+
+The directly applicable guidance is concentrated in framework and retained-
+renderer documentation rather than academic table papers. The one specific
+paper found, Ponomarev's *Implementation of the fast table grid user interface
+element for working with large database tables*, makes scrollbar positioning
+and remote record lookup O(log N) by avoiding database `OFFSET` scans. That is
+useful for nonresident database-backed models, but it does not address this
+campaign's measured in-memory scene-paint, text-preparation, pass, or draw-call
+cost: <https://arxiv.org/abs/1603.01102>.
+
+The mature UI frameworks agree on the widget-layer architecture:
+
+- GTK list views retain only a limited visible set of listitems, recycle them
+  through factory binding, keep logical state in the item/model rather than the
+  recycled widget, support multi-selection, and explicitly retain selectable
+  and editable cells in the data-table style:
+  <https://docs.gtk.org/gtk4/section-list-widget.html> and
+  <https://docs.gtk.org/gtk4/class.SignalListItemFactory.html>.
+- Qt `TableView` recycles visible cell delegates by default, rebinds model
+  properties on reuse, and recommends stable explicit row/column geometry when
+  possible. Its edit delegate is a semantic optimization, not authority for
+  this framework: shift-range batch editing means multiple resident cells may
+  need simultaneous editor state:
+  <https://doc.qt.io/qt-6/qml-qtquick-tableview.html>.
+- WinUI separates the virtualizing layout policy from `ItemsRepeater`, grows a
+  prepared runway during idle time, bounds it with cache lengths, and makes
+  departing elements available to the recycle pool before requesting entering
+  elements. This matches the campaign's list-owned slots and separately capped
+  runway/reserve rather than arguing for a new public scroll abstraction:
+  <https://learn.microsoft.com/en-us/windows/apps/design/layout/attached-layouts>
+  and
+  <https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/items-repeater>.
+- Android and WPF likewise identify inflation/container creation during a frame
+  as a scrolling-jank cause and prescribe recycling, bounded prefetch, simpler
+  item hierarchies/templates, and fewer distinct view types:
+  <https://developer.android.com/topic/performance/vitals/render> and
+  <https://learn.microsoft.com/en-us/dotnet/desktop/wpf/advanced/optimizing-performance-controls>.
+
+The most specific renderer guidance comes from Qt Quick's retained scene graph.
+Its two primary strategies are batching draw calls and retaining geometry on
+the GPU. It uses a table/list as the batching example and warns that a clip
+creates unique renderer state: clipping small items such as text fields, list
+delegates, and table cells prevents batching outside each item. The viewport
+should own the necessary clip while compatible backgrounds, glyphs, and other
+materials batch across cells wherever ordering permits:
+<https://doc.qt.io/qt-6/qtquick-visualcanvas-scenegraph-renderer.html> and
+<https://doc.qt.io/qt-6/qtquick-performance.html>.
+
+These sources reinforce what the latest receipt measures. SE-006/SE-007 already
+bound application realization to entering rows and established slot/resource
+reuse; repeating only those optimizations will not remove 100--108 text prepares
+or 243 draws/88 passes. The next renderer work must therefore:
+
+1. instrument text preparation groups, glyph/surface counts, clip identities,
+   layer transitions, passes, and draws per resident table frame;
+2. prove whether compatible table cell text currently fragments at per-cell
+   clip or resource boundaries;
+3. batch preparation and drawing below the real `TextArea`/`TextBox` controls,
+   preserving selection, copy, caret, draft, IME, focus, accessibility, and
+   multiple-editor state; and
+4. retain the large-text document as the clean control and validate any change
+   against exact pixels plus the campaign's cold/warm work counters.
+
+This rejects another semantic-widget substitution. It also rejects assuming
+the observed CPU wall time around encode/submit/present is GPU execution time;
+GPU timestamp queries or an external GPU trace are required before choosing a
+GPU-bound remedy.
+
+## 17. SE-009 renderer batching and post-transition runway evidence
+
+The retained-renderer work generalized the table finding instead of replacing
+cell controls. One top-level GPU `Renderer` owns one text system for its
+window/surface, including the shared glyph atlas, glyph cache, swash cache, and
+inline shaping cache. The glyphon `TextRenderer` values below that owner are
+prepared vertex batches for unavoidable target/order/spatial segments; they are
+not cell-owned renderers or caches.
+
+The first production crossing diagnostic exposed 33 table text surfaces but 33
+text prepares and 34 glyph batches. Every real cell `TextArea` published a
+unique inner scroll path even though its maximum scroll range was zero. Those
+paths could never translate pixels, but they manufactured distinct renderer
+state and prevented batching just as the Qt guidance predicted. The scene
+spatial compiler now elides only zero-range render paths while input, layout,
+selection, editing, IME, accessibility, and nonzero text scrolling retain their
+real owners. The retained planner also removes the matching no-op scroll draws
+and batches compatible text areas under their common target, spatial binding,
+ordering segment, and shared viewport clip. Composite retained keys preserve
+old/new commit coexistence, and the batch size remains capped at 128 areas.
+
+Clipping is an executable invariant rather than a research note. All table body
+cells in the gallery resolve to exactly one table viewport clip geometry/state;
+the same clip may appear in a small constant number of structural scopes needed
+by table ordering. The production scene reports 12--14 clip events across all
+shared scene scopes, not one clip per cell, and layout plus renderer diagnostics
+fail if unique cell clips or per-cell clip scopes reappear.
+This retains real selectable read-only `TextArea` controls and real editable
+`TextBox` controls beneath a flattened renderer batch.
+
+At 1.25x, the isolated table crossing changed from 33 text prepares/34 glyph
+batches/39 draws/22 passes/167 resources/84 creations to one text prepare/two
+glyph batches/30 draws/eight passes/57 resources/20 creations before the later
+runway adjustment. The disjoint table jump changed from 30 prepares/31 batches/
+40 draws/24 passes/175 resources/15 creations to one prepare/two batches/29
+draws/eight passes/59 resources/three creations. Exact entering pixels and the
+first property-tick nested table text passed at the supported scales.
+
+The user's next native verification produced a major renderer improvement and
+two new receipts:
+
+- `control-gallery-500px-idle-1784317329328.txt`: draw p95 fell to 2,056 us,
+  property draw p95 to 2,174 us, eight of 449 frames missed the renderer
+  deadline, and no property frame missed it. The latest frame used one text
+  prepare, 28 glyph batches, 146 draws, eight passes, 12 clip events, and 377
+  retained resources.
+- `control-gallery-500px-idle-1784317515595.txt`: draw p95 fell to 1,745 us,
+  property draw p95 to 2,007 us, 15 of 761 frames missed the renderer deadline,
+  and three property frames missed it. The latest frame used one text prepare,
+  27 glyph batches, 143 draws, eight passes, 12 clip events, and 377 retained
+  resources.
+
+The comparison receipt immediately before zero-range spatial elision,
+`control-gallery-500px-idle-1784316042802.txt`, recorded draw p95 of 8,363 us,
+124 renderer deadline misses in 218 frames, 95 glyph batches, 199 draws, 88
+passes, and 683 retained resources. The new receipts therefore validate the
+shared renderer/batching/clipping direction, but the user also identified a
+separate stateful failure: initial straight-down motion is smooth, while
+stopping/restarting, reversing, or dragging the thumb makes later motion chug.
+
+The new traces locate that failure above GPU batching. The two sessions selected
+185 and 308 residency candidates for 841 and 768 scroll inputs, with 177 and 298
+follow-ups and 190 and 312 full layout recompositions. In the reverse trace, a
+new full residency was selected about every two inputs while the desired offset
+remained roughly 700--900 pixels beyond the resident offset. The required
+crossing path had replaced the prepared directional runway with only the
+critical viewport plus two-row overscan. At 240 Hz subsequent input outran that
+tiny range before proactive preparation could recover, leaving residency in a
+permanent chase. This is why the degradation persisted after the initiating
+stop, reversal, or drag.
+
+The older policy that a required jump should present the critical viewport
+before preparing runway is rejected by this native evidence. Required and
+proactive virtual-list preparation now use the same bounded directional runway,
+still capped at 80 rows; each new materialization replaces rather than unions
+the prior drawable range. Deterministic witnesses require at least one forward
+viewport and one-half reverse viewport after a required jump. Initial release
+measurements at 1.25x are bounded:
+
+- table hard crossing: 3,075 us candidate CPU, 12 entering rows/36 cell binds,
+  60 text surfaces, one text prepare, two glyph batches, 44 draws, eight passes,
+  14 clip events, and 71 resources;
+- disjoint table jump: 6,241 us candidate CPU, 25 rows/75 cell binds, 75 text
+  surfaces, one text prepare, two glyph batches, 51 draws, eight passes, 14 clip
+  events, and 103 resources; and
+- virtual-list crossing/jump: 597/917 us candidate CPU and 12/26 entering rows.
+
+Every immediate post-crossing property tick performs zero scene rebuild,
+primitive preparation, text preparation/shaping, content upload, resource churn,
+or plan rebuild. Native verification is still required to prove that restoring
+runway eliminates the post-transition candidate chase without introducing an
+unacceptable jump hitch.
+
+The user subsequently reported that scrolling the table still hangs the whole
+UI and identified the renderer architecture as the likely block. No newer native
+receipt accompanied that report, so the last durable renderer counters remain
+the 1.7--2.1 ms draw p95 observations above. A whole-UI stall with those draw
+times instead strengthens the synchronous CPU-presentation finding: required
+residency still rematerializes the installed view, reconciles composition,
+performs a full layout pass, and assembles/paints the changed scene inside the
+native redraw/event path. The 12--15 ms presentation-layout/scene-assembly p95
+and 30--63 ms native-event-pass p95 already exceed the 240 Hz refresh budget
+before GPU drawing begins.
+
+SE-009 therefore treats retained GPU batching as necessary but insufficient.
+Its next architectural exit is that table/list residency preparation must not
+run an unsliced full subtree layout/scene construction on the UI event path.
+The candidate must be produced as an immutable or incrementally updated resident
+snapshot outside ordinary input dispatch, then admitted atomically through the
+existing complete-pixel presentation boundary. Selection, editing, IME,
+accessibility, hit testing, and the submitted geometry snapshot must continue to
+activate from that same generation; a detached visual-only cache is not an
+acceptable workaround.
+
+Owning a new Cosmic Text renderer remains an evidence-gated option rather than
+the current remedy. Glyphon's single global viewport would become a real limit
+if many simultaneously overflowing/editable cells require independent dynamic
+transforms, but zero-range cells did not require those transforms at all. The
+current result removes false state while retaining the pinned glyphon fork's
+small delta.
+
+## 18. Resume protocol
 
 At every task entrance and after every context compaction:
 

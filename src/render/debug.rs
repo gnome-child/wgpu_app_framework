@@ -154,6 +154,10 @@ pub struct Environment {
     adapter_name: String,
     backend: String,
     device_type: String,
+    driver: String,
+    driver_info: String,
+    vendor: u32,
+    device: u32,
     os: &'static str,
     architecture: &'static str,
 }
@@ -169,6 +173,22 @@ impl Environment {
 
     pub fn device_type(&self) -> &str {
         &self.device_type
+    }
+
+    pub fn driver(&self) -> &str {
+        &self.driver
+    }
+
+    pub fn driver_info(&self) -> &str {
+        &self.driver_info
+    }
+
+    pub fn vendor(&self) -> u32 {
+        self.vendor
+    }
+
+    pub fn device(&self) -> u32 {
+        self.device
     }
 
     pub fn os(&self) -> &str {
@@ -195,6 +215,8 @@ impl Sample {
 pub struct Work {
     scene_node_realization_rebuilds: usize,
     primitive_prepare_calls: usize,
+    glyph_batches: usize,
+    text_surfaces: usize,
     text_prepare_calls: usize,
     text_shape_calls: usize,
     content_upload_bytes: usize,
@@ -230,6 +252,7 @@ pub struct Work {
     draw_passes: usize,
     explicit_copy_commands: usize,
     resource_transition_boundaries: usize,
+    clip_batches: usize,
     opaque_nodes: usize,
     blended_nodes: usize,
     opacity_unclassified_nodes: usize,
@@ -248,6 +271,14 @@ impl Work {
 
     pub fn primitive_prepare_calls(self) -> usize {
         self.primitive_prepare_calls
+    }
+
+    pub fn glyph_batches(self) -> usize {
+        self.glyph_batches
+    }
+
+    pub fn text_surfaces(self) -> usize {
+        self.text_surfaces
     }
 
     pub fn text_prepare_calls(self) -> usize {
@@ -399,6 +430,10 @@ impl Work {
         self.resource_transition_boundaries
     }
 
+    pub fn clip_batches(self) -> usize {
+        self.clip_batches
+    }
+
     pub fn opaque_nodes(self) -> usize {
         self.opaque_nodes
     }
@@ -441,6 +476,8 @@ impl From<render::DrawStats> for Work {
         Self {
             scene_node_realization_rebuilds: stats.scene_node_realization_rebuilds,
             primitive_prepare_calls: stats.quad_prepare_calls,
+            glyph_batches: stats.glyph_batches,
+            text_surfaces: stats.text_surfaces,
             text_prepare_calls: stats.text_prepare_calls,
             text_shape_calls: stats.inline_text_shape_calls + stats.inline_icon_shape_calls,
             content_upload_bytes: stats.content_upload_bytes,
@@ -476,6 +513,7 @@ impl From<render::DrawStats> for Work {
             draw_passes: stats.draw_passes,
             explicit_copy_commands: stats.explicit_copy_commands,
             resource_transition_boundaries: stats.resource_transition_boundaries,
+            clip_batches: stats.clip_batches,
             opaque_nodes: stats.opaque_nodes,
             blended_nodes: stats.blended_nodes,
             opacity_unclassified_nodes: stats.opacity_unclassified_nodes,
@@ -741,6 +779,10 @@ impl Harness {
             adapter_name: adapter.name,
             backend: format!("{:?}", adapter.backend),
             device_type: format!("{:?}", adapter.device_type),
+            driver: adapter.driver,
+            driver_info: adapter.driver_info,
+            vendor: adapter.vendor,
+            device: adapter.device,
             os: std::env::consts::OS,
             architecture: std::env::consts::ARCH,
         }
@@ -2324,7 +2366,7 @@ impl Harness {
         let changed_commit = std::sync::Arc::new(changed_commit);
         let (width, height) = self.physical_extent(first_commit.size());
 
-        let (_, first_stats) = self.candidate.draw_commit_offscreen_debug(
+        let (first_pixels, first_stats) = self.candidate.draw_commit_offscreen_debug(
             &self.context,
             &first_commit,
             &first_properties,
@@ -2342,6 +2384,21 @@ impl Harness {
             self.scale_factor,
             false,
         )?;
+        let (first_after_changed_pixels, _) = self.candidate.draw_commit_offscreen_debug(
+            &self.context,
+            &first_commit,
+            &first_properties,
+            width,
+            height,
+            self.scale_factor,
+            false,
+        )?;
+        if first_after_changed_pixels != first_pixels {
+            return Err(
+                "preparing a changed retained version overwrote the still-owned prior frame"
+                    .to_owned(),
+            );
+        }
         drop(first_properties);
         drop(first_commit);
         let (_, surviving_stats) = self.candidate.draw_commit_offscreen_debug(

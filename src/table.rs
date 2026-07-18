@@ -121,6 +121,12 @@ pub trait Provider {
     /// Revision of the data projected by every cell in one stable row.
     fn item_revision(&self, row: usize) -> u64;
 
+    /// Monotonic revision covering order and every value reachable by
+    /// [`Provider::cell`] during residency-only presentation.
+    fn residency_revision(&self) -> Option<u64> {
+        None
+    }
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -133,6 +139,7 @@ pub struct Source<R> {
     index_of: Rc<dyn Fn(list::Key) -> Option<usize>>,
     record: Rc<dyn Fn(usize) -> R>,
     item_revision: Rc<dyn Fn(usize) -> u64>,
+    residency_revision: Option<u64>,
     records: Option<Rc<[R]>>,
 }
 
@@ -144,6 +151,7 @@ impl<R> Clone for Source<R> {
             index_of: Rc::clone(&self.index_of),
             record: Rc::clone(&self.record),
             item_revision: Rc::clone(&self.item_revision),
+            residency_revision: self.residency_revision,
             records: self.records.clone(),
         }
     }
@@ -163,8 +171,17 @@ impl<R> Source<R> {
             index_of: Rc::new(index_of),
             record: Rc::new(record),
             item_revision: Rc::new(item_revision),
+            residency_revision: None,
             records: None,
         }
+    }
+
+    /// Declares the immutable snapshot generation captured by this source.
+    /// An unchanged value must prove that key order and every projected cell
+    /// value are unchanged.
+    pub fn residency_revision(mut self, revision: u64) -> Self {
+        self.residency_revision = Some(revision);
+        self
     }
 }
 
@@ -198,6 +215,7 @@ where
                 Rc::new(move |index| records[index].clone())
             },
             item_revision: Rc::new(move |_| generation),
+            residency_revision: Some(generation),
             records: Some(records),
         }
     }
@@ -1092,6 +1110,38 @@ impl list::Model for Rows {
             .wrapping_mul(2)
             .wrapping_add(u64::from(self.row_context.is_some()))
     }
+
+    fn residency_revision(&self) -> Option<u64> {
+        let mut revision = self.provider.residency_revision()?;
+        let columns = self.model.columns.borrow();
+        revision = revision
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            .wrapping_add(columns.len() as u64);
+        for column in columns.iter() {
+            for byte in column.id.as_str().bytes() {
+                revision = revision
+                    .wrapping_mul(0x0000_0100_0000_01b3)
+                    .wrapping_add(u64::from(byte));
+            }
+            for component in match column.effective_width() {
+                view::Dimension::Fit => [0, 0, 0],
+                view::Dimension::Flexible { weight, minimum } => {
+                    [1, u64::from(weight), minimum as u64]
+                }
+                view::Dimension::Fixed(value) => [2, value as u64, 0],
+                view::Dimension::Percent(value) => [3, u64::from(value.to_bits()), 0],
+            } {
+                revision = revision
+                    .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                    .wrapping_add(component);
+            }
+        }
+        Some(
+            revision
+                .wrapping_mul(2)
+                .wrapping_add(u64::from(self.row_context.is_some())),
+        )
+    }
 }
 
 impl list::Factory for Rows {
@@ -1212,6 +1262,28 @@ where
             })
     }
 
+    fn residency_revision(&self) -> Option<u64> {
+        let mut revision = self.source.residency_revision?;
+        revision = revision
+            .wrapping_mul(2)
+            .wrapping_add(match self.presentation.get() {
+                Presentation::Compact => 0,
+                Presentation::Expanded => 1,
+            });
+        if let Some(sort) = self.sort.get() {
+            for byte in sort.column.as_str().bytes() {
+                revision = revision
+                    .wrapping_mul(0x0000_0100_0000_01b3)
+                    .wrapping_add(u64::from(byte));
+            }
+            revision = revision.wrapping_mul(2).wrapping_add(match sort.direction {
+                SortDirection::Ascending => 0,
+                SortDirection::Descending => 1,
+            });
+        }
+        Some(revision)
+    }
+
     fn cell(&self, row: usize, cell: Cell) -> view::Node {
         let source_row = self.source_row(row);
         let mut projected = self.projected_record.borrow_mut();
@@ -1293,6 +1365,52 @@ mod tests {
     enum Switch {
         Off,
         On,
+    }
+
+    #[test]
+    fn typed_text_cells_preserve_selectable_read_only_and_editable_control_semantics() {
+        struct Record {
+            value: String,
+        }
+        let read_only = Column::text(
+            "read-only",
+            "Read only",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.value,
+        )
+        .build();
+        let editable = Column::text(
+            "editable",
+            "Editable",
+            view::Dimension::fixed(80),
+            |record: &Record| &record.value,
+        )
+        .editable::<CommitText>(|cell, value| (cell, value))
+        .build();
+        let record = Record {
+            value: "alpha".to_owned(),
+        };
+        let cell = Cell::new(
+            interaction::Id::new("light.table"),
+            list::Key::new(1),
+            interaction::Id::new("value"),
+        );
+
+        let read_only = (read_only.cell)(&record, cell, Presentation::Compact);
+        let editable = (editable.cell)(&record, cell, Presentation::Compact);
+
+        assert_eq!(read_only.role(), view::Role::TextArea);
+        let read_only_model = read_only
+            .text_area_model()
+            .expect("read-only table text remains a selectable text surface");
+        assert_eq!(read_only_model.mode(), text::surface::FieldMode::ReadOnly);
+        assert_eq!(
+            read_only_model.focus(),
+            Some(session::Focus::table_cell(cell))
+        );
+        assert_eq!(read_only.label_text(), Some("alpha"));
+        assert_eq!(editable.role(), view::Role::TextBox);
+        assert!(editable.text_box_model().is_some());
     }
 
     impl From<Switch> for bool {

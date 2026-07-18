@@ -73,6 +73,7 @@ mod tests {
     use wgpu_l3::renderer_debug::{Case, Harness, Work};
 
     const RETAINED_GLOBAL_RESOURCES: usize = 8;
+    const RETAINED_RECYCLE_RESOURCE_LIMIT: usize = 128 * 3;
 
     fn image(pixels: Vec<[f32; 4]>) -> Image {
         Image::new(2, 1, pixels).expect("test image dimensions should match")
@@ -238,11 +239,11 @@ mod tests {
             );
             assert_eq!(receipt.unchanged().opacity_unclassified_nodes(), 0);
             assert!(receipt.recreated().scene_node_realization_rebuilds() > 0);
-            assert_eq!(
-                receipt.retired().gpu_resource_count(),
-                RETAINED_GLOBAL_RESOURCES
+            assert!(receipt.retired().gpu_resource_count() >= RETAINED_GLOBAL_RESOURCES);
+            assert!(
+                receipt.retired().gpu_resource_count()
+                    <= RETAINED_GLOBAL_RESOURCES + RETAINED_RECYCLE_RESOURCE_LIMIT
             );
-            assert!(receipt.retired().gpu_resource_removals() > 0);
         }
 
         let partial = harness
@@ -254,18 +255,16 @@ mod tests {
         assert_eq!(partial.changed().gpu_resource_creations(), 1);
         assert_zero_content_work(partial.surviving());
         assert_eq!(partial.surviving().render_plan_reuses(), 1);
-        assert!(partial.surviving().gpu_resource_removals() > 0);
-        assert_eq!(
-            partial.retired().gpu_resource_count(),
-            RETAINED_GLOBAL_RESOURCES
+        assert!(
+            partial.retired().gpu_resource_count()
+                <= RETAINED_GLOBAL_RESOURCES + RETAINED_RECYCLE_RESOURCE_LIMIT
         );
-        assert!(partial.retired().gpu_resource_removals() > 0);
     }
 
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
     fn retained_scroll_tick_is_pixel_exact_and_reuses_all_content_work() {
-        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+        for scale_factor in [1.0, 1.25, 1.5, 1.75, 2.0] {
             let mut harness =
                 pollster::block_on(Harness::new(scale_factor)).expect("GPU harness should open");
             let receipt = harness.scroll_tick_receipt().unwrap_or_else(|error| {
@@ -616,7 +615,7 @@ mod tests {
     #[test]
     #[ignore = "requires a locally available GPU adapter"]
     fn horizontal_table_scroll_updates_entering_pixels_at_supported_scales() {
-        for scale_factor in [1.0, 1.25, 1.5, 2.0] {
+        for scale_factor in [1.0, 1.25, 1.5, 1.75, 2.0] {
             pollster::block_on(
                 wgpu_l3::diagnostics::compare_control_gallery_horizontal_table_scroll(
                     scale_factor,
@@ -662,12 +661,12 @@ mod tests {
             receipt.post_warm_byte_range().0,
             receipt.post_warm_byte_range().1
         );
-        assert_eq!(
-            receipt.settled().gpu_resource_count(),
-            RETAINED_GLOBAL_RESOURCES
+        assert!(receipt.settled().gpu_resource_count() >= RETAINED_GLOBAL_RESOURCES);
+        assert!(
+            receipt.settled().gpu_resource_count()
+                <= RETAINED_GLOBAL_RESOURCES + RETAINED_RECYCLE_RESOURCE_LIMIT
         );
-        assert!(receipt.settled().gpu_resource_removals() > 0);
-        assert!(receipt.peak_resources() > receipt.settled().gpu_resource_count());
+        assert!(receipt.peak_resources() >= receipt.settled().gpu_resource_count());
         assert!(receipt.peak_bytes() >= receipt.settled().gpu_resource_bytes());
     }
 

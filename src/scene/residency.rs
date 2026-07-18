@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 
 use super::super::{composition, interaction, layout};
-use super::{Commit, Draw, GeometryRevision, TopologyRevision, commit};
+use super::{Commit, GeometryRevision, TopologyRevision, commit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Revision(u64);
@@ -32,6 +32,14 @@ pub(crate) struct Builder<'a> {
     commit: &'a Commit,
     drawable: Arc<Commit>,
     previous: &'a [Residency],
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct BuildStats {
+    pub(crate) layout_frames_visited: usize,
+    pub(crate) drawable_nodes_visited: usize,
+    pub(crate) draw_ops_visited: usize,
+    pub(crate) snapshot_nodes_built: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -158,54 +166,47 @@ impl<'a> Builder<'a> {
         }
     }
 
-    pub(crate) fn build(self, layout: &layout::Layout) -> Result<Arc<[Residency]>, ContractError> {
+    pub(crate) fn build_with_stats(
+        self,
+        layout: &layout::Layout,
+    ) -> Result<(Arc<[Residency]>, BuildStats), ContractError> {
+        let mut stats = BuildStats::default();
         let mut residencies = Vec::new();
         for projection in layout
             .scroll_projections()
             .iter()
             .filter(|projection| projection.is_scene_drawable())
         {
-            if !self
-                .drawable
-                .nodes()
-                .iter()
-                .any(|node| node.id() == projection.node())
-            {
+            if self.drawable.node(projection.node()).is_none() {
                 continue;
             }
             let Some((minimum, maximum)) = projection.accepted_offsets() else {
                 continue;
             };
-            let resident_ids = layout
-                .resident_node_ids(projection.node())
-                .into_iter()
-                .collect::<HashSet<_>>();
-            let nodes = self
-                .drawable
-                .nodes()
-                .iter()
-                .filter(|node| resident_ids.contains(&node.id()))
-                .map(|node| Resident {
+            let Some((resident_ids, resident_draw_order)) =
+                self.drawable.residency_membership(projection.node())
+            else {
+                continue;
+            };
+            let mut nodes = Vec::with_capacity(resident_ids.len());
+            for node_id in resident_ids {
+                stats.drawable_nodes_visited = stats.drawable_nodes_visited.saturating_add(1);
+                let node = self
+                    .drawable
+                    .node(*node_id)
+                    .expect("compiled residency membership names a drawable node");
+                nodes.push(Resident {
                     node: node.id(),
                     content: node.content_revision(),
                     geometry: node.geometry_revision(),
                     topology: node.topology_revision(),
-                })
-                .collect::<Vec<_>>();
-            let draw_order = self.drawable.order().map_or_else(
-                || nodes.iter().map(|resident| resident.node).collect(),
-                |order| {
-                    order
-                        .iter()
-                        .filter_map(|draw| match draw {
-                            Draw::Content { node, .. } if resident_ids.contains(node) => {
-                                Some(*node)
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                },
-            );
+                });
+            }
+            stats.snapshot_nodes_built = stats.snapshot_nodes_built.saturating_add(nodes.len());
+            stats.draw_ops_visited = stats
+                .draw_ops_visited
+                .saturating_add(resident_draw_order.len());
+            let draw_order = resident_draw_order.to_vec();
             let previous = self.previous.iter().find(|residency| {
                 residency.scroll == projection.node()
                     && residency.require_compatible(self.commit).is_ok()
@@ -228,7 +229,7 @@ impl<'a> Builder<'a> {
                 residencies.push(candidate);
             }
         }
-        Ok(Arc::from(residencies.into_boxed_slice()))
+        Ok((Arc::from(residencies.into_boxed_slice()), stats))
     }
 }
 

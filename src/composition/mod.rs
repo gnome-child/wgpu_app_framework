@@ -44,6 +44,35 @@ impl Composition {
         &self.view
     }
 
+    pub(super) fn view_mut(&mut self) -> &mut view::View {
+        &mut self.view
+    }
+
+    pub(super) fn reconcile_residency(
+        &mut self,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        next_node_id: &mut u64,
+    ) -> Changes {
+        let changes = self
+            .tree
+            .reconcile_residency(&self.view, deltas, next_node_id);
+        self.changes = changes.clone();
+        changes
+    }
+
+    pub(super) fn project_residency_state(
+        &mut self,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        interaction: Option<&interaction::Interaction>,
+        focus: Option<session::Focus>,
+    ) -> Changes {
+        self.view
+            .project_residency_retained(deltas, interaction, focus, &self.tree);
+        self.tree
+            .project_residency_scene_state(&self.view, deltas, &mut self.changes);
+        self.changes.clone()
+    }
+
     pub(crate) fn project_transient_state(
         &mut self,
         interaction: Option<&interaction::Interaction>,
@@ -65,7 +94,6 @@ impl Composition {
         &self.tree
     }
 
-    #[cfg(test)]
     pub(crate) fn changes(&self) -> &Changes {
         &self.changes
     }

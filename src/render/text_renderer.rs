@@ -12,6 +12,9 @@ use std::sync::{Arc, Weak};
 
 use thiserror::Error;
 
+const RETAINED_TEXT_RECYCLE_RESERVE: usize = 128;
+const RETAINED_TRANSFORM_RECYCLE_RESERVE: usize = 128;
+
 pub(in crate::render) type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
@@ -26,17 +29,22 @@ pub enum Error {
     MissingRetainedTransform,
 }
 
+// One text system is owned by each top-level GPU `Renderer`. The atlas, glyph cache, and
+// shaping cache are therefore shared by every widget rendered through that window/surface.
+// A `glyphon::TextRenderer` retained below is only a prepared vertex batch for one compatible
+// target/order/spatial segment; it is not a cell-owned renderer or cache.
 pub(in crate::render) struct TextRenderer {
     cache: glyphon::Cache,
     atlas: glyphon::TextAtlas,
     swash_cache: glyphon::SwashCache,
     inline_cache: InlineCache,
-    retained: HashMap<render::retained::ResourceKey, RetainedText>,
+    retained: HashMap<RetainedTextKey, RetainedText>,
+    retained_recycle: Vec<RetainedText>,
     retained_transforms: Vec<RetainedTransformViewport>,
 }
 
 struct RetainedText {
-    owners: Vec<Weak<crate::scene::Node>>,
+    owners: Vec<Weak<crate::scene::Commit>>,
     renderer: glyphon::TextRenderer,
     viewport: glyphon::Viewport,
     has_text: bool,
@@ -55,28 +63,37 @@ struct RetainedTextTransform {
     resolution: [u32; 2],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RetainedTextKey(Arc<[render::retained::ResourceKey]>);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::render) struct RetainedBatch {
-    key: render::retained::ResourceKey,
+    key: RetainedTextKey,
     transform: Option<RetainedTextTransform>,
     render_origin_bits: [u32; 2],
     spatial: crate::scene::SpatialBinding,
 }
 
 impl RetainedBatch {
-    pub(in crate::render) fn translation(self, scroll: [f32; 2]) -> [f32; 2] {
+    pub(in crate::render) fn translation(&self, scroll: [f32; 2]) -> [f32; 2] {
         [
             f32::from_bits(self.render_origin_bits[0]) + scroll[0],
             f32::from_bits(self.render_origin_bits[1]) + scroll[1],
         ]
     }
 
-    pub(in crate::render) fn spatial(self) -> crate::scene::SpatialBinding {
+    pub(in crate::render) fn spatial(&self) -> crate::scene::SpatialBinding {
         self.spatial
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(in crate::render) struct RetainedGlyph<'a> {
+    pub(in crate::render) node: &'a Arc<crate::scene::Node>,
+    pub(in crate::render) content_index: usize,
+    pub(in crate::render) glyph: content::Glyph<'a>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(in crate::render) struct RetainedTextReport {
     pub(in crate::render) batch: Option<RetainedBatch>,
     pub(in crate::render) stats: InlineStats,
@@ -131,6 +148,7 @@ impl TextRenderer {
             swash_cache: glyphon::SwashCache::new(),
             inline_cache: InlineCache::new(),
             retained: HashMap::new(),
+            retained_recycle: Vec::new(),
             retained_transforms: Vec::new(),
         }
     }
@@ -139,9 +157,8 @@ impl TextRenderer {
         &mut self,
         render_context: &render::Context,
         viewport: render::Viewport,
-        node: &Arc<crate::scene::Node>,
-        content_index: usize,
-        glyphs: &[content::Glyph<'_>],
+        commit: &Arc<crate::scene::Commit>,
+        glyphs: &[RetainedGlyph<'_>],
         target_origin: [f32; 2],
         target_size: [f32; 2],
         render_size: [f32; 2],
@@ -150,19 +167,27 @@ impl TextRenderer {
     ) -> Result<RetainedTextReport> {
         let resource_removals = self.prune_retained();
         let transform = retained_transform(viewport, render_size, spatial);
-        let batch = |key| RetainedBatch {
-            key,
+        let batch = |key: &RetainedTextKey| RetainedBatch {
+            key: key.clone(),
             transform,
             render_origin_bits: render_origin.map(f32::to_bits),
             spatial,
         };
-        let key = render::retained::ResourceKey::for_target(
-            node,
-            content_index,
-            0,
-            viewport.scale_factor(),
-            target_origin,
-            target_size,
+        let key = RetainedTextKey(
+            glyphs
+                .iter()
+                .map(|glyph| {
+                    render::retained::ResourceKey::for_target(
+                        glyph.node,
+                        glyph.content_index,
+                        0,
+                        viewport.scale_factor(),
+                        target_origin,
+                        target_size,
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into(),
         );
         if let Some(entry) = self.retained.get_mut(&key) {
             entry.owners.retain(|owner| owner.strong_count() > 0);
@@ -170,24 +195,32 @@ impl TextRenderer {
                 .owners
                 .iter()
                 .filter_map(Weak::upgrade)
-                .any(|owner| Arc::ptr_eq(&owner, node))
+                .any(|owner| Arc::ptr_eq(&owner, commit))
             {
-                entry.owners.push(Arc::downgrade(node));
+                entry.owners.push(Arc::downgrade(commit));
             }
             return Ok(RetainedTextReport {
-                batch: entry.has_text.then(|| batch(key)),
+                batch: entry.has_text.then(|| batch(&key)),
                 resource_removals,
                 ..RetainedTextReport::default()
             });
         }
 
-        let mut renderer = glyphon::TextRenderer::new(
-            &mut self.atlas,
-            render_context.device(),
-            wgpu::MultisampleState::default(),
-            None,
-        );
-        let mut glyph_viewport = glyphon::Viewport::new(render_context.device(), &self.cache);
+        let (mut renderer, mut glyph_viewport, resource_creations) =
+            if let Some(recycled) = self.retained_recycle.pop() {
+                (recycled.renderer, recycled.viewport, 0)
+            } else {
+                (
+                    glyphon::TextRenderer::new(
+                        &mut self.atlas,
+                        render_context.device(),
+                        wgpu::MultisampleState::default(),
+                        None,
+                    ),
+                    glyphon::Viewport::new(render_context.device(), &self.cache),
+                    1,
+                )
+            };
         let target_viewport = render::Viewport::from_logical_area(
             crate::geometry::area::logical(target_size[0], target_size[1]),
             viewport.scale_factor(),
@@ -207,14 +240,14 @@ impl TextRenderer {
             &mut self.swash_cache,
             &mut renderer,
             &glyph_viewport,
-            glyphs,
+            &glyphs.iter().map(|glyph| glyph.glyph).collect::<Vec<_>>(),
             !spatial.is_identity(),
         )?;
         let has_text = report.has_text;
         self.retained.insert(
-            key,
+            key.clone(),
             RetainedText {
-                owners: vec![Arc::downgrade(node)],
+                owners: vec![Arc::downgrade(commit)],
                 renderer,
                 viewport: glyph_viewport,
                 has_text,
@@ -222,17 +255,17 @@ impl TextRenderer {
         );
 
         Ok(RetainedTextReport {
-            batch: has_text.then(|| batch(key)),
+            batch: has_text.then(|| batch(&key)),
             stats: report.stats,
             prepare_calls: 1,
-            resource_creations: 1,
+            resource_creations,
             resource_removals,
         })
     }
 
     pub(in crate::render) fn render_retained(
         &mut self,
-        batch: RetainedBatch,
+        batch: &RetainedBatch,
         spatial_translation: [f32; 2],
         scale_factor: f32,
         pass: &mut wgpu::RenderPass<'_>,
@@ -271,12 +304,14 @@ impl TextRenderer {
     pub(in crate::render) fn retained_resource_count(&self) -> usize {
         self.retained
             .len()
+            .saturating_add(self.retained_recycle.len())
             .saturating_add(self.retained_transforms.len())
     }
 
     pub(in crate::render) fn retained_resource_bytes(&self) -> usize {
         self.retained
             .len()
+            .saturating_add(self.retained_recycle.len())
             .saturating_mul(std::mem::size_of::<RetainedText>())
             .saturating_add(
                 self.retained_transforms
@@ -354,22 +389,37 @@ impl TextRenderer {
                 continue;
             }
 
-            let reusable = self
-                .retained_transforms
-                .iter()
-                .position(|entry| entry.key == key && exclusively_owned_by(&entry.owners, commit));
+            let reusable = self.retained_transforms.iter().position(|entry| {
+                entry.owners.is_empty()
+                    || (entry.key == key && exclusively_owned_by(&entry.owners, commit))
+            });
             if let Some(index) = reusable {
                 let entry = &mut self.retained_transforms[index];
+                let mut uploaded = false;
+                if entry.key.resolution != key.resolution {
+                    entry.viewport.update(
+                        render_context.queue(),
+                        glyphon::Resolution {
+                            width: key.resolution[0],
+                            height: key.resolution[1],
+                        },
+                    );
+                    uploaded = true;
+                }
                 if entry
                     .viewport
                     .update_render_offset(render_context.queue(), offset)
                 {
+                    uploaded = true;
+                }
+                if uploaded {
                     report.property_upload_bytes = report
                         .property_upload_bytes
                         .saturating_add(std::mem::size_of::<[u32; 4]>());
                 }
                 entry.owners.clear();
                 entry.owners.push(Arc::downgrade(commit));
+                entry.key = key;
                 entry.offset = offset;
                 continue;
             }
@@ -417,18 +467,44 @@ impl TextRenderer {
     }
 
     fn prune_retained(&mut self) -> usize {
-        let before = self.retained.len();
-        self.retained
-            .retain(|_, entry| entry.owners.iter().any(|owner| owner.strong_count() > 0));
-        let retained_removed = before.saturating_sub(self.retained.len());
+        let expired = self
+            .retained
+            .iter()
+            .filter_map(|(key, entry)| {
+                entry
+                    .owners
+                    .iter()
+                    .all(|owner| owner.strong_count() == 0)
+                    .then_some(key.clone())
+            })
+            .collect::<Vec<_>>();
+        let mut retained_removed = 0_usize;
+        for key in expired {
+            if let Some(mut entry) = self.retained.remove(&key) {
+                entry.owners.clear();
+                if self.retained_recycle.len() < RETAINED_TEXT_RECYCLE_RESERVE {
+                    self.retained_recycle.push(entry);
+                } else {
+                    retained_removed = retained_removed.saturating_add(1);
+                }
+            }
+        }
         retained_removed.saturating_add(self.prune_retained_transforms())
     }
 
     fn prune_retained_transforms(&mut self) -> usize {
         let before = self.retained_transforms.len();
+        let mut kept_recycle = 0_usize;
         self.retained_transforms.retain_mut(|entry| {
             entry.owners.retain(|owner| owner.strong_count() > 0);
-            !entry.owners.is_empty()
+            if !entry.owners.is_empty() {
+                true
+            } else if kept_recycle < RETAINED_TRANSFORM_RECYCLE_RESERVE {
+                kept_recycle = kept_recycle.saturating_add(1);
+                true
+            } else {
+                false
+            }
         });
         before.saturating_sub(self.retained_transforms.len())
     }

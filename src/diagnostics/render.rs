@@ -1683,6 +1683,52 @@ pub async fn measure_control_gallery_horizontal_table_scroll(
     let viewport = horizontal_frame
         .viewport()
         .ok_or_else(|| "horizontal table frame lost its viewport".to_owned())?;
+    let body_viewport = initial
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| {
+            frame.role() == crate::view::Role::VirtualList && frame.target() == Some(&scroll_target)
+        })
+        .and_then(crate::layout::Frame::viewport)
+        .ok_or_else(|| "horizontal table viewport has no clipped table body".to_owned())?;
+    let table_cells = initial
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_cell().is_some())
+        .collect::<Vec<_>>();
+    let mut unique_cell_clips = Vec::new();
+    for clip in table_cells.iter().filter_map(|frame| frame.clip()) {
+        if !unique_cell_clips.contains(&clip) {
+            unique_cell_clips.push(clip);
+        }
+    }
+    if !unique_cell_clips.is_empty() {
+        return Err(format!(
+            "content-local table cells must not borrow the body viewport clip: unique_cell_clips={} fixed_coverage={:?}",
+            unique_cell_clips.len(),
+            body_viewport.visible_content(),
+        ));
+    }
+    let table_body_clip_count = initial
+        .scene()
+        .primitives()
+        .iter()
+        .filter(|primitive| {
+            matches!(
+                primitive,
+                crate::scene::Primitive::Clip(clip)
+                    if clip.rect() == body_viewport.visible_content()
+            )
+        })
+        .count();
+    if !(1..=4).contains(&table_body_clip_count) || table_body_clip_count >= table_cells.len() {
+        return Err(format!(
+            "table body clip must remain structural instead of repeating per cell: body_clip_scopes={table_body_clip_count} cells={}",
+            table_cells.len(),
+        ));
+    }
     let projection = initial
         .layout()
         .scroll_projections()
@@ -1776,7 +1822,21 @@ pub async fn compare_control_gallery_horizontal_table_scroll(
     scale_factor: f32,
 ) -> Result<(), String> {
     let work = measure_control_gallery_horizontal_table_scroll(scale_factor).await?;
-    require_zero_semantic_property_work("horizontal table property tick", work)
+    require_zero_semantic_property_work("horizontal table property tick", work)?;
+    for (field, observed, maximum) in [
+        ("glyph batches", work.glyph_batches(), 9),
+        ("draw calls", work.draw_calls(), 56),
+        ("draw passes", work.draw_passes(), 9),
+        ("clip batches", work.clip_batches(), 14),
+        ("retained GPU resources", work.gpu_resource_count(), 70),
+    ] {
+        if observed > maximum {
+            return Err(format!(
+                "horizontal table property tick exceeded the renderer-owned {field} budget {maximum}: {observed}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "renderer-debug")]
@@ -2282,17 +2342,26 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             .resident_bounds()
             .ok_or_else(|| format!("slow-scroll step {index} has incomplete virtual residency"))?;
         let layer = projection.layer_bounds();
+        let presented_resident = match projection.geometry_space() {
+            crate::layout::ScrollGeometrySpace::BaselineRelative => resident,
+            crate::layout::ScrollGeometrySpace::ContentLocal => crate::geometry::Rect::new(
+                resident.x().saturating_sub(baseline.x()),
+                resident.y().saturating_sub(baseline.y()),
+                resident.width(),
+                resident.height(),
+            ),
+        };
         if resident.x() < layer.x()
             || resident.y() < layer.y()
             || resident.right() > layer.right()
             || resident.bottom() > layer.bottom()
-            || resident.x() > visible.x()
-            || resident.y() > visible.y()
-            || resident.right() < visible.right()
-            || resident.bottom() < visible.bottom()
+            || presented_resident.x() > visible.x()
+            || presented_resident.y() > visible.y()
+            || presented_resident.right() < visible.right()
+            || presented_resident.bottom() < visible.bottom()
         {
             return Err(format!(
-                "slow-scroll step {index} accepts nonresident pixels: visible={visible:?}, resident={resident:?}, layer={layer:?}"
+                "slow-scroll step {index} accepts nonresident pixels: visible={visible:?}, resident={resident:?}, presented_resident={presented_resident:?}, layer={layer:?}"
             ));
         }
 
@@ -2363,7 +2432,7 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             )?;
         }
 
-        if app.finish_render_report(
+        let retry_requested = app.finish_render_report(
             window,
             candidate.epoch(),
             candidate.invalidation(),
@@ -2371,10 +2440,18 @@ pub async fn compare_control_gallery_slow_scroll(scale_factor: f32) -> Result<()
             candidate.stack(),
             candidate.property_only(),
             RenderReport::new(Duration::ZERO, Duration::ZERO, Instant::now()),
-        ) {
-            return Err(format!(
-                "slow-scroll step {index} successful receipt incorrectly requested a retry"
-            ));
+        );
+        if retry_requested {
+            let redraw_requested = app
+                .session()
+                .window(window)
+                .is_some_and(crate::session::Window::redraw_requested);
+            if redraw_requested {
+                return Err(format!(
+                    "slow-scroll step {index} successful receipt requested an unexplained redraw: accepted_offsets={:?}, baseline={baseline:?}, desired={desired:?}, resident={resident:?}, layer={layer:?}",
+                    projection.accepted_offsets(),
+                ));
+            }
         }
         let next_resident_accepted = app
             .session()

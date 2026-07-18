@@ -58,6 +58,36 @@ impl Store {
             .find(|composition| composition.window() == window)
     }
 
+    pub(crate) fn residency_view_mut(&mut self, window: window::Id) -> Option<&mut view::View> {
+        self.get_mut(window).map(Composition::view_mut)
+    }
+
+    pub(crate) fn reconcile_residency(
+        &mut self,
+        window: window::Id,
+        deltas: &[crate::list::AppliedResidencyDelta],
+    ) -> Option<Changes> {
+        if self.next_node_id == 0 {
+            self.next_node_id = 1;
+        }
+        let index = self.index_of(window)?;
+        let composition = &mut self.compositions[index];
+        Some(composition.reconcile_residency(deltas, &mut self.next_node_id))
+    }
+
+    pub(crate) fn project_residency_state(
+        &mut self,
+        window: window::Id,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        interaction: Option<&crate::interaction::Interaction>,
+        focus: Option<crate::session::Focus>,
+    ) -> Option<Changes> {
+        Some(
+            self.get_mut(window)?
+                .project_residency_state(deltas, interaction, focus),
+        )
+    }
+
     pub(crate) fn remove_window(&mut self, window: window::Id) -> bool {
         let Some(index) = self.index_of(window) else {
             return false;

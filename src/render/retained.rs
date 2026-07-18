@@ -22,6 +22,8 @@ const INITIAL_PROPERTY_CAPACITY: usize = 256;
 const RETAINED_PROPERTY_SLOT_RESERVE: usize = 2;
 const INITIAL_SCROLL_PROPERTY_CAPACITY: usize = 16;
 const RETAINED_SCROLL_PROPERTY_SLOT_RESERVE: usize = 2;
+const RETAINED_SHAPE_RECYCLE_RESERVE: usize = 128;
+const MAX_TEXT_AREAS_PER_PREPARED_BATCH: usize = 128;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -538,6 +540,30 @@ impl std::hash::Hash for TargetSpace {
     }
 }
 
+fn text_batch_spaces_compatible(left: TargetSpace, right: TargetSpace) -> bool {
+    left.origin.map(f32::to_bits) == right.origin.map(f32::to_bits)
+        && left.size.map(f32::to_bits) == right.size.map(f32::to_bits)
+        && left.spatial == right.spatial
+}
+
+fn union_text_target(mut left: TargetSpace, right: TargetSpace) -> TargetSpace {
+    debug_assert!(text_batch_spaces_compatible(left, right));
+    let left_right = left.text_origin[0] + left.text_size[0].max(0.0);
+    let left_bottom = left.text_origin[1] + left.text_size[1].max(0.0);
+    let right_right = right.text_origin[0] + right.text_size[0].max(0.0);
+    let right_bottom = right.text_origin[1] + right.text_size[1].max(0.0);
+    let origin = [
+        left.text_origin[0].min(right.text_origin[0]),
+        left.text_origin[1].min(right.text_origin[1]),
+    ];
+    left.text_origin = origin;
+    left.text_size = [
+        (left_right.max(right_right) - origin[0]).max(1.0),
+        (left_bottom.max(right_bottom) - origin[1]).max(1.0),
+    ];
+    left
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ScrollBinding {
     path: scene::ScrollPathId,
@@ -605,12 +631,36 @@ struct PendingPlan {
     viewport: render::Viewport,
     projection: Projection,
     nodes: HashMap<composition::tree::NodeId, Arc<scene::Node>>,
-    order: Option<Arc<[scene::Draw]>>,
+    order: Option<Arc<[OrderedDraw]>>,
     order_index: usize,
     frames: Vec<PendingFrame>,
     rebuilt_nodes: HashSet<composition::tree::NodeId>,
     property_bindings: Vec<PropertyBinding>,
     stats: render::DrawStats,
+}
+
+#[derive(Clone)]
+struct OrderedDraw {
+    original_index: usize,
+    draw: scene::Draw,
+}
+
+#[derive(Clone, Copy)]
+struct PendingTextBounds {
+    bounds: crate::paint::Rect,
+    spatial: scene::SpatialBinding,
+}
+
+struct PendingGlyph {
+    node: Arc<scene::Node>,
+    content_index: usize,
+    content: scene::Content,
+}
+
+struct PreparedGlyph {
+    node: Arc<scene::Node>,
+    content_index: usize,
+    content: render::scene::PreparedContent,
 }
 
 struct PendingFrame {
@@ -1424,7 +1474,7 @@ fn collect_text_transforms(
             }
             PlanStep::Text(batch) => {
                 let translation = property_bindings.spatial_translation(batch.spatial());
-                transforms.push((*batch, batch.translation(translation)));
+                transforms.push((batch.clone(), batch.translation(translation)));
             }
             PlanStep::Group(group) => {
                 collect_text_transforms(&group.render_batches, property_bindings, transforms);
@@ -1436,6 +1486,230 @@ fn collect_text_transforms(
             }
         }
     }
+}
+
+enum TextOrderClass {
+    Text {
+        bounds: crate::paint::Rect,
+        spatial: scene::SpatialBinding,
+        areas: usize,
+    },
+    Reorderable {
+        bounds: crate::paint::Rect,
+        spatial: scene::SpatialBinding,
+    },
+    Barrier,
+}
+
+fn ordered_draws_for_text_batching(
+    commit: &Arc<scene::Commit>,
+    viewport: render::Viewport,
+    projection: &Projection,
+) -> Option<Arc<[OrderedDraw]>> {
+    let source = commit.order()?;
+    let mut output = Vec::with_capacity(source.len());
+    let mut pending_text = Vec::<(OrderedDraw, PendingTextBounds, usize)>::new();
+    let mut pending_areas = 0_usize;
+    let mut scroll_scopes = Vec::new();
+
+    let flush = |output: &mut Vec<OrderedDraw>,
+                 pending: &mut Vec<(OrderedDraw, PendingTextBounds, usize)>,
+                 pending_areas: &mut usize| {
+        output.extend(pending.drain(..).map(|(draw, _, _)| draw));
+        *pending_areas = 0;
+    };
+
+    for (original_index, draw) in source.iter().cloned().enumerate() {
+        match &draw {
+            scene::Draw::PushScroll { node } => {
+                let is_noop = commit
+                    .node(*node)
+                    .and_then(|owner| owner.scroll())
+                    .is_some_and(|scroll| scroll.maximum().x() == 0 && scroll.maximum().y() == 0);
+                scroll_scopes.push(is_noop);
+                if is_noop {
+                    continue;
+                }
+            }
+            scene::Draw::PopScroll => {
+                let is_noop = scroll_scopes
+                    .pop()
+                    .expect("ordered scene scroll scopes must be balanced");
+                if is_noop {
+                    continue;
+                }
+            }
+            scene::Draw::Content { .. }
+            | scene::Draw::PushClip { .. }
+            | scene::Draw::PopClip
+            | scene::Draw::PushGroup { .. }
+            | scene::Draw::PopGroup => {}
+        }
+        let ordered = OrderedDraw {
+            original_index,
+            draw,
+        };
+        match text_order_class(commit, viewport, projection, &ordered) {
+            TextOrderClass::Text {
+                bounds,
+                spatial,
+                areas,
+            } => {
+                let incompatible_spatial = pending_text
+                    .first()
+                    .is_some_and(|(_, pending, _)| pending.spatial != spatial);
+                let exceeds_limit = !pending_text.is_empty()
+                    && pending_areas.saturating_add(areas) > MAX_TEXT_AREAS_PER_PREPARED_BATCH;
+                if incompatible_spatial || exceeds_limit {
+                    flush(&mut output, &mut pending_text, &mut pending_areas);
+                }
+                pending_areas = pending_areas.saturating_add(areas);
+                pending_text.push((ordered, PendingTextBounds { bounds, spatial }, areas));
+            }
+            TextOrderClass::Reorderable { bounds, spatial } => {
+                let blocks_pending = pending_text.iter().any(|(_, pending, _)| {
+                    pending.spatial != spatial || paint_rects_overlap(pending.bounds, bounds)
+                });
+                if blocks_pending {
+                    flush(&mut output, &mut pending_text, &mut pending_areas);
+                }
+                output.push(ordered);
+            }
+            TextOrderClass::Barrier => {
+                flush(&mut output, &mut pending_text, &mut pending_areas);
+                output.push(ordered);
+            }
+        }
+    }
+    debug_assert!(scroll_scopes.is_empty());
+    flush(&mut output, &mut pending_text, &mut pending_areas);
+    Some(output.into())
+}
+
+fn text_order_class(
+    commit: &Arc<scene::Commit>,
+    viewport: render::Viewport,
+    projection: &Projection,
+    ordered: &OrderedDraw,
+) -> TextOrderClass {
+    let scene::Draw::Content {
+        node,
+        index,
+        projection: content_projection,
+    } = &ordered.draw
+    else {
+        return TextOrderClass::Barrier;
+    };
+    if *content_projection != scene::ContentProjection::Normal {
+        return TextOrderClass::Barrier;
+    }
+    let Some(owner) = commit.node(*node) else {
+        return TextOrderClass::Barrier;
+    };
+    if owner.declares(scene::PropertyKind::Transform) {
+        return TextOrderClass::Barrier;
+    }
+    let Some(content) = owner.content().get(*index) else {
+        return TextOrderClass::Barrier;
+    };
+    let Some((content, _)) = projection.material.projected_content(content) else {
+        return TextOrderClass::Barrier;
+    };
+    let spatial = commit
+        .spatial_topology()
+        .draw_state(ordered.original_index)
+        .map(scene::SpatialPropertyState::spatial)
+        .unwrap_or(scene::SpatialBinding::ROOT);
+    let prepared = render::scene::prepare_content(&content, viewport.scale_factor());
+    let bounds = prepared_content_batch_bounds(&prepared, spatial, viewport.scale_factor());
+    match content {
+        scene::Content::Text(_) | scene::Content::Icon(_) => TextOrderClass::Text {
+            bounds,
+            spatial,
+            areas: 1,
+        },
+        scene::Content::TextViewport(ref text) => TextOrderClass::Text {
+            bounds,
+            spatial,
+            areas: text.surfaces().len().max(1),
+        },
+        scene::Content::Pane(_) => TextOrderClass::Barrier,
+        scene::Content::Quad(_)
+        | scene::Content::Rule(_)
+        | scene::Content::Shadow(_)
+        | scene::Content::Outline(_) => TextOrderClass::Reorderable { bounds, spatial },
+    }
+}
+
+fn prepared_content_batch_bounds(
+    content: &render::scene::PreparedContent,
+    spatial: scene::SpatialBinding,
+    scale_factor: f32,
+) -> crate::paint::Rect {
+    match content {
+        // A resident text viewport clips each surface to its resident surface rect so that
+        // scrolling can expose already-shaped glyphs outside the visible viewport. Reordering
+        // against only the viewport rect would therefore understate the pixels this draw can
+        // cover. Identity-bound viewports retain the ordinary viewport clip.
+        render::scene::PreparedContent::TextViewport(viewport) if !spatial.is_identity() => {
+            viewport
+                .surfaces
+                .iter()
+                .map(|surface| surface.rect)
+                .fold(viewport.rect, crate::paint::union_visual_bounds)
+        }
+        _ => content.bounds(scale_factor),
+    }
+}
+
+fn paint_rects_overlap(left: crate::paint::Rect, right: crate::paint::Rect) -> bool {
+    let left_right = left.origin.x() + left.area.width().max(0.0);
+    let left_bottom = left.origin.y() + left.area.height().max(0.0);
+    let right_right = right.origin.x() + right.area.width().max(0.0);
+    let right_bottom = right.origin.y() + right.area.height().max(0.0);
+    left.origin.x() < right_right
+        && right.origin.x() < left_right
+        && left.origin.y() < right_bottom
+        && right.origin.y() < left_bottom
+}
+
+fn pending_glyph(
+    nodes: &HashMap<composition::tree::NodeId, Arc<scene::Node>>,
+    ordered: &OrderedDraw,
+) -> Option<(PendingGlyph, usize)> {
+    let scene::Draw::Content {
+        node,
+        index,
+        projection,
+    } = &ordered.draw
+    else {
+        return None;
+    };
+    if *projection != scene::ContentProjection::Normal {
+        return None;
+    }
+    let owner = nodes.get(node)?;
+    if owner.declares(scene::PropertyKind::Transform) {
+        return None;
+    }
+    let content = owner.content().get(*index)?;
+    let areas = match content {
+        scene::Content::Text(_) | scene::Content::Icon(_) => 1,
+        scene::Content::TextViewport(text) => text.surfaces().len().max(1),
+        scene::Content::Quad(_)
+        | scene::Content::Rule(_)
+        | scene::Content::Shadow(_)
+        | scene::Content::Pane(_)
+        | scene::Content::Outline(_) => return None,
+    };
+    Some((
+        PendingGlyph {
+            node: Arc::clone(owner),
+            content_index: *index,
+            content: content.clone(),
+        },
+        areas,
+    ))
 }
 
 impl PendingPlan {
@@ -1467,7 +1741,7 @@ impl PendingPlan {
             ],
             spatial: scene::SpatialBinding::ROOT,
         };
-        let order = commit.order().map(|order| Arc::from(order.to_vec()));
+        let order = ordered_draws_for_text_batching(&commit, viewport, &projection);
         Self {
             commit,
             viewport,
@@ -1506,14 +1780,53 @@ impl PendingPlan {
         };
         let started_at = std::time::Instant::now();
         let mut prepared_content = false;
-        while let Some(draw) = order.get(self.order_index) {
-            let draw_index = self.order_index;
+        while let Some(ordered) = order.get(self.order_index) {
+            let draw_index = ordered.original_index;
             self.order_index = self.order_index.saturating_add(1);
+            let draw = &ordered.draw;
             let space = self
                 .frames
                 .last()
                 .expect("retained preparation must keep a root frame")
                 .space;
+            if let Some((first, first_areas)) = pending_glyph(&self.nodes, ordered) {
+                let glyph_space = self
+                    .commit
+                    .spatial_topology()
+                    .draw_state(draw_index)
+                    .map_or(space, |state| space.with_spatial(state));
+                let mut glyphs = vec![(first, glyph_space)];
+                let mut areas = first_areas;
+                while let Some(next) = order.get(self.order_index) {
+                    let Some((glyph, glyph_areas)) = pending_glyph(&self.nodes, next) else {
+                        break;
+                    };
+                    let next_space = self
+                        .commit
+                        .spatial_topology()
+                        .draw_state(next.original_index)
+                        .map_or(space, |state| space.with_spatial(state));
+                    if !text_batch_spaces_compatible(glyph_space, next_space)
+                        || areas.saturating_add(glyph_areas) > MAX_TEXT_AREAS_PER_PREPARED_BATCH
+                    {
+                        break;
+                    }
+                    self.order_index = self.order_index.saturating_add(1);
+                    areas = areas.saturating_add(glyph_areas);
+                    glyphs.push((glyph, next_space));
+                }
+                let target = &mut self
+                    .frames
+                    .last_mut()
+                    .expect("retained preparation must keep a target frame")
+                    .batches;
+                builder.build_glyph_batch(&self.commit, glyphs, target)?;
+                prepared_content = true;
+                if started_at.elapsed() >= budget {
+                    return Ok(false);
+                }
+                continue;
+            }
             match draw {
                 scene::Draw::Content {
                     node,
@@ -1529,6 +1842,7 @@ impl PendingPlan {
                             .expect("retained preparation must keep a target frame")
                             .batches;
                         builder.build_content(
+                            &self.commit,
                             owner,
                             *index,
                             content,
@@ -1787,7 +2101,7 @@ impl PlanBuilder<'_> {
 
     fn build_node(
         &mut self,
-        commit: &scene::Commit,
+        commit: &Arc<scene::Commit>,
         node: &Arc<scene::Node>,
         parent_space: TargetSpace,
         target: &mut Vec<PlanStep>,
@@ -1826,6 +2140,7 @@ impl PlanBuilder<'_> {
                 .content_state(node.id(), index, scene::ContentProjection::Normal)
                 .map_or(body_space, |state| body_space.with_spatial(state));
             self.build_content(
+                commit,
                 node,
                 index,
                 content,
@@ -1935,6 +2250,7 @@ impl PlanBuilder<'_> {
 
     fn build_content(
         &mut self,
+        commit: &Arc<scene::Commit>,
         node: &Arc<scene::Node>,
         content_index: usize,
         content: &scene::Content,
@@ -2005,6 +2321,7 @@ impl PlanBuilder<'_> {
                 target,
             ),
             render::scene::PreparedContent::Text(value) => self.push_glyph(
+                commit,
                 node,
                 content_index,
                 content::Glyph::Text(value),
@@ -2014,6 +2331,7 @@ impl PlanBuilder<'_> {
             render::scene::PreparedContent::TextViewport(value) => {
                 self.stats.text_surfaces += value.surfaces.len();
                 self.push_glyph(
+                    commit,
                     node,
                     content_index,
                     content::Glyph::TextViewport(value),
@@ -2022,6 +2340,7 @@ impl PlanBuilder<'_> {
                 )?;
             }
             render::scene::PreparedContent::Icon(value) => self.push_glyph(
+                commit,
                 node,
                 content_index,
                 content::Glyph::Icon(value),
@@ -2031,6 +2350,124 @@ impl PlanBuilder<'_> {
             render::scene::PreparedContent::Pane(value) => {
                 self.push_pane(node, content_index, realization, value, space, target);
             }
+        }
+        Ok(())
+    }
+
+    fn build_glyph_batch(
+        &mut self,
+        commit: &Arc<scene::Commit>,
+        glyphs: Vec<(PendingGlyph, TargetSpace)>,
+        target: &mut Vec<PlanStep>,
+    ) -> render::Result<()> {
+        let space = glyphs
+            .iter()
+            .map(|(_, space)| *space)
+            .reduce(union_text_target)
+            .expect("a glyph batch must contain at least one text area");
+        let mut prepared = Vec::with_capacity(glyphs.len());
+        for (glyph, _) in glyphs {
+            self.stats.scene_items = self.stats.scene_items.saturating_add(1);
+            let Some((content, _)) = self.projection.material.projected_content(&glyph.content)
+            else {
+                continue;
+            };
+            let content = render::scene::prepare_content(&content, self.viewport.scale_factor());
+            if let render::scene::PreparedContent::TextViewport(viewport) = &content {
+                self.stats.text_surfaces = self
+                    .stats
+                    .text_surfaces
+                    .saturating_add(viewport.surfaces.len());
+            }
+            prepared.push(PreparedGlyph {
+                node: glyph.node,
+                content_index: glyph.content_index,
+                content,
+            });
+        }
+        let retained = prepared
+            .iter()
+            .filter_map(|glyph| {
+                let content = match &glyph.content {
+                    render::scene::PreparedContent::Text(text) => content::Glyph::Text(text),
+                    render::scene::PreparedContent::TextViewport(text) => {
+                        content::Glyph::TextViewport(text)
+                    }
+                    render::scene::PreparedContent::Icon(icon) => content::Glyph::Icon(icon),
+                    render::scene::PreparedContent::Quad(_)
+                    | render::scene::PreparedContent::Rule(_)
+                    | render::scene::PreparedContent::Shadow(_)
+                    | render::scene::PreparedContent::Pane(_)
+                    | render::scene::PreparedContent::Outline(_) => return None,
+                };
+                Some(render::text_renderer::RetainedGlyph {
+                    node: &glyph.node,
+                    content_index: glyph.content_index,
+                    glyph: content,
+                })
+            })
+            .collect::<Vec<_>>();
+        if retained.is_empty() {
+            return Ok(());
+        }
+
+        self.stats.glyph_batches = self.stats.glyph_batches.saturating_add(1);
+        let report = self.text_renderer.prepare_retained(
+            self.render_context,
+            self.viewport,
+            commit,
+            &retained,
+            space.text_origin,
+            space.text_size,
+            space.size,
+            [
+                space.text_origin[0] - space.origin[0],
+                space.text_origin[1] - space.origin[1],
+            ],
+            space.spatial,
+        )?;
+        if report.prepare_calls > 0 {
+            self.rebuilt_nodes
+                .extend(prepared.iter().map(|glyph| glyph.node.id()));
+        }
+        self.stats.text_prepare_calls = self
+            .stats
+            .text_prepare_calls
+            .saturating_add(report.prepare_calls);
+        self.stats.inline_text_cache_hits = self
+            .stats
+            .inline_text_cache_hits
+            .saturating_add(report.stats.text_cache_hits);
+        self.stats.inline_text_cache_misses = self
+            .stats
+            .inline_text_cache_misses
+            .saturating_add(report.stats.text_cache_misses);
+        self.stats.inline_text_shape_calls = self
+            .stats
+            .inline_text_shape_calls
+            .saturating_add(report.stats.text_shape_calls);
+        self.stats.inline_icon_cache_hits = self
+            .stats
+            .inline_icon_cache_hits
+            .saturating_add(report.stats.icon_cache_hits);
+        self.stats.inline_icon_cache_misses = self
+            .stats
+            .inline_icon_cache_misses
+            .saturating_add(report.stats.icon_cache_misses);
+        self.stats.inline_icon_shape_calls = self
+            .stats
+            .inline_icon_shape_calls
+            .saturating_add(report.stats.icon_shape_calls);
+        self.stats.retained_gpu_resource_creations = self
+            .stats
+            .retained_gpu_resource_creations
+            .saturating_add(report.resource_creations);
+        self.stats.retained_gpu_resource_removals = self
+            .stats
+            .retained_gpu_resource_removals
+            .saturating_add(report.resource_removals);
+        if let Some(batch) = report.batch {
+            target.push(PlanStep::Text(batch));
         }
         Ok(())
     }
@@ -2071,6 +2508,7 @@ impl PlanBuilder<'_> {
 
     fn push_glyph(
         &mut self,
+        commit: &Arc<scene::Commit>,
         node: &Arc<scene::Node>,
         content_index: usize,
         glyph: content::Glyph<'_>,
@@ -2081,9 +2519,12 @@ impl PlanBuilder<'_> {
         let report = self.text_renderer.prepare_retained(
             self.render_context,
             self.viewport,
-            node,
-            content_index,
-            &[glyph],
+            commit,
+            &[render::text_renderer::RetainedGlyph {
+                node,
+                content_index,
+                glyph,
+            }],
             space.text_origin,
             space.text_size,
             space.size,
@@ -2561,6 +3002,7 @@ pub(in crate::render) struct Shapes {
     instances: Vec<render::quad::Instance>,
     free: Vec<Range<u32>>,
     entries: HashMap<ResourceKey, Entry>,
+    recycled: Vec<Entry>,
     property_stride: usize,
     bind_group_layout: wgpu::BindGroupLayout,
     property_slots: Vec<PropertySlot>,
@@ -2720,6 +3162,7 @@ impl Shapes {
             instances: Vec::new(),
             free: Vec::new(),
             entries: HashMap::new(),
+            recycled: Vec::new(),
             property_stride,
             bind_group_layout,
             property_slots,
@@ -2771,40 +3214,71 @@ impl Shapes {
                 instance.set_source_rect(source_rect);
             }
         }
-        let range = NonZeroUsize::new(instances.len()).map(|count| self.allocate(count.get()));
-        if let Some(range) = &range {
-            self.instances[range.start as usize..range.end as usize].copy_from_slice(&instances);
-            let required = self.instances.len();
-            if required > self.instance_capacity {
-                self.instance_capacity = required.next_power_of_two();
-                self.instance_buffer =
-                    create_instance_buffer(render_context.device(), self.instance_capacity);
-                let bytes = bytemuck::cast_slice(&self.instances);
-                render_context
-                    .queue()
-                    .write_buffer(&self.instance_buffer, 0, bytes);
-                stats.content_upload_bytes += bytes.len();
-                stats.resource_creations += 1;
-            } else {
-                let bytes = bytemuck::cast_slice(&instances);
-                render_context.queue().write_buffer(
-                    &self.instance_buffer,
-                    range.start as u64 * std::mem::size_of::<render::quad::Instance>() as u64,
-                    bytes,
-                );
-                stats.content_upload_bytes += bytes.len();
-            }
-        }
-        stats.resource_creations += 1;
-        self.entries.insert(
-            key,
+        let mut entry = self.recycled.pop().unwrap_or_else(|| {
+            stats.resource_creations += 1;
             Entry {
-                owners: vec![Arc::downgrade(node)],
-                range: range.clone(),
-            },
-        );
+                owners: Vec::new(),
+                range: None,
+            }
+        });
+        let old_range = entry.range.take();
+        let range = match (NonZeroUsize::new(instances.len()), old_range) {
+            (Some(count), Some(old_range))
+                if (old_range.end - old_range.start) as usize == count.get() =>
+            {
+                Some(old_range)
+            }
+            (Some(count), Some(old_range)) => {
+                self.release(old_range);
+                Some(self.allocate(count.get()))
+            }
+            (Some(count), None) => Some(self.allocate(count.get())),
+            (None, Some(old_range)) => {
+                self.release(old_range);
+                None
+            }
+            (None, None) => None,
+        };
+        self.write_instances(render_context, &instances, range.as_ref(), &mut stats);
+        entry.owners.clear();
+        entry.owners.push(Arc::downgrade(node));
+        entry.range = range.clone();
+        self.entries.insert(key, entry);
 
         (range.map(|range| ShapeBatch { range, binding }), stats)
+    }
+
+    fn write_instances(
+        &mut self,
+        render_context: &render::Context,
+        instances: &[render::quad::Instance],
+        range: Option<&Range<u32>>,
+        stats: &mut SyncStats,
+    ) {
+        let Some(range) = range else {
+            return;
+        };
+        self.instances[range.start as usize..range.end as usize].copy_from_slice(instances);
+        let required = self.instances.len();
+        if required > self.instance_capacity {
+            self.instance_capacity = required.next_power_of_two();
+            self.instance_buffer =
+                create_instance_buffer(render_context.device(), self.instance_capacity);
+            let bytes = bytemuck::cast_slice(&self.instances);
+            render_context
+                .queue()
+                .write_buffer(&self.instance_buffer, 0, bytes);
+            stats.content_upload_bytes += bytes.len();
+            stats.resource_creations += 1;
+        } else {
+            let bytes = bytemuck::cast_slice(instances);
+            render_context.queue().write_buffer(
+                &self.instance_buffer,
+                range.start as u64 * std::mem::size_of::<render::quad::Instance>() as u64,
+                bytes,
+            );
+            stats.content_upload_bytes += bytes.len();
+        }
     }
 
     fn prepare_properties(
@@ -3372,6 +3846,7 @@ impl Shapes {
     pub(in crate::render) fn resource_count(&self) -> usize {
         self.entries
             .len()
+            .saturating_add(self.recycled.len())
             .saturating_add(2)
             .saturating_add(self.property_slots.len().saturating_mul(2))
             .saturating_add(self.scroll_property_slots.len())
@@ -3443,11 +3918,18 @@ impl Shapes {
                     .then_some(*key)
             })
             .collect::<Vec<_>>();
-        for key in &expired {
-            if let Some(entry) = self.entries.remove(key)
-                && let Some(range) = entry.range
-            {
-                self.release(range);
+        let mut removed = 0_usize;
+        for key in expired {
+            if let Some(mut entry) = self.entries.remove(&key) {
+                entry.owners.clear();
+                if self.recycled.len() < RETAINED_SHAPE_RECYCLE_RESERVE {
+                    self.recycled.push(entry);
+                } else {
+                    if let Some(range) = entry.range {
+                        self.release(range);
+                    }
+                    removed = removed.saturating_add(1);
+                }
             }
         }
         let property_slots_before = self.property_slots.len();
@@ -3477,8 +3959,7 @@ impl Shapes {
             }
         });
         SyncStats {
-            resource_removals: expired
-                .len()
+            resource_removals: removed
                 .saturating_add(
                     property_slots_before
                         .saturating_sub(self.property_slots.len())
@@ -3697,6 +4178,88 @@ fn align_up(value: usize, alignment: usize) -> usize {
 mod tests {
     use super::*;
 
+    fn text_batching_commit(second_quad: crate::geometry::Rect) -> Arc<scene::Commit> {
+        let size = crate::geometry::Size::new(80, 40);
+        let clear = scene::Color::rgba(0, 0, 0, 0);
+        let mut next_id = 1_u64;
+        let first = composition::tree::NodeId::layout(&mut next_id);
+        let second = composition::tree::NodeId::layout(&mut next_id);
+        let mut builder = scene::CommitBuilder::new(size, clear);
+        builder.register(
+            first,
+            None,
+            composition::tree::ContentRevision::INITIAL,
+            crate::geometry::Rect::new(0, 0, 20, 20),
+        );
+        builder.register(
+            second,
+            None,
+            composition::tree::ContentRevision::INITIAL,
+            crate::geometry::Rect::new(20, 0, 20, 20),
+        );
+        builder.push_projected_content(
+            first,
+            scene::Content::Quad(scene::Quad::test_new(
+                crate::geometry::Rect::new(0, 0, 20, 20),
+                scene::Color::rgba(20, 20, 20, 255),
+            )),
+            scene::ContentProjection::Normal,
+        );
+        builder.push_projected_content(
+            first,
+            scene::Content::Text(scene::Text::test_new(
+                crate::geometry::Rect::new(2, 2, 16, 16),
+                "first",
+                scene::Color::rgba(255, 255, 255, 255),
+                scene::TextWrap::None,
+            )),
+            scene::ContentProjection::Normal,
+        );
+        builder.push_projected_content(
+            second,
+            scene::Content::Quad(scene::Quad::test_new(
+                second_quad,
+                scene::Color::rgba(30, 30, 30, 255),
+            )),
+            scene::ContentProjection::Normal,
+        );
+        builder.push_projected_content(
+            second,
+            scene::Content::Text(scene::Text::test_new(
+                crate::geometry::Rect::new(22, 2, 16, 16),
+                "second",
+                scene::Color::rgba(255, 255, 255, 255),
+                scene::TextWrap::None,
+            )),
+            scene::ContentProjection::Normal,
+        );
+        let mut retained = HashMap::new();
+        builder.finish(None, &mut retained).unwrap()
+    }
+
+    fn ordered_content_kinds(commit: &Arc<scene::Commit>) -> Vec<&'static str> {
+        let viewport =
+            render::Viewport::from_logical_area(crate::geometry::area::logical(80.0, 40.0), 1.0);
+        let projection = Projection {
+            origin: [0.0, 0.0],
+            material: scene::MaterialProjection::Source,
+        };
+        ordered_draws_for_text_batching(commit, viewport, &projection)
+            .unwrap()
+            .iter()
+            .filter_map(|ordered| {
+                let scene::Draw::Content { node, index, .. } = ordered.draw else {
+                    return None;
+                };
+                match commit.node(node)?.content().get(index)? {
+                    scene::Content::Quad(_) => Some("quad"),
+                    scene::Content::Text(_) => Some("text"),
+                    _ => Some("other"),
+                }
+            })
+            .collect()
+    }
+
     fn binding(value: u64) -> PropertyBinding {
         let mut value = value;
         PropertyBinding {
@@ -3791,6 +4354,21 @@ mod tests {
         assert_eq!(
             plan_property_transfer(&[0], 256, 64, 256),
             PropertyTransfer::Dense
+        );
+    }
+
+    #[test]
+    fn text_batch_order_moves_only_non_overlapping_draws() {
+        let disjoint = text_batching_commit(crate::geometry::Rect::new(20, 0, 20, 20));
+        assert_eq!(
+            ordered_content_kinds(&disjoint),
+            vec!["quad", "quad", "text", "text"]
+        );
+
+        let overlapping = text_batching_commit(crate::geometry::Rect::new(10, 0, 20, 20));
+        assert_eq!(
+            ordered_content_kinds(&overlapping),
+            vec!["quad", "text", "quad", "text"]
         );
     }
 }

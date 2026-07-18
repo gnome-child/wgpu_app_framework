@@ -232,7 +232,62 @@ pub(crate) struct SceneKey {
     label_width: i32,
     shortcut_width: Option<i32>,
     shortcut_content_width: i32,
-    viewport: Option<Viewport>,
+    viewport: Option<ViewportSceneKey>,
+}
+
+/// Property-free portion of `Viewport` that can participate in semantic scene
+/// reuse. Requested and resolved offsets remain property/receipt currencies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ViewportSceneKey {
+    rect: Rect,
+    visible_frame: Rect,
+    visible_content: Rect,
+    content: crate::geometry::Size,
+    maximum: interaction::Offset,
+}
+
+impl From<Viewport> for ViewportSceneKey {
+    fn from(viewport: Viewport) -> Self {
+        Self {
+            rect: viewport.rect(),
+            visible_frame: viewport.visible_frame(),
+            visible_content: viewport.visible_content(),
+            content: viewport.content(),
+            maximum: viewport.max_scroll(),
+        }
+    }
+}
+
+/// PC-001 contract for the row-specific key that replaces the legacy
+/// viewport-coupled `SceneKey` branch in PC-002/PC-003.
+///
+/// Every field is authored by composition, layout, or semantic presentation
+/// state and remains stable across property-only scroll ticks. In particular,
+/// this shape has no requested/resolved scroll value, residency revision,
+/// presentation epoch, or renderer allocation identity. `local_*` geometry is
+/// expressed in the owning scroll content coordinate space; the submitted
+/// spatial snapshot is solely responsible for projecting it to pixels, hit
+/// testing, selection, caret, IME, and accessibility bounds.
+#[allow(
+    dead_code,
+    reason = "PC-001 contract shape is consumed by the PC-002 key divorce"
+)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ContentLocalRowSceneKey {
+    parent: Option<composition::tree::NodeId>,
+    content_revision: composition::tree::ContentRevision,
+    local_rect: Rect,
+    local_active_rect: Rect,
+    local_clip: Option<Clip>,
+    floating_layer: bool,
+    focus_presentation: view::focus::Presentation,
+    selected: bool,
+    active_item: bool,
+    provided_row: view::ProvidedRow,
+    table_row: Option<crate::table::Row>,
+    label_width: i32,
+    shortcut_width: Option<i32>,
+    shortcut_content_width: i32,
 }
 
 impl Frame {
@@ -692,6 +747,16 @@ impl Frame {
         self.path.len()
     }
 
+    pub(super) fn layout_path(&self) -> &path::Path {
+        &self.path
+    }
+
+    pub(super) fn rebased_layout_path(&self, from: &path::Path, to: &path::Path) -> Option<Self> {
+        let mut frame = self.clone();
+        frame.path = self.path.rebased(from, to)?;
+        Some(frame)
+    }
+
     pub(crate) fn node_id(&self) -> composition::tree::NodeId {
         self.node_id
     }
@@ -727,7 +792,7 @@ impl Frame {
                 .binding
                 .as_ref()
                 .map_or(0, |binding| binding.shortcut_content_width),
-            viewport: self.viewport(),
+            viewport: self.viewport().map(ViewportSceneKey::from),
         }
     }
 
@@ -1028,6 +1093,13 @@ impl Frame {
         }
     }
 
+    pub(crate) fn scroll_geometry_space(&self) -> super::ScrollGeometrySpace {
+        match self.content {
+            FrameContent::VirtualList(_) => super::ScrollGeometrySpace::ContentLocal,
+            _ => super::ScrollGeometrySpace::BaselineRelative,
+        }
+    }
+
     pub(crate) fn scroll_resident_bounds(&self) -> Option<Rect> {
         match &self.content {
             FrameContent::Text(
@@ -1076,11 +1148,17 @@ impl Frame {
             return None;
         };
         let viewport = content.geometry.as_ref()?.viewport;
-        Some(
-            content
-                .model
-                .request_for_required_viewport(offset.y(), viewport.rect().height()),
-        )
+        // A required crossing is the recovery point after motion outruns the
+        // active runway. Preparing only the critical viewport here leaves the
+        // next input two overscan rows from another hard edge, so stop/start,
+        // reversal, and thumb motion can enter an endless candidate chase.
+        // Carry the same bounded directional runway as proactive preparation;
+        // the 80-row cap remains the cold-work boundary.
+        Some(content.model.request_for_transition(
+            offset.y(),
+            viewport.rect().height(),
+            viewport.resolved_scroll().y(),
+        ))
     }
 
     pub(crate) fn virtual_row_index_at(&self, point: Point) -> Option<usize> {

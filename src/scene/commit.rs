@@ -299,6 +299,7 @@ pub(crate) struct ScrollDeclaration {
     viewport: geometry::Rect,
     content_bounds: geometry::Rect,
     resident_bounds: geometry::Rect,
+    property_origin: interaction::Offset,
     baseline: interaction::Offset,
     maximum: interaction::Offset,
 }
@@ -473,6 +474,13 @@ impl Commit {
 
     pub(crate) fn spatial_topology(&self) -> &super::spatial::SpatialTopology {
         &self.spatial_topology
+    }
+
+    pub(crate) fn residency_membership(
+        &self,
+        scroll: composition::tree::NodeId,
+    ) -> Option<(&[composition::tree::NodeId], &[composition::tree::NodeId])> {
+        self.spatial_topology.residency_membership(scroll)
     }
 
     pub(crate) fn semantic_projection(
@@ -916,6 +924,14 @@ impl Builder {
             order: Vec::new(),
             material_regions: Vec::new(),
         }
+    }
+
+    pub(crate) fn draw_count(&self) -> usize {
+        self.order.len()
+    }
+
+    pub(crate) fn contains_node(&self, id: composition::tree::NodeId) -> bool {
+        self.node_indices.contains_key(&id)
     }
 
     pub(crate) fn register(
@@ -1869,6 +1885,37 @@ impl ScrollDeclaration {
             viewport,
             content_bounds,
             resident_bounds,
+            property_origin: baseline,
+            baseline,
+            maximum,
+        })
+        .filter(|declaration| declaration.accepts(baseline))
+    }
+
+    /// Declares content whose authored coordinates do not borrow the current
+    /// property value. Residency is still proved at `baseline`, while spatial
+    /// projection translates from the stable zero property origin.
+    pub(crate) fn new_content_local(
+        viewport: geometry::Rect,
+        content_bounds: geometry::Rect,
+        resident_bounds: geometry::Rect,
+        baseline: interaction::Offset,
+        maximum: interaction::Offset,
+    ) -> Option<Self> {
+        (viewport.width() > 0
+            && viewport.height() > 0
+            && content_bounds.width() >= 0
+            && content_bounds.height() >= 0
+            && resident_bounds.width() > 0
+            && resident_bounds.height() > 0
+            && maximum.x() >= 0
+            && maximum.y() >= 0
+            && baseline.lies_within(interaction::Offset::default(), maximum))
+        .then_some(Self {
+            viewport,
+            content_bounds,
+            resident_bounds,
+            property_origin: interaction::Offset::default(),
             baseline,
             maximum,
         })
@@ -1887,6 +1934,10 @@ impl ScrollDeclaration {
         self.baseline
     }
 
+    pub(crate) fn property_origin(self) -> interaction::Offset {
+        self.property_origin
+    }
+
     pub(crate) fn maximum(self) -> interaction::Offset {
         self.maximum
     }
@@ -1894,6 +1945,7 @@ impl ScrollDeclaration {
     fn semantic(self) -> Self {
         Self {
             resident_bounds: self.content_bounds,
+            property_origin: interaction::Offset::default(),
             baseline: interaction::Offset::default(),
             ..self
         }
@@ -1917,8 +1969,8 @@ impl ScrollDeclaration {
             return true;
         }
 
-        let dx = self.baseline.x().saturating_sub(offset.x());
-        let dy = self.baseline.y().saturating_sub(offset.y());
+        let dx = self.property_origin.x().saturating_sub(offset.x());
+        let dy = self.property_origin.y().saturating_sub(offset.y());
         let resident_x = self.resident_bounds.x().saturating_add(dx);
         let resident_y = self.resident_bounds.y().saturating_add(dy);
         resident_x <= required_x
@@ -4075,6 +4127,25 @@ pub(crate) fn renderer_property_economics_fixture_at(
 mod tests {
     use super::super::{Glass, Material};
     use super::*;
+
+    #[cfg(feature = "renderer-debug")]
+    #[test]
+    fn compiled_residency_membership_preserves_nested_scroll_nodes_and_draw_order() {
+        let (commit, _) = renderer_scroll_fixture().expect("scroll fixture");
+        let outer = composition::tree::NodeId::renderer_fixture(41);
+        let inner = composition::tree::NodeId::renderer_fixture(42);
+        let (outer_nodes, outer_draws) = commit
+            .residency_membership(outer)
+            .expect("outer residency membership");
+        let (inner_nodes, inner_draws) = commit
+            .residency_membership(inner)
+            .expect("inner residency membership");
+
+        assert_eq!(outer_nodes, &[outer, inner]);
+        assert_eq!(outer_draws, &[outer, inner, outer, inner]);
+        assert_eq!(inner_nodes, &[inner]);
+        assert_eq!(inner_draws, &[inner, inner]);
+    }
 
     #[cfg(feature = "renderer-debug")]
     #[test]

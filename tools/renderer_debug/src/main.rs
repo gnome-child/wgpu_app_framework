@@ -275,6 +275,30 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 .map_err(|_| "scale must be a positive number".to_owned())?;
             run_residency_crossing_work(payload, scale)
         }
+        [command, payload, scale, physical_height] if command == "residency-crossing-work" => {
+            let payload = wgpu_l3::diagnostics::ResidencyPayload::from_name(payload)
+                .ok_or_else(|| format!("unknown residency payload: {payload}"))?;
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            let physical_height = physical_height
+                .parse::<i32>()
+                .map_err(|_| "physical height must be a positive integer".to_owned())?;
+            run_residency_crossing_work_at_height(payload, scale, physical_height)
+        }
+        [command, payload] if command == "residency-jump-work" => {
+            let payload = wgpu_l3::diagnostics::ResidencyPayload::from_name(payload)
+                .ok_or_else(|| format!("unknown residency payload: {payload}"))?;
+            run_residency_jump_work(payload, 1.25)
+        }
+        [command, payload, scale] if command == "residency-jump-work" => {
+            let payload = wgpu_l3::diagnostics::ResidencyPayload::from_name(payload)
+                .ok_or_else(|| format!("unknown residency payload: {payload}"))?;
+            let scale = scale
+                .parse::<f32>()
+                .map_err(|_| "scale must be a positive number".to_owned())?;
+            run_residency_jump_work(payload, scale)
+        }
         [command] if command == "generation-state-scale-change" => {
             let mut harness = harness(1.0)?;
             let work = harness.compare_scale_change_generation(1.25)?;
@@ -286,7 +310,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(
-            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | table-runway-text [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | residency-crossing-work [text|table|virtual-list] [scale] | generation-state-scale-change"
+            "usage: renderer_debug list | readback <case> <scale> | readback-all | work <case> | retention <case> | partial-update | churn <iterations> | bench <case> <iterations> | scroll-bench-list | scroll-bench <workload> [warmup samples] | table-scroll-work [scale] | table-runway-text [scale] | group-scroll-oracle [scale] | tier-a-scroll-oracle [scale] | tier-a-negative-controls | property-economics | property-generation-skip | residency-crossing-work [text|table|virtual-list] [scale] | residency-jump-work [table|virtual-list] [scale] | generation-state-scale-change"
                 .to_owned(),
         ),
     }
@@ -318,12 +342,21 @@ fn run_residency_crossing_work(
         payload, scale,
     ))?;
     println!(
-        "residency_payload={} scale={} candidate_property_serial={} candidate_cpu_us={} provider_calls={} result=pass",
+        "residency_payload={} scale={} candidate_property_serial={} candidate_cpu_us={} provider_calls={} os={} architecture={} adapter={:?} backend={} device_type={} driver={:?} driver_info={:?} vendor={} device={} result=pass",
         receipt.payload().name(),
         receipt.scale_factor(),
         receipt.candidate_property_serial(),
         receipt.candidate_cpu_us(),
         receipt.provider_calls(),
+        receipt.environment().os(),
+        receipt.environment().architecture(),
+        receipt.environment().adapter_name(),
+        receipt.environment().backend(),
+        receipt.environment().device_type(),
+        receipt.environment().driver(),
+        receipt.environment().driver_info(),
+        receipt.environment().vendor(),
+        receipt.environment().device(),
     );
     print_work("residency-crossing", receipt.crossing_work());
     print_work(
@@ -331,6 +364,63 @@ fn run_residency_crossing_work(
         receipt.post_crossing_property_work(),
     );
     println!("{}", receipt.trace());
+    print!("{}", receipt.integrated_receipt());
+    Ok(())
+}
+
+fn run_residency_crossing_work_at_height(
+    payload: wgpu_l3::diagnostics::ResidencyPayload,
+    scale: f32,
+    physical_height: i32,
+) -> Result<(), String> {
+    let receipt = pollster::block_on(
+        wgpu_l3::diagnostics::measure_residency_crossing_work_at_height(
+            payload,
+            scale,
+            physical_height,
+        ),
+    )?;
+    println!(
+        "residency_payload={} scale={} physical_height={} candidate_cpu_us={} provider_calls={} result=pass",
+        receipt.payload().name(),
+        receipt.scale_factor(),
+        physical_height,
+        receipt.candidate_cpu_us(),
+        receipt.provider_calls(),
+    );
+    print_work("residency-crossing", receipt.crossing_work());
+    println!("{}", receipt.integrated_receipt());
+    Ok(())
+}
+
+fn run_residency_jump_work(
+    payload: wgpu_l3::diagnostics::ResidencyPayload,
+    scale: f32,
+) -> Result<(), String> {
+    let receipt = pollster::block_on(wgpu_l3::diagnostics::measure_residency_jump_work(
+        payload, scale,
+    ))?;
+    println!(
+        "residency_jump_payload={} scale={} candidate_property_serial={} candidate_cpu_us={} provider_calls={} os={} architecture={} adapter={:?} backend={} device_type={} driver={:?} driver_info={:?} vendor={} device={} result=pass",
+        receipt.payload().name(),
+        receipt.scale_factor(),
+        receipt.candidate_property_serial(),
+        receipt.candidate_cpu_us(),
+        receipt.provider_calls(),
+        receipt.environment().os(),
+        receipt.environment().architecture(),
+        receipt.environment().adapter_name(),
+        receipt.environment().backend(),
+        receipt.environment().device_type(),
+        receipt.environment().driver(),
+        receipt.environment().driver_info(),
+        receipt.environment().vendor(),
+        receipt.environment().device(),
+    );
+    print_work("residency-jump", receipt.crossing_work());
+    print_work("post-jump-property", receipt.post_crossing_property_work());
+    println!("{}", receipt.trace());
+    print!("{}", receipt.integrated_receipt());
     Ok(())
 }
 
@@ -496,9 +586,11 @@ fn git_commit() -> String {
 
 fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
     println!(
-        "stage={stage} node_rebuilds={} primitive_prepare_calls={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} property_value_visits={} property_index_lookups={} property_dirty_indices={} property_write_ranges={} property_full_initializations={} property_full_buffer_replacements={} property_full_topology_replacements={} property_full_dense_transfers={} property_full_generation_resyncs={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
+        "stage={stage} node_rebuilds={} primitive_prepare_calls={} glyph_batches={} text_surfaces={} text_prepare_calls={} text_shape_calls={} content_upload_bytes={} property_upload_bytes={} viewport_property_upload_bytes={} node_property_upload_bytes={} scroll_property_upload_bytes={} text_property_upload_bytes={} unattributed_property_upload_bytes={} property_value_visits={} property_index_lookups={} property_dirty_indices={} property_write_ranges={} property_full_initializations={} property_full_buffer_replacements={} property_full_topology_replacements={} property_full_dense_transfers={} property_full_generation_resyncs={} gpu_resources={} gpu_bytes={} gpu_creations={} gpu_replacements={} gpu_removals={} plan_rebuilds={} plan_reuses={} direct_surface_plans={} surface_sampling_plans={} draw_calls={} draw_passes={} explicit_copy_commands={} resource_transition_boundaries={} clip_batches={} opaque_nodes={} blended_nodes={} opacity_unclassified_nodes={} effect_intermediate_clears={} effect_intermediate_clear_bytes={} effect_intermediate_composites={} effect_intermediate_composite_bytes={} largest_effect_intermediate_bytes={} target_bytes={}",
         work.scene_node_realization_rebuilds(),
         work.primitive_prepare_calls(),
+        work.glyph_batches(),
+        work.text_surfaces(),
         work.text_prepare_calls(),
         work.text_shape_calls(),
         work.content_upload_bytes(),
@@ -530,6 +622,7 @@ fn print_work(stage: &str, work: wgpu_l3::renderer_debug::Work) {
         work.draw_passes(),
         work.explicit_copy_commands(),
         work.resource_transition_boundaries(),
+        work.clip_batches(),
         work.opaque_nodes(),
         work.blended_nodes(),
         work.opacity_unclassified_nodes(),

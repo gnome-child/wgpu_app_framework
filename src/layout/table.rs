@@ -4,6 +4,7 @@ use super::super::{
     interaction, view,
 };
 use super::frame::{Clip, Frame};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Axis {
@@ -117,10 +118,6 @@ impl Track {
     #[cfg(test)]
     pub(crate) fn boundary(&self) -> i32 {
         self.boundary
-    }
-
-    pub(crate) fn clip(&self) -> Option<Clip> {
-        self.clip
     }
 
     pub(crate) fn is_floating_layer(&self) -> bool {
@@ -256,16 +253,20 @@ impl Projection {
 }
 
 /// Projects already-resolved table frames into grid tracks; it never allocates track sizes.
-pub(super) fn project(frames: &[Frame]) -> Vec<Track> {
+pub(super) fn project(frames: &super::FrameList) -> Vec<Track> {
     let mut tracks = Vec::new();
     let mut header_rows = Vec::new();
+    let index = frames
+        .iter()
+        .map(|frame| (frame.node_id(), frame))
+        .collect::<HashMap<_, _>>();
 
     for frame in frames {
         if let Some(identity) = frame.table_header_cell() {
-            let Some(table) = owner_table(frame, frames) else {
+            let Some(table) = owner_table(frame, &index) else {
                 continue;
             };
-            let Some(projection) = owner_projection(frame, frames) else {
+            let Some(projection) = owner_projection(frame, &index) else {
                 continue;
             };
             let Some(track) = Track::column(frame, table, projection, identity) else {
@@ -277,10 +278,10 @@ pub(super) fn project(frames: &[Frame]) -> Vec<Track> {
                 header_rows.push(table.node_id());
             }
         } else if frame.table_row().is_some() {
-            let Some(table) = owner_table(frame, frames) else {
+            let Some(table) = owner_table(frame, &index) else {
                 continue;
             };
-            let Some(projection) = owner_projection(frame, frames) else {
+            let Some(projection) = owner_projection(frame, &index) else {
                 continue;
             };
             tracks.push(Track::row(frame, table, projection, frame.rect().bottom()));
@@ -290,19 +291,32 @@ pub(super) fn project(frames: &[Frame]) -> Vec<Track> {
     tracks
 }
 
-fn owner_projection<'a>(frame: &Frame, frames: &'a [Frame]) -> Option<&'a Projection> {
-    frames
-        .iter()
-        .filter(|candidate| frame.is_descendant_of(candidate))
-        .filter_map(Frame::table_projection)
-        .last()
+fn owner_projection<'a>(
+    frame: &Frame,
+    frames: &'a HashMap<composition::tree::NodeId, &'a Frame>,
+) -> Option<&'a Projection> {
+    ancestors(frame, frames).find_map(Frame::table_projection)
 }
 
-fn owner_table<'a>(frame: &Frame, frames: &'a [Frame]) -> Option<&'a Frame> {
-    frames
-        .iter()
-        .filter(|candidate| {
-            candidate.role() == view::Role::Table && frame.is_descendant_of(candidate)
-        })
-        .last()
+fn owner_table<'a>(
+    frame: &Frame,
+    frames: &'a HashMap<composition::tree::NodeId, &'a Frame>,
+) -> Option<&'a Frame> {
+    ancestors(frame, frames).find(|candidate| candidate.role() == view::Role::Table)
+}
+
+fn ancestors<'a>(
+    frame: &Frame,
+    frames: &'a HashMap<composition::tree::NodeId, &'a Frame>,
+) -> impl Iterator<Item = &'a Frame> {
+    std::iter::successors(
+        frame
+            .parent()
+            .and_then(|parent| frames.get(&parent).copied()),
+        move |frame| {
+            frame
+                .parent()
+                .and_then(|parent| frames.get(&parent).copied())
+        },
+    )
 }

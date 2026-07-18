@@ -8,7 +8,7 @@ mod viewport_chrome;
 
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 use crate::icon as icons;
@@ -25,7 +25,7 @@ enum ScrollSample {
     ResidentAccepted,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Layer {
     Base,
     Chrome,
@@ -35,10 +35,19 @@ enum Layer {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct RetainedStats {
     pub(super) commits_created: usize,
+    pub(super) frames_scanned: usize,
     pub(super) nodes_added: usize,
     pub(super) nodes_removed: usize,
     pub(super) node_paints: usize,
     pub(super) node_reuses: usize,
+    pub(super) row_fragment_reuses: usize,
+    pub(super) row_fragment_builds: usize,
+    pub(super) row_roots_visited: usize,
+    pub(super) commit_layout_frames_visited: usize,
+    pub(super) commit_nodes_registered: usize,
+    pub(super) commit_fragments_appended: usize,
+    pub(super) commit_draw_ops_lowered: usize,
+    pub(super) cache_entries_swept: usize,
     pub(super) track_paints: usize,
     pub(super) chrome_paints: usize,
 }
@@ -47,6 +56,8 @@ pub(super) struct Retained {
     theme: Option<Theme>,
     retained_nodes: HashSet<composition::tree::NodeId>,
     frames: HashMap<composition::tree::NodeId, CachedFrame>,
+    row_fragments: HashMap<RowFragmentKey, Arc<CachedRowFragment>>,
+    row_sequences: HashMap<RowSequenceKey, Vec<CachedRowSequence>>,
     tracks: HashMap<(composition::tree::NodeId, usize), CachedTrack>,
     chrome: HashMap<(composition::tree::NodeId, usize), CachedChrome>,
     nodes: HashMap<composition::tree::NodeId, Arc<super::Node>>,
@@ -72,9 +83,9 @@ struct PropertySources {
 struct CachedFrame {
     key: layout::FrameSceneKey,
     visual: super::visual::NodeState,
-    body: Scene,
+    body: Arc<Scene>,
     body_caret: Option<Rule>,
-    scrolled: Option<Scene>,
+    scrolled: Option<Arc<Scene>>,
     scrolled_caret: Option<Rule>,
     late: Vec<viewport_chrome::Projection>,
 }
@@ -82,7 +93,7 @@ struct CachedFrame {
 #[derive(Clone)]
 struct CachedTrack {
     key: layout::table::Track,
-    body: Scene,
+    body: Arc<Scene>,
 }
 
 #[derive(Clone)]
@@ -95,6 +106,7 @@ struct CachedChrome {
 #[derive(Default)]
 struct Seen {
     frames: HashSet<composition::tree::NodeId>,
+    row_fragments: HashSet<RowFragmentKey>,
     tracks: HashSet<(composition::tree::NodeId, usize)>,
     chrome: HashSet<(composition::tree::NodeId, usize)>,
 }
@@ -111,12 +123,41 @@ struct LayerFragments {
     late: Vec<viewport_chrome::Projection>,
 }
 
+#[derive(Clone)]
 struct Fragment {
     owner: composition::tree::NodeId,
     clip: Option<Clip>,
-    scrolls: Vec<composition::tree::NodeId>,
-    body: Scene,
+    scrolls: Arc<[composition::tree::NodeId]>,
+    body: Arc<Scene>,
     caret: Option<Rule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RowFragmentKey {
+    root: composition::tree::NodeId,
+    layer: Layer,
+    panel: Option<composition::tree::NodeId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RowSequenceKey {
+    list: super::super::interaction::Id,
+    layer: Layer,
+    panel: Option<composition::tree::NodeId>,
+}
+
+#[derive(Clone)]
+struct CachedRowSequence {
+    layout: Weak<()>,
+    rows: crate::persistent::Sequence<Arc<CachedRowFragment>>,
+}
+
+#[derive(Clone)]
+struct CachedRowFragment {
+    layout: layout::VirtualRowFragment,
+    visuals: Vec<(composition::tree::NodeId, super::visual::NodeState)>,
+    fragments: Arc<[Fragment]>,
+    late: Vec<viewport_chrome::Projection>,
 }
 
 impl Default for Retained {
@@ -125,6 +166,8 @@ impl Default for Retained {
             theme: None,
             retained_nodes: HashSet::new(),
             frames: HashMap::new(),
+            row_fragments: HashMap::new(),
+            row_sequences: HashMap::new(),
             tracks: HashMap::new(),
             chrome: HashMap::new(),
             nodes: HashMap::new(),
@@ -153,17 +196,23 @@ impl Retained {
     ) {
         if self.theme.as_ref() != Some(theme) {
             self.frames.clear();
+            self.row_fragments.clear();
+            self.row_sequences.clear();
             self.tracks.clear();
             self.chrome.clear();
             self.theme = Some(theme.clone());
         }
 
         let mut work = RetainedWork::default();
-        let mut builder = commit_builder(layout, clear, None);
+        let mut builder = commit_builder(layout, clear, None, &mut work.stats);
         for layer in [Layer::Base, Layer::Chrome] {
             let fragments = self.layer_fragments(layout, layer, None, theme, visuals, &mut work);
-            append_layer_fragments(&mut builder, fragments);
+            append_layer_fragments(&mut builder, fragments, &mut work.stats);
         }
+        work.stats.commit_draw_ops_lowered = work
+            .stats
+            .commit_draw_ops_lowered
+            .saturating_add(builder.draw_count());
         let base_key = CommitKey::Base;
         let previous_base = self.commits.get(&base_key).cloned();
         let commit = builder
@@ -193,7 +242,7 @@ impl Retained {
                 Some(id) => id,
                 None => continue,
             };
-            let mut builder = commit_builder(layout, clear, Some(panel));
+            let mut builder = commit_builder(layout, clear, Some(panel), &mut work.stats);
             let fragments = self.layer_fragments(
                 layout,
                 Layer::Floating,
@@ -202,7 +251,11 @@ impl Retained {
                 visuals,
                 &mut work,
             );
-            append_layer_fragments(&mut builder, fragments);
+            append_layer_fragments(&mut builder, fragments, &mut work.stats);
+            work.stats.commit_draw_ops_lowered = work
+                .stats
+                .commit_draw_ops_lowered
+                .saturating_add(builder.draw_count());
             let commit_key = CommitKey::Popup(panel.node_id());
             let previous_popup = self.commits.get(&commit_key).cloned();
             let popup_commit = builder
@@ -249,7 +302,19 @@ impl Retained {
             }
         }
 
+        work.stats.cache_entries_swept = self
+            .frames
+            .len()
+            .saturating_add(self.row_fragments.len())
+            .saturating_add(self.tracks.len())
+            .saturating_add(self.chrome.len())
+            .saturating_add(self.nodes.len())
+            .saturating_add(self.commits.len())
+            .saturating_add(self.properties.len())
+            .saturating_add(self.property_sources.len());
         self.frames.retain(|id, _| work.seen.frames.contains(id));
+        self.row_fragments
+            .retain(|key, _| work.seen.row_fragments.contains(key));
         self.tracks.retain(|key, _| work.seen.tracks.contains(key));
         self.chrome.retain(|key, _| work.seen.chrome.contains(key));
         self.nodes.retain(|id, _| work.seen.frames.contains(id));
@@ -527,6 +592,166 @@ impl Retained {
         Ok(properties)
     }
 
+    fn retained_frame_fragments(
+        &mut self,
+        layout: &layout::Layout,
+        frame: &layout::Frame,
+        theme: &Theme,
+        visuals: &Visuals,
+        work: &mut RetainedWork,
+    ) -> (Vec<Fragment>, Vec<viewport_chrome::Projection>) {
+        work.stats.frames_scanned = work.stats.frames_scanned.saturating_add(1);
+        work.seen.frames.insert(frame.node_id());
+        let key = frame.scene_key();
+        let visual = visuals.node_state(frame.target());
+        let cached = self
+            .frames
+            .get(&frame.node_id())
+            .filter(|cached| cached.key == key && cached.visual == visual)
+            .cloned();
+        let cached = if let Some(cached) = cached {
+            work.stats.node_reuses = work.stats.node_reuses.saturating_add(1);
+            cached
+        } else {
+            let mut body = Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
+            let mut frame_late = Vec::new();
+            let clip = layout
+                .scene_body_clip(frame.node_id())
+                .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+            let (body_caret, scrolled, scrolled_caret) = if frame.text_area_layout().is_some() {
+                let body_caret = paint_frame(
+                    frame,
+                    &mut body,
+                    theme,
+                    visuals,
+                    &mut frame_late,
+                    clip,
+                    false,
+                );
+                let mut scrolled =
+                    Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
+                let scrolled_caret = text_area::paint(frame, &mut scrolled, theme);
+                (body_caret, Some(Arc::new(scrolled)), scrolled_caret)
+            } else {
+                let body_caret = paint_frame(
+                    frame,
+                    &mut body,
+                    theme,
+                    visuals,
+                    &mut frame_late,
+                    clip,
+                    true,
+                );
+                (body_caret, None, None)
+            };
+            let cached = CachedFrame {
+                key,
+                visual,
+                body: Arc::new(body),
+                body_caret,
+                scrolled,
+                scrolled_caret,
+                late: frame_late,
+            };
+            self.frames.insert(frame.node_id(), cached.clone());
+            work.stats.node_paints = work.stats.node_paints.saturating_add(1);
+            cached
+        };
+        let clip = layout
+            .scene_fragment_clip(frame.node_id())
+            .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
+        let mut fragments = vec![Fragment {
+            owner: frame.node_id(),
+            clip,
+            scrolls: Arc::from(layout.scene_scroll_path(frame.node_id())),
+            body: cached.body,
+            caret: cached.body_caret,
+        }];
+        if let Some(body) = cached
+            .scrolled
+            .filter(|_| layout.scene_scroll_node_is_drawable(frame.node_id()))
+        {
+            let mut scrolls = layout.scene_scroll_path(frame.node_id()).to_vec();
+            scrolls.push(frame.node_id());
+            fragments.push(Fragment {
+                owner: frame.node_id(),
+                clip,
+                scrolls: Arc::from(scrolls),
+                body,
+                caret: cached.scrolled_caret,
+            });
+        }
+        (fragments, cached.late)
+    }
+
+    fn retained_row_fragment(
+        &mut self,
+        layout: &layout::Layout,
+        row: &layout::VirtualRowFragment,
+        layer: Layer,
+        panel: Option<&layout::Frame>,
+        theme: &Theme,
+        visuals: &Visuals,
+        work: &mut RetainedWork,
+    ) -> Arc<CachedRowFragment> {
+        let cache_key = RowFragmentKey {
+            root: row.root(),
+            layer,
+            panel: panel.map(layout::Frame::node_id),
+        };
+        let row_frames = row
+            .frames()
+            .iter()
+            .filter(|frame| {
+                layer_for(frame) == layer
+                    && panel.is_none_or(|panel| frame_belongs_to_panel(frame, panel))
+                    && layout.scene_scroll_path_is_drawable(frame.node_id())
+            })
+            .collect::<Vec<_>>();
+        let row_visuals = row_frames
+            .iter()
+            .map(|frame| (frame.node_id(), visuals.node_state(frame.target())))
+            .collect::<Vec<_>>();
+        if let Some(cached) = self
+            .row_fragments
+            .get(&cache_key)
+            .filter(|cached| {
+                cached.layout.shares_storage_with(row) && cached.visuals == row_visuals
+            })
+            .cloned()
+        {
+            work.seen.row_fragments.insert(cache_key);
+            work.stats.row_fragment_reuses = work.stats.row_fragment_reuses.saturating_add(1);
+            work.stats.frames_scanned = work.stats.frames_scanned.saturating_add(row_frames.len());
+            work.stats.node_reuses = work.stats.node_reuses.saturating_add(row_frames.len());
+            work.seen
+                .frames
+                .extend(cached.visuals.iter().map(|(node, _)| *node));
+            return cached;
+        }
+
+        let mut row_scene_fragments = Vec::new();
+        let mut row_late = Vec::new();
+        if !row_frames.is_empty() {
+            work.seen.row_fragments.insert(cache_key);
+            work.stats.row_fragment_builds = work.stats.row_fragment_builds.saturating_add(1);
+            for row_frame in &row_frames {
+                let (mut frame_fragments, frame_late) =
+                    self.retained_frame_fragments(layout, row_frame, theme, visuals, work);
+                row_scene_fragments.append(&mut frame_fragments);
+                row_late.extend(frame_late);
+            }
+        }
+        let cached = Arc::new(CachedRowFragment {
+            layout: row.clone(),
+            visuals: row_visuals,
+            fragments: Arc::from(row_scene_fragments),
+            late: row_late,
+        });
+        self.row_fragments.insert(cache_key, Arc::clone(&cached));
+        cached
+    }
+
     fn layer_fragments(
         &mut self,
         layout: &layout::Layout,
@@ -536,96 +761,158 @@ impl Retained {
         visuals: &Visuals,
         work: &mut RetainedWork,
     ) -> LayerFragments {
-        let RetainedWork { seen, stats } = work;
         let mut frames = Vec::new();
         let mut tracks = Vec::new();
         let mut late = Vec::new();
 
-        for frame in layout.frames().iter().filter(|frame| {
-            layer_for(frame) == layer
-                && panel.is_none_or(|panel| frame_belongs_to_panel(frame, panel))
-                && layout.scene_scroll_path_is_drawable(frame.node_id())
-        }) {
-            seen.frames.insert(frame.node_id());
-            let key = frame.scene_key();
-            let visual = visuals.node_state(frame.target());
-            let cached = self
-                .frames
-                .get(&frame.node_id())
-                .filter(|cached| cached.key == key && cached.visual == visual);
-            let cached = if let Some(cached) = cached {
-                stats.node_reuses = stats.node_reuses.saturating_add(1);
-                cached.clone()
-            } else {
-                let mut body = Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
-                let mut frame_late = Vec::new();
-                let clip = frame
-                    .clip()
-                    .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-                let (body_caret, scrolled, scrolled_caret) = if frame.text_area_layout().is_some() {
-                    let body_caret = paint_frame(
-                        frame,
-                        &mut body,
-                        theme,
-                        visuals,
-                        &mut frame_late,
-                        clip,
-                        false,
-                    );
-                    let mut scrolled =
-                        Scene::new_with_clear(layout.size(), super::Color::rgba(0, 0, 0, 0));
-                    let scrolled_caret = text_area::paint(frame, &mut scrolled, theme);
-                    (body_caret, Some(scrolled), scrolled_caret)
-                } else {
-                    let body_caret = paint_frame(
-                        frame,
-                        &mut body,
-                        theme,
-                        visuals,
-                        &mut frame_late,
-                        clip,
-                        true,
-                    );
-                    (body_caret, None, None)
-                };
-                let cached = CachedFrame {
-                    key,
-                    visual,
-                    body,
-                    body_caret,
-                    scrolled,
-                    scrolled_caret,
-                    late: frame_late,
-                };
-                self.frames.insert(frame.node_id(), cached.clone());
-                stats.node_paints = stats.node_paints.saturating_add(1);
-                cached
-            };
-            let clip = frame
-                .clip()
-                .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
-            frames.push(Fragment {
-                owner: frame.node_id(),
-                clip,
-                scrolls: layout.scene_scroll_path(frame.node_id()).to_vec(),
-                body: cached.body,
-                caret: cached.body_caret,
-            });
-            if let Some(body) = cached
-                .scrolled
-                .filter(|_| layout.scene_scroll_node_is_drawable(frame.node_id()))
-            {
-                let mut scrolls = layout.scene_scroll_path(frame.node_id()).to_vec();
-                scrolls.push(frame.node_id());
-                frames.push(Fragment {
-                    owner: frame.node_id(),
-                    clip,
-                    scrolls,
-                    body,
-                    caret: cached.scrolled_caret,
-                });
+        let keyed_residency = layout
+            .residency_deltas()
+            .iter()
+            .any(|delta| !delta.is_reset());
+        if keyed_residency {
+            for frame in layout.ordinary_frames().filter(|frame| {
+                layer_for(frame) == layer
+                    && panel.is_none_or(|panel| frame_belongs_to_panel(frame, panel))
+                    && layout.scene_scroll_path_is_drawable(frame.node_id())
+            }) {
+                let (mut frame_fragments, frame_late) =
+                    self.retained_frame_fragments(layout, frame, theme, visuals, work);
+                frames.append(&mut frame_fragments);
+                late.extend(frame_late);
             }
-            late.extend(cached.late);
+
+            for delta in layout.residency_deltas().iter().copied() {
+                let Some(rows) = layout.virtual_row_sequence(delta.list()) else {
+                    continue;
+                };
+                let sequence_key = RowSequenceKey {
+                    list: delta.list(),
+                    layer,
+                    panel: panel.map(layout::Frame::node_id),
+                };
+                let predecessor = layout
+                    .virtual_row_predecessor(delta.list())
+                    .map(|rows| rows.identity());
+                let previous = predecessor.as_ref().and_then(|predecessor| {
+                    self.row_sequences.get(&sequence_key).and_then(|entries| {
+                        entries
+                            .iter()
+                            .find(|entry| Weak::ptr_eq(&entry.layout, predecessor))
+                            .map(|entry| entry.rows.clone())
+                    })
+                });
+                let sequence = if let Some(previous) = previous {
+                    let mut front = Vec::with_capacity(delta.insert_front());
+                    for index in 0..delta.insert_front() {
+                        let Some(row) = rows.get(index) else {
+                            continue;
+                        };
+                        let priority = crate::persistent::sequence_priority(row.key().value());
+                        let cached = self
+                            .retained_row_fragment(layout, row, layer, panel, theme, visuals, work);
+                        front.push((priority, cached));
+                    }
+                    let back_start = rows.len().saturating_sub(delta.insert_back());
+                    let mut back = Vec::with_capacity(delta.insert_back());
+                    for index in back_start..rows.len() {
+                        let Some(row) = rows.get(index) else {
+                            continue;
+                        };
+                        let priority = crate::persistent::sequence_priority(row.key().value());
+                        let cached = self
+                            .retained_row_fragment(layout, row, layer, panel, theme, visuals, work);
+                        back.push((priority, cached));
+                    }
+                    previous.edit_ends(delta.remove_front(), delta.remove_back(), front, back)
+                } else {
+                    crate::persistent::Sequence::from_entries((0..rows.len()).filter_map(|index| {
+                        let row = rows.get(index)?;
+                        let priority = crate::persistent::sequence_priority(row.key().value());
+                        let cached = self
+                            .retained_row_fragment(layout, row, layer, panel, theme, visuals, work);
+                        Some((priority, cached))
+                    }))
+                };
+                let entering = delta.insert_front().saturating_add(delta.insert_back());
+                work.stats.row_fragment_reuses = work
+                    .stats
+                    .row_fragment_reuses
+                    .saturating_add(sequence.len().saturating_sub(entering));
+                for cached in sequence.iter() {
+                    work.stats.row_roots_visited = work.stats.row_roots_visited.saturating_add(1);
+                    work.seen
+                        .frames
+                        .extend(cached.visuals.iter().map(|(node, _)| *node));
+                    frames.extend(cached.fragments.iter().cloned());
+                    late.extend(cached.late.iter().cloned());
+                }
+                let entries = self.row_sequences.entry(sequence_key).or_default();
+                entries.retain(|entry| entry.layout.strong_count() > 0);
+                let current = rows.identity();
+                if let Some(entry) = entries
+                    .iter_mut()
+                    .find(|entry| Weak::ptr_eq(&entry.layout, &current))
+                {
+                    entry.rows = sequence;
+                } else {
+                    entries.push(CachedRowSequence {
+                        layout: current,
+                        rows: sequence,
+                    });
+                }
+            }
+        } else {
+            for frame in layout.ordinary_frames() {
+                if layer_for(frame) != layer
+                    || panel.is_some_and(|panel| !frame_belongs_to_panel(frame, panel))
+                    || !layout.scene_scroll_path_is_drawable(frame.node_id())
+                {
+                    continue;
+                }
+                let (mut frame_fragments, frame_late) =
+                    self.retained_frame_fragments(layout, frame, theme, visuals, work);
+                frames.append(&mut frame_fragments);
+                late.extend(frame_late);
+            }
+
+            let mut seeded =
+                HashMap::<super::super::interaction::Id, Vec<(u64, Arc<CachedRowFragment>)>>::new();
+            for row in layout.virtual_row_fragments() {
+                work.stats.row_roots_visited = work.stats.row_roots_visited.saturating_add(1);
+                let cached =
+                    self.retained_row_fragment(layout, row, layer, panel, theme, visuals, work);
+                seeded.entry(row.list()).or_default().push((
+                    crate::persistent::sequence_priority(row.key().value()),
+                    Arc::clone(&cached),
+                ));
+                frames.extend(cached.fragments.iter().cloned());
+                late.extend(cached.late.iter().cloned());
+            }
+            for (list, entries) in seeded {
+                let Some(rows) = layout.virtual_row_sequence(list) else {
+                    continue;
+                };
+                let key = RowSequenceKey {
+                    list,
+                    layer,
+                    panel: panel.map(layout::Frame::node_id),
+                };
+                let sequence = crate::persistent::Sequence::from_entries(entries);
+                let cached = CachedRowSequence {
+                    layout: rows.identity(),
+                    rows: sequence,
+                };
+                let generations = self.row_sequences.entry(key).or_default();
+                generations.retain(|entry| entry.layout.strong_count() > 0);
+                if let Some(existing) = generations
+                    .iter_mut()
+                    .find(|entry| Weak::ptr_eq(&entry.layout, &cached.layout))
+                {
+                    *existing = cached;
+                } else {
+                    generations.push(cached);
+                }
+            }
         }
 
         let mut track_ordinals = HashMap::new();
@@ -637,7 +924,7 @@ impl Retained {
             let ordinal = track_ordinals.entry(track.table_node()).or_insert(0_usize);
             let cache_key = (track.table_node(), *ordinal);
             *ordinal = ordinal.saturating_add(1);
-            seen.tracks.insert(cache_key);
+            work.seen.tracks.insert(cache_key);
             let cached = self
                 .tracks
                 .get(&cache_key)
@@ -649,19 +936,24 @@ impl Retained {
                     paint_table_track(track, &mut body, theme);
                     let cached = CachedTrack {
                         key: track.clone(),
-                        body,
+                        body: Arc::new(body),
                     };
                     self.tracks.insert(cache_key, cached.clone());
-                    stats.track_paints = stats.track_paints.saturating_add(1);
+                    work.stats.track_paints = work.stats.track_paints.saturating_add(1);
                     cached
                 });
-            let clip = track
-                .clip()
+            // Table tracks are fragments of their row/header owner and must
+            // consume the same fixed submitted coverage as that owner. In a
+            // content-local virtual list the layout track deliberately has no
+            // row-local clip; reconstructing from `Track::clip` would therefore
+            // emit its scroll scope after the viewport clip has closed.
+            let clip = layout
+                .scene_fragment_clip(track.owner_node())
                 .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
             tracks.push(Fragment {
                 owner: track.owner_node(),
                 clip,
-                scrolls: layout.scene_scroll_path(track.owner_node()).to_vec(),
+                scrolls: Arc::from(layout.scene_scroll_path(track.owner_node())),
                 body: cached.body,
                 caret: None,
             });
@@ -675,7 +967,7 @@ impl Retained {
             let ordinal = chrome_ordinals.entry(chrome.owner()).or_insert(0_usize);
             let cache_key = (chrome.owner(), *ordinal);
             *ordinal = ordinal.saturating_add(1);
-            seen.chrome.insert(cache_key);
+            work.seen.chrome.insert(cache_key);
             let visual = visuals.scrollbar(chrome.target());
             let cached = self
                 .chrome
@@ -691,7 +983,7 @@ impl Retained {
                         late: chrome_late,
                     };
                     self.chrome.insert(cache_key, cached.clone());
-                    stats.chrome_paints = stats.chrome_paints.saturating_add(1);
+                    work.stats.chrome_paints = work.stats.chrome_paints.saturating_add(1);
                     cached
                 });
             late.extend(cached.late);
@@ -710,22 +1002,26 @@ fn commit_builder(
     layout: &layout::Layout,
     clear: super::Color,
     panel: Option<&layout::Frame>,
+    stats: &mut RetainedStats,
 ) -> super::CommitBuilder {
-    let frames = layout
-        .frames()
-        .iter()
-        .filter(|frame| match panel {
+    let mut frames = Vec::new();
+    for frame in layout.frames() {
+        stats.commit_layout_frames_visited = stats.commit_layout_frames_visited.saturating_add(1);
+        if match panel {
             Some(panel) => {
                 layer_for(frame) == Layer::Floating && frame_belongs_to_panel(frame, panel)
             }
             None => layer_for(frame) != Layer::Floating,
-        })
-        .collect::<Vec<_>>();
+        } {
+            frames.push(frame);
+        }
+    }
     let included = frames
         .iter()
         .map(|frame| frame.node_id())
         .collect::<HashSet<_>>();
     let mut builder = super::CommitBuilder::new(layout.size(), clear);
+    stats.commit_nodes_registered = stats.commit_nodes_registered.saturating_add(frames.len());
     for frame in frames {
         builder.register(
             frame.node_id(),
@@ -734,16 +1030,30 @@ fn commit_builder(
             frame.rect(),
         );
     }
+    declare_builder_scrolls(layout, &mut builder);
+    builder
+}
+
+fn declare_builder_scrolls(layout: &layout::Layout, builder: &mut super::CommitBuilder) {
     for projection in layout
         .scroll_projections()
         .iter()
         .filter(|projection| projection.is_scene_drawable())
     {
+        if !builder.contains_node(projection.node()) {
+            continue;
+        }
         let resident_bounds = projection
             .resident_bounds()
             .expect("scene painting requires a complete scroll residency proof");
         let viewport = projection.viewport();
-        let declaration = super::ScrollDeclaration::new(
+        let constructor = match projection.geometry_space() {
+            layout::ScrollGeometrySpace::BaselineRelative => super::ScrollDeclaration::new,
+            layout::ScrollGeometrySpace::ContentLocal => {
+                super::ScrollDeclaration::new_content_local
+            }
+        };
+        let declaration = constructor(
             viewport.rect(),
             geometry::Rect::new(
                 viewport.rect().x(),
@@ -764,10 +1074,18 @@ fn commit_builder(
         });
         builder.declare_scroll(projection.node(), projection.target().clone(), declaration);
     }
-    builder
 }
 
-fn append_layer_fragments(target: &mut super::CommitBuilder, fragments: LayerFragments) {
+fn append_layer_fragments(
+    target: &mut super::CommitBuilder,
+    fragments: LayerFragments,
+    stats: &mut RetainedStats,
+) {
+    stats.commit_fragments_appended = stats
+        .commit_fragments_appended
+        .saturating_add(fragments.frames.len())
+        .saturating_add(fragments.tracks.len())
+        .saturating_add(fragments.late.len());
     append_scoped_fragments(target, fragments.frames);
     append_scoped_fragments(target, fragments.tracks);
     let mut late = fragments.late;
@@ -788,10 +1106,10 @@ fn append_scoped_fragments(target: &mut super::CommitBuilder, fragments: Vec<Fra
             active_scrolls.clear();
             switch_commit_clip_scope(target, &mut active_clip, fragment.clip);
         }
-        if active_scrolls != fragment.scrolls {
+        if active_scrolls.as_slice() != fragment.scrolls.as_ref() {
             let shared = active_scrolls
                 .iter()
-                .zip(&fragment.scrolls)
+                .zip(fragment.scrolls.iter())
                 .take_while(|(left, right)| left == right)
                 .count();
             for _ in shared..active_scrolls.len() {
@@ -803,7 +1121,7 @@ fn append_scoped_fragments(target: &mut super::CommitBuilder, fragments: Vec<Fra
                 active_scrolls.push(*scroll);
             }
         }
-        target.append_fragment(fragment.owner, &fragment.body);
+        target.append_fragment(fragment.owner, fragment.body.as_ref());
         if let Some(caret) = fragment.caret {
             target.push_projected_content(
                 fragment.owner,
@@ -857,6 +1175,7 @@ pub(super) fn paint_layout_with_theme(
         );
 
         paint_table_tracks_with_shared_clip(
+            layout,
             layout
                 .table_tracks()
                 .iter()
@@ -906,6 +1225,7 @@ fn paint_overlay_entries(
             );
 
             paint_table_tracks_with_shared_clip(
+                layout,
                 layout
                     .table_tracks()
                     .iter()
@@ -1035,14 +1355,15 @@ fn paint_frames_with_shared_clip<'a>(
 
 #[cfg(test)]
 fn paint_table_tracks_with_shared_clip<'a>(
+    layout: &layout::Layout,
     tracks: impl IntoIterator<Item = &'a layout::table::Track>,
     scene: &mut Scene,
     theme: &Theme,
 ) {
     let mut active_clip = None;
     for track in tracks {
-        let clip = track
-            .clip()
+        let clip = layout
+            .scene_fragment_clip(track.owner_node())
             .map(|clip| Clip::new(clip.rect()).with_rounding(clip.rounding()));
         switch_clip_scope(scene, &mut active_clip, clip);
         paint_table_track(track, scene, theme);

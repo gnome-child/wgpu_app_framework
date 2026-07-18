@@ -247,18 +247,19 @@ impl Node {
     }
 
     pub fn child(mut self, child: Node) -> Self {
-        self.children.push(child);
+        self.children.push_back(child);
         self
     }
 
     pub(in crate::view) fn push_child(&mut self, child: Node) {
-        self.children.push(child);
+        self.children.push_back(child);
     }
 
     pub(crate) fn with_provided_row(
         mut self,
         list: interaction::Id,
         key: crate::list::Key,
+        slot: crate::list::Slot,
         index: usize,
     ) -> Self {
         if let Some(row) = self.table_row {
@@ -266,7 +267,12 @@ impl Node {
             debug_assert_eq!(row.key(), key);
             self.table_row = Some(row.at_index(index));
         }
-        self.provided_row = Some(super::ProvidedRow { list, key, index });
+        self.provided_row = Some(super::ProvidedRow {
+            list,
+            key,
+            slot,
+            index,
+        });
         self
     }
 
@@ -505,7 +511,7 @@ impl Node {
             table_header_presentation: None,
             participation: None,
             context_menu: false,
-            children: Vec::new(),
+            children: std::collections::VecDeque::new(),
         }
     }
 

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use super::super::{interaction, subject, view};
 
@@ -24,11 +24,16 @@ enum Space {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Changes {
+    nodes_visited: usize,
+    nodes_reconstructed: usize,
+    identities_reused: usize,
     added: Vec<NodeId>,
     changed: Vec<NodeId>,
     removed: Vec<NodeId>,
+    departed: Vec<NodeId>,
     removed_elements: Vec<interaction::Id>,
     removed_table_cells: Vec<crate::table::Cell>,
+    residency_deltas: Vec<crate::list::AppliedResidencyDelta>,
 }
 
 /// Retained composition tree for one installed view.
@@ -59,8 +64,9 @@ pub(crate) struct Node {
     element_id: Option<interaction::Id>,
     subject: Option<subject::Segment>,
     provided_row: Option<view::ProvidedRow>,
+    table_cell: Option<crate::table::Cell>,
     parent: Option<NodeId>,
-    children: Vec<Node>,
+    children: VecDeque<Node>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,12 +78,14 @@ enum Key {
     ProvidedRow {
         role: view::Role,
         axis: Option<view::Axis>,
-        key: crate::list::Key,
+        list: interaction::Id,
+        slot: crate::list::Slot,
     },
     TableCell {
         role: view::Role,
         axis: Option<view::Axis>,
-        cell: crate::table::Cell,
+        table: interaction::Id,
+        column: interaction::Id,
     },
     TableHeaderCell {
         role: view::Role,
@@ -145,16 +153,33 @@ impl ContentRevision {
 impl Changes {
     fn empty() -> Self {
         Self {
+            nodes_visited: 0,
+            nodes_reconstructed: 0,
+            identities_reused: 0,
             added: Vec::new(),
             changed: Vec::new(),
             removed: Vec::new(),
+            departed: Vec::new(),
             removed_elements: Vec::new(),
             removed_table_cells: Vec::new(),
+            residency_deltas: Vec::new(),
         }
     }
 
     pub(crate) fn added(&self) -> &[NodeId] {
         &self.added
+    }
+
+    pub(crate) fn nodes_visited(&self) -> usize {
+        self.nodes_visited
+    }
+
+    pub(crate) fn nodes_reconstructed(&self) -> usize {
+        self.nodes_reconstructed
+    }
+
+    pub(crate) fn identities_reused(&self) -> usize {
+        self.identities_reused
     }
 
     pub(crate) fn changed(&self) -> &[NodeId] {
@@ -165,6 +190,10 @@ impl Changes {
         &self.removed
     }
 
+    pub(crate) fn departed(&self) -> &[NodeId] {
+        &self.departed
+    }
+
     pub(crate) fn removed_elements(&self) -> &[interaction::Id] {
         &self.removed_elements
     }
@@ -173,8 +202,15 @@ impl Changes {
         &self.removed_table_cells
     }
 
+    pub(crate) fn residency_deltas(&self) -> &[crate::list::AppliedResidencyDelta] {
+        &self.residency_deltas
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
-        self.added.is_empty() && self.changed.is_empty() && self.removed.is_empty()
+        self.added.is_empty()
+            && self.changed.is_empty()
+            && self.removed.is_empty()
+            && self.departed.is_empty()
     }
 
     fn add_added(&mut self, id: NodeId) {
@@ -189,14 +225,26 @@ impl Changes {
 
     fn add_removed_subtree(&mut self, node: &Node) {
         self.removed.push(node.id);
+        self.add_departed_node(node);
+        for child in &node.children {
+            self.add_removed_subtree(child);
+        }
+    }
+
+    fn add_rebound_subtree(&mut self, node: &Node) {
+        self.add_departed_node(node);
+        for child in &node.children {
+            self.add_rebound_subtree(child);
+        }
+    }
+
+    fn add_departed_node(&mut self, node: &Node) {
+        self.departed.push(node.id);
         if let Some(id) = node.element_id {
             self.removed_elements.push(id);
         }
-        if let Some(cell) = node.key.table_cell() {
+        if let Some(cell) = node.table_cell {
             self.removed_table_cells.push(cell);
-        }
-        for child in &node.children {
-            self.add_removed_subtree(child);
         }
     }
 }
@@ -229,6 +277,27 @@ impl Tree {
         (Self { root }, changes)
     }
 
+    pub(crate) fn reconcile_residency(
+        &mut self,
+        view: &view::View,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        next_node_id: &mut u64,
+    ) -> Changes {
+        let mut changes = Changes::empty();
+        for delta in deltas.iter().copied() {
+            assert!(
+                self.root
+                    .apply_residency(view.root(), delta, next_node_id, &mut changes),
+                "residency delta must name an installed virtual list"
+            );
+        }
+        changes.residency_deltas.extend_from_slice(deltas);
+        changes
+            .removed_table_cells
+            .retain(|cell| !self.root.contains_table_cell(*cell));
+        changes
+    }
+
     pub(crate) fn root(&self) -> &Node {
         &self.root
     }
@@ -241,6 +310,21 @@ impl Tree {
     /// installed view without rebuilding its authored structure.
     pub(crate) fn project_scene_state(&mut self, view: &view::View, changes: &mut Changes) {
         self.root.project_scene_state(view.root(), changes);
+    }
+
+    pub(crate) fn project_residency_scene_state(
+        &mut self,
+        view: &view::View,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        changes: &mut Changes,
+    ) {
+        for delta in deltas.iter().copied() {
+            assert!(
+                self.root
+                    .project_residency_scene_state(view.root(), delta, changes),
+                "residency scene projection must name an installed virtual list"
+            );
+        }
     }
 }
 
@@ -258,12 +342,97 @@ impl Layout {
 }
 
 impl Node {
+    fn apply_residency(
+        &mut self,
+        view: &view::Node,
+        delta: crate::list::AppliedResidencyDelta,
+        next_node_id: &mut u64,
+        changes: &mut Changes,
+    ) -> bool {
+        if view
+            .virtual_list_model()
+            .is_some_and(|model| model.id() == delta.list())
+        {
+            if delta.is_reset() {
+                *self = Self::reconcile(Some(self), view, self.parent, next_node_id, changes);
+                return true;
+            }
+
+            assert!(
+                self.matches(view),
+                "keyed residency must preserve its list root"
+            );
+            changes.nodes_visited = changes.nodes_visited.saturating_add(1);
+            changes.identities_reused = changes.identities_reused.saturating_add(1);
+            self.refresh_shallow(view, changes);
+
+            for _ in 0..delta.remove_front() {
+                self.children
+                    .pop_front()
+                    .expect("keyed residency front removal exceeds retained children");
+            }
+            for _ in 0..delta.remove_back() {
+                self.children
+                    .pop_back()
+                    .expect("keyed residency back removal exceeds retained children");
+            }
+
+            for child in view.children().iter().take(delta.insert_front()).rev() {
+                self.children.push_front(Self::build_retained(
+                    child,
+                    Some(self.id),
+                    next_node_id,
+                    changes,
+                ));
+            }
+            let back_start = view.children().len().saturating_sub(delta.insert_back());
+            for child in view.children().iter().skip(back_start) {
+                self.children.push_back(Self::build_retained(
+                    child,
+                    Some(self.id),
+                    next_node_id,
+                    changes,
+                ));
+            }
+            assert_eq!(
+                self.children.len(),
+                view.children().len(),
+                "keyed residency edits must reproduce installed child order"
+            );
+            return true;
+        }
+
+        for (child, view_child) in self.children.iter_mut().zip(view.children()) {
+            if child.apply_residency(view_child, delta, next_node_id, changes) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn refresh_shallow(&mut self, view: &view::Node, changes: &mut Changes) {
+        let scene_key = view.scene_key();
+        if self.scene_key != scene_key {
+            self.scene_key = scene_key.clone();
+            self.projected_scene_key = scene_key;
+            self.content_revision = self.content_revision.next();
+            changes.add_changed(self.id);
+        }
+        self.key = Key::for_view(view);
+        self.element_id = element_id_for(view);
+        self.subject = subject_for(view);
+        self.provided_row = view.provided_row();
+        self.table_cell = view.table_cell();
+    }
+
     fn build_retained(
         view: &view::Node,
         parent: Option<NodeId>,
         next_node_id: &mut u64,
         changes: &mut Changes,
     ) -> Self {
+        changes.nodes_visited = changes.nodes_visited.saturating_add(1);
+        changes.nodes_reconstructed = changes.nodes_reconstructed.saturating_add(1);
         let id = NodeId::next(next_node_id);
         changes.add_added(id);
         let mut node = Self::new(id, view, parent, ContentRevision::INITIAL);
@@ -294,6 +463,11 @@ impl Node {
         next_node_id: &mut u64,
         changes: &mut Changes,
     ) -> Self {
+        changes.nodes_visited = changes.nodes_visited.saturating_add(1);
+        changes.nodes_reconstructed = changes.nodes_reconstructed.saturating_add(1);
+        if old.is_some_and(|old| old.matches(view)) {
+            changes.identities_reused = changes.identities_reused.saturating_add(1);
+        }
         let old = match old {
             Some(old) if old.matches(view) => Some(old),
             Some(old) => {
@@ -315,6 +489,12 @@ impl Node {
             }
             None => ContentRevision::INITIAL,
         };
+        if let Some(old) = old
+            && let (Some(previous), Some(current)) = (old.provided_row, view.provided_row())
+            && previous.key() != current.key()
+        {
+            changes.add_rebound_subtree(old);
+        }
         let mut node = Self::new(id, view, parent, content_revision);
         if let Some(old) = old {
             node.projected_scene_key = old.projected_scene_key.clone();
@@ -327,7 +507,7 @@ impl Node {
                 .inspect(|child| {
                     used_old.insert(child.id);
                 });
-            node.children.push(Self::reconcile(
+            node.children.push_back(Self::reconcile(
                 old_child,
                 child,
                 Some(id),
@@ -345,11 +525,11 @@ impl Node {
                 .collect::<HashSet<_>>();
             for child in &old.children {
                 if !used_old.contains(&child.id) {
-                    let dematerialized = child.key.provided_row().is_some_and(|key| {
-                        !materialized_keys.contains(&key)
+                    let dematerialized = child.provided_row.is_some_and(|row| {
+                        !materialized_keys.contains(&row.key())
                             && view
                                 .virtual_list_model()
-                                .is_some_and(|model| model.contains_key(key))
+                                .is_some_and(|model| model.contains_key(row.key()))
                     });
                     if dematerialized {
                         continue;
@@ -378,8 +558,9 @@ impl Node {
             element_id: element_id_for(view),
             subject: subject_for(view),
             provided_row: view.provided_row(),
+            table_cell: view.table_cell(),
             parent,
-            children: Vec::new(),
+            children: VecDeque::new(),
         }
     }
 
@@ -399,6 +580,50 @@ impl Node {
         }
     }
 
+    fn project_residency_scene_state(
+        &mut self,
+        view: &view::Node,
+        delta: crate::list::AppliedResidencyDelta,
+        changes: &mut Changes,
+    ) -> bool {
+        if view
+            .virtual_list_model()
+            .is_some_and(|model| model.id() == delta.list())
+        {
+            self.project_scene_state_shallow(view, changes);
+            let front = if delta.is_reset() {
+                self.children.len()
+            } else {
+                delta.insert_front()
+            };
+            let back_start = self.children.len().saturating_sub(delta.insert_back());
+            for (index, (child, view_child)) in
+                self.children.iter_mut().zip(view.children()).enumerate()
+            {
+                if index < front || index >= back_start {
+                    child.project_scene_state(view_child, changes);
+                }
+            }
+            return true;
+        }
+        for (child, view_child) in self.children.iter_mut().zip(view.children()) {
+            if child.project_residency_scene_state(view_child, delta, changes) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn project_scene_state_shallow(&mut self, view: &view::Node, changes: &mut Changes) {
+        debug_assert!(self.matches(view));
+        let projected = view.scene_key();
+        if self.projected_scene_key != projected {
+            self.projected_scene_key = projected;
+            self.content_revision = self.content_revision.next();
+            changes.add_changed(self.id);
+        }
+    }
+
     fn matches(&self, view: &view::Node) -> bool {
         self.key == Key::for_view(view) && self.element_id == element_id_for(view)
     }
@@ -414,7 +639,10 @@ impl Node {
                 .children
                 .iter()
                 .filter(|child| !used.contains(&child.id))
-                .find(|child| child.key.table_cell() == Some(cell) && child.matches(view));
+                .find(|child| {
+                    child.key.table_cell() == Some((cell.table(), cell.column()))
+                        && child.matches(view)
+                });
         }
         if let Some(cell) = view.table_header_cell() {
             return self
@@ -428,7 +656,10 @@ impl Node {
                 .children
                 .iter()
                 .filter(|child| !used.contains(&child.id))
-                .find(|child| child.key.provided_row() == Some(row.key()) && child.matches(view));
+                .find(|child| {
+                    child.key.provided_row() == Some((row.list(), row.slot()))
+                        && child.matches(view)
+                });
         }
 
         if let Some(id) = element_id_for(view) {
@@ -469,7 +700,7 @@ impl Node {
         self.provided_row
     }
 
-    pub(crate) fn children(&self) -> &[Node] {
+    pub(crate) fn children(&self) -> &VecDeque<Node> {
         &self.children
     }
 
@@ -482,7 +713,7 @@ impl Node {
     }
 
     fn contains_table_cell(&self, cell: crate::table::Cell) -> bool {
-        self.key.table_cell() == Some(cell)
+        self.table_cell == Some(cell)
             || self
                 .children
                 .iter()
@@ -509,30 +740,36 @@ impl Key {
         let role = view.role();
         let axis = view.axis();
         if let Some(cell) = view.table_cell() {
-            Self::TableCell { role, axis, cell }
+            Self::TableCell {
+                role,
+                axis,
+                table: cell.table(),
+                column: cell.column(),
+            }
         } else if let Some(cell) = view.table_header_cell() {
             Self::TableHeaderCell { role, axis, cell }
         } else if let Some(row) = view.provided_row() {
             Self::ProvidedRow {
                 role,
                 axis,
-                key: row.key(),
+                list: row.list(),
+                slot: row.slot(),
             }
         } else {
             Self::Ordinary { role, axis }
         }
     }
 
-    fn provided_row(self) -> Option<crate::list::Key> {
+    fn provided_row(self) -> Option<(interaction::Id, crate::list::Slot)> {
         match self {
-            Self::ProvidedRow { key, .. } => Some(key),
+            Self::ProvidedRow { list, slot, .. } => Some((list, slot)),
             Self::Ordinary { .. } | Self::TableCell { .. } | Self::TableHeaderCell { .. } => None,
         }
     }
 
-    fn table_cell(self) -> Option<crate::table::Cell> {
+    fn table_cell(self) -> Option<(interaction::Id, interaction::Id)> {
         match self {
-            Self::TableCell { cell, .. } => Some(cell),
+            Self::TableCell { table, column, .. } => Some((table, column)),
             Self::Ordinary { .. } | Self::ProvidedRow { .. } | Self::TableHeaderCell { .. } => None,
         }
     }

@@ -76,6 +76,37 @@ impl FrameNeed {
         self == Self::Residency
             || self == Self::Invalidated(response::effect::Invalidation::Rebuild)
     }
+
+    fn diagnostics_primary(self) -> diagnostics::PrimaryFrameNeed {
+        match self {
+            Self::Idle => diagnostics::PrimaryFrameNeed::Idle,
+            Self::Properties => diagnostics::PrimaryFrameNeed::Properties,
+            Self::Residency => diagnostics::PrimaryFrameNeed::Residency,
+            Self::Invalidated(response::effect::Invalidation::Paint) => {
+                diagnostics::PrimaryFrameNeed::Paint
+            }
+            Self::Invalidated(response::effect::Invalidation::Layout) => {
+                diagnostics::PrimaryFrameNeed::Layout
+            }
+            Self::Invalidated(response::effect::Invalidation::Rebuild) => {
+                diagnostics::PrimaryFrameNeed::Rebuild
+            }
+        }
+    }
+
+    fn diagnostics_species(
+        self,
+        property_requested: bool,
+        residency_requested: bool,
+    ) -> diagnostics::ChangeSpecies {
+        diagnostics::ChangeSpecies {
+            property: property_requested || self.property_only(),
+            residency: residency_requested || self.residency_only(),
+            semantic: matches!(self, Self::Invalidated(_)),
+            device: false,
+            diagnostic: false,
+        }
+    }
 }
 
 impl PreparedFrame {
@@ -828,9 +859,10 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         residency_only: bool,
     ) -> Option<layout::Layout> {
         self.refresh_requested_projection(window)?;
+        let previous = self.cached_layout(window, size, theme, popup_surfaces);
         let mut layout = {
             let composition = self.composition.get(window)?;
-            layout::Layout::compose_composition_with_theme_at(
+            layout::Layout::compose_composition_with_theme_at_reusing(
                 composition,
                 size,
                 &mut self.layout,
@@ -838,6 +870,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 frame,
                 self.keymap,
                 popup_surfaces,
+                previous.as_ref(),
             )
         };
 
@@ -867,7 +900,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 }
                 self.refresh_requested_projection(window)?;
                 let composition = self.composition.get(window)?;
-                layout = layout::Layout::compose_composition_with_theme_at(
+                let previous = layout;
+                layout = layout::Layout::compose_composition_with_theme_at_reusing(
                     composition,
                     size,
                     &mut self.layout,
@@ -875,6 +909,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     frame,
                     self.keymap,
                     popup_surfaces,
+                    Some(&previous),
                 );
                 if change.crossed_guard {
                     self.diagnostics
@@ -902,7 +937,8 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                 }
                 self.refresh_requested_projection(window)?;
                 let composition = self.composition.get(window)?;
-                layout = layout::Layout::compose_composition_with_theme_at(
+                let previous = layout;
+                layout = layout::Layout::compose_composition_with_theme_at_reusing(
                     composition,
                     size,
                     &mut self.layout,
@@ -910,6 +946,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
                     frame,
                     self.keymap,
                     popup_surfaces,
+                    Some(&previous),
                 );
                 continue;
             }
@@ -1138,22 +1175,20 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         self.present_with_virtual_pin(window, None)
     }
 
-    fn present_residency(&mut self, window: window::Id) -> Option<view::View> {
+    fn present_residency(&mut self, window: window::Id) -> Option<()> {
         if !self.session.contains(window) {
             log::debug!("skipping residency projection for unknown window {window:?}");
             return None;
         }
 
         log::debug!("refreshing installed residency projection for window {window:?}");
-        self.layout_cache.remove(&window);
         self.refresh_virtual_pins(window);
-        let previous = self.composition.get(window)?.view().clone();
-        let mut view = previous.clone();
         let interaction = self.session.interaction(window).cloned();
-        if let Some(interaction) = interaction.as_ref() {
-            view.project_table_widths(interaction.tables());
-        }
-        let selectable_virtual_lists = view.selectable_virtual_lists();
+        let selectable_virtual_lists = self
+            .composition
+            .get(window)?
+            .view()
+            .selectable_virtual_lists();
         self.session
             .reconcile_virtual_selections(window, &selectable_virtual_lists);
         let virtual_materializations = self
@@ -1166,27 +1201,27 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .get(&window)
             .cloned()
             .unwrap_or_default();
-        view.materialize_virtual_lists(
-            &virtual_materializations,
-            &virtual_measurements,
-            Some(&previous),
-        );
+        let materialization_started_at = Instant::now();
+        let (residency_deltas, materialization_stats) = self
+            .composition
+            .residency_view_mut(window)?
+            .materialize_virtual_lists_residency(&virtual_materializations, &virtual_measurements);
         let virtual_selections = self.session.virtual_selection_snapshot(window);
-        view.project_virtual_selections(&virtual_selections);
-        if let Some(interaction) = interaction.as_ref() {
-            view.project_active_table_cells(interaction, &virtual_selections);
-            view.project_input_feedback(interaction);
-        }
-        let _ = view.reuse_virtual_row_text_buffers_from(&previous);
+        self.composition
+            .residency_view_mut(window)?
+            .project_residency_rows(&residency_deltas, &virtual_selections, interaction.as_ref());
+        let materialization_elapsed = materialization_started_at.elapsed();
 
         let reconciliation_started_at = Instant::now();
-        let (tree, changes) = self.composition.prepare(window, &view);
+        let mut changes = self
+            .composition
+            .reconcile_residency(window, &residency_deltas)?;
         let pruned = if changes.is_empty() {
             crate::interaction::Pruned::default()
         } else {
             self.session.prune_removed_interaction(
                 window,
-                changes.removed(),
+                changes.departed(),
                 changes.removed_elements(),
                 changes.removed_table_cells(),
             )
@@ -1199,26 +1234,54 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else {
             interaction
         };
-        if let Some(interaction) = interaction.as_ref() {
-            view.project_layout_interaction_retained(interaction, &tree);
-        }
         let mut focus = self.session.focused(window);
-        if focus.is_some_and(|focus| !view.contains_enabled_focus_retained(&tree, focus)) {
+        if residency_deltas.iter().any(|delta| delta.is_reset())
+            && focus.is_some_and(|focus| {
+                let composition = self
+                    .composition
+                    .get(window)
+                    .expect("residency composition remains installed");
+                !composition
+                    .view()
+                    .contains_enabled_focus_retained(composition.tree(), focus)
+            })
+        {
             self.clear_focus(window);
             focus = None;
         }
-        view.project_focus_retained(focus, &tree);
+        changes = self.composition.project_residency_state(
+            window,
+            &residency_deltas,
+            interaction.as_ref(),
+            focus,
+        )?;
 
-        let presented = self
-            .composition
-            .install_prepared(window, view, tree, changes)
-            .view()
-            .clone();
-        self.diagnostics
-            .get_mut(window)
+        let composition_added = changes.added().len();
+        let composition_changed = changes.changed().len();
+        let composition_removed = changes.removed().len();
+        let composition_nodes_visited = changes.nodes_visited();
+        let composition_nodes_reconstructed = changes.nodes_reconstructed();
+        let composition_identities_reused = changes.identities_reused();
+        let reconciliation_elapsed = reconciliation_started_at.elapsed();
+        let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics
             .pipeline
-            .record_composition_reconciliation(reconciliation_started_at.elapsed());
-        Some(presented)
+            .record_composition_reconciliation(reconciliation_elapsed);
+        diagnostics.presentation.record_materialization(
+            materialization_stats,
+            0,
+            materialization_elapsed,
+        );
+        diagnostics.presentation.record_composition(
+            composition_nodes_visited,
+            composition_nodes_reconstructed,
+            composition_identities_reused,
+            composition_added,
+            composition_changed,
+            composition_removed,
+            reconciliation_elapsed,
+        );
+        Some(())
     }
 
     pub(in crate::runtime) fn present_with_virtual_pin(
@@ -1268,13 +1331,15 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
             .get(&window)
             .cloned()
             .unwrap_or_default();
-        view.materialize_virtual_lists(
+        let materialization_started_at = Instant::now();
+        let materialization_stats = view.materialize_virtual_lists(
             &virtual_materializations,
             &virtual_measurements,
             self.composition
                 .get(window)
                 .map(|composition| composition.view()),
         );
+        let materialization_elapsed = materialization_started_at.elapsed();
         let virtual_selections = self.session.virtual_selection_snapshot(window);
         view.project_virtual_selections(&virtual_selections);
         if let Some(interaction) = interaction.as_ref() {
@@ -1336,9 +1401,9 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         if let Some(interaction) = interaction.as_ref() {
             view.project_surfaces(interaction);
         }
-        if let Some(previous) = self.composition.get(window) {
-            let _ = view.reuse_virtual_row_text_buffers_from(previous.view());
-        }
+        let text_buffers_reused = self.composition.get(window).map_or(0, |previous| {
+            view.reuse_virtual_row_text_buffers_from(previous.view())
+        });
         let reconciliation_started_at = Instant::now();
         let (mut tree, mut changes) = self.composition.prepare(window, &view);
         let hover_tip = self
@@ -1380,7 +1445,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         } else {
             self.session.prune_removed_interaction(
                 window,
-                changes.removed(),
+                changes.departed(),
                 changes.removed_elements(),
                 changes.removed_table_cells(),
             )
@@ -1410,15 +1475,36 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         }
         view.project_focus_retained(focus, &tree);
 
+        let composition_added = changes.added().len();
+        let composition_changed = changes.changed().len();
+        let composition_removed = changes.removed().len();
+        let composition_nodes_visited = changes.nodes_visited();
+        let composition_nodes_reconstructed = changes.nodes_reconstructed();
+        let composition_identities_reused = changes.identities_reused();
         let presented = self
             .composition
             .install_prepared(window, view, tree, changes)
             .view()
             .clone();
-        self.diagnostics
-            .get_mut(window)
+        let reconciliation_elapsed = reconciliation_started_at.elapsed();
+        let diagnostics = self.diagnostics.get_mut(window);
+        diagnostics
             .pipeline
-            .record_composition_reconciliation(reconciliation_started_at.elapsed());
+            .record_composition_reconciliation(reconciliation_elapsed);
+        diagnostics.presentation.record_materialization(
+            materialization_stats,
+            text_buffers_reused,
+            materialization_elapsed,
+        );
+        diagnostics.presentation.record_composition(
+            composition_nodes_visited,
+            composition_nodes_reconstructed,
+            composition_identities_reused,
+            composition_added,
+            composition_changed,
+            composition_removed,
+            reconciliation_elapsed,
+        );
         self.session.mark_projected(window, self.revision());
         self.diagnostics
             .get_mut(window)
@@ -1531,6 +1617,18 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         capabilities: crate::overlay::Capabilities,
     ) -> Option<PreparedFrame> {
         let frame_started_at = Instant::now();
+        let property_species_requested = self
+            .session
+            .window(window)
+            .is_some_and(session::Window::property_tick_requested);
+        let residency_species_requested = self
+            .residency_schedules
+            .get(&window)
+            .copied()
+            .is_some_and(super::ResidencySchedule::candidate_requested);
+        let diagnostics_primary = need.diagnostics_primary();
+        let diagnostics_species =
+            need.diagnostics_species(property_species_requested, residency_species_requested);
         let candidate_work_before =
             diagnostics::CandidateWork::snapshot(self.diagnostics.get(window));
         let invalidation = need.immediate_invalidation();
@@ -1572,6 +1670,7 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let presented = property_only
             .then(|| self.presented_geometry.get(&window).cloned())
             .flatten();
+        let layout_reused = presented.is_some();
         let layout = if let Some(presented) = presented.as_ref() {
             presented.layout.as_ref().clone()
         } else {
@@ -1694,6 +1793,25 @@ impl<M: state::State, E: Send + 'static> Runtime<M, E, view::View> {
         let diagnostics = self.diagnostics.get_mut(window);
         diagnostics.pipeline.record_scene_assembly(assembly_elapsed);
         diagnostics.pipeline.record_frame_prepared();
+        diagnostics.presentation.record_frame(
+            diagnostics_primary,
+            diagnostics_species,
+            frame_started_at.elapsed(),
+        );
+        diagnostics.presentation.record_layout(
+            if layout_reused {
+                0
+            } else {
+                layout.frames_constructed()
+            },
+            if layout_reused {
+                layout.frames().len()
+            } else {
+                layout.frames_reused()
+            },
+            layout_reused,
+        );
+        diagnostics.presentation.record_scene(scene_stats);
         diagnostics.render.record_scene_projection(scene_stats);
         diagnostics.scroll.record_candidate_constructed(
             epoch,

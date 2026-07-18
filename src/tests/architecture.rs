@@ -227,7 +227,9 @@ fn composition_key_has_one_structural_identity_species() {
             && tree.contains("TableHeaderCell {")
     );
     assert!(!tree.contains("provided: Option<crate::list::Key>"));
-    assert!(!tree.contains("table_cell: Option<crate::table::Cell>"));
+    assert!(tree.contains("table_cell: Option<crate::table::Cell>"));
+    assert!(tree.contains("table: interaction::Id,") && tree.contains("column: interaction::Id,"));
+    assert!(!tree.contains("cell: crate::table::Cell,\n    },\n    TableHeaderCell"));
     assert!(!tree.contains("table_header_cell: Option<crate::table::HeaderCell>"));
 }
 
@@ -3714,6 +3716,35 @@ fn glyphon_viewports_are_owned_per_prepared_text_resource() {
 }
 
 #[test]
+fn retained_recycle_reserves_are_bounded_and_preserve_exact_versions() {
+    let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let retained = std::fs::read_to_string(src_dir.join("render").join("retained.rs"))
+        .expect("retained renderer should read");
+    let text_renderer = std::fs::read_to_string(src_dir.join("render").join("text_renderer.rs"))
+        .expect("text renderer should read");
+
+    assert!(
+        retained.contains("const RETAINED_SHAPE_RECYCLE_RESERVE: usize = 128;")
+            && retained.contains("entries: HashMap<ResourceKey, Entry>")
+            && retained.contains("recycled: Vec<Entry>")
+            && retained.contains("self.recycled.len() < RETAINED_SHAPE_RECYCLE_RESERVE")
+            && retained.contains("all(|owner| owner.strong_count() == 0)")
+            && !retained.contains("ResourceSlotKey"),
+        "shape recycling must be capped and may only rebind an owner-expired exact-version resource"
+    );
+    assert!(
+        text_renderer.contains("const RETAINED_TEXT_RECYCLE_RESERVE: usize = 128;")
+            && text_renderer.contains("const RETAINED_TRANSFORM_RECYCLE_RESERVE: usize = 128;")
+            && text_renderer.contains("retained_recycle: Vec<RetainedText>")
+            && text_renderer
+                .contains("self.retained_recycle.len() < RETAINED_TEXT_RECYCLE_RESERVE")
+            && text_renderer.contains("kept_recycle < RETAINED_TRANSFORM_RECYCLE_RESERVE")
+            && text_renderer.contains("entry.owners.is_empty()"),
+        "text and transform recycling must retain bounded unowned double buffers"
+    );
+}
+
+#[test]
 fn master_design_names_answer_patterns() {
     let master = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -5973,8 +6004,10 @@ fn retained_renderer_oracle_is_non_production_and_borrows_composition_identity()
         manifest.contains("path = \"third_party/glyphon\"")
             && text_renderer.contains("atlas: glyphon::TextAtlas")
             && text_renderer.contains("swash_cache: glyphon::SwashCache")
+            && text_renderer.contains("retained: HashMap<RetainedTextKey, RetainedText>")
             && text_renderer
-                .contains("retained: HashMap<render::retained::ResourceKey, RetainedText>")
+                .contains("struct RetainedTextKey(Arc<[render::retained::ResourceKey]>)")
+            && text_renderer.contains("One text system is owned by each top-level GPU `Renderer`")
             && text_renderer.matches("glyphon::TextAtlas").count() < 4
             && text_renderer.contains("self.atlas.trim();")
             && text_renderer.contains("retained.renderer.retain_prepared(&mut self.atlas)?")
@@ -6763,7 +6796,8 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && session_window.contains("fn request_residency_presentation(")
             && virtual_list.contains("prepared_runway: Option<Range<usize>>")
             && virtual_list.contains("request.with_range(prepared.clone())")
-            && virtual_list.contains("request_for_required_viewport")
+            && layout_frame.contains("virtual_list_required_request_for_offset")
+            && layout_frame.contains("model.request_for_transition(")
             && virtual_list
                 .contains("a_new_materialization_range_never_unions_with_the_previous_drawable",)
             && runtime_presentation.contains("reuse_virtual_row_text_buffers_from")
@@ -6780,14 +6814,11 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && suite.contains("resident_motion_starts_bounded_replenishment_before_the_hard_edge",)
             && suite.contains("fast_residency_burst_coalesces_before_candidate_construction")
             && suite.contains("required_residency_is_not_stranded_behind_stale_row_click_layout",)
-            && suite.contains(
-                "required_large_jump_materializes_the_critical_viewport_before_predictive_runway",
-            )
+            && suite.contains("required_large_jump_restores_a_bounded_directional_runway",)
             && suite
                 .contains("consecutive_required_crossings_do_not_accumulate_drawable_table_rows",)
-            && suite
-                .contains("control_gallery_required_crossing_does_not_draw_the_retention_cache",),
-        "one residency scheduler must keep required coverage ahead of paint/property starvation, let proactive work yield, rematerialize the installed native view without an application rebuild, and bound required work to the critical viewport"
+            && suite.contains("control_gallery_required_crossing_draws_only_bounded_runway",),
+        "one residency scheduler must keep required coverage ahead of paint/property starvation, let proactive work yield, rematerialize the installed native view without an application rebuild, and restore bounded directional runway after every required crossing"
     );
     assert!(
         runtime_presentation.contains("CandidateWork::snapshot")
@@ -6800,7 +6831,7 @@ fn residency_contract_has_one_payload_neutral_interval_and_exact_eighteen_case_s
             && scroll_diagnostics.contains("residency_gpu_resource_removals=")
             && runtime_access.contains("if !refreshes_active")
             && residency_diagnostics.contains("pub enum ResidencyPayload")
-            && residency_diagnostics.contains("MAX_ENTERING_ROWS_PER_CROSSING")
+            && residency_diagnostics.contains("MAX_RUNWAY_ENTERING_ROWS_PER_CROSSING")
             && residency_diagnostics.contains("rebuilt more than its entering rows")
             && residency_diagnostics.contains("MAX_POST_CROSSING_PROPERTY_UPLOAD_BYTES")
             && residency_diagnostics.contains("measure_residency_crossing_work")
@@ -7321,4 +7352,242 @@ fn incomplete_virtual_residency_names_and_receipts_the_failed_invariant() {
             && diagnostics.contains("virtual_residency_last_issue="),
         "native renderer receipts must carry the rejection evidence"
     );
+}
+
+#[test]
+fn row_presentation_keys_are_content_local_and_property_free() {
+    let frame = include_str!("../layout/frame.rs");
+    let key = frame
+        .split("pub(crate) struct ContentLocalRowSceneKey")
+        .nth(1)
+        .and_then(|source| source.split("impl Frame").next())
+        .expect("the PC-001 row-key contract must precede Frame construction");
+
+    for required in [
+        "composition::tree::NodeId",
+        "composition::tree::ContentRevision",
+        "local_rect: Rect",
+        "local_active_rect: Rect",
+        "local_clip: Option<Clip>",
+        "provided_row: view::ProvidedRow",
+    ] {
+        assert!(
+            key.contains(required),
+            "row key lost owner fact: {required}"
+        );
+    }
+    for forbidden in [
+        "Viewport",
+        "interaction::Offset",
+        "resolved_scroll",
+        "residency",
+        "PropertySerial",
+        "PresentationEpoch",
+        "renderer",
+    ] {
+        assert!(
+            !key.contains(forbidden),
+            "property/residency/presentation currency entered row identity: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn presentation_tree_borrows_composition_identity_and_changes() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let composition =
+        std::fs::read_to_string(src.join("composition/tree.rs")).expect("composition tree");
+    let presentation =
+        std::fs::read_to_string(src.join("runtime/presentation.rs")).expect("presentation owner");
+    let frame = std::fs::read_to_string(src.join("layout/frame.rs")).expect("layout frame");
+
+    assert!(
+        composition.contains("pub(crate) struct NodeId")
+            && composition.contains("pub(crate) struct Changes"),
+        "composition must remain the sole identity and root-change owner"
+    );
+    assert!(
+        presentation.contains("composition::") && frame.contains("composition::tree::NodeId"),
+        "presentation derivation must borrow composition facts"
+    );
+    for forbidden in [
+        "PresentationNodeId",
+        "CpuPresentationEpoch",
+        "PresentationTreeGeneration",
+        "mark_presentation_dirty",
+        "invalidate_presentation_node",
+    ] {
+        assert!(
+            !presentation.contains(forbidden) && !frame.contains(forbidden),
+            "presentation minted a forbidden parallel authority: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn presentation_tree_is_private_and_renderer_invisible() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let lib = std::fs::read_to_string(src.join("lib.rs")).expect("crate root");
+    let renderer = std::fs::read_to_string(src.join("render/renderer.rs")).expect("renderer");
+    let retained = std::fs::read_to_string(src.join("render/retained.rs")).expect("retained");
+    let platform = std::fs::read_to_string(src.join("platform/native/mod.rs"))
+        .or_else(|_| std::fs::read_to_string(src.join("platform/mod.rs")))
+        .expect("platform owner");
+
+    assert!(
+        !lib.contains("pub mod presentation_compiler")
+            && !lib.contains("pub mod presentation_tree"),
+        "the compiler must remain a private internal derivation stage"
+    );
+    for (owner, source) in [
+        ("render::renderer", renderer.as_str()),
+        ("render::retained", retained.as_str()),
+        ("platform", platform.as_str()),
+    ] {
+        for forbidden in [
+            "PresentationTree",
+            "presentation_compiler::",
+            "ProviderSnapshot",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "{owner} crossed the scene::Stack handoff with {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
+fn retained_row_fragments_are_scene_owned_property_free_and_renderer_invisible() {
+    let paint = include_str!("../scene/paint/mod.rs");
+    let renderer = include_str!("../render/renderer.rs");
+    let retained = include_str!("../render/retained.rs");
+    let key = paint
+        .split("struct RowFragmentKey")
+        .nth(1)
+        .and_then(|source| source.split("struct CachedRowFragment").next())
+        .expect("scene-owned row fragment key");
+
+    for required in ["root:", "layer: Layer", "panel:"] {
+        assert!(
+            key.contains(required),
+            "row fragment key omitted {required}"
+        );
+    }
+    for forbidden in [
+        "offset",
+        "viewport",
+        "residency",
+        "property",
+        "serial",
+        "epoch",
+        "renderer",
+        "allocation",
+    ] {
+        assert!(
+            !key.contains(forbidden),
+            "row fragment key borrowed forbidden currency: {forbidden}"
+        );
+    }
+    assert!(
+        paint.contains("layout: layout::VirtualRowFragment")
+            && paint.contains("fragments: Arc<[Fragment]>")
+            && paint.contains("cached.layout.shares_storage_with(row)")
+            && paint.contains("row_fragment_reuses"),
+        "scene retention must borrow layout identity and splice immutable fragments"
+    );
+    assert!(
+        !renderer.contains("RowFragmentKey")
+            && !renderer.contains("CachedRowFragment")
+            && !retained.contains("RowFragmentKey")
+            && !retained.contains("CachedRowFragment"),
+        "renderer code must remain unaware of the private presentation compiler"
+    );
+}
+
+#[test]
+fn retained_row_sequence_deltas_bind_the_exact_predecessor_generation() {
+    let layout = include_str!("../layout/mod.rs");
+    let paint = include_str!("../scene/paint/mod.rs");
+    let keyed_lookup = paint
+        .split("let predecessor = layout")
+        .nth(1)
+        .and_then(|source| source.split("let sequence = if let Some(previous)").next())
+        .expect("keyed scene predecessor lookup");
+
+    assert!(
+        layout.contains("identity: Arc<()>")
+            && layout.contains("residency_predecessors: HashMap<interaction::Id, RowSequence>")
+            && layout.contains("pub(crate) fn virtual_row_predecessor("),
+        "layout generations must preserve the exact immutable row-sequence predecessor named by a typed delta"
+    );
+    assert!(
+        keyed_lookup.contains("virtual_row_predecessor(delta.list())")
+            && keyed_lookup.contains("Weak::ptr_eq(&entry.layout, predecessor)")
+            && !keyed_lookup.contains(".last()"),
+        "scene residency may not substitute the latest cached row sequence for the delta's exact predecessor"
+    );
+}
+
+#[test]
+fn virtual_row_layout_never_subtracts_the_property_clock() {
+    let algorithm = include_str!("../layout/algorithm.rs");
+    let fixed = algorithm
+        .split("fn layout_virtual_list")
+        .nth(1)
+        .and_then(|source| source.split("fn layout_variable_virtual_list").next())
+        .expect("fixed virtual-list layout");
+    let variable = algorithm
+        .split("fn layout_variable_virtual_list")
+        .nth(1)
+        .and_then(|source| source.split("fn child_clip").next())
+        .expect("variable virtual-list layout");
+
+    assert!(fixed.contains("saturating_add(logical_y)"));
+    assert!(variable.contains("saturating_add(region.offset_for_index(row.index()))"));
+    for owner in [("fixed", fixed), ("variable", variable)] {
+        assert!(
+            !owner.1.contains("saturating_sub(offset.y())")
+                && !owner.1.contains("saturating_sub(offset.y() as i64)"),
+            "{} row geometry borrowed the property scroll offset",
+            owner.0
+        );
+    }
+}
+
+#[test]
+fn scene_viewport_keys_exclude_requested_and_resolved_offsets() {
+    let frame = include_str!("../layout/frame.rs");
+    let viewport_key = frame
+        .split("struct ViewportSceneKey")
+        .nth(1)
+        .and_then(|source| source.split("impl From<Viewport>").next())
+        .expect("property-free viewport key");
+    assert!(viewport_key.contains("visible_content: Rect"));
+    assert!(viewport_key.contains("content: crate::geometry::Size"));
+    for forbidden in ["offset", "resolved", "baseline", "property"] {
+        assert!(
+            !viewport_key.contains(forbidden),
+            "viewport semantic key borrowed {forbidden}"
+        );
+    }
+    assert!(frame.contains("viewport: Option<ViewportSceneKey>"));
+    assert!(!frame.contains("viewport: Option<Viewport>,\n}"));
+}
+
+#[test]
+fn content_local_scroll_declaration_separates_property_origin_and_resident_baseline() {
+    let commit = include_str!("../scene/commit.rs");
+    let spatial = include_str!("../scene/spatial.rs");
+    let declaration = commit
+        .split("pub(crate) struct ScrollDeclaration")
+        .nth(1)
+        .and_then(|source| source.split("pub(crate) enum ContractError").next())
+        .expect("scroll declaration");
+
+    assert!(declaration.contains("property_origin: interaction::Offset"));
+    assert!(declaration.contains("baseline: interaction::Offset"));
+    assert!(commit.contains("pub(crate) fn new_content_local("));
+    assert!(commit.contains("let dx = self.property_origin.x().saturating_sub(offset.x())"));
+    assert!(spatial.contains("declaration.property_origin()"));
 }

@@ -47,6 +47,7 @@ mod keyboard;
 mod layout;
 mod overlay;
 mod paint;
+mod persistent;
 mod popup;
 mod render;
 

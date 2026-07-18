@@ -77,7 +77,7 @@ impl Node {
             .standard_menu_extensions()
             .map(|extensions| super::standard_menu::project(projection, extensions))
         {
-            self.children = children;
+            self.children = children.into();
             return;
         }
 
@@ -273,7 +273,8 @@ impl Node {
         requests: &HashMap<interaction::Id, crate::list::Materialization>,
         measurements: &HashMap<interaction::Id, crate::list::Measurements>,
         previous_models: &HashMap<interaction::Id, crate::list::State>,
-    ) {
+    ) -> crate::list::MaterializationStats {
+        let mut stats = crate::list::MaterializationStats::default();
         if let Some(model) = self.virtual_list_model_mut() {
             if let Some(previous) = previous_models.get(&model.id()) {
                 model.reuse_slots_from(previous);
@@ -282,12 +283,83 @@ impl Node {
                 .get(&model.id())
                 .cloned()
                 .unwrap_or_else(|| model.initial_materialization());
-            self.children = model.materialize(&request, measurements.get(&model.id()));
+            let (children, current) = model.materialize(&request, measurements.get(&model.id()));
+            self.children = children.into();
+            stats.add(current);
         }
 
         for child in &mut self.children {
-            child.materialize_virtual_lists(requests, measurements, previous_models);
+            stats.add(child.materialize_virtual_lists(requests, measurements, previous_models));
         }
+        stats
+    }
+
+    pub(in crate::view) fn materialize_virtual_lists_residency(
+        &mut self,
+        requests: &HashMap<interaction::Id, crate::list::Materialization>,
+        measurements: &HashMap<interaction::Id, crate::list::Measurements>,
+    ) -> (
+        Vec<crate::list::AppliedResidencyDelta>,
+        crate::list::MaterializationStats,
+    ) {
+        if self.virtual_list_model().is_some() {
+            let (delta, mut stats) = {
+                let model = self
+                    .virtual_list_model_mut()
+                    .expect("virtual-list content was just observed");
+                let request = requests
+                    .get(&model.id())
+                    .cloned()
+                    .unwrap_or_else(|| model.initial_materialization());
+                model.materialize_residency(&request, measurements.get(&model.id()))
+            };
+            let mut parts = delta.into_parts();
+            let applied = crate::list::AppliedResidencyDelta::new(&parts);
+            let mut changes = Vec::new();
+
+            for child in parts
+                .insert_front
+                .iter_mut()
+                .chain(parts.insert_back.iter_mut())
+                .chain(parts.reset.iter_mut().flat_map(|nodes| nodes.iter_mut()))
+            {
+                let (mut nested, current) =
+                    child.materialize_virtual_lists_residency(requests, measurements);
+                changes.append(&mut nested);
+                stats.add(current);
+            }
+
+            if let Some(nodes) = parts.reset {
+                self.children = nodes.into();
+            } else {
+                for _ in 0..parts.remove_front {
+                    self.children
+                        .pop_front()
+                        .expect("keyed residency front removal exceeds installed children");
+                }
+                for _ in 0..parts.remove_back {
+                    self.children
+                        .pop_back()
+                        .expect("keyed residency back removal exceeds installed children");
+                }
+                for child in parts.insert_front.into_iter().rev() {
+                    self.children.push_front(child);
+                }
+                self.children.extend(parts.insert_back);
+            }
+            changes.push(applied);
+            return (changes, stats);
+        }
+
+        let mut changes = Vec::new();
+        let mut stats = crate::list::MaterializationStats::default();
+        for child in &mut self.children {
+            let (mut nested, current) =
+                child.materialize_virtual_lists_residency(requests, measurements);
+            changes.append(&mut nested);
+            stats.add(current);
+        }
+        (changes, stats)
     }
 
     pub(in crate::view) fn collect_virtual_list_models(
@@ -296,6 +368,7 @@ impl Node {
     ) {
         if let Some(model) = self.virtual_list_model() {
             models.insert(model.id(), model.clone());
+            return;
         }
         for child in &self.children {
             child.collect_virtual_list_models(models);
@@ -304,10 +377,10 @@ impl Node {
 
     pub(in crate::view) fn collect_provided_rows<'a>(
         &'a self,
-        rows: &mut HashMap<(interaction::Id, crate::list::Key), &'a Self>,
+        rows: &mut HashMap<(interaction::Id, crate::list::Slot), &'a Self>,
     ) {
         if let Some(row) = self.provided_row() {
-            rows.insert((row.list(), row.key()), self);
+            rows.insert((row.list(), row.slot()), self);
         }
         for child in &self.children {
             child.collect_provided_rows(rows);
@@ -316,11 +389,11 @@ impl Node {
 
     pub(in crate::view) fn reuse_virtual_row_text_buffers_from(
         &mut self,
-        previous_rows: &HashMap<(interaction::Id, crate::list::Key), &Self>,
+        previous_rows: &HashMap<(interaction::Id, crate::list::Slot), &Self>,
     ) -> usize {
         let mut reused = 0_usize;
         if let Some(row) = self.provided_row()
-            && let Some(previous) = previous_rows.get(&(row.list(), row.key()))
+            && let Some(previous) = previous_rows.get(&(row.list(), row.slot()))
         {
             return self.reuse_text_buffers_in_matched_subtree(previous);
         }
@@ -359,11 +432,11 @@ impl Node {
         &self,
         models: &mut Vec<crate::list::State>,
     ) {
-        if let Some(model) = self
-            .virtual_list_model()
-            .filter(|model| model.is_selectable())
-        {
-            models.push(model.clone());
+        if let Some(model) = self.virtual_list_model() {
+            if model.is_selectable() {
+                models.push(model.clone());
+            }
+            return;
         }
         for child in &self.children {
             child.collect_selectable_virtual_lists(models);
@@ -442,6 +515,94 @@ impl Node {
         for child in &mut self.children {
             child.project_active_table_cells(interaction, selections);
         }
+    }
+
+    pub(in crate::view) fn project_residency_rows(
+        &mut self,
+        delta: crate::list::AppliedResidencyDelta,
+        selections: &[(interaction::Id, crate::selection::Selection)],
+        interaction: Option<&interaction::Interaction>,
+    ) -> bool {
+        if self
+            .virtual_list_model()
+            .is_some_and(|model| model.id() == delta.list())
+        {
+            let selection = selections
+                .iter()
+                .find(|(list, _)| *list == delta.list())
+                .map(|(_, selection)| selection);
+            let front = if delta.is_reset() {
+                self.children.len()
+            } else {
+                delta.insert_front()
+            };
+            let back_start = self.children.len().saturating_sub(delta.insert_back());
+            for (index, child) in self.children.iter_mut().enumerate() {
+                if index >= front && (!delta.is_reset() && index < back_start) {
+                    continue;
+                }
+                if let Some(row) = child.provided_row() {
+                    child.selected =
+                        selection.is_some_and(|selection| selection.contains(row.key()));
+                    child.active_item =
+                        selection.is_some_and(|selection| selection.active() == Some(row.key()));
+                }
+                if let Some(interaction) = interaction {
+                    child.project_table_widths(interaction.tables());
+                    child.project_active_table_cells(interaction, selections);
+                    child.project_input_feedback(interaction);
+                }
+                child.project_virtual_selections(selections);
+            }
+            return true;
+        }
+        for child in &mut self.children {
+            if child.project_residency_rows(delta, selections, interaction) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(in crate::view) fn project_residency_retained(
+        &mut self,
+        delta: crate::list::AppliedResidencyDelta,
+        interaction: Option<&interaction::Interaction>,
+        focus: Option<&session::Focus>,
+        retained: &composition::tree::Node,
+    ) -> bool {
+        if self
+            .virtual_list_model()
+            .is_some_and(|model| model.id() == delta.list())
+        {
+            let front = if delta.is_reset() {
+                self.children.len()
+            } else {
+                delta.insert_front()
+            };
+            let back_start = self.children.len().saturating_sub(delta.insert_back());
+            for (index, (child, retained_child)) in self
+                .children
+                .iter_mut()
+                .zip(retained.children())
+                .enumerate()
+            {
+                if index >= front && (!delta.is_reset() && index < back_start) {
+                    continue;
+                }
+                if let Some(interaction) = interaction {
+                    child.project_layout_interaction_retained_at(interaction, retained_child);
+                }
+                child.project_focus_retained_at(focus, retained_child);
+            }
+            return true;
+        }
+        for (child, retained_child) in self.children.iter_mut().zip(retained.children()) {
+            if child.project_residency_retained(delta, interaction, focus, retained_child) {
+                return true;
+            }
+        }
+        false
     }
 
     #[cfg(test)]
@@ -867,15 +1028,16 @@ fn matching_previous_child<'a>(
     if let Some(row) = current.provided_row() {
         return previous.children.iter().find(|candidate| {
             candidate.provided_row().is_some_and(|candidate| {
-                candidate.list() == row.list() && candidate.key() == row.key()
+                candidate.list() == row.list() && candidate.slot() == row.slot()
             })
         });
     }
     if let Some(cell) = current.table_cell() {
-        return previous
-            .children
-            .iter()
-            .find(|candidate| candidate.table_cell() == Some(cell));
+        return previous.children.iter().find(|candidate| {
+            candidate.table_cell().is_some_and(|candidate| {
+                candidate.table() == cell.table() && candidate.column() == cell.column()
+            })
+        });
     }
     if let Some(cell) = current.table_header_cell() {
         return previous

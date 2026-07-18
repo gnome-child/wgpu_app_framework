@@ -1451,7 +1451,7 @@ impl<'a> PlanEncoder<'a> {
                             .map(|bindings| bindings.spatial_translation(batch.spatial()))
                             .unwrap_or_default();
                         match self.text_renderer.render_retained(
-                            *batch,
+                            batch,
                             translation,
                             self.viewport.scale_factor(),
                             &mut pass,

@@ -1269,7 +1269,10 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
         Some(interaction::Offset::new(0, 12_000_000)),
         "the scene property must derive from the same large integral position"
     );
-    assert!(jumped_values.len() <= 9);
+    assert!(
+        jumped_values.len() <= 80,
+        "a predictive transition may retain runway rows but must obey the materialization cap"
+    );
     assert!(
         jumped
             .layout()
@@ -1277,12 +1280,12 @@ fn million_row_virtual_list_large_scrolls_stay_exact_and_bounded() {
             .iter()
             .filter(|frame| frame.role() != view::Role::Root)
             .count()
-            <= 10,
-        "the stable view root is infrastructure; materialized list frames stay bounded"
+            <= 81,
+        "the stable view root is infrastructure; the list owner plus at most 80 materialized rows stay bounded"
     );
     let jump_row_calls = row_calls.get().saturating_sub(calls_before_jump);
     assert!(
-        jump_row_calls <= 16,
+        jump_row_calls <= 80,
         "a gallery-scale relative jump must retain bounded materialization; observed {jump_row_calls} row builds"
     );
 
@@ -1590,11 +1593,18 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
     let scrolled = app
         .show_scene(window, initial_size)
         .expect("scrolled variable list should render");
-    assert!(scrolled.layout().frames().iter().any(|frame| {
-        frame
-            .provided_row()
-            .is_some_and(|row| row.index() == 0 && frame.rect().bottom() <= list.rect().y())
-    }));
+    let pinned = scrolled
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.provided_row().is_some_and(|row| row.index() == 0))
+        .expect("focused row must remain materialized as an identity pin");
+    let spatial = scene::SpatialSnapshot::from_stack(scrolled.stack())
+        .expect("scrolled variable list spatial snapshot");
+    let presented = spatial
+        .translated_rect(pinned.node_id(), pinned.rect())
+        .expect("pinned row must participate in the submitted spatial truth");
+    assert!(presented.bottom() <= list.rect().y());
     let retained = app
         .composition(window)
         .and_then(|composition| {
@@ -1621,17 +1631,16 @@ fn measured_virtual_sequence_covers_a_short_viewport_through_pin_scroll_and_resi
         .viewport()
         .expect("variable list viewport")
         .visible_content();
+    let spatial = scene::SpatialSnapshot::from_stack(narrowed.stack())
+        .expect("narrowed variable list spatial snapshot");
     let mut visible = narrowed
         .layout()
         .frames()
         .iter()
         .filter_map(|frame| {
-            frame
-                .provided_row()
-                .filter(|_| {
-                    frame.rect().bottom() > viewport.y() && frame.rect().y() < viewport.bottom()
-                })
-                .map(|_| frame.rect())
+            frame.provided_row()?;
+            let rect = spatial.translated_rect(frame.node_id(), frame.rect())?;
+            (rect.bottom() > viewport.y() && rect.y() < viewport.bottom()).then_some(rect)
         })
         .collect::<Vec<_>>();
     visible.sort_unstable_by_key(|rect| rect.y());
@@ -1835,7 +1844,7 @@ fn table_internal_scroll_uses_a_subject_instead_of_a_painted_label() {
     ));
     let scroll = table
         .children()
-        .first()
+        .front()
         .expect("table should own its horizontal scroll node");
 
     assert_eq!(scroll.role(), view::Role::Scroll);
@@ -2766,31 +2775,37 @@ fn table_keyboard_navigation_reveals_current_cell_across_horizontal_overflow() {
 
 #[test]
 fn table_gutter_scrollbar_and_body_clip_share_visible_viewport_geometry() {
-    let view = widget::view(|ui| {
-        ui.add(
-            crate::Table::new(
-                "gutter.records",
-                20,
-                [
-                    crate::table::Column::new("name", "Name", view::Dimension::fixed(160)),
-                    crate::table::Column::new("detail", "Detail", view::Dimension::fixed(150)),
-                ],
-                MillionTableProvider {
-                    cell_calls: Rc::new(Cell::new(0)),
-                },
-            )
-            .height(view::Dimension::fixed(108)),
-        );
-    });
     let mut theme = Theme::dark();
     theme.scrollbar_mut().metrics.policy = crate::theme::ScrollbarPolicy::GutterAlways;
-    let mut engine = layout::Engine::new();
-    let layout = layout::Layout::compose_with_theme(
-        &view,
-        geometry::Size::new(240, 108),
-        &mut engine,
-        &theme,
-    );
+    let app_theme = theme.clone();
+    let provider = MillionTableProvider {
+        cell_calls: Rc::new(Cell::new(0)),
+    };
+    let mut app = Runtime::new(SourceState::default())
+        .started(|cx| {
+            cx.open_window(window::Options::new("Shared table viewport clip"));
+        })
+        .theme(move |_| app_theme.clone())
+        .view(move |_, _| {
+            widget::view_node(
+                crate::Table::new(
+                    "gutter.records",
+                    20,
+                    [
+                        crate::table::Column::new("name", "Name", view::Dimension::fixed(160)),
+                        crate::table::Column::new("detail", "Detail", view::Dimension::fixed(150)),
+                    ],
+                    provider.clone(),
+                )
+                .height(view::Dimension::fixed(108)),
+            )
+        });
+    app.start();
+    let window = app.session().windows()[0].id();
+    let rendered = app
+        .show_scene(window, geometry::Size::new(240, 108))
+        .expect("table clip fixture should prepare resident rows");
+    let layout = rendered.layout();
     let body = layout
         .frames()
         .iter()
@@ -2824,6 +2839,48 @@ fn table_gutter_scrollbar_and_body_clip_share_visible_viewport_geometry() {
     assert_eq!(
         layout.virtual_list_page(body_id, 20),
         Some((viewport.visible_content().height().max(1) as usize / 20).max(1))
+    );
+    let cells = layout
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_cell().is_some())
+        .collect::<Vec<_>>();
+    let mut unique_cell_clips = Vec::new();
+    for clip in cells.iter().filter_map(|frame| frame.clip()) {
+        if !unique_cell_clips.contains(&clip) {
+            unique_cell_clips.push(clip);
+        }
+    }
+    assert!(
+        cells.len() > 2,
+        "clip fixture must materialize several cells"
+    );
+    assert!(
+        unique_cell_clips.is_empty(),
+        "content-local table cells must not borrow the fixed viewport clip into row-local layout"
+    );
+    let clip_rects = rendered
+        .scene()
+        .clips()
+        .into_iter()
+        .map(|clip| clip.rect())
+        .collect::<Vec<_>>();
+    let body_clip_count = rendered
+        .scene()
+        .primitives()
+        .iter()
+        .filter(|primitive| {
+            matches!(
+                primitive,
+                scene::Primitive::Clip(clip) if clip.rect() == viewport.visible_content()
+            )
+        })
+        .count();
+    assert!(
+        (1..=4).contains(&body_clip_count) && body_clip_count < cells.len(),
+        "table painting must keep its shared body clip to structural scopes, not repeat it per cell: scopes={body_clip_count} cells={} expected={:?} clips={clip_rects:?}",
+        cells.len(),
+        viewport.visible_content()
     );
 }
 
@@ -4925,6 +4982,39 @@ fn table_text_selects_row_before_participation_and_keeps_one_text_box_identity()
         Some("Ada Lovelace")
     );
 
+    app.handle_input(
+        window,
+        Input::key_down(input::Key::Backspace, input::Modifiers::default()),
+    )
+    .expect("deleting the selected table draft should be handled");
+    assert_eq!(text_draft(&app, window, focus).text(), "");
+    let deleted = app
+        .show_scene(window, size)
+        .expect("the empty active draft should project before focus leaves");
+    let deleted_frame = deleted
+        .layout()
+        .frames()
+        .iter()
+        .find(|frame| frame.table_cell() == Some(cell))
+        .expect("active empty TextBox frame");
+    assert_eq!(deleted_frame.node_id(), identity);
+    assert_eq!(
+        deleted_frame
+            .text_box()
+            .expect("active frame retains the canonical TextBox")
+            .text(),
+        ""
+    );
+    assert_eq!(
+        deleted_frame
+            .text_box_layout()
+            .and_then(|field| field.render_surface())
+            .map(text::layout::TextAreaSurface::source_text_len),
+        Some(0),
+        "the shaped surface must stop painting the deleted source immediately"
+    );
+    drop(deleted);
+
     app.handle_input(window, Input::cancel())
         .expect("cancel should retire the text task");
     let resting = app
@@ -6051,7 +6141,10 @@ fn virtual_list_pointer_capture_pins_until_provider_deletion() {
     let scrolled = app
         .show_scene(window, size)
         .expect("captured row should remain materialized");
-    assert!(scrolled.layout().find_role(view::Role::Scroll).len() <= 10);
+    assert!(
+        scrolled.layout().find_role(view::Role::Scroll).len() <= 80,
+        "captured-row pinning must remain inside the transition materialization cap"
+    );
     assert!(
         app.session()
             .interaction(window)
@@ -6282,7 +6375,10 @@ fn selectable_virtual_list_handles_click_toggle_range_and_bounded_select_all() {
             .iter()
             .any(|text| text.value() == "Provider row 999999")
     );
-    assert!(moved.layout().frames().len() <= 10);
+    assert!(
+        moved.layout().frames().len() <= 82,
+        "root, list owner, and predictive resident rows must remain bounded"
+    );
 }
 
 #[test]
@@ -13423,7 +13519,12 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
         .find(|frame| frame.table_cell() == Some(cell))
         .expect("active editor row should remain pinned offscreen");
     assert_eq!(pinned.node_id(), editor_identity);
-    assert!(pinned.rect().bottom() <= list.rect().y());
+    let spatial = scene::SpatialSnapshot::from_stack(scrolled.stack())
+        .expect("scrolled table spatial snapshot");
+    let presented = spatial
+        .translated_rect(pinned.node_id(), pinned.rect())
+        .expect("pinned editor must participate in the submitted spatial truth");
+    assert!(presented.bottom() <= list.rect().y());
     drop(scrolled);
 
     app.change(state::Reason::programmatic("expand table rows"), |state| {
@@ -13507,15 +13608,17 @@ fn table_mode_toggle_preserves_pinned_active_editor_through_scroll_resize_and_re
         text_draft(&app, window, session::Focus::table_cell(cell)).text(),
         "retained draft"
     );
+    let materialized_rows = rebuilt
+        .layout()
+        .frames()
+        .iter()
+        .filter(|frame| frame.table_cell().is_some())
+        .filter_map(layout::Frame::provided_row)
+        .map(|row| row.key())
+        .collect::<std::collections::HashSet<_>>();
     assert!(
-        rebuilt
-            .layout()
-            .frames()
-            .iter()
-            .filter(|frame| frame.table_cell().is_some())
-            .count()
-            <= 84,
-        "toggle/resize work should remain bounded to materialized cells"
+        materialized_rows.len() <= 80,
+        "toggle/resize work must remain inside the bounded materialized-row policy"
     );
 }
 

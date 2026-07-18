@@ -7,7 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from check_renderer_receipts import ReceiptError, parse_receipt, validate_pair  # noqa: E402
+from check_renderer_receipts import (  # noqa: E402
+    ReceiptError,
+    _validate_common,
+    parse_receipt,
+    validate_pair,
+)
 
 
 def receipt_text(
@@ -21,6 +26,8 @@ def receipt_text(
     present_submitted = 120
     values = {
         "schema": "wgpu_l3.renderer_receipt.v1",
+        "presentation_receipt_schema": "wgpu_l3.presentation_compiler.v1",
+        "presentation_receipt_complete": "true",
         "workload": workload,
         "os": "windows",
         "architecture": "x86_64",
@@ -40,6 +47,7 @@ def receipt_text(
         "fallback_adapter_requested": "false",
         "fallback_selection_verified": "true",
         "frames_attempted": str(present_submitted),
+        "frames_prepared": str(present_submitted),
         "frames_present_submitted": str(present_submitted),
         "frames_skipped": "0",
         "redraw_requests_issued": str(present_submitted),
@@ -70,6 +78,59 @@ def receipt_text(
         "full_surface_blits_total": str(present_submitted),
         "full_surface_blit_bytes_total": "4096",
         "acquire_successes": str(present_submitted),
+        "presentation_frames_recorded": str(present_submitted),
+        "primary_idle_frames": "0",
+        "primary_property_frames": str(present_submitted - guard_crossings),
+        "primary_residency_frames": str(guard_crossings),
+        "primary_paint_frames": "0",
+        "primary_layout_frames": "0",
+        "primary_rebuild_frames": "0",
+        "property_species_frames": str(present_submitted),
+        "residency_species_frames": str(guard_crossings),
+        "semantic_species_frames": "0",
+        "device_species_frames": "0",
+        "diagnostic_species_frames": "0",
+        "mixed_property_residency_frames": str(guard_crossings),
+        "materialization_calls": str(guard_crossings),
+        "entering_rows": str(guard_crossings * 4),
+        "departing_rows": str(guard_crossings * 4),
+        "overlapping_rows": str(guard_crossings * 20),
+        "revised_rows": "0",
+        "moved_rows": "0",
+        "membership_change_events": "0",
+        "provider_binds": str(guard_crossings * 4),
+        "view_nodes_cloned": str(guard_crossings * 24),
+        "composition_reconciliations": str(guard_crossings),
+        "composition_nodes_visited": str(guard_crossings * 24),
+        "composition_nodes_reconstructed": str(guard_crossings * 24),
+        "composition_identities_reused": str(guard_crossings * 20),
+        "composition_nodes_added": str(guard_crossings * 4),
+        "composition_nodes_changed": "0",
+        "composition_nodes_removed": str(guard_crossings * 4),
+        "layout_candidates": str(present_submitted),
+        "layout_nodes_visited": str(present_submitted * 24),
+        "layout_nodes_reused": str((present_submitted - guard_crossings) * 24),
+        "layout_reused_candidates": str(present_submitted - guard_crossings),
+        "scene_frames_scanned": str(present_submitted * 24),
+        "scene_frames_painted": str(guard_crossings * 24),
+        "scene_frames_reused": str((present_submitted - guard_crossings) * 24),
+        "scene_row_fragments_spliced": str((present_submitted - guard_crossings) * 4),
+        "scene_row_fragments_built": str(guard_crossings * 4),
+        "scene_row_roots_visited": str(present_submitted * 20),
+        "scene_commit_layout_frames_visited": str(present_submitted * 24),
+        "scene_commit_nodes_registered": str(present_submitted * 24),
+        "scene_commit_fragments_appended": str(present_submitted * 24),
+        "scene_commit_draw_ops_lowered": str(present_submitted * 24),
+        "scene_cache_entries_swept": str(present_submitted * 48),
+        "scene_semantic_candidate_nodes_visited": str(guard_crossings * 24),
+        "scene_semantic_candidate_draws_visited": str(guard_crossings * 24),
+        "scene_residency_layout_frames_visited": str(guard_crossings * 24),
+        "scene_residency_drawable_nodes_visited": str(guard_crossings * 48),
+        "scene_residency_draw_ops_visited": str(guard_crossings * 24),
+        "scene_residency_snapshot_nodes_built": str(guard_crossings * 24),
+        "presentation_frame_total_p95_us": "900",
+        "presentation_materialization_p95_us": "100" if guard_crossings else "0",
+        "presentation_reconciliation_p95_us": "100" if guard_crossings else "0",
     }
     return "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
 
@@ -116,6 +177,24 @@ class RendererReceiptTests(unittest.TestCase):
         self.assertEqual(summary["in_window"]["virtual_guard_crossings"], 0)
         self.assertEqual(summary["guard"]["virtual_guard_crossings"], 3)
         self.assertFalse(summary["in_window"]["renderer_budget_met"])
+
+    def test_long_receipt_uses_the_bounded_timing_sample_population(self) -> None:
+        receipt, _ = self.pair()
+        for key in (
+            "frames_attempted",
+            "frames_prepared",
+            "frames_present_submitted",
+            "acquire_successes",
+            "presentation_frames_recorded",
+            "primary_property_frames",
+            "property_species_frames",
+        ):
+            receipt.values[key] = "327"
+        receipt.values["draw_us_sample_count"] = "128"
+        receipt.values["frame_interval_us_sample_count"] = "128"
+        errors: list[str] = []
+        _validate_common(receipt, errors, require_field_igpu_60hz=False)
+        self.assertEqual(errors, [])
 
     def test_optional_field_policy_requires_60_hz_integrated_gpu(self) -> None:
         with self.assertRaisesRegex(ReceiptError, "not IntegratedGpu"):
@@ -164,6 +243,24 @@ class RendererReceiptTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ReceiptError, "duplicate key"):
             parse_receipt(path)
+
+    def test_incomplete_presentation_receipt_is_rejected(self) -> None:
+        in_window, guard = self.pair()
+        guard.values["presentation_receipt_complete"] = "false"
+        with self.assertRaisesRegex(ReceiptError, "presentation receipt is incomplete"):
+            validate_pair(in_window, guard)
+
+    def test_erased_residency_species_is_rejected(self) -> None:
+        in_window, guard = self.pair()
+        guard.values["residency_species_frames"] = "0"
+        with self.assertRaisesRegex(ReceiptError, "erased its residency species"):
+            validate_pair(in_window, guard)
+
+    def test_forged_second_primary_reason_is_rejected(self) -> None:
+        in_window, guard = self.pair()
+        guard.values["primary_layout_frames"] = "1"
+        with self.assertRaisesRegex(ReceiptError, "not mutually exhaustive"):
+            validate_pair(in_window, guard)
 
 
 if __name__ == "__main__":

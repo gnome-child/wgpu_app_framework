@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, Range},
     rc::Rc,
 };
@@ -13,8 +13,6 @@ const DEFAULT_OVERSCAN: usize = 2;
 const INITIAL_ROWS: usize = 32;
 const MAX_TRANSITION_MATERIALIZED_ROWS: usize = 80;
 const MAX_LEADING_RUNWAY_VIEWPORTS: usize = 2;
-const MIN_LEADING_RUNWAY_VIEWPORT_NUMERATOR: usize = 3;
-const MIN_LEADING_RUNWAY_VIEWPORT_DENOMINATOR: usize = 2;
 const MAX_RECYCLED_SLOTS: usize = 32;
 
 /// Stable logical identity supplied by a list model.
@@ -66,6 +64,16 @@ pub trait Model {
 
     /// Revision of the content currently associated with one stable key.
     fn item_revision(&self, index: usize) -> u64;
+
+    /// Monotonic revision covering every key, order, and item value consulted
+    /// by [`Factory::bind`] during residency-only presentation.
+    ///
+    /// Returning `None` keeps the model correct but disables the keyed
+    /// residency fast path. A model may return `Some(revision)` only when an
+    /// unchanged value proves that retained overlap cannot need rebinding.
+    fn residency_revision(&self) -> Option<u64> {
+        None
+    }
 
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -133,6 +141,65 @@ pub(crate) struct Materialization {
     runway: bool,
 }
 
+/// Owner-local work performed while reconciling one or more virtual sequences.
+///
+/// These are observation currencies, not invalidation inputs. They deliberately
+/// describe keyed set work at the point where both the old and desired
+/// memberships are available.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MaterializationStats {
+    pub(crate) lists: usize,
+    pub(crate) old_interval_start: Option<usize>,
+    pub(crate) old_interval_end: Option<usize>,
+    pub(crate) new_interval_start: Option<usize>,
+    pub(crate) new_interval_end: Option<usize>,
+    pub(crate) resident_rows_before: usize,
+    pub(crate) resident_rows_after: usize,
+    pub(crate) entering_rows: usize,
+    pub(crate) departing_rows: usize,
+    pub(crate) overlapping_rows: usize,
+    pub(crate) revised_rows: usize,
+    pub(crate) moved_rows: usize,
+    pub(crate) membership_changes: usize,
+    pub(crate) membership_revision_max: u64,
+    pub(crate) provider_binds: usize,
+    pub(crate) slots_rebound: usize,
+    pub(crate) view_nodes_cloned: usize,
+}
+
+/// Ordered edits produced by the virtual-list owner for a residency-only
+/// presentation.
+///
+/// The retained middle is intentionally absent: downstream owners must keep
+/// it in place rather than receiving, cloning, or revalidating it.
+pub(crate) struct ResidencyDelta {
+    list: interaction::Id,
+    remove_front: usize,
+    remove_back: usize,
+    insert_front: Vec<view::Node>,
+    insert_back: Vec<view::Node>,
+    reset: Option<Vec<view::Node>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AppliedResidencyDelta {
+    list: interaction::Id,
+    remove_front: usize,
+    remove_back: usize,
+    insert_front: usize,
+    insert_back: usize,
+    reset: bool,
+}
+
+pub(crate) struct ResidencyDeltaParts {
+    pub(crate) list: interaction::Id,
+    pub(crate) remove_front: usize,
+    pub(crate) remove_back: usize,
+    pub(crate) insert_front: Vec<view::Node>,
+    pub(crate) insert_back: Vec<view::Node>,
+    pub(crate) reset: Option<Vec<view::Node>>,
+}
+
 #[derive(Clone)]
 pub(crate) struct Request {
     id: interaction::Id,
@@ -148,6 +215,10 @@ struct Slots {
     factory_revision: Option<u64>,
     len: usize,
     active: HashMap<Key, BoundSlot>,
+    order: VecDeque<Key>,
+    range: Option<Range<usize>>,
+    pins: Vec<Key>,
+    residency_revision: Option<u64>,
     recycled: Vec<AvailableSlot>,
 }
 
@@ -213,6 +284,11 @@ impl Key {
 impl Slot {
     pub const fn value(self) -> u64 {
         self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn from_test_value(value: u64) -> Self {
+        Self(value)
     }
 }
 
@@ -448,14 +524,6 @@ impl State {
             })
     }
 
-    pub(crate) fn request_for_required_viewport(
-        &self,
-        offset_y: i32,
-        viewport_height: i32,
-    ) -> Request {
-        self.base_request_for_viewport(offset_y, viewport_height)
-    }
-
     fn base_request_for_viewport(&self, offset_y: i32, viewport_height: i32) -> Request {
         match &self.heights {
             Heights::Uniform(row_height) => {
@@ -507,11 +575,9 @@ impl State {
         let distance_rows =
             (offset_y.abs_diff(baseline_y) as usize).div_ceil(self.row_height().max(1) as usize);
         let runway_budget = MAX_TRANSITION_MATERIALIZED_ROWS.saturating_sub(request.range.len());
-        let minimum_leading = visible_rows
-            .saturating_mul(MIN_LEADING_RUNWAY_VIEWPORT_NUMERATOR)
-            .div_ceil(MIN_LEADING_RUNWAY_VIEWPORT_DENOMINATOR);
-        let leading_goal = minimum_leading
-            .max(distance_rows.min(visible_rows.saturating_mul(MAX_LEADING_RUNWAY_VIEWPORTS)));
+        let leading_goal = distance_rows
+            .min(visible_rows.saturating_mul(MAX_LEADING_RUNWAY_VIEWPORTS))
+            .max(visible_rows);
         let leading = leading_goal.min(runway_budget);
         let trailing = visible_rows
             .div_ceil(2)
@@ -585,7 +651,7 @@ impl State {
         &mut self,
         requested: &Materialization,
         measurements: Option<&Measurements>,
-    ) -> Vec<view::Node> {
+    ) -> (Vec<view::Node>, MaterializationStats) {
         if matches!(self.heights, Heights::Variable(_))
             && let Some(measurements) = measurements
         {
@@ -625,8 +691,45 @@ impl State {
             self.id,
             self.model.as_ref(),
             Rc::clone(&self.factory),
+            start..end,
+            requested.pins.clone(),
             rows,
         )
+    }
+
+    /// Applies a residency-only request without materializing retained
+    /// overlap. Models which cannot prove a stable residency revision fall
+    /// back to an explicit reset; the fallback stays correct and visible in
+    /// the returned delta and counters.
+    pub(crate) fn materialize_residency(
+        &mut self,
+        requested: &Materialization,
+        measurements: Option<&Measurements>,
+    ) -> (ResidencyDelta, MaterializationStats) {
+        if matches!(self.heights, Heights::Variable(_))
+            && let Some(measurements) = measurements
+        {
+            self.heights = Heights::Variable(measurements.clone());
+        }
+        let len = self.len();
+        let start = requested.range.start.min(len);
+        let end = requested.range.end.max(start).min(len);
+        self.prepared_runway = requested.runway.then_some(start..end);
+        let range = start..end;
+
+        if requested.pins.is_empty()
+            && let Some(result) = self.slots.borrow_mut().materialize_residency(
+                self.id,
+                self.model.as_ref(),
+                Rc::clone(&self.factory),
+                range.clone(),
+            )
+        {
+            return result;
+        }
+
+        let (nodes, stats) = self.materialize(requested, measurements);
+        (ResidencyDelta::reset(self.id, nodes), stats)
     }
 
     fn desired_item(&self, index: usize) -> DesiredItem {
@@ -650,13 +753,39 @@ impl Slots {
         list: interaction::Id,
         model: &dyn Model,
         factory: Rc<dyn Factory>,
+        range: Range<usize>,
+        pins: Vec<Key>,
         desired: Vec<DesiredItem>,
-    ) -> Vec<view::Node> {
+    ) -> (Vec<view::Node>, MaterializationStats) {
         self.observe_factory(factory.as_ref());
-        self.observe_membership(model);
+        let (membership_revision, membership_changes) = self.observe_membership(model);
         let mut previous = std::mem::take(&mut self.active);
+        let resident_rows_before = previous.len();
+        let old_interval_start = previous.values().map(|bound| bound.index).min();
+        let old_interval_end = previous
+            .values()
+            .map(|bound| bound.index.saturating_add(1))
+            .max();
+        let new_interval_start = desired.iter().map(|item| item.index).min();
+        let new_interval_end = desired
+            .iter()
+            .map(|item| item.index.saturating_add(1))
+            .max();
         let mut active = HashMap::with_capacity(desired.len());
         let mut nodes = Vec::with_capacity(desired.len());
+        let mut stats = MaterializationStats {
+            lists: 1,
+            old_interval_start,
+            old_interval_end,
+            new_interval_start,
+            new_interval_end,
+            resident_rows_before,
+            resident_rows_after: desired.len(),
+            membership_changes,
+            membership_revision_max: membership_revision,
+            view_nodes_cloned: desired.len(),
+            ..MaterializationStats::default()
+        };
 
         let desired_keys = desired.iter().map(|item| item.key).collect::<HashSet<_>>();
         let departing = previous
@@ -664,6 +793,7 @@ impl Slots {
             .filter(|key| !desired_keys.contains(key))
             .copied()
             .collect::<Vec<_>>();
+        stats.departing_rows = departing.len();
         for key in departing {
             let bound = previous
                 .remove(&key)
@@ -674,19 +804,31 @@ impl Slots {
             self.recycled.push(bound.slot);
         }
 
+        let mut order = VecDeque::with_capacity(desired.len());
         for item in desired {
             let bound = if let Some(mut bound) = previous.remove(&item.key) {
+                stats.overlapping_rows = stats.overlapping_rows.saturating_add(1);
+                if bound.index != item.index {
+                    stats.moved_rows = stats.moved_rows.saturating_add(1);
+                }
                 if bound.revision == item.revision {
                     bound.index = item.index;
                     bound
                 } else {
+                    stats.revised_rows = stats.revised_rows.saturating_add(1);
+                    stats.provider_binds = stats.provider_binds.saturating_add(1);
                     bound
                         .binding_factory
                         .unbind(bound.slot.id, bound.key, bound.index);
                     Self::bind(bound.slot, Rc::clone(&factory), item)
                 }
             } else {
-                let slot = self.recycled.pop().unwrap_or_else(|| {
+                stats.entering_rows = stats.entering_rows.saturating_add(1);
+                stats.provider_binds = stats.provider_binds.saturating_add(1);
+                let slot = if let Some(slot) = self.recycled.pop() {
+                    stats.slots_rebound = stats.slots_rebound.saturating_add(1);
+                    slot
+                } else {
                     self.next = self.next.saturating_add(1).max(1);
                     let id = Slot(self.next);
                     factory.setup(id);
@@ -694,15 +836,16 @@ impl Slots {
                         id,
                         setup_factory: Rc::clone(&factory),
                     }
-                });
+                };
                 Self::bind(slot, Rc::clone(&factory), item)
             };
-            nodes.push(
-                bound
-                    .node
-                    .clone()
-                    .with_provided_row(list, bound.key, bound.index),
-            );
+            nodes.push(bound.node.clone().with_provided_row(
+                list,
+                bound.key,
+                bound.slot.id,
+                bound.index,
+            ));
+            order.push_back(bound.key);
             active.insert(bound.key, bound);
         }
 
@@ -713,7 +856,163 @@ impl Slots {
             }
         }
         self.active = active;
-        nodes
+        self.order = order;
+        self.range = Some(range);
+        self.pins = pins;
+        self.residency_revision = model.residency_revision();
+        (nodes, stats)
+    }
+
+    fn materialize_residency(
+        &mut self,
+        list: interaction::Id,
+        model: &dyn Model,
+        factory: Rc<dyn Factory>,
+        desired: Range<usize>,
+    ) -> Option<(ResidencyDelta, MaterializationStats)> {
+        let old = self.range.clone()?;
+        let revision = model.residency_revision()?;
+        if self.residency_revision != Some(revision)
+            || !self.pins.is_empty()
+            || self.factory_revision != Some(factory.revision())
+            || self.membership_revision != Some(model.membership_revision())
+            || self.order.len() != old.len()
+            || self.active.len() != old.len()
+        {
+            return None;
+        }
+
+        let overlap_start = old.start.max(desired.start);
+        let overlap_end = old.end.min(desired.end);
+        let has_overlap = overlap_start < overlap_end;
+        let (remove_front, remove_back, enter_front, enter_back) = if has_overlap {
+            (
+                overlap_start - old.start,
+                old.end - overlap_end,
+                desired.start..overlap_start,
+                overlap_end..desired.end,
+            )
+        } else {
+            (old.len(), 0, desired.start..desired.start, desired.clone())
+        };
+
+        let resident_rows_before = old.len();
+        let recycled_before = self.recycled.len();
+        for _ in 0..remove_front {
+            let key = self
+                .order
+                .pop_front()
+                .expect("front residency departure must name an active key");
+            self.depart(key);
+        }
+        for _ in 0..remove_back {
+            let key = self
+                .order
+                .pop_back()
+                .expect("back residency departure must name an active key");
+            self.depart(key);
+        }
+
+        let mut inserted_front = Vec::with_capacity(enter_front.len());
+        for index in enter_front.clone().rev() {
+            let item = desired_item(model, index);
+            let bound = self.bind_entering(Rc::clone(&factory), item);
+            inserted_front.push(bound.node.clone().with_provided_row(
+                list,
+                bound.key,
+                bound.slot.id,
+                bound.index,
+            ));
+            self.order.push_front(bound.key);
+            self.active.insert(bound.key, bound);
+        }
+        inserted_front.reverse();
+
+        let mut inserted_back = Vec::with_capacity(enter_back.len());
+        for index in enter_back.clone() {
+            let item = desired_item(model, index);
+            let bound = self.bind_entering(Rc::clone(&factory), item);
+            inserted_back.push(bound.node.clone().with_provided_row(
+                list,
+                bound.key,
+                bound.slot.id,
+                bound.index,
+            ));
+            self.order.push_back(bound.key);
+            self.active.insert(bound.key, bound);
+        }
+
+        while self.recycled.len() > MAX_RECYCLED_SLOTS {
+            if let Some(slot) = self.recycled.pop() {
+                slot.setup_factory.teardown(slot.id);
+            }
+        }
+        self.range = Some(desired.clone());
+        self.len = model.len();
+        self.residency_revision = Some(revision);
+        debug_assert_eq!(self.order.len(), desired.len());
+        debug_assert_eq!(self.active.len(), desired.len());
+
+        let entering = enter_front.len().saturating_add(enter_back.len());
+        let departing = remove_front.saturating_add(remove_back);
+        let stats = MaterializationStats {
+            lists: 1,
+            old_interval_start: Some(old.start),
+            old_interval_end: Some(old.end),
+            new_interval_start: Some(desired.start),
+            new_interval_end: Some(desired.end),
+            resident_rows_before,
+            resident_rows_after: desired.len(),
+            entering_rows: entering,
+            departing_rows: departing,
+            overlapping_rows: if has_overlap {
+                overlap_end - overlap_start
+            } else {
+                0
+            },
+            membership_revision_max: self.membership_revision.unwrap_or_default(),
+            provider_binds: entering,
+            slots_rebound: entering.min(recycled_before.saturating_add(departing)),
+            view_nodes_cloned: entering,
+            ..MaterializationStats::default()
+        };
+        Some((
+            ResidencyDelta {
+                list,
+                remove_front,
+                remove_back,
+                insert_front: inserted_front,
+                insert_back: inserted_back,
+                reset: None,
+            },
+            stats,
+        ))
+    }
+
+    fn depart(&mut self, key: Key) {
+        let bound = self
+            .active
+            .remove(&key)
+            .expect("residency departure must name an active slot");
+        bound
+            .binding_factory
+            .unbind(bound.slot.id, bound.key, bound.index);
+        self.recycled.push(bound.slot);
+    }
+
+    fn bind_entering(&mut self, factory: Rc<dyn Factory>, item: DesiredItem) -> BoundSlot {
+        let slot = if let Some(slot) = self.recycled.pop() {
+            slot
+        } else {
+            self.next = self.next.saturating_add(1).max(1);
+            let id = Slot(self.next);
+            factory.setup(id);
+            AvailableSlot {
+                id,
+                setup_factory: Rc::clone(&factory),
+            }
+        };
+        Self::bind(slot, factory, item)
     }
 
     fn bind(slot: AvailableSlot, factory: Rc<dyn Factory>, item: DesiredItem) -> BoundSlot {
@@ -728,12 +1027,14 @@ impl Slots {
         }
     }
 
-    fn observe_membership(&mut self, model: &dyn Model) {
+    fn observe_membership(&mut self, model: &dyn Model) -> (u64, usize) {
         let revision = model.membership_revision();
+        let mut observed_changes = 0;
         if let Some(previous) = self.membership_revision
             && revision != previous
         {
             let changes = model.changes_since(previous);
+            observed_changes = changes.len();
             assert!(
                 !changes.is_empty(),
                 "a changed list membership revision must describe its mutations"
@@ -749,6 +1050,7 @@ impl Slots {
         }
         self.membership_revision = Some(revision);
         self.len = model.len();
+        (revision, observed_changes)
     }
 
     fn observe_factory(&mut self, factory: &dyn Factory) {
@@ -771,11 +1073,171 @@ impl Slots {
         for slot in self.recycled.drain(..) {
             slot.setup_factory.teardown(slot.id);
         }
+        self.order.clear();
+        self.range = None;
+        self.pins.clear();
+        self.residency_revision = None;
     }
 
     #[cfg(test)]
     fn slot_for(&self, key: Key) -> Option<Slot> {
         self.active.get(&key).map(|bound| bound.slot.id)
+    }
+}
+
+fn desired_item(model: &dyn Model, index: usize) -> DesiredItem {
+    let key = model.key(index);
+    assert_eq!(
+        model.index_of(key),
+        Some(index),
+        "list model key and index_of must be an exact stable-identity inverse"
+    );
+    DesiredItem {
+        key,
+        index,
+        revision: model.item_revision(index),
+    }
+}
+
+impl ResidencyDelta {
+    fn reset(list: interaction::Id, nodes: Vec<view::Node>) -> Self {
+        Self {
+            list,
+            remove_front: 0,
+            remove_back: 0,
+            insert_front: Vec::new(),
+            insert_back: Vec::new(),
+            reset: Some(nodes),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn list(&self) -> interaction::Id {
+        self.list
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_front(&self) -> usize {
+        self.remove_front
+    }
+
+    #[cfg(test)]
+    pub(crate) fn remove_back(&self) -> usize {
+        self.remove_back
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_front(&self) -> &[view::Node] {
+        &self.insert_front
+    }
+
+    #[cfg(test)]
+    pub(crate) fn insert_back(&self) -> &[view::Node] {
+        &self.insert_back
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reset_nodes(&self) -> Option<&[view::Node]> {
+        self.reset.as_deref()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_keyed(&self) -> bool {
+        self.reset.is_none()
+    }
+
+    pub(crate) fn into_parts(self) -> ResidencyDeltaParts {
+        ResidencyDeltaParts {
+            list: self.list,
+            remove_front: self.remove_front,
+            remove_back: self.remove_back,
+            insert_front: self.insert_front,
+            insert_back: self.insert_back,
+            reset: self.reset,
+        }
+    }
+}
+
+impl AppliedResidencyDelta {
+    pub(crate) fn new(parts: &ResidencyDeltaParts) -> Self {
+        Self {
+            list: parts.list,
+            remove_front: parts.remove_front,
+            remove_back: parts.remove_back,
+            insert_front: parts.insert_front.len(),
+            insert_back: parts.insert_back.len(),
+            reset: parts.reset.is_some(),
+        }
+    }
+
+    pub(crate) fn list(self) -> interaction::Id {
+        self.list
+    }
+
+    pub(crate) fn remove_front(self) -> usize {
+        self.remove_front
+    }
+
+    pub(crate) fn remove_back(self) -> usize {
+        self.remove_back
+    }
+
+    pub(crate) fn insert_front(self) -> usize {
+        self.insert_front
+    }
+
+    pub(crate) fn insert_back(self) -> usize {
+        self.insert_back
+    }
+
+    pub(crate) fn is_reset(self) -> bool {
+        self.reset
+    }
+}
+
+impl MaterializationStats {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.lists = self.lists.saturating_add(other.lists);
+        self.old_interval_start = min_option(self.old_interval_start, other.old_interval_start);
+        self.old_interval_end = max_option(self.old_interval_end, other.old_interval_end);
+        self.new_interval_start = min_option(self.new_interval_start, other.new_interval_start);
+        self.new_interval_end = max_option(self.new_interval_end, other.new_interval_end);
+        self.resident_rows_before = self
+            .resident_rows_before
+            .saturating_add(other.resident_rows_before);
+        self.resident_rows_after = self
+            .resident_rows_after
+            .saturating_add(other.resident_rows_after);
+        self.entering_rows = self.entering_rows.saturating_add(other.entering_rows);
+        self.departing_rows = self.departing_rows.saturating_add(other.departing_rows);
+        self.overlapping_rows = self.overlapping_rows.saturating_add(other.overlapping_rows);
+        self.revised_rows = self.revised_rows.saturating_add(other.revised_rows);
+        self.moved_rows = self.moved_rows.saturating_add(other.moved_rows);
+        self.membership_changes = self
+            .membership_changes
+            .saturating_add(other.membership_changes);
+        self.membership_revision_max = self
+            .membership_revision_max
+            .max(other.membership_revision_max);
+        self.provider_binds = self.provider_binds.saturating_add(other.provider_binds);
+        self.slots_rebound = self.slots_rebound.saturating_add(other.slots_rebound);
+        self.view_nodes_cloned = self
+            .view_nodes_cloned
+            .saturating_add(other.view_nodes_cloned);
+    }
+}
+
+fn min_option(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (left, right) => left.or(right),
+    }
+}
+
+fn max_option(left: Option<usize>, right: Option<usize>) -> Option<usize> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (left, right) => left.or(right),
     }
 }
 
@@ -900,6 +1362,7 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[derive(Default)]
     struct LifecycleLog {
@@ -1100,6 +1563,79 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct CountingRows {
+        len: usize,
+        key_queries: Rc<Cell<usize>>,
+        index_queries: Rc<Cell<usize>>,
+        item_queries: Rc<Cell<usize>>,
+        binds: Rc<Cell<usize>>,
+    }
+
+    impl CountingRows {
+        fn new(len: usize) -> Self {
+            Self {
+                len,
+                key_queries: Rc::new(Cell::new(0)),
+                index_queries: Rc::new(Cell::new(0)),
+                item_queries: Rc::new(Cell::new(0)),
+                binds: Rc::new(Cell::new(0)),
+            }
+        }
+
+        fn reset_queries(&self) {
+            self.key_queries.set(0);
+            self.index_queries.set(0);
+            self.item_queries.set(0);
+            self.binds.set(0);
+        }
+    }
+
+    impl Model for CountingRows {
+        fn len(&self) -> usize {
+            self.len
+        }
+
+        fn key(&self, index: usize) -> Key {
+            self.key_queries.set(self.key_queries.get() + 1);
+            Key::new(index as u64)
+        }
+
+        fn index_of(&self, key: Key) -> Option<usize> {
+            self.index_queries.set(self.index_queries.get() + 1);
+            let index = key.value() as usize;
+            (index < self.len).then_some(index)
+        }
+
+        fn membership_revision(&self) -> u64 {
+            0
+        }
+
+        fn changes_since(&self, _revision: u64) -> Vec<Change> {
+            Vec::new()
+        }
+
+        fn item_revision(&self, _index: usize) -> u64 {
+            self.item_queries.set(self.item_queries.get() + 1);
+            0
+        }
+
+        fn residency_revision(&self) -> Option<u64> {
+            Some(0)
+        }
+    }
+
+    impl Factory for CountingRows {
+        fn revision(&self) -> u64 {
+            0
+        }
+
+        fn bind(&self, _slot: Slot, index: usize) -> view::Node {
+            self.binds.set(self.binds.get() + 1);
+            view::Node::label(format!("row {index}"))
+        }
+    }
+
     fn lifecycle_model(provider: &Rc<LifecycleRows>) -> State {
         let model: Rc<dyn Model> = provider.clone();
         let factory: Rc<dyn Factory> = provider.clone();
@@ -1113,11 +1649,109 @@ mod tests {
     }
 
     #[test]
+    fn residency_delta_preserves_every_overlap_without_querying_it() {
+        fn exercise(resident: usize) -> (usize, usize, usize, usize) {
+            let provider = Rc::new(CountingRows::new(10_000));
+            let model: Rc<dyn Model> = provider.clone();
+            let factory: Rc<dyn Factory> = provider.clone();
+            let mut state = State::new(interaction::Id::new("counting.rows"), 20, model, factory);
+            state.materialize(&Materialization::new(0..resident, Vec::new()), None);
+            provider.reset_queries();
+
+            let (delta, stats) = state
+                .materialize_residency(&Materialization::new(1..resident + 1, Vec::new()), None);
+            assert!(delta.is_keyed());
+            assert_eq!(delta.list(), interaction::Id::new("counting.rows"));
+            assert_eq!(delta.remove_front(), 1);
+            assert_eq!(delta.remove_back(), 0);
+            assert!(delta.insert_front().is_empty());
+            assert_eq!(delta.insert_back().len(), 1);
+            assert!(delta.reset_nodes().is_none());
+            assert_eq!(stats.entering_rows, 1);
+            assert_eq!(stats.departing_rows, 1);
+            assert_eq!(stats.overlapping_rows, resident - 1);
+            assert_eq!(stats.provider_binds, 1);
+            assert_eq!(stats.view_nodes_cloned, 1);
+
+            (
+                provider.key_queries.get(),
+                provider.index_queries.get(),
+                provider.item_queries.get(),
+                provider.binds.get(),
+            )
+        }
+
+        let small = exercise(16);
+        let large = exercise(64);
+        assert_eq!(small, (1, 1, 1, 1));
+        assert_eq!(
+            large, small,
+            "constant edge delta must ignore resident population"
+        );
+    }
+
+    #[test]
+    fn keyed_residency_composition_work_is_flat_when_population_doubles() {
+        fn exercise(resident: usize) -> (usize, usize, usize, usize) {
+            let provider = Rc::new(CountingRows::new(10_000));
+            let model: Rc<dyn Model> = provider.clone();
+            let factory: Rc<dyn Factory> = provider;
+            let state = State::new(interaction::Id::new("composition.rows"), 20, model, factory);
+            let mut view = view::View::new(view::Node::virtual_list(state));
+            let initial = HashMap::from([(
+                interaction::Id::new("composition.rows"),
+                Materialization::new(0..resident, Vec::new()),
+            )]);
+            view.materialize_virtual_lists(&initial, &HashMap::new(), None);
+            let mut next_node_id = 1;
+            let (mut tree, _) = crate::composition::tree::Tree::new(&view, &mut next_node_id);
+            let before = tree.root().children()[0]
+                .children()
+                .iter()
+                .filter_map(|node| node.provided_row().map(|row| (row.key(), node.node_id())))
+                .collect::<HashMap<_, _>>();
+
+            let next = HashMap::from([(
+                interaction::Id::new("composition.rows"),
+                Materialization::new(1..resident + 1, Vec::new()),
+            )]);
+            let (deltas, stats) = view.materialize_virtual_lists_residency(&next, &HashMap::new());
+            let changes = tree.reconcile_residency(&view, &deltas, &mut next_node_id);
+            let after = tree.root().children()[0]
+                .children()
+                .iter()
+                .filter_map(|node| node.provided_row().map(|row| (row.key(), node.node_id())))
+                .collect::<HashMap<_, _>>();
+
+            for key in (1..resident).map(|value| Key::new(value as u64)) {
+                assert_eq!(after.get(&key), before.get(&key));
+            }
+            assert_eq!(stats.view_nodes_cloned, 1);
+            (
+                changes.nodes_visited(),
+                changes.nodes_reconstructed(),
+                changes.identities_reused(),
+                changes.added().len(),
+            )
+        }
+
+        let small = exercise(16);
+        let large = exercise(64);
+        assert_eq!(small, (2, 1, 1, 1));
+        assert_eq!(
+            large, small,
+            "composition work must depend on delta, not overlap"
+        );
+    }
+
+    #[test]
     fn keyed_slots_reuse_moves_rebind_revisions_and_teardown_exactly() {
         let provider = Rc::new(LifecycleRows::new(0..4));
         let mut model = lifecycle_model(&provider);
         let initial = Materialization::new(0..3, Vec::new());
-        let rows = model.materialize(&initial, None);
+        let (rows, initial_stats) = model.materialize(&initial, None);
+        assert_eq!(initial_stats.entering_rows, 3);
+        assert_eq!(initial_stats.overlapping_rows, 0);
         assert_eq!(provider.log.borrow().setup.len(), 3);
         assert_eq!(provider.log.borrow().bind.len(), 3);
         let first_slots = [Key::new(0), Key::new(1), Key::new(2)]
@@ -1161,7 +1795,13 @@ mod tests {
         provider.move_item(3, 0);
         let mut moved = rebuild_lifecycle_model(&full, &provider);
         drop(full);
-        let moved_rows = moved.materialize(&Materialization::new(0..4, Vec::new()), None);
+        let (moved_rows, moved_stats) =
+            moved.materialize(&Materialization::new(0..4, Vec::new()), None);
+        assert_eq!(moved_stats.entering_rows, 0);
+        assert_eq!(moved_stats.departing_rows, 0);
+        assert_eq!(moved_stats.overlapping_rows, 4);
+        assert_eq!(moved_stats.moved_rows, 4);
+        assert_eq!(moved_stats.membership_changes, 1);
         assert_eq!(provider.log.borrow().bind.len(), binds_before_move);
         assert_eq!(provider.log.borrow().unbind.len(), unbinds_before_move);
         for key in (0..4).map(Key::new) {

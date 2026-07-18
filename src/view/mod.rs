@@ -175,10 +175,22 @@ impl View {
         requests: &HashMap<interaction::Id, crate::list::Materialization>,
         measurements: &HashMap<interaction::Id, crate::list::Measurements>,
         previous: Option<&Self>,
-    ) {
+    ) -> crate::list::MaterializationStats {
         let previous_models = previous.map_or_else(HashMap::new, Self::virtual_list_models);
         self.root
-            .materialize_virtual_lists(requests, measurements, &previous_models);
+            .materialize_virtual_lists(requests, measurements, &previous_models)
+    }
+
+    pub(crate) fn materialize_virtual_lists_residency(
+        &mut self,
+        requests: &HashMap<interaction::Id, crate::list::Materialization>,
+        measurements: &HashMap<interaction::Id, crate::list::Measurements>,
+    ) -> (
+        Vec<crate::list::AppliedResidencyDelta>,
+        crate::list::MaterializationStats,
+    ) {
+        self.root
+            .materialize_virtual_lists_residency(requests, measurements)
     }
 
     pub(crate) fn reuse_virtual_row_text_buffers_from(&mut self, previous: &Self) -> usize {
@@ -248,6 +260,41 @@ impl View {
 
     pub(crate) fn project_input_feedback(&mut self, interaction: &interaction::Interaction) {
         self.root.project_input_feedback(interaction);
+    }
+
+    pub(crate) fn project_residency_rows(
+        &mut self,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        selections: &[(interaction::Id, crate::selection::Selection)],
+        interaction: Option<&interaction::Interaction>,
+    ) {
+        for delta in deltas.iter().copied() {
+            assert!(
+                self.root
+                    .project_residency_rows(delta, selections, interaction),
+                "residency projection must name an installed virtual list"
+            );
+        }
+    }
+
+    pub(crate) fn project_residency_retained(
+        &mut self,
+        deltas: &[crate::list::AppliedResidencyDelta],
+        interaction: Option<&interaction::Interaction>,
+        focus: Option<session::Focus>,
+        tree: &Tree,
+    ) {
+        for delta in deltas.iter().copied() {
+            assert!(
+                self.root.project_residency_retained(
+                    delta,
+                    interaction,
+                    focus.as_ref(),
+                    tree.root(),
+                ),
+                "retained residency projection must name an installed virtual list"
+            );
+        }
     }
 
     #[cfg(test)]

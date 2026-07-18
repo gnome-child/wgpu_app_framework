@@ -205,7 +205,7 @@ impl Node {
         self.id
     }
 
-    pub fn children(&self) -> &[Node] {
+    pub fn children(&self) -> &std::collections::VecDeque<Node> {
         &self.children
     }
 

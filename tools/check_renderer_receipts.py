@@ -12,7 +12,9 @@ from typing import Iterable
 
 
 SCHEMA = "wgpu_l3.renderer_receipt.v1"
+PRESENTATION_SCHEMA = "wgpu_l3.presentation_compiler.v1"
 MIN_PRESENT_SUBMITTED_FRAMES = 60
+TIMING_SAMPLE_LIMIT = 128
 MIN_REFRESH_MILLIHERTZ = 59_000
 MAX_REFRESH_MILLIHERTZ = 61_000
 
@@ -36,6 +38,8 @@ ENVIRONMENT_KEYS = (
 
 REQUIRED_TEXT_KEYS = (
     "schema",
+    "presentation_receipt_schema",
+    "presentation_receipt_complete",
     "workload",
     *ENVIRONMENT_KEYS,
     "fallback_adapter_requested",
@@ -43,6 +47,7 @@ REQUIRED_TEXT_KEYS = (
 )
 
 REQUIRED_INTEGER_KEYS = (
+    "frames_prepared",
     "frames_attempted",
     "frames_present_submitted",
     "frames_skipped",
@@ -74,6 +79,44 @@ REQUIRED_INTEGER_KEYS = (
     "full_surface_blits_total",
     "full_surface_blit_bytes_total",
     "acquire_successes",
+    "presentation_frames_recorded",
+    "primary_idle_frames",
+    "primary_property_frames",
+    "primary_residency_frames",
+    "primary_paint_frames",
+    "primary_layout_frames",
+    "primary_rebuild_frames",
+    "property_species_frames",
+    "residency_species_frames",
+    "semantic_species_frames",
+    "device_species_frames",
+    "diagnostic_species_frames",
+    "mixed_property_residency_frames",
+    "materialization_calls",
+    "entering_rows",
+    "departing_rows",
+    "overlapping_rows",
+    "revised_rows",
+    "moved_rows",
+    "membership_change_events",
+    "provider_binds",
+    "view_nodes_cloned",
+    "composition_reconciliations",
+    "composition_nodes_added",
+    "composition_nodes_changed",
+    "composition_nodes_removed",
+    "layout_candidates",
+    "layout_nodes_visited",
+    "layout_nodes_reused",
+    "layout_reused_candidates",
+    "scene_frames_scanned",
+    "scene_frames_painted",
+    "scene_frames_reused",
+    "scene_row_fragments_spliced",
+    "scene_row_fragments_built",
+    "presentation_frame_total_p95_us",
+    "presentation_materialization_p95_us",
+    "presentation_reconciliation_p95_us",
 )
 
 
@@ -151,6 +194,16 @@ def _validate_common(
 ) -> None:
     label = str(receipt.path)
     _require(errors, receipt.text("schema") == SCHEMA, f"{label}: unsupported schema")
+    _require(
+        errors,
+        receipt.text("presentation_receipt_schema") == PRESENTATION_SCHEMA,
+        f"{label}: unsupported presentation schema",
+    )
+    _require(
+        errors,
+        receipt.text("presentation_receipt_complete") == "true",
+        f"{label}: presentation receipt is incomplete",
+    )
     _require(errors, receipt.text("os") == "windows", f"{label}: OS is not windows")
     _require(errors, receipt.text("adapter_backend") == "Dx12", f"{label}: backend is not Dx12")
     _require(
@@ -198,8 +251,8 @@ def _validate_common(
     )
     _require(
         errors,
-        receipt.integer("draw_us_sample_count") == present_submitted,
-        f"{label}: draw sample count does not match present-submitted frames",
+        receipt.integer("draw_us_sample_count") == min(present_submitted, TIMING_SAMPLE_LIMIT),
+        f"{label}: draw sample count does not match the bounded present-submitted population",
     )
     _require(
         errors,
@@ -215,6 +268,41 @@ def _validate_common(
         errors,
         receipt.integer("redraw_no_progress") <= receipt.integer("redraw_deliveries"),
         f"{label}: no-progress redraws exceed delivered redraws",
+    )
+
+    presentation_frames = receipt.integer("presentation_frames_recorded")
+    primary_frames = sum(
+        receipt.integer(key)
+        for key in (
+            "primary_idle_frames",
+            "primary_property_frames",
+            "primary_residency_frames",
+            "primary_paint_frames",
+            "primary_layout_frames",
+            "primary_rebuild_frames",
+        )
+    )
+    _require(
+        errors,
+        presentation_frames == receipt.integer("frames_prepared"),
+        f"{label}: presentation frame count does not match prepared frames",
+    )
+    _require(
+        errors,
+        primary_frames == presentation_frames,
+        f"{label}: primary frame reasons are not mutually exhaustive",
+    )
+    _require(
+        errors,
+        receipt.integer("primary_property_frames")
+        <= receipt.integer("property_species_frames"),
+        f"{label}: a property-primary frame erased its property species",
+    )
+    _require(
+        errors,
+        receipt.integer("primary_residency_frames")
+        <= receipt.integer("residency_species_frames"),
+        f"{label}: a residency-primary frame erased its residency species",
     )
 
 
@@ -318,6 +406,20 @@ def validate_pair(
             "virtual_guard_crossings": receipt.integer("virtual_guard_crossings"),
             "replenishment_commit_us_p95": receipt.integer("replenishment_commit_us_p95"),
             "scene_paint_calls": receipt.integer("scene_paint_calls"),
+            "presentation_frame_total_p95_us": receipt.integer(
+                "presentation_frame_total_p95_us"
+            ),
+            "presentation_materialization_p95_us": receipt.integer(
+                "presentation_materialization_p95_us"
+            ),
+            "presentation_reconciliation_p95_us": receipt.integer(
+                "presentation_reconciliation_p95_us"
+            ),
+            "entering_rows": receipt.integer("entering_rows"),
+            "overlapping_rows": receipt.integer("overlapping_rows"),
+            "layout_nodes_visited": receipt.integer("layout_nodes_visited"),
+            "scene_frames_scanned": receipt.integer("scene_frames_scanned"),
+            "scene_frames_painted": receipt.integer("scene_frames_painted"),
             "inline_text_shape_calls_total": receipt.integer("inline_text_shape_calls_total"),
             "text_prepare_calls_total": receipt.integer("text_prepare_calls_total"),
             "quad_prepare_calls_total": receipt.integer("quad_prepare_calls_total"),

@@ -231,7 +231,7 @@ struct Scrollbar {
     viewport: Viewport,
 }
 
-pub(crate) fn project(frames: &[Frame], theme: &theme::Theme) -> Vec<Chrome> {
+pub(crate) fn project(frames: &super::FrameList, theme: &theme::Theme) -> Vec<Chrome> {
     frames
         .iter()
         .flat_map(|frame| scrollbars_for_frame(frame, theme))

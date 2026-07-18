@@ -311,6 +311,11 @@ impl Quad {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn test_new(rect: geometry::Rect, fill: Color) -> Self {
+        Self::new(rect, fill)
+    }
+
     pub(in crate::scene) fn styled(rect: geometry::Rect, style: Style) -> Self {
         Self {
             rect,
@@ -608,6 +613,16 @@ impl Text {
             align: TextAlign::Start,
             overflow: text_model::Overflow::Clip,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_new(
+        rect: geometry::Rect,
+        value: impl Into<String>,
+        color: Color,
+        wrap: TextWrap,
+    ) -> Self {
+        Self::new(rect, value, color, wrap)
     }
 
     pub(in crate::scene) fn with_style(mut self, style: TextStyle) -> Self {
